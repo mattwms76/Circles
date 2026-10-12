@@ -1,3 +1,5 @@
+import * as FileSystem from 'expo-file-system/legacy';
+import { signedMediaUrls, uploadWithProgress } from './media';
 import type { Circle, CircleJoinRequest, CirclePost, Conversation, CreatePostInput, DirectMessage, Gift, LiveGiftEvent, LiveSession, PostComment, Profile, UUID } from '../types';
 import { circles as demoCircles, conversations as demoConversations, currentUser, gifts as demoGifts, liveSessions as demoLiveSessions, people, posts as demoPosts } from '../data/demo';
 import { backendReady, requireSupabase, supabase } from './supabase';
@@ -8,17 +10,18 @@ export async function loadOwnProfile(): Promise<Profile> {
   const client = requireSupabase();
   const { data: auth } = await client.auth.getUser();
   if (!auth.user) throw new Error('Sign in to load your profile.');
-  const { data, error } = await client.from('profiles').select('id,handle,display_name,avatar_url,bio,interests').eq('id', auth.user.id).single();
+  const { data, error } = await client.from('profiles').select('id,handle,display_name,avatar_url,bio,interests,onboarding_completed_at').eq('id', auth.user.id).single();
   if (error) throw error;
   return toProfile(data);
 }
 
-export async function updateOwnProfile(input: Pick<Profile, 'displayName' | 'bio' | 'interests'>): Promise<Profile> {
+export async function updateOwnProfile(input: Pick<Profile, 'displayName' | 'bio' | 'interests'> & { avatarUrl?: string }, expectedUserId?: UUID): Promise<Profile> {
   const client = requireSupabase();
   const { data: auth } = await client.auth.getUser();
   if (!auth.user) throw new Error('Sign in to update your profile.');
-  const { data, error } = await client.from('profiles').update({ display_name: input.displayName.trim(), bio: (input.bio ?? '').trim(), interests: input.interests ?? [] })
-    .eq('id', auth.user.id).select('id,handle,display_name,avatar_url,bio,interests').single();
+  if (expectedUserId && auth.user.id !== expectedUserId) throw new Error('Your account changed. Please try again.');
+  const { data, error } = await client.from('profiles').update({ display_name: input.displayName.trim(), bio: (input.bio ?? '').trim(), interests: input.interests ?? [], ...(input.avatarUrl !== undefined ? { avatar_url: input.avatarUrl } : {}) })
+    .eq('id', auth.user.id).select('id,handle,display_name,avatar_url,bio,interests,onboarding_completed_at').single();
   if (error) throw error;
   return toProfile(data);
 }
@@ -37,6 +40,8 @@ export async function loadCircles(offset = 0, pageSize = 30): Promise<Circle[]> 
     memberships = data ?? [];
   }
   const byId = new Map((memberships ?? []).filter((item) => item.status === 'member').map((item) => [item.circle_id, item.role]));
+  const missing = [...byId.keys()].filter(id=>!data.some(c=>c.id===id));
+  if(missing.length){const extra=await supabase.from('circles').select('id,name,description,interest,members_count,is_private,cover_url,cover_color').in('id',missing);if(extra.error)throw extra.error;data.push(...(extra.data??[]));}
   return data.map((circle) => ({ id: circle.id, name: circle.name, description: circle.description, interest: circle.interest, members: circle.members_count, isPrivate: circle.is_private, isMember: byId.has(circle.id), isOwner: byId.get(circle.id) === 'owner', color: circle.cover_color, imageUrl: circle.cover_url ?? '' }));
 }
 
@@ -95,58 +100,82 @@ export async function loadCirclePosts(circleId: UUID, offset = 0, pageSize = 20)
   return fetchPosts(offset, pageSize, circleId);
 }
 
-async function fetchPosts(offset: number, pageSize: number, circleId?: UUID): Promise<CirclePost[]> {
+export async function loadPostById(id: UUID): Promise<CirclePost | null> { if (!supabase) return demoPosts.find(p=>p.id===id)??null; return (await fetchPosts(0,1,undefined,undefined,id))[0]??null; }
+export async function loadCircleById(id: UUID): Promise<Circle | null> {
+ if(!supabase)return demoCircles.find(c=>c.id===id)??null;
+ const {data,error}=await supabase.from('circles').select('*').eq('id',id).maybeSingle();if(error)throw error;if(!data)return null;
+ const {data:auth}=await supabase.auth.getUser();const {data:member}=await supabase.from('circle_memberships').select('role,status').eq('circle_id',id).eq('user_id',auth.user?.id??'').maybeSingle();
+ return {id:data.id,name:data.name,description:data.description,interest:data.interest,members:data.members_count,isPrivate:data.is_private,isMember:member?.status==='member',isOwner:member?.role==='owner',imageUrl:data.cover_url??'',color:data.cover_color,welcomeText:data.welcome_text};
+}
+
+export async function loadProfilePosts(authorId: UUID, offset = 0, pageSize = 20): Promise<CirclePost[]> {
+  if (!supabase) return demoPosts.filter(post => post.author.id === authorId).slice(offset, offset + pageSize);
+  return fetchPosts(offset, pageSize, undefined, authorId);
+}
+
+async function fetchPosts(offset: number, pageSize: number, circleId?: UUID, authorId?: UUID, postId?: UUID): Promise<CirclePost[]> {
   if (!supabase) return demoPosts.slice(offset, offset + pageSize);
   let query = supabase.from('posts').select('id,circle_id,body,created_at,profiles!posts_author_id_fkey(id,handle,display_name,avatar_url),circles!posts_circle_id_fkey(name),post_media(id,kind,storage_path),post_likes(user_id)')
     .eq('visibility', 'published');
   if (circleId) query = query.eq('circle_id', circleId);
+  if (authorId) query = query.eq('author_id', authorId);
+  if (postId) query = query.eq('id', postId);
   const { data, error } = await query.order('created_at', { ascending: false }).order('id', { ascending: false }).range(offset, offset + pageSize - 1);
   if (error) throw error;
   if (!data) return [];
   const { data: auth } = await supabase.auth.getUser();
-  return Promise.all(data.map(async (row: any) => {
+  const signedUrls = await signedMediaUrls(data.flatMap((row: any) => row.post_media?.map((m: any) => m.storage_path) ?? []), auth.user?.id ?? '');
+  return data.map((row: any) => {
     let media: CirclePost['media'];
     if (row.post_media?.[0]) {
-      const { data: signed, error: signedError } = await supabase!.storage.from(postMediaBucket).createSignedUrl(row.post_media[0].storage_path, 60 * 60);
-      if (signedError) throw signedError;
-      media = { id: row.post_media[0].id, kind: row.post_media[0].kind, url: signed.signedUrl };
+      const item = row.post_media[0];
+      const url = signedUrls.get(item.storage_path);
+      if (url) media = { id: item.id, kind: item.kind, url };
     }
     return {
       id: row.id, circleId: row.circle_id, circleName: row.circles?.name ?? 'A circle',
       author: { id: row.profiles.id, handle: row.profiles.handle, displayName: row.profiles.display_name, avatarUrl: row.profiles.avatar_url ?? '', interests: [] },
       body: row.body, likes: row.post_likes?.length ?? 0, createdAt: relativeTime(row.created_at), liked: Boolean(auth.user && row.post_likes?.some((like: any) => like.user_id === auth.user!.id)), media,
     };
-  }));
+  });
 }
 
-export async function createPost(input: CreatePostInput): Promise<void> {
+export async function createPost(input: CreatePostInput, options: { onProgress?: (progress: number) => void; signal?: AbortSignal } = {}): Promise<void> {
   const client = requireSupabase();
   const { data: auth } = await client.auth.getUser();
   if (!auth.user) throw new Error('Sign in to post.');
-  const { data: post, error } = await client.from('posts').insert({ circle_id: input.circleId, author_id: auth.user.id, body: input.body.trim(), visibility: input.media ? 'removed' : 'published' }).select('id').single();
-  if (error) throw error;
   if (input.media) {
-    const path = `${auth.user.id}/${post.id}/${Date.now()}-${input.media.fileName.replace(/[^a-zA-Z0-9._-]/g, '-')}`;
-    try {
-      const response = await fetch(input.media.uri);
-      if (!response.ok) throw new Error('Could not read the selected media file.');
-      const bytes = await response.arrayBuffer();
-      if (bytes.byteLength > 25 * 1024 * 1024) throw new Error('Media must be 25 MB or smaller.');
-      if (input.media.kind === 'video' && !['video/mp4', 'video/quicktime', 'video/webm'].includes(input.media.mimeType)) throw new Error('Choose an MP4, QuickTime, or WebM video.');
-      if (input.media.kind === 'gif' && input.media.mimeType !== 'image/gif') throw new Error('Choose an animated GIF file.');
-      if (input.media.kind === 'image' && !['image/jpeg', 'image/png', 'image/webp'].includes(input.media.mimeType)) throw new Error('Choose a JPEG, PNG, or WebP image.');
-      const { error: uploadError } = await client.storage.from(postMediaBucket).upload(path, bytes, { contentType: input.media.mimeType, upsert: false });
-      if (uploadError) throw uploadError;
-      const { error: metadataError } = await client.from('post_media').insert({ post_id: post.id, owner_id: auth.user.id, kind: input.media.kind, storage_path: path, mime_type: input.media.mimeType });
-      if (metadataError) throw metadataError;
-      const { error: publishError } = await client.from('posts').update({ visibility: 'published' }).eq('id', post.id).eq('author_id', auth.user.id);
-      if (publishError) throw publishError;
-    } catch (error) {
-      await client.storage.from(postMediaBucket).remove([path]);
-      await client.from('posts').update({ visibility: 'removed' }).eq('id', post.id);
-      throw error;
-    }
+    const info = await FileSystem.getInfoAsync(input.media.uri);
+    if (!info.exists) throw new Error('The attachment is no longer on this device. Choose it again.');
+    if (info.size > 25 * 1024 * 1024) throw new Error('Media must be 25 MB or smaller.');
+    const allowed = { image: ['image/jpeg','image/png','image/webp'], gif: ['image/gif'], video: ['video/mp4','video/quicktime','video/webm'] };
+    if (!allowed[input.media.kind].includes(input.media.mimeType)) throw new Error('Choose a supported photo, GIF, or video.');
   }
+  const requestId = input.requestId ?? createIdempotencyKey();
+  let { data: post, error } = await client.from('posts').insert({ circle_id: input.circleId, author_id: auth.user.id, body: input.body.trim(), visibility: input.media ? 'removed' : 'published', client_request_id: requestId }).select('id,visibility').single();
+  if (error?.code === '23505') {
+    const previous = await client.from('posts').select('id,visibility').eq('author_id',auth.user.id).eq('client_request_id',requestId).single();
+    post = previous.data; error = previous.error;
+    if (post?.visibility === 'published') return;
+  }
+  if (error || !post) throw error ?? new Error('Could not save your post.');
+  if (!input.media) return;
+  const path = `${auth.user.id}/${post.id}/${input.media.fileName.replace(/[^a-zA-Z0-9._-]/g, '-')}`;
+  // Retry the same draft path, never overwrite another post or a published upload.
+  const cleanup = await client.storage.from(postMediaBucket).remove([path]);
+  if (cleanup.error) throw cleanup.error;
+  try {
+    await uploadWithProgress(postMediaBucket,path,input.media.uri,input.media.mimeType,options.onProgress,options.signal);
+    if (options.signal?.aborted) throw new Error('Upload cancelled. Your draft is saved.');
+    const metadata = await client.from('post_media').insert({post_id:post.id,owner_id:auth.user.id,kind:input.media.kind,storage_path:path,mime_type:input.media.mimeType});
+    if (metadata.error && metadata.error.code !== '23505') throw metadata.error;
+  } catch (uploadError) {
+    await client.storage.from(postMediaBucket).remove([path]);
+    throw uploadError;
+  }
+  // A lost publish response is ambiguous: preserve the upload and retry with the same request ID.
+  const published = await client.from('posts').update({visibility:'published'}).eq('id',post.id).eq('author_id',auth.user.id).select('id').single();
+  if (published.error) throw published.error;
 }
 
 export async function togglePostLike(postId: UUID, liked: boolean): Promise<void> {
@@ -165,7 +194,7 @@ export async function loadPostComments(postId: UUID): Promise<PostComment[]> {
     .select('id,post_id,body,created_at,profiles!post_comments_author_id_fkey(id,handle,display_name,avatar_url,bio,interests)')
     .eq('post_id', postId).order('created_at', { ascending: true }).limit(200);
   if (error) throw error;
-  return (data ?? []).map((row: any) => ({ id: row.id, postId: row.post_id, author: toProfile(row.profiles), body: row.body, createdAt: relativeTime(row.created_at) }));
+  return (data ?? []).map((row: any) => ({ id: row.id, postId: row.post_id, author: toProfile(row.profiles), body: row.body, createdAt: relativeTime(row.created_at), createdAtIso: row.created_at }));
 }
 
 export async function createPostComment(postId: UUID, body: string): Promise<PostComment> {
@@ -175,7 +204,26 @@ export async function createPostComment(postId: UUID, body: string): Promise<Pos
   const { data, error } = await client.from('post_comments').insert({ post_id: postId, author_id: auth.user.id, body: body.trim() })
     .select('id,post_id,body,created_at,profiles!post_comments_author_id_fkey(id,handle,display_name,avatar_url,bio,interests)').single();
   if (error) throw error;
-  return { id: data.id, postId: data.post_id, author: toProfile(data.profiles), body: data.body, createdAt: relativeTime(data.created_at) };
+  return { id: data.id, postId: data.post_id, author: toProfile(data.profiles), body: data.body, createdAt: relativeTime(data.created_at), createdAtIso: data.created_at };
+}
+
+async function deleteOwnContent(table: 'direct_messages' | 'post_comments', id: UUID): Promise<void> {
+  const client = requireSupabase();
+  const { data: auth, error: authError } = await client.auth.getUser();
+  if (authError) throw authError;
+  if (!auth.user) throw new Error('Sign in to delete your content.');
+  const ownerColumn = table === 'direct_messages' ? 'sender_id' : 'author_id';
+  const { data, error } = await client.from(table).delete().eq('id', id).eq(ownerColumn, auth.user.id).select('id');
+  if (error) throw error;
+  if (!data?.length) throw new Error('This item is unavailable or its 15-minute deletion window has ended.');
+}
+
+export async function deleteDirectMessage(id: UUID): Promise<void> {
+  await deleteOwnContent('direct_messages', id);
+}
+
+export async function deletePostComment(id: UUID): Promise<void> {
+  await deleteOwnContent('post_comments', id);
 }
 
 export async function loadLiveSessions(): Promise<LiveSession[]> {
@@ -245,7 +293,7 @@ export async function loadConversations(): Promise<Conversation[]> {
   const { data, error } = await supabase.rpc('list_mutual_conversations');
   if (error) throw error;
   if (!data) return [];
-  return data.map((row: any) => ({ id: row.conversation_id, peer: toProfile(row.peer), isMutual: true, unread: row.unread_count, messages: row.last_message ? [{ id: row.last_message.id, senderId: row.last_message.sender_id, body: row.last_message.body, createdAt: relativeTime(row.last_message.created_at) }] : [] }));
+  return data.map((row: any) => ({ id: row.conversation_id, peer: toProfile(row.peer), isMutual: true, unread: row.unread_count, messages: row.last_message ? [{ id: row.last_message.id, senderId: row.last_message.sender_id, body: row.last_message.body, createdAt: relativeTime(row.last_message.created_at), createdAtIso: row.last_message.created_at }] : [] }));
 }
 
 export async function loadConversationMessages(peerId: UUID, before?: string, pageSize = 40): Promise<DirectMessage[]> {
@@ -428,8 +476,8 @@ export function isLiveBackendConfigured() {
 
 export function getDemoCurrentUser() { return currentUser; }
 
-function toProfile(row: any) {
-  return { id: row.id, handle: row.handle, displayName: row.display_name, avatarUrl: row.avatar_url ?? '', bio: row.bio ?? '', interests: row.interests ?? [] };
+export function toProfile(row: any) {
+  return { onboardingCompletedAt: row.onboarding_completed_at, id: row.id, handle: row.handle, displayName: row.display_name, avatarUrl: row.avatar_url ?? '', bio: row.bio ?? '', interests: row.interests ?? [] };
 }
 
 function relativeTime(value: string) {

@@ -37,18 +37,18 @@ export function CoinStore({ balance, onClose, onBalance }: { balance: number; on
   useEffect(() => { if (connected) void fetchProducts({ skus: packs.map((pack) => pack.sku), type: 'in-app' }); }, [connected, fetchProducts]);
   useEffect(() => {
     let active = true;
-    if (!backendReady) { setServerReady(false); setServerSetupMessage('Connect Supabase to enable verified purchases.'); return; }
+    if (!backendReady) { setServerReady(false); setServerSetupMessage('Purchases are unavailable in this demo.'); return; }
     void requireSupabase().functions.invoke('verify-coin-purchase', { body: { action: 'readiness', platform: Platform.OS } })
       .then(({ data, error }) => {
         if (!active) return;
         if (error) throw error;
         setServerReady(Boolean(data?.ready));
-        setServerSetupMessage(String(data?.message ?? 'Store verification is not configured.'));
+        setServerSetupMessage('Coin purchases are temporarily unavailable. Please try again later.');
       })
       .catch((error) => {
         if (!active) return;
         setServerReady(false);
-        setServerSetupMessage(error instanceof Error ? error.message : 'Could not check store verification setup.');
+        setServerSetupMessage('We could not connect to the store. Please try again later.');
       });
     return () => { active = false; };
   }, []);
@@ -92,7 +92,7 @@ export function CoinStore({ balance, onClose, onBalance }: { balance: number; on
         const price = product?.displayPrice ?? pack.price;
         return <View key={pack.sku} style={[styles.pack, { backgroundColor: pack.tint }]}><View style={styles.coinIcon}><Text style={{ fontSize: 20 }}>◉</Text></View><View style={{ flex: 1 }}><Text style={styles.packTitle}>{pack.title}</Text><Text style={styles.packDetail}>{pack.coins.toLocaleString()} coins</Text></View><Pressable style={styles.buy} disabled={!connected || !backendReady || serverReady !== true || !product || busySku !== null} onPress={() => void buy(pack.sku)}><Text style={styles.buyText}>{busySku === pack.sku ? '…' : price}</Text></Pressable></View>;
       })}
-      <Text style={styles.storeHint}>{serverReady === false ? serverSetupMessage : !connected ? 'Connect to the App Store or Google Play to load coin packs.' : packs.some((pack) => !products.some((product) => product.id === pack.sku)) ? `Add missing products in App Store Connect or Google Play Console: ${packs.filter((pack) => !products.some((product) => product.id === pack.sku)).map((pack) => pack.sku).join(', ')}` : serverReady === null ? 'Checking secure store verification…' : 'Purchases are verified before coins are added.'}</Text>
+      <Text style={styles.storeHint}>{serverReady === false ? serverSetupMessage : !connected ? 'Connect to the App Store or Google Play to load coin packs.' : packs.some((pack) => !products.some((product) => product.id === pack.sku)) ? 'Some coin packs are temporarily unavailable. Please try again later.' : serverReady === null ? 'Checking secure store verification…' : 'Purchases are verified before coins are added.'}</Text>
       {errorText ? <Text style={styles.feedback}>{errorText}</Text> : null}
       <View style={styles.footer}><Pressable onPress={() => void refreshBalance()}><Text style={styles.restore}>Refresh balance</Text></Pressable><ActionButton compact variant="outline" label="Done" onPress={onClose} /></View>
     </View>

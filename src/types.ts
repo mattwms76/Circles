@@ -7,6 +7,7 @@ export interface Profile {
   displayName: string;
   avatarUrl: string;
   bio?: string;
+  onboardingCompletedAt?: string | null;
   interests: string[];
 }
 
@@ -19,6 +20,7 @@ export interface Circle {
   isPrivate: boolean;
   isMember: boolean;
   isOwner?: boolean;
+  welcomeText?: string;
   color: string;
   imageUrl: string;
 }
@@ -44,6 +46,7 @@ export interface CirclePost {
 }
 
 export interface PostComment {
+  createdAtIso?: string;
   id: UUID;
   postId: UUID;
   author: Profile;
@@ -129,6 +132,7 @@ export interface ModerationAction {
 export interface CreatePostInput {
   circleId: UUID;
   body: string;
+  requestId?: string;
   media?: { uri: string; mimeType: string; fileName: string; kind: MediaKind };
 }
 

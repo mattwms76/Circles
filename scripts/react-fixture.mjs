@@ -1,0 +1,339 @@
+import React from "react";
+import TestRenderer, { act } from "react-test-renderer";
+import ts from "typescript";
+import vm from "node:vm";
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+export { act };
+export const deferred = () => {
+  let resolve, reject;
+  const promise = new Promise((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
+  return { promise, resolve, reject };
+};
+export function loadSource(file, mocks = {}) {
+  const source = readFileSync(new URL(`../${file}`, import.meta.url), "utf8");
+  const code = ts.transpileModule(source, {
+    fileName: file,
+    compilerOptions: {
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.CommonJS,
+      jsx: ts.JsxEmit.ReactJSX,
+      esModuleInterop: true,
+    },
+  }).outputText;
+  const module = { exports: {} };
+  vm.runInNewContext(
+    code,
+    {
+      module,
+      exports: module.exports,
+      require: (name) => {
+        if (name in mocks) return mocks[name];
+        if (name === "react" || name === "react/jsx-runtime")
+          return require(name);
+        throw new Error(`Unmocked ${name} in ${file}`);
+      },
+      console,
+      process,
+      URL,
+      URLSearchParams,
+      AbortController,
+      setTimeout,
+      clearTimeout,
+      setInterval,
+      clearInterval,
+      Map,
+      Set,
+      Promise,
+      Date,
+    },
+    { filename: file },
+  );
+  return module.exports;
+}
+export const demo = loadSource("src/data/demo.ts");
+const screenNames = [
+  "HomeScreen",
+  "ExploreScreen",
+  "LiveScreen",
+  "InboxScreen",
+  "ProfileScreen",
+  "PublicProfileScreen",
+  "CircleDetailScreen",
+  "PostRepliesSheet",
+  "TabBar",
+  "CreatePostSheet",
+  "CreateCircleSheet",
+  "StartLiveSheet",
+  "LiveRoom",
+  "ChatScreen",
+  "OnboardingSheet",
+  "SettingsSheet",
+  "RecoverySheet",
+  "ActivitySheet",
+  "CircleTools",
+  "ModeratorSheet",
+  "ReportSheet",
+];
+export const native = new Proxy(
+  {
+    Platform: { OS: "android" },
+    AccessibilityInfo: { announceForAccessibility() {} },
+    AppState: { addEventListener: () => ({ remove() {} }) },
+    Alert: { alert() {} },
+    Linking: {
+      getInitialURL: async () => null,
+      addEventListener: () => ({ remove() {} }),
+    },
+    StyleSheet: { create: (s) => s },
+  },
+  { get: (target, key) => target[key] ?? String(key) },
+);
+export async function mountApp({
+  connected = true,
+  repositories = {},
+  community = {},
+  stream = {},
+} = {}) {
+  const own = {
+    ...demo.currentUser,
+    id: "account-a",
+    displayName: "Saved profile",
+    bio: "Saved bio",
+    interests: ["Art"],
+    onboardingCompletedAt: "2026-10-01",
+  };
+  let user = {
+    id: own.id,
+    email: "member@test.local",
+    user_metadata: { display_name: "Old sign-up name" },
+  };
+  let authListener = () => {};
+  let sequence = 0;
+  const builder = () =>
+    new Proxy(
+      {},
+      {
+        get: (_, key) =>
+          key === "then"
+            ? (resolve) => resolve({ data: [], error: null })
+            : key === "maybeSingle"
+              ? async () => ({ data: { balance: 25 }, error: null })
+              : key === "single"
+                ? async () => ({ data: null, error: null })
+                : () => builder(),
+      },
+    );
+  const channels = [];
+  const client = {
+    auth: {
+      getSession: async () => ({ data: { session: user ? { user } : null } }),
+      getUser: async () => ({ data: { user } }),
+      onAuthStateChange(fn) {
+        authListener = fn;
+        return { data: { listener: null, subscription: { unsubscribe() {} } } };
+      },
+    },
+    from: () => builder(),
+    channel: () => {
+      const channel = { active: true, handlers: [], on(_type, filter, callback) { this.handlers.push({ filter, callback }); return this; }, subscribe() { return this; } };
+      channels.push(channel);
+      return channel;
+    },
+    removeChannel: async channel => { channel.active = false; },
+  };
+  const repo = {
+    createIdempotencyKey: () => `request-${++sequence}`,
+    loadOwnProfile: async () => own,
+    loadCircles: async () => demo.circles,
+    loadPosts: async () =>
+      Array.from({ length: 20 }, (_, i) => ({
+        ...demo.posts[0],
+        id: `initial-${i}`,
+      })),
+    loadLiveSessions: async () => [],
+    loadGiftCatalog: async () => demo.gifts,
+    loadCircleRequests: async () => [],
+    loadMyPendingCircleIds: async () => [],
+    loadCirclePosts: async (id) => demo.posts.filter((p) => p.circleId === id),
+    loadPeopleAndFollows: async () => ({
+      people: demo.people,
+      followingIds: [],
+      followerIds: [],
+    }),
+    loadFollowers: async () => [],
+    loadFollowing: async () => [],
+    loadConversations: async () => [],
+    loadPublicProfile: async (id) => demo.people.find((p) => p.id === id),
+    loadUserFollowers: async () => [],
+    loadUserFollowing: async () => [],
+    loadProfilePosts: async () => [],
+    loadPostComments: async () => [],
+    loadLiveGiftEvents: async () => [],
+    joinCircle: async (c) => (c.isPrivate ? "pending" : "member"),
+    createPost: async () => {},
+    ...repositories,
+  };
+  const services = {
+    searchDiscovery: async () => ({
+      circles: demo.circles,
+      people: demo.people,
+    }),
+    loadNotifications: async () => [],
+    loadBlockedPeople: async () => [],
+    signOutDevice: async () => {},
+    beatLiveSeat: async () => {},
+    ...community,
+  };
+  const files = new Map();
+  const storage = {
+    getItem: async (k) => files.get(k) ?? null,
+    setItem: async (k, v) => {
+      files.set(k, v);
+    },
+    removeItem: async (k) => files.delete(k),
+  };
+  const drafts = {
+    readDraft: async () => null,
+    saveDraft: async () => {},
+    clearDraft: async () => {},
+    retainDraftMedia: async (_id, m) => m,
+    retainPublishedMedia: async (_id, m) => ({
+      ...m,
+      uri: "file:///published.jpg",
+    }),
+  };
+  const components = Object.fromEntries(screenNames.map((n) => [n, n]));
+  const app = loadSource("App.tsx", {
+    "./src/lib/contentDeletion": loadSource("src/lib/contentDeletion.ts"),
+    "./src/lib/feedState": loadSource("src/lib/feedState.ts"),
+    "expo-notifications": {
+      addNotificationResponseReceivedListener: () => ({ remove() {} }),
+      getLastNotificationResponseAsync: async () => null,
+    },
+    "./src/screens/CommunityScreens": components,
+    "./src/lib/community": services,
+    "./src/lib/drafts": drafts,
+    "./src/lib/media": { clearMediaCache() {} },
+    "./src/lib/diagnostics": {
+      AppErrorBoundary: ({ children }) => children,
+      reportDiagnostic: async () => {},
+    },
+    "@react-native-async-storage/async-storage": storage,
+    "react-native": native,
+    "react-native-safe-area-context": {
+      SafeAreaProvider: "SafeAreaProvider",
+      SafeAreaView: "SafeAreaView",
+    },
+    "expo-image-picker": {},
+    "./src/lib/streaming": {
+      streamProvider: {
+        issueCredentials: async () => ({
+          token: "test",
+          channel: "test",
+          uid: 1,
+        }),
+        adapter: () => stream,
+      },
+    },
+    "./src/components/CoinStore": { CoinStore: "CoinStore" },
+    "./src/components/Primitives": { ActionButton: "ActionButton" },
+    "./src/theme": { colors: {} },
+    "./src/appStyles": { styles: {} },
+    "./src/screens/AppScreens": components,
+    "./src/data/demo": demo,
+    "./src/lib/supabase": {
+      backendReady: connected,
+      supabase: connected ? client : null,
+    },
+    "./src/lib/repositories": repo,
+  });
+  let renderer;
+  await act(async () => {
+    renderer = TestRenderer.create(React.createElement(app.default));
+  });
+  return {
+    own,
+    repo,
+    services,
+    storage,
+    files,
+    renderer,
+    async emitDelete(table, id) {
+      await act(async () => {
+        for (const channel of channels.filter(channel => channel.active)) {
+          for (const { filter, callback } of channel.handlers) {
+            if (filter.table === table && filter.event === 'DELETE' && !filter.filter) callback({ old: { id } });
+          }
+        }
+      });
+    },
+    props: (name) => renderer.root.findByType(name).props,
+    count: (name) => renderer.root.findAllByType(name).length,
+    async auth(event, nextUser = user) {
+      user = nextUser;
+      await act(async () => {
+        authListener(event, user ? { user } : null);
+      });
+    },
+    async close() {
+      await act(async () => renderer.unmount());
+    },
+    async settleSearch() {
+      await act(async () => new Promise((r) => setTimeout(r, 320)));
+    },
+  };
+}
+export async function mountChat() {
+  const files = new Map();
+  const storage = {
+    getItem: async (k) => files.get(k) ?? null,
+    setItem: async (k, v) => {
+      files.set(k, v);
+    },
+    removeItem: async (k) => files.delete(k),
+  };
+  const screens = loadSource("src/screens/AppScreens.tsx", {
+    "../lib/contentDeletion": loadSource("src/lib/contentDeletion.ts"),
+    "expo-image-picker": {},
+    "@react-native-async-storage/async-storage": storage,
+    "react-native": native,
+    "react-native-safe-area-context": { SafeAreaView: "SafeAreaView" },
+    "expo-video": { useVideoPlayer: () => ({}), VideoView: "VideoView" },
+    "../lib/streaming": {
+      AgoraVideoTile: "AgoraVideoTile",
+      agoraUidFor: () => 1,
+    },
+    "../components/Primitives": new Proxy(
+      { formatCount: String },
+      { get: (o, k) => o[k] ?? String(k) },
+    ),
+    "../theme": { colors: {} },
+    "../appStyles": { styles: {} },
+  });
+  let renderer;
+  await act(async () => {
+    renderer = TestRenderer.create(
+      React.createElement(screens.ChatScreen, {
+        conversation: { peer: demo.people[0], messages: [] },
+        profile: demo.currentUser,
+        hasOlder: false,
+        onClose() {},
+        onSend: async () => {},
+        onReport() {},
+      }),
+    );
+  });
+  return {
+    files,
+    renderer,
+    async close() {
+      await act(async () => renderer.unmount());
+    },
+  };
+}

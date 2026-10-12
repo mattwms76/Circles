@@ -1,0 +1,77 @@
+name: Circles checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  code-and-database:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.25.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm check
+      - run: pnpm dlx deno@2.9.6 check --no-config supabase/functions/issue-stream-token/index.ts supabase/functions/verify-coin-purchase/index.ts supabase/functions/delete-account/index.ts supabase/functions/dispatch-notifications/index.ts
+      - run: pnpm export:android --output-dir /tmp/circles-android
+      - run: pnpm export:ios --output-dir /tmp/circles-ios
+  supabase-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.25.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.120.0
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Start a disposable local stack
+        run: |
+          mv supabase/migrations /tmp/circles-migrations
+          mkdir supabase/migrations
+          supabase start
+      - name: Bootstrap the disposable database
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -v ON_ERROR_STOP=1 -f supabase/setup.sql
+          psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -v ON_ERROR_STOP=1 -f /tmp/circles-migrations/20261012145107_community_experience.sql
+          psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -v ON_ERROR_STOP=1 -f /tmp/circles-migrations/20261012145255_community_foreign_key_indexes.sql
+      - name: Run Auth, REST, Storage, and account-function integration tests
+        run: |
+          supabase status -o env > /tmp/circles-supabase.env
+          set -a
+          source /tmp/circles-supabase.env
+          set +a
+          supabase functions serve > /tmp/circles-functions.log 2>&1 &
+          function_pid=$!
+          trap 'kill "$function_pid" || true' EXIT
+          export CIRCLES_E2E_URL="$API_URL"
+          export CIRCLES_E2E_ANON_KEY="$ANON_KEY"
+          export CIRCLES_E2E_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY"
+          export CIRCLES_E2E_ACCOUNT_FUNCTIONS=true
+          for attempt in $(seq 1 30); do
+            status=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $ANON_KEY" -H "apikey: $ANON_KEY" "$API_URL/functions/v1/delete-account" || true)
+            if [ "$status" = '405' ]; then break; fi
+            sleep 2
+          done
+          if [ "$status" != '405' ]; then
+            echo "Account function did not become ready" >&2
+            exit 1
+          fi
+          pnpm e2e:local
+      - name: Stop local stack
+        if: always()
+        run: supabase stop --no-backup

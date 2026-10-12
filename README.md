@@ -1,81 +1,97 @@
 # Circles
 
-Circles is an Expo and React Native iOS/Android social app foundation. It includes interest-based public and private circles, text and media posts, live rooms with a host and up to three co-hosts, seat requests, gifts, mutual-follow direct messages, and reporting/blocking flows. When Supabase is not configured, the app opens in a seeded demo mode so the interface can be explored.
+Circles is an Expo / React Native iOS and Android community app backed by Supabase. It supports interest-based circles, posts and media, mutual-follow messages, live rooms, co-host seats, gifts, and moderation. Without Supabase configuration it opens with demo data.
 
-## Run the app
+## Run the native app
 
-1. Install Node.js and pnpm, then run `pnpm install`.
-2. Copy `.env.example` to `.env.local` and set the Supabase project URL, publishable key, and Agora App ID. The current workspace already has its ignored `.env.local` pointed at the connected Supabase project.
-3. Create an iOS/Android development build with `pnpm ios` or `pnpm android` (or configure EAS and run `eas build --profile development`). Expo Go is not supported because Agora and in-app purchases use native modules.
-4. Start Metro with `pnpm start` and open the installed development build.
+1. Install Node.js 24+ and pnpm, then run `pnpm install --frozen-lockfile`.
+2. Copy `.env.example` to `.env.local` and set the Supabase URL, publishable key, and Agora App ID.
+3. Build with `pnpm android` or `pnpm ios`, or use an EAS development build. Rebuild after this update: notifications and file uploads include native modules. Expo Go is not supported because Agora and in-app purchases require a development build.
+4. Start Metro with `pnpm start` and open the installed build. iOS requires macOS and deployment target 16.4 or newer.
 
-The iOS deployment target is 16.4 for the Expo IAP native module. Android builds require the standard Expo Android toolchain.
+`preview.html` is a separate browser prototype using simulated local data. It does not exercise the connected native app, and its Explore filters and result count are checked separately from the native flows.
 
-## Supabase setup
+## The seven improvements
 
-The current workspace is connected to the Supabase project configured in `.env.local`. Its schema is applied and its Edge Functions are deployed. In that project's Auth URL Configuration, allow `circles://**` so email confirmation can return to the app. For a new project, apply [`supabase/setup.sql`](supabase/setup.sql) once through the Supabase SQL Editor. It creates the app schema, private media bucket, RLS policies, database transaction functions, indexes, 300 fixed-value gifts, and sample public circles. It also installs an auth-user trigger to create profiles and wallets. The SQL is a one-time bootstrap file rather than a repeatable migration; don't apply it a second time to an already initialized project. Later changes belong in [`supabase/migrations`](supabase/migrations).
-
-### Local multi-user integration check
-
-The integration harness creates and deletes five temporary users, circles, a post, a live room, and gift ledger entries. It refuses non-local Supabase URLs unless `CIRCLES_E2E_ALLOW_REMOTE=true` is explicitly set. Use a disposable local Supabase stack; do not point it at production.
-
-1. Install and start the Supabase CLI with Docker, then apply `supabase/setup.sql` once to the local database.
-2. Set `CIRCLES_E2E_URL`, `CIRCLES_E2E_ANON_KEY`, and `CIRCLES_E2E_SERVICE_ROLE_KEY` from the local stack output.
-3. Run `pnpm e2e:local`.
-
-The check covers own-profile edits and profile RLS, follower/following lists, accurate membership counts, public circle join/leave/rejoin, private request/cancel/approval/leave, owner-leave protection, post creation and private media access, rejection of one-way DMs, mutual-follow inbox and sending, read receipts, revoking conversation/history access after an unfollow, blocking a follower and rejecting a new follow, host-only live heartbeats, the three-co-host cap, gift retry idempotency, and wallet row isolation. It cleans up all created accounts and fixtures even if a check fails. Set `CIRCLES_E2E_STREAM_FUNCTIONS=true` when the local `issue-stream-token` function is running to include private-room and stale-session token rejection checks.
-
-The current project already has both Edge Functions deployed. To deploy them to another project, run from the repository root:
-
-```sh
-supabase functions deploy issue-stream-token
-supabase functions deploy verify-coin-purchase
-```
-
-Set these Edge Function secrets in the Supabase project:
-
-| Secret | Purpose |
+| Area | Implemented behavior |
 | --- | --- |
-| `AGORA_APP_ID` | Server-side Agora token generation |
-| `AGORA_APP_CERTIFICATE` | Signs short-lived Agora channel tokens |
-| `APPLE_ISSUER_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY`, `APPLE_BUNDLE_ID`, `APPLE_APP_ID` | Verifies signed App Store Server transactions (`APPLE_APP_ID` is the numeric App Store Connect app ID) |
-| `ANDROID_PACKAGE_NAME`, `GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` | Verifies Google Play purchases |
+| Consistency | Member profile posts have their own query and pagination. Likes update across open feeds with rollback on failure. Live discovery uses Realtime, foreground refresh, and polling. Co-host departure releases a seat, with server expiry for abandoned seats. |
+| Onboarding | Name, public profile photo, interests, suggested circles, and first-circle joining. Empty feeds explain the next action. Moderator metrics show registration, onboarding, joining, and contribution for the last 30 days. |
+| Discovery | Circle and people search run on the server before pagination. Circles have interest filters and shared-interest recommendations; blocked people are excluded. |
+| Everyday use | Pull to refresh, loading placeholders, account-scoped post and message drafts, retained attachment files, upload progress, cancellation, retry keys, readable wallet errors, improved contrast, labels, and touch targets. |
+| Community activity | Private activity inbox for messages, replies, approvals, followed hosts, and events. Notification categories, circle mutes, quiet hours, pinned welcome text, scheduled events, RSVPs, and deduplicated reminders. Device-push worker is implemented but deployment remains pending approval. |
+| Account and moderation | Password-reset links, account deletion with password confirmation, blocked-member management, report reasons, and a server-authorized moderator queue with reported-media previews, removal, audit records, and protection against republishing removed posts. |
+| Reliability | Virtualized feeds and chat, batched/cached signed media URLs, an error boundary, opt-in technical diagnostics, PostgreSQL regressions, API integration checks, and GitHub Actions. |
 
-Supabase provides the function runtime URL and service credentials. Keep service-role keys and store credentials on the server; never add them to Expo `EXPO_PUBLIC_*` variables.
+## Deleting messages and comments
 
-The client uses Supabase Auth, Postgres, Storage, and Realtime. Private post media is stored in a private bucket and displayed through short-lived signed URLs. The SQL constrains table access with RLS, while seat management, live gifts, circle membership requests, and verified coin credits use database functions. The stream-token function checks the user's role, room status, circle access, and co-host seat before issuing a short-lived token.
+Authors can delete their own direct messages and comments for 15 minutes after sending. Tap **Delete** beneath the item and confirm the deletion. The control expires while the screen is open; PostgreSQL independently enforces the author and deadline using server-owned timestamps. Deletion removes the item, associated activity notification, and queued push delivery. Already delivered device notifications cannot be recalled. Realtime deletes update open conversations and replies, and failures leave the content available for retry. The browser prototype has the same controls for its local demo data.
+
+## Database and functions
+
+The connected Supabase project has the community schema and account-deletion function deployed. Existing streaming and purchase functions remain deployed. The push dispatcher is **not deployed or connected to its scheduler endpoint**, pending approval for Expo push delivery. The scheduled database job still creates in-app event reminders without making an external request.
+
+For a **fresh project**, apply these files once, in this order:
+
+1. `supabase/setup.sql`
+2. `supabase/migrations/20261012145107_community_experience.sql`
+3. `supabase/migrations/20261012145255_community_foreign_key_indexes.sql`
+4. `supabase/migrations/20261012155424_content_deletion_window.sql`
+
+`setup.sql` is a one-time bootstrap, not a repeatable migration. Historical files in `supabase/migrations` describe upgrades to older bootstraps; they are not a complete from-zero migration chain. Do not run all historical files after the current bootstrap. Existing initialized installations need the applicable upgrades, including `20261012135221_fix_core_flow_authorization.sql` if it has not already been applied, then the two community migrations and the content-deletion migration above.
+
+Allow `circles://**` in Supabase Auth URL Configuration. Recovery emails return to `circles://auth/recovery`; verify this on an installed native build.
+
+The functions are `issue-stream-token`, `verify-coin-purchase`, `delete-account`, and the pending `dispatch-notifications`. Normal user functions require JWT verification and validate the user or operation internally. The dispatcher uses a random database-owned secret and service-only RPCs; it accepts only POST requests with that secret. No client receives it. Notification delivery rows, moderation audit records, and runtime settings deliberately have no client RLS policies.
+
+Account deletion revokes sessions, transfers owned circles to the longest-standing remaining member (or removes empty circles), removes the profile and dependent records, removes uploaded media, then deletes the Auth identity. Failed server cleanup is retryable. Successful deletion also clears the account's local drafts and pending gift keys. Profile photos can be changed from **You → Change photo** or **Edit profile**, previewed, then saved with the profile. JPG, PNG, and WebP images up to 5 MB are supported. The browser prototype saves a resized photo locally in that browser. Public avatars are disclosed as public in onboarding and the profile editor; post media stays private behind signed URLs.
+
+### Remaining configuration
+
+| Setting | Purpose |
+| --- | --- |
+| `EXPO_PUBLIC_EAS_PROJECT_ID` | EAS project UUID needed to register device push tokens. Also configure APNs / FCM credentials for the native builds. |
+| `EXPO_PUBLIC_SUPPORT_EMAIL` | Optional Contact support link in Settings. |
+| `EXPO_PUBLIC_AGORA_APP_ID` | Native video configuration; must match the server App ID. |
+| `AGORA_APP_ID`, `AGORA_APP_CERTIFICATE` | Server-only Agora token generation. |
+| `APPLE_ISSUER_ID`, `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY`, `APPLE_BUNDLE_ID`, `APPLE_APP_ID` | Server-only App Store transaction verification. `APPLE_APP_ID` is the numeric App Store Connect app ID. |
+| `ANDROID_PACKAGE_NAME`, `GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` | Server-only Play purchase verification. |
+| `EXPO_ACCESS_TOKEN` | Server-only token if Expo enhanced push security is enabled; needed only when activating the dispatcher. |
+
+Never put service-role keys, store credentials, or scheduler secrets in `EXPO_PUBLIC_*` variables.
+
+A project operator must explicitly assign a real member to `public.moderators` using trusted server access. Membership in that table, rather than editable user metadata, authorizes moderation. No account was automatically promoted. The moderator workspace is available from Settings once assigned.
+
+Device push is opt-in and separate from the in-app inbox. The pending worker sends Expo device tokens, generic notification text, and a notification ID to Expo; it does not send message bodies or post content. Jobs respect blocks, current device ownership, preferences, circle access, quiet hours, and expired events/rooms. Deliveries have bounded retries and receipt checks. Equal quiet-hour start/end disables the quiet interval. Its external endpoint remains unset until deployment is authorized and complete.
+
+Technical diagnostics are also opt-in. They store bounded error codes and scrubbed JavaScript stack frames, not message or post text, and are deleted with the account. This is application-level error reporting, not a native crash-reporting SDK.
 
 ## Purchases and streaming
 
-Create consumable in-app products with these product identifiers in both stores and set their prices in App Store Connect / Google Play Console:
+Create consumable products `com.circles.coins.120`, `com.circles.coins.700`, and `com.circles.coins.1600` in both stores. Configure their prices and the verification secrets above. Purchase buttons remain disabled until products and server verification are ready; the wallet uses localized store prices and friendly unavailable-state text. Credits are server-verified and idempotent. Consumable restore does not re-credit spent coins. Creator cash-out is outside v1.
 
-| Product ID | Coins |
-| --- | ---: |
-| `com.circles.coins.120` | 120 |
-| `com.circles.coins.700` | 700 |
-| `com.circles.coins.1600` | 1,600 |
+Live rooms support a host plus up to three co-hosts. Host and co-host heartbeats keep active sessions/seats alive; scheduled jobs reclaim abandoned sessions and seats. Native permissions, reconnect behavior, and background behavior require device testing.
 
-The UI prices are illustrative fallbacks; the native store's localized product price is used when available. The purchase buttons stay disabled until the store lists the products and the server reports that the platform verification credentials are configured. The wallet now shows the exact missing server secret names returned by the readiness check. The server verifies Apple transaction signatures against pinned Apple root certificates or checks Google Play before crediting the user's coin ledger. To enable real purchases, create all three products in both store consoles and set the Apple/Google secrets above. Coin packs are consumable; store restore is not a way to re-credit already consumed packs. Coin balances remain attached to the account. Creator cash-out is not part of v1.
+## Verification
 
-The `preview.html` file is an interactive visual prototype with local demo data. It does not sign users in, create real posts/messages, start Agora streams, send ledger-backed gifts, or charge a store account. Preview actions are labeled as local simulations. Use the Expo iOS/Android development build for connected app flows.
+- `pnpm check`: TypeScript and credential-free regression tests. There are currently 55 passing checks, including React component tests for repeated sign-in events, navigation during requests, account isolation, immediate chat-draft persistence, failed stream setup cleanup, demo state/media consistency, and profile photo selection, cancellation, upload retry, and account isolation. The component harness runs the actual app code with mocked native SDK and network boundaries; it does not replace device testing. PGlite executes the real SQL with Supabase-style grants and Auth/Storage schema fixtures. Tests cover both the previous six fixes and the new community, moderation, push queue, idempotency, and deletion permissions.
+- `pnpm export:android` and `pnpm export:ios`: bundle the native JavaScript to catch module and compilation problems. These are not native device builds.
+- `pnpm e2e:local`: creates and cleans up temporary accounts and fixtures in a **disposable local** Supabase stack. It checks Auth, REST, Storage, circle membership, DMs, live seats, gifts, onboarding, discovery, events, notification privacy, and moderation. It refuses non-local URLs unless explicitly overridden; never run it against the production project.
+- `.github/workflows/checks.yml`: runs static/database checks and both bundle exports, then boots a disposable Supabase Docker stack, applies the three bootstrap files, serves functions, waits for the account endpoint to return its expected method response, and runs API integration tests. It keeps historical migration files outside the startup directory because they are not a from-zero chain.
 
-Set `EXPO_PUBLIC_AGORA_APP_ID` in the app build environment and the matching Agora App ID and certificate in Supabase secrets. `StreamingAdapter` keeps app screens provider-neutral while `AgoraProvider` supplies credentials and a native Agora adapter for live rooms.
+For manual local integration, use the same empty-migrations startup and bootstrap procedure as the workflow. Set `CIRCLES_E2E_URL`, `CIRCLES_E2E_ANON_KEY`, and `CIRCLES_E2E_SERVICE_ROLE_KEY` from `supabase status -o env`. Set `CIRCLES_E2E_ACCOUNT_FUNCTIONS=true` when the deletion function is served; set `CIRCLES_E2E_STREAM_FUNCTIONS=true` when Agora token secrets and the stream function are available.
 
-## Included flows
+The database advisor reports no security warnings or missing foreign-key indexes. Remaining informational notices concern [deliberately policy-free internal tables](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy), [indexes awaiting production traffic](https://supabase.com/docs/guides/database/database-linter?lint=0005_unused_index), and the existing [Auth connection allocation setting](https://supabase.com/docs/guides/deployment/going-into-prod).
 
-- Discover circles by interest; join and leave public circles, request or cancel access to private ones, and leave private circles after approval. Membership counts track actual member rows. Owners approve or decline pending requests. Circle owners cannot leave until ownership is transferred.
-- Edit your display name, bio, and interests. Your profile lists the people following you and the people you follow.
-- Open member profiles from Explore or from follower/following lists. Profiles show interests, visible circle posts, follower/following lists, follow controls, and a message action for mutual follows.
-- Create circle posts with text, images, GIFs, and video. Media is uploaded to the private Supabase Storage bucket.
-- Start a live room, join as a viewer, request a co-host seat, or accept/decline a request as host. The server enforces a maximum of four seats total (host plus three co-hosts).
-- Send catalog gifts from a coin wallet. The catalog is seeded with 300 fixed-value gifts; wallet changes and gift events are handled atomically and are idempotent.
-- Send direct messages only while both accounts follow each other. Database policies and the send function re-check this rule on every send/read, including after a follow is removed.
-- Report profiles, circles, posts, messages, and live rooms; block users.
+### Device release checklist
 
-## Verification status
+| Flow | Required device verification |
+| --- | --- |
+| Auth and onboarding | Sign-up confirmation, recovery deep link, avatar permissions, interest selection, suggested-circle joins, and account deletion. |
+| Posting | Restart with a saved draft; background, cancel, and retry a video upload; verify one published post after a lost response. |
+| Discovery and accessibility | Search beyond page one, rapid query changes, VoiceOver/TalkBack, large text, keyboard avoidance, and long-feed scrolling. |
+| Community | Two-account replies, private-circle approval, event RSVP/reminder, quiet hours, block/unblock, moderator removal, and revoked media access. |
+| Push | After authorized deployment and APNs/FCM setup, test foreground/background alerts, taps, sign-out, account switching, quiet hours, and expired tokens. |
+| Live and wallet | Multiple devices joining/releasing seats, reconnects and background expiry; Apple/Google sandbox purchase, cancellation, and transaction retry. |
 
-Run `pnpm test:db` for isolated PostgreSQL regression tests covering DM edit permissions, blocking, media drafts and cleanup, host heartbeats, public/private circle exits, and service-only idempotent purchase credits. The tests execute the real bootstrap and corrective migration using PGlite, including Supabase-style default table grants. They require no credentials and do not contact a Supabase project. Auth and Storage schema primitives are test fixtures; HTTP services, Realtime delivery, cron scheduling, and native SDKs require integration testing. To validate an upgrade from a saved older bootstrap, set `CIRCLES_TEST_BASELINE_SQL` to that SQL file before running the tests.
-
-Existing projects need `supabase/migrations/20261012135221_fix_core_flow_authorization.sql`; fresh projects use the updated `supabase/setup.sql`. The app now refreshes home and circle feeds when media drafts are published. The `pnpm e2e:local` harness also checks these database fixes through Supabase Auth, REST, and Storage APIs on a disposable project.
-
-The connected Supabase project has the schema, RLS, private media bucket, 300 active gifts, and both Edge Functions deployed. Host live rooms send heartbeats, and a scheduled database job closes stale sessions. Circle member counts were reconciled to membership rows. The Agora App ID and certificate are set as server-side Edge Function secrets, and `circles://**` is allowlisted for email confirmation callbacks. The local multi-user integration harness is available as `pnpm e2e:local`; it requires a disposable local Supabase stack and was not run against production. To enable real coin purchases, create the listed store products and set Apple/Google verification secrets. Native livestream and store transaction testing still requires installed native dependencies, development builds, physical devices or working simulators, and store sandbox accounts.
+At implementation time, TypeScript, isolated regressions, both JavaScript bundle exports, and Deno function checks were run. The connected database's RLS, privileged-function grants, Realtime publication, and scheduled jobs were verified. Docker and native devices were unavailable, so the Docker/API workflow and the device checklist remain unexecuted. The push worker is awaiting deployment approval, and EAS/support details have not been supplied. Changes have not been pushed to GitHub.

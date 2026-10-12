@@ -18,7 +18,12 @@
     },
     "android": {
       "package": "com.circles.social",
-      "permissions": ["CAMERA", "RECORD_AUDIO", "READ_MEDIA_IMAGES", "READ_MEDIA_VIDEO"]
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO",
+        "READ_MEDIA_IMAGES",
+        "READ_MEDIA_VIDEO"
+      ]
     },
     "plugins": [
       [
@@ -30,7 +35,8 @@
         }
       ],
       "expo-dev-client",
-      "expo-iap"
+      "expo-iap",
+      "expo-notifications"
     ],
     "extra": {}
   }

@@ -183,6 +183,37 @@ try {
     assert.equal(staleToken.error.context?.status, 404, 'Stale live-room token requests should return not found');
   }
 
+  // Community features through the real Auth, PostgREST and Storage services.
+  expectNoError(await guest.client.from('profiles').update({ interests: ['Testing'], onboarding_completed_at: new Date().toISOString() }).eq('id', guest.id), 'Complete onboarding');
+  const discovered = expectNoError(await guest.client.rpc('search_circles', { search_text: `E2E Public ${runId}`, interest_filter: 'All' }), 'Search all circles');
+  assert.ok(discovered.some(circle => circle.id === publicCircle.id));
+  expectNoError(await host.client.from('circles').update({ welcome_text: 'Welcome to the test community' }).eq('id', publicCircle.id), 'Pin circle welcome');
+  const event = expectNoError(await host.client.from('circle_events').insert({ circle_id: publicCircle.id, creator_id: host.id, title: 'E2E gathering', starts_at: new Date(Date.now() + 3600_000).toISOString() }).select('id').single(), 'Schedule circle event');
+  expectNoError(await guest.client.from('event_rsvps').insert({ event_id: event.id, user_id: guest.id }), 'RSVP to event');
+  const guestActivity = expectNoError(await guest.client.from('notifications').select('id,kind').eq('target_id', event.id), 'Read event notification');
+  assert.equal(guestActivity.length, 1);
+  assert.equal(expectNoError(await third.client.from('notifications').select('id').eq('target_id', event.id), 'Verify activity privacy').length, 0);
+  expectNoError(await guest.client.from('notifications').update({ read_at: new Date().toISOString() }).eq('id', guestActivity[0].id), 'Mark activity read');
+  assert.ok((await guest.client.from('notifications').update({ title: 'Forged alert' }).eq('id', guestActivity[0].id)).error);
+  expectNoError(await guest.client.from('notification_preferences').upsert({ user_id: guest.id, quiet_enabled: true, timezone: 'Europe/London', quiet_start: '22:00', quiet_end: '08:00' }), 'Save quiet hours');
+  expectNoError(await guest.client.from('circle_notification_preferences').upsert({ user_id: guest.id, circle_id: publicCircle.id, enabled: false }), 'Mute a circle');
+  expectNoError(await guest.client.rpc('leave_live_seat', { target_session_id: liveId }), 'Release own co-host seat');
+  assert.equal(expectNoError(await host.client.from('live_seats').select('user_id').eq('session_id', liveId).eq('user_id', guest.id), 'Verify co-host seat removal').length, 0);
+  assert.ok((await guest.client.rpc('moderation_queue')).error, 'Ordinary members cannot read the moderation queue');
+  expectNoError(await admin.from('moderators').insert({ user_id: fifth.id }), 'Assign disposable test moderator');
+  const report = expectNoError(await host.client.from('reports').insert({ reporter_id: host.id, target_type: 'post', target_id: post.id, reason: 'E2E moderation fixture' }).select('id').single(), 'Report post');
+  const queue = expectNoError(await fifth.client.rpc('moderation_queue'), 'Moderator reviews report queue');
+  assert.ok(queue.some(item => item.id === report.id));
+  expectNoError(await fifth.client.rpc('review_report', { report_id: report.id, decision: 'remove', note: 'Regression test' }), 'Remove reported post');
+  assert.ok((await guest.client.from('posts').update({ visibility: 'published' }).eq('id', post.id)).error, 'Authors cannot republish moderated posts');
+  assert.ok((await guest.client.rpc('prepare_account_deletion', { target_user: host.id })).error, 'Clients cannot delete another account');
+  if (process.env.CIRCLES_E2E_ACCOUNT_FUNCTIONS === 'true') {
+    const deleted = expectNoError(await fourth.client.functions.invoke('delete-account', { body: { confirmation: 'DELETE' } }), 'Delete own account through Edge Function');
+    assert.equal(deleted.deleted, true);
+    assert.ok((await admin.auth.admin.getUserById(fourth.id)).error, 'Auth account must be removed');
+    testUsers.splice(testUsers.indexOf(fourth.id), 1);
+  }
+
   expectNoError(await guest.client.from('follows').insert({ follower_id: guest.id, followee_id: host.id }), 'Restore mutual follow before blocking');
   expectNoError(await host.client.rpc('block_user', { target_user_id: guest.id }), 'Block a follower');
   expectNoError(await host.client.rpc('block_user', { target_user_id: guest.id }), 'Repeat block without error');
@@ -191,7 +222,7 @@ try {
   const refollow = await guest.client.from('follows').insert({ follower_id: guest.id, followee_id: host.id });
   assert.ok(refollow.error, 'A blocked follower must not be able to follow again');
 
-  console.log('PASS: profile RLS, follow lists, circle membership/counts and owner protection, draft media privacy/upload/cleanup, DM read receipts and immutable contents, unfollow revocation, blocking, host-only heartbeats, co-host limits, idempotent gifts and purchase credits, and wallet RLS.');
+  console.log('PASS: profile RLS, follow lists, circle membership/counts and owner protection, draft media privacy/upload/cleanup, DM read receipts and immutable contents, unfollow revocation, blocking, host-only heartbeats, co-host limits, idempotent gifts and purchase credits, wallet RLS, onboarding, discovery, notifications, events, moderation, and account deletion authorization.');
 } finally {
   if (testMediaPaths.length) {
     const { error } = await admin.storage.from('post-media').remove(testMediaPaths);

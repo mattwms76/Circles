@@ -1,6 +1,7 @@
 (() => {
   const page = document.querySelector('.page');
   const tabs = [...document.querySelectorAll('.tab')];
+  page.querySelectorAll('.post').forEach((post, index) => { post.dataset.postId = `seed-${index}`; });
   const homeMarkup = page.innerHTML;
   const giftNames = [['Petal','🌸'],['Cup of tea','🍵'],['Little star','⭐️'],['Peach','🍑'],['Warm bread','🍞'],['Daisy','🌼'],['Tiny heart','💛'],['Coffee date','☕️'],['Good luck charm','🍀'],['Sunshine','☀️'],['Moonbeam','🌙'],['Fresh flowers','💐'],['Candlelight','🕯️'],['Bluebird','🐦'],['Sweet treat','🧁'],['Golden hour','🌅'],['Love note','💌'],['Vinyl spin','💿'],['Garden bouquet','💐'],['Shooting star','💫'],['Picnic basket','🧺'],['Paper crane','🕊️'],['Little lantern','🏮'],['Lucky cat','🐈'],['Sea glass','🫧'],['Sunday cake','🍰'],['Big hug','🧸'],['Magic moment','✨'],['Golden ticket','🎟️'],['Whole sky','🌌']];
   const giftCatalog = Array.from({length:300},(_,index)=>{const n=index+1;const [name,emoji]=giftNames[index%giftNames.length];const coins=n<=80?5+(index%8):n<=160?25+((index-80)%8)*5:n<=230?100+((index-160)%7)*20:n<=280?500+((index-230)%5)*100:2000+((index-280)%5)*500;return{id:`gift-${String(n).padStart(3,'0')}`,name:`${name} ${String(Math.floor(index/30)+1).padStart(2,'0')}`,emoji,coins};});
@@ -12,14 +13,17 @@
     '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>',
   ];
   tabs.forEach((tab,index)=>{const icon=tab.querySelector('.tabIcon,.bubble');if(icon)icon.innerHTML=navIcons[index];});
+  const defaultProfilePhoto = document.querySelector('.top .avatar').src;
+  let profilePhotoDraft = '';
   let savedProfile = {};
-  try { savedProfile = JSON.parse(localStorage.getItem('circles-preview-profile') || '{}'); } catch { /* file previews may not expose local storage */ }
+  try { savedProfile = JSON.parse(localStorage.getItem('circles-preview-profile') || '{}') || {}; } catch { /* file previews may not expose local storage */ }
   const state = {
     screen: 'home',
     returnScreen: 'home',
     activeCircle: null,
     displayName: savedProfile.displayName || 'Jules Parker',
-    bio: savedProfile.bio || 'Collecting little moments and big ideas.',
+    bio: savedProfile.bio ?? 'Collecting little moments and big ideas.',
+    avatarUrl: typeof savedProfile.avatarUrl === 'string' && /^data:image\/(jpeg|png|webp);base64,/.test(savedProfile.avatarUrl) ? savedProfile.avatarUrl : defaultProfilePhoto,
     circles: [
       ['The Film Room', 'Film', 'For people who love the feeling after the credits roll.', '18.2k', true, '🎞️'],
       ['Tiny Gardens', 'Gardening', 'Small spaces, good soil, happy plants.', '9.6k', true, '🌱'],
@@ -39,7 +43,9 @@
     followers: new Set(['Cleo James', 'Mara Ellis']),
     likes: false,
     coins: 320,
-    messages: ['I saved you a seat for the photo walk tomorrow 📷', 'Would love that. What time are you heading out?', 'Around 9, coffee first?'],
+    messages: {},
+    replies: {},
+    activeReplyPost: null,
     posts: [],
     attachment: '',
     activeChat: 'Mara Ellis',
@@ -48,8 +54,10 @@
     liveGiftEvents: [],
   };
 
+  Object.values(state.circlePosts).forEach(posts => posts.forEach(post => { post.id = crypto.randomUUID(); }));
   const style = document.createElement('style');
   style.textContent = `
+    .profilePhotoDemo{width:88px;height:88px;border-radius:50%;object-fit:cover;border:3px solid #ef715b;padding:3px;background:#fff}.profilePhotoRow{display:flex;align-items:center;gap:16px;margin:12px 0 18px}.demoButton:disabled{opacity:.55;cursor:wait}
     button,input,textarea{font:inherit}button{cursor:pointer;border:0}button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px solid #ef715b;outline-offset:2px}
     .screenHead{padding:14px 22px 16px}.screenHead h1{font:700 32px/1.05 Georgia,serif;letter-spacing:-.7px;margin:0 0 8px}.screenHead p{font-size:13px;color:#77747b;line-height:19px;margin:0}
     .demoCard{background:#fff;border:1px solid #eae5df;border-radius:20px;padding:15px;margin:0 22px 12px}.demoRow{display:flex;align-items:center;gap:11px}.demoRow .grow{flex:1;min-width:0}.demoTitle{font-size:14px;font-weight:800;margin:0 0 4px}.demoCopy{font-size:11px;line-height:16px;color:#77747b;margin:0}.demoButton{border-radius:99px;background:#ef715b;color:#fff;font-size:11px;font-weight:800;padding:10px 15px;white-space:nowrap}.demoButton.soft{background:#e7e2f4;color:#242326}.demoButton.dark{background:#24212c}.demoInput,.demoArea{width:100%;border:1px solid #eae5df;border-radius:14px;background:white;padding:12px;font-size:13px;margin-bottom:10px}.demoArea{min-height:96px;resize:vertical}.demoFilters{display:flex;gap:8px;overflow:auto;padding:0 22px 14px}.demoChip{border:1px solid #eae5df;border-radius:99px;background:#fff;color:#77747b;padding:8px 12px;font-size:11px;white-space:nowrap}.demoChip.on{background:#24212c;border-color:#24212c;color:#fff}.giftGridPreview{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;max-height:230px;overflow:auto;padding:5px 0}.giftGridPreview button{white-space:normal;font-size:9px;line-height:13px;padding:8px 5px}.demoCircle{padding:0;overflow:hidden}.demoCircleHero{height:105px;background:#e7d8cc;display:flex;align-items:end;padding:14px;font-size:24px}.demoCircleInfo{padding:13px}.demoCircleFoot{display:flex;align-items:center;gap:8px;margin-top:10px}.demoCircleFoot .demoButton{margin-left:auto}.demoList{display:grid;gap:10px;padding:0 22px 22px}.demoPerson{display:flex;align-items:center;gap:10px;padding:11px 13px;background:#fff;border:1px solid #eae5df;border-radius:17px}.demoPerson img{width:42px;height:42px;border-radius:50%;object-fit:cover}.demoPerson .grow{flex:1}.liveDemo{min-height:230px;margin:0 22px 14px;border-radius:23px;background:linear-gradient(180deg,#17231924,#141019d9),url('https://images.unsplash.com/photo-1490645935967-10de6ba17061?w=900&h=600&fit=crop') center/cover;color:white;padding:16px;display:flex;flex-direction:column;justify-content:space-between}.liveDemo h2{font:700 23px Georgia,serif;margin:0 0 5px}.liveDemo p{font-size:12px;margin:0;color:#ffffffd9}.liveDemo .demoButton{background:#fff;color:#242326}.walletDemo{background:#24212c;color:white}.walletDemo .demoCopy{color:#d7d2d9}.message{max-width:82%;background:#f0ede9;border-radius:16px 16px 16px 4px;padding:11px 13px;font-size:12px;line-height:18px}.message.mine{margin-left:auto;background:#24212c;color:#fff;border-radius:16px 16px 4px 16px}.modalDemo{position:absolute;inset:0;z-index:5;background:#17131c88;display:flex;align-items:flex-end}.modalPanel{background:#faf7f2;width:100%;max-height:86%;overflow:auto;border-radius:26px 26px 0 0;padding:22px}.modalHead{display:flex;align-items:center;margin-bottom:16px}.modalHead h2{font-size:21px;margin:0;flex:1}.modalHead button{font-size:24px;background:none;color:#777}.toastDemo{position:absolute;z-index:8;left:22px;right:22px;bottom:83px;padding:12px 15px;background:#24212c;color:white;border-radius:14px;font-size:12px;text-align:center;box-shadow:0 8px 25px #0002}.tabs .tab{cursor:pointer;min-width:48px}.tabs .tab:focus-visible{outline:2px solid #ef715b;border-radius:10px}.tabs .tabIcon{pointer-events:none}.tabs svg{display:block;width:23px;height:23px;margin:0 auto 4px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.tabs .bubble{background:#ef715b;width:35px;height:30px;border-radius:11px;margin:0 auto 4px}.tabs .bubble svg{width:15px;height:15px;fill:none;stroke:#fff;stroke-width:2;margin-bottom:0}.tabs .bubble svg circle[fill]{fill:#fff;stroke:none}
@@ -78,7 +86,7 @@
     if (!circle) return `<header class="screenHead"><button class="demoButton soft" data-action="backCircle">‹ Back to circles</button><h1>Circle not found</h1></header>`;
     const [name, interest, description, count, joined, emoji, isPrivate] = circle;
     const requested = state.requestedCircles.has(name);
-    const posts = (state.circlePosts[name] || []).map((post) => `<article class="post"><div class="postMeta"><img src="https://images.unsplash.com/photo-1531123897727-8f129e1688ce?w=160&h=160&fit=crop&crop=faces" alt=""><div><div class="author">${escapeHtml(post.author)}</div><div class="meta">${escapeHtml(name)} · ${escapeHtml(post.time)}</div></div></div><p class="body">${escapeHtml(post.body)}</p></article>`).join('');
+    const posts = (state.circlePosts[name] || []).map((post) => `<article class="post" data-post-id="${post.id}"><div class="postMeta"><img ${post.isOwn ? 'data-own-avatar' : ''} src="${post.isOwn ? escapeHtml(state.avatarUrl) : 'https://images.unsplash.com/photo-1531123897727-8f129e1688ce?w=160&h=160&fit=crop&crop=faces'}" alt=""><div><div class="author" ${post.isOwn ? 'data-own-author' : ''}>${escapeHtml(post.isOwn ? state.displayName : post.author)}</div><div class="meta">${escapeHtml(name)} · ${escapeHtml(post.time)}</div></div></div><p class="body">${escapeHtml(post.body)}</p><div class="postActions"><button class="demoChip">◯ Reply</button></div></article>`).join('');
     const membership = joined
       ? `<button class="demoButton" data-action="writeCirclePost" data-name="${escapeHtml(name)}">Write a post in this circle</button><button class="demoButton soft" data-action="leaveCircle" data-name="${escapeHtml(name)}" style="margin-left:8px">Leave circle</button>`
       : requested
@@ -86,7 +94,7 @@
         : `<button class="demoButton" data-action="join" data-name="${escapeHtml(name)}">${isPrivate ? 'Request to join' : 'Join this circle'}</button>`;
     return `<header class="screenHead"><button class="demoButton soft" data-action="backCircle">‹ Back</button><div class="eyebrow" style="margin-top:14px">${isPrivate ? 'PRIVATE' : 'PUBLIC'} CIRCLE · ${escapeHtml(interest.toUpperCase())}</div><h1>${emoji} ${escapeHtml(name)}</h1><p>${escapeHtml(description)}</p><p style="margin-top:8px">${escapeHtml(count)} members ${joined ? '· You’re a member' : requested ? '· Your request is pending' : ''}</p><div style="margin-top:14px">${membership}</div></header><section class="section"><div class="sectionHead"><div><div class="eyebrow">YOUR COMMUNITY</div><h2>Posts in this circle</h2></div></div>${joined ? posts || '<p class="demoCopy">No posts yet. Start the conversation.</p>' : `<div class="demoCard"><div class="demoTitle">${requested ? 'Your request is with the host' : 'Join to enter the conversation'}</div><p class="demoCopy" style="margin-top:5px">Members can read and share posts here.</p></div>`}</section>`;
   };
-  const profileScreen = () => `<header class="screenHead"><div class="eyebrow">YOUR LITTLE CORNER</div><h1>${escapeHtml(state.displayName)}</h1><p>@julesmakes · ${escapeHtml(state.bio)}</p></header><div class="demoCard walletDemo demoRow"><div class="grow"><div class="demoCopy">YOUR WALLET</div><div style="font-size:23px;font-weight:850;margin-top:5px">◉ ${state.coins} <span style="font-size:12px;font-weight:500">coins</span></div></div><button class="demoButton" data-action="buyCoins">Add coins</button></div><div class="demoCard demoRow"><div class="grow"><div class="demoTitle">${state.following.size} following</div><p class="demoCopy">Your profile and interests</p></div><button class="demoButton soft" data-action="editProfile">Edit profile</button></div><section class="section"><div class="sectionHead"><div><div class="eyebrow">YOUR COMMUNITY</div><h2>Following · ${state.following.size}</h2></div></div><div class="demoList" style="padding:0">${profilePeople(state.following)}</div></section><section class="section"><div class="sectionHead"><div><div class="eyebrow">YOUR COMMUNITY</div><h2>Followers · ${state.followers.size}</h2></div></div><div class="demoList" style="padding:0">${profilePeople(state.followers)}</div></section><div class="sectionHead" style="padding:8px 22px"><div><div class="eyebrow">YOUR CIRCLES</div><h2>Places you belong</h2></div></div><div class="demoList">${state.circles.filter(c=>c[4]).map(circleCard).join('')}</div>`;
+  const profileScreen = () => `<header class="screenHead"><div class="eyebrow">YOUR LITTLE CORNER</div><div class="profilePhotoRow"><img class="profilePhotoDemo" data-own-avatar src="${escapeHtml(state.avatarUrl)}" alt="Your profile photo"><button class="demoButton soft" data-action="editProfilePhoto">Change photo</button></div><h1>${escapeHtml(state.displayName)}</h1><p>@julesmakes · ${escapeHtml(state.bio)}</p></header><div class="demoCard walletDemo demoRow"><div class="grow"><div class="demoCopy">YOUR WALLET</div><div style="font-size:23px;font-weight:850;margin-top:5px">◉ ${state.coins} <span style="font-size:12px;font-weight:500">coins</span></div></div><button class="demoButton" data-action="buyCoins">Add coins</button></div><div class="demoCard demoRow"><div class="grow"><div class="demoTitle">${state.following.size} following</div><p class="demoCopy">Your profile and interests</p></div><button class="demoButton soft" data-action="editProfile">Edit profile</button></div><section class="section"><div class="sectionHead"><div><div class="eyebrow">YOUR COMMUNITY</div><h2>Following · ${state.following.size}</h2></div></div><div class="demoList" style="padding:0">${profilePeople(state.following)}</div></section><section class="section"><div class="sectionHead"><div><div class="eyebrow">YOUR COMMUNITY</div><h2>Followers · ${state.followers.size}</h2></div></div><div class="demoList" style="padding:0">${profilePeople(state.followers)}</div></section><div class="sectionHead" style="padding:8px 22px"><div><div class="eyebrow">YOUR CIRCLES</div><h2>Places you belong</h2></div></div><div class="demoList">${state.circles.filter(c=>c[4]).map(circleCard).join('')}</div>`;
 
   function render(screen = state.screen) {
     state.screen = screen;
@@ -98,6 +106,8 @@
     const greeting = page.querySelector('.intro .sub');
     if (greeting) greeting.textContent = `Good morning, ${state.displayName.split(' ')[0]}. What feels like you today?`;
     if(screen==='home'&&state.posts.length){const section=[...page.querySelectorAll('.section')].at(-1);if(section)for(const post of state.posts)section.insertAdjacentHTML('beforeend',post);}
+    page.querySelectorAll('.top .avatar,[data-own-avatar]').forEach(image => { image.src = state.avatarUrl; image.alt = 'Your profile photo'; });
+    page.querySelectorAll('[data-own-author]').forEach(label => { label.textContent = state.displayName; });
     document.querySelector('.note').textContent = `Circles · ${screen === 'circle' ? state.activeCircle : screen === 'circles' ? 'explore' : screen} screen · local prototype`;
   }
   function toast(message) {
@@ -115,10 +125,20 @@
     const el=document.createElement('div'); el.className='modalDemo'; el.innerHTML=`<section class="modalPanel"><header class="modalHead"><h2>${title}</h2><button data-action="closeModal" aria-label="Close">×</button></header>${content}</section>`;
     document.querySelector('.device').append(el);
   }
-  function openChat(name) {
-    state.activeChat=name;
-    modal(`Chat with ${name}`, `<div id="chatMessages" style="display:grid;gap:10px;min-height:190px;margin-bottom:16px">${state.messages.map((m,i)=>`<div class="message ${i%2?'mine':''}">${m}</div>`).join('')}</div><form data-form="message" class="demoRow"><input class="demoInput" name="message" placeholder="Write a message…" aria-label="Write a message" style="margin:0"><button class="demoButton" type="submit">Send</button></form>`);
+  const deleteWindowMs = 15 * 60 * 1000;
+  const canDelete = item => item?.own && Number.isFinite(item.createdAt) && Date.now() >= item.createdAt && Date.now() < item.createdAt + deleteWindowMs;
+  const deleteControl = (item, kind) => canDelete(item) ? `<button class="demoChip" style="display:block;margin-top:8px" data-action="deleteContent" data-kind="${kind}" data-id="${item.id}" data-expires="${item.createdAt + deleteWindowMs}" aria-label="Delete ${kind} for everyone">Delete</button>` : '';
+  function openChat(name, draft = '') {
+    state.activeChat = name;
+    state.messages[name] ||= ['I saved you a seat for the photo walk tomorrow 📷', 'Would love that. What time are you heading out?', 'Around 9, coffee first?'].map((body, i) => ({ id: crypto.randomUUID(), body, own: i === 1, createdAt: Date.now() - 20 * 60 * 1000 }));
+    modal(`Chat with ${escapeHtml(name)}`, `<p class="demoCopy" style="margin-bottom:12px">You can delete your own messages for 15 minutes after sending.</p><div id="chatMessages" style="display:grid;gap:10px;min-height:190px;margin-bottom:16px">${state.messages[name].map(message => `<div class="message ${message.own ? 'mine' : ''}">${escapeHtml(message.body)}${deleteControl(message, 'message')}</div>`).join('')}</div><form data-form="message" class="demoRow"><input class="demoInput" name="message" value="${escapeHtml(draft)}" placeholder="Write a message…" aria-label="Write a message" maxlength="4000" style="margin:0"><button class="demoButton" type="submit">Send</button></form>`);
   }
+  function openReplies(postId, draft = '') {
+    state.activeReplyPost = postId;
+    state.replies[postId] ||= [];
+    modal('Replies', `<p class="demoCopy" style="margin-bottom:12px">You can delete your own comments for 15 minutes after posting.</p><div style="display:grid;gap:10px;margin-bottom:16px">${state.replies[postId].map(comment => `<div class="message"><b>${escapeHtml(state.displayName)}</b><p>${escapeHtml(comment.body)}</p>${deleteControl(comment, 'comment')}</div>`).join('') || '<p class="demoCopy">No replies yet. Say hello first.</p>'}</div><form data-form="reply" class="demoRow"><input class="demoInput" name="message" value="${escapeHtml(draft)}" placeholder="Write a reply…" aria-label="Write a reply" maxlength="2000" style="margin:0"><button class="demoButton" type="submit">Send</button></form>`);
+  }
+  setInterval(() => document.querySelectorAll('[data-expires]').forEach(button => { if (Date.now() >= Number(button.dataset.expires)) button.remove(); }), 1000);
   function openLive(name='Cleo James') {
     state.liveSession={title:`${name} is live`,host:name,seats:[name],requests:[],hostMode:false,giftsOpen:false};
     renderLive();
@@ -137,9 +157,9 @@
   tabs.forEach((tab,index)=>tab.addEventListener('click',()=>{state.activeCircle=null;render(['home','circles','live','inbox','profile'][index]);}));
   tabs.forEach((tab,index)=>tab.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();state.activeCircle=null;render(['home','circles','live','inbox','profile'][index]);}}));
   document.addEventListener('click', event => {
-    const target=event.target.closest('[data-action], [data-filter], .link, .quick, .postActions span, .live, .play, .circle, .avatar, .more'); if(!target)return;
+    const target=event.target.closest('[data-action], [data-filter], .link, .quick, .postActions span, .live, .play, .circle, .avatar, .more, .postActions button'); if(!target)return;
     const action=target.dataset.action;
-    if(target.dataset.filter){document.querySelectorAll('[data-filter]').forEach(x=>x.classList.toggle('on',x===target));filterCircles(target.dataset.filter);return;}
+    if(target.dataset.filter){document.querySelectorAll('[data-filter]').forEach(x=>x.classList.toggle('on',x===target));filterCircles();return;}
     if(target.classList.contains('quick')) { if(target.textContent.includes('thought')) openComposer(); else render('live'); return; }
     if(target.classList.contains('link')) { if(target.textContent.includes('Explore')) render('circles'); else if(target.textContent.includes('all'))render('live');else if(target.textContent.includes('post'))openComposer();return; }
     if(target.classList.contains('avatar')){render('profile');return;}
@@ -147,8 +167,21 @@
     if(action==='openCircle'){openCircle(target.dataset.name);return;}
     if(target.classList.contains('circle')){const name=target.querySelector('.circleName')?.textContent||'Your circle';openCircle(name);return;}
     if(target.classList.contains('more')){modal('Keep Circles kind',`<p class="demoCopy" style="margin-bottom:14px">This prototype cannot submit a report to moderation.</p><button class="demoButton soft" data-action="report">Dismiss preview</button>`);return;}
-    if(target.closest('.postActions')) { const label=target.textContent; if(label.includes('♥')){state.likes=!state.likes;target.textContent=state.likes?'♥　285':'♥　284';toast(state.likes?'You liked this post.':'Like removed.');}else if(label.includes('Reply'))modal('Replies',`<p class="demoCopy">Join the conversation in Tiny Gardens.</p><form data-form="reply" class="demoRow"><input class="demoInput" name="message" placeholder="Write a reply…" style="margin:0"><button class="demoButton">Send</button></form>`);else toast('Post link copied to share.');return; }
-    if(action==='createCircle') modal('Create a circle',`<form data-form="circle"><input class="demoInput" name="name" required placeholder="Circle name"><input class="demoInput" name="interest" required placeholder="Interest"><textarea class="demoArea" name="description" placeholder="What brings your people together?"></textarea><label class="demoCopy"><input type="checkbox" name="private"> Make this circle private</label><button class="demoButton" style="width:100%;margin-top:14px">Create your circle</button></form>`);
+    if(target.closest('.postActions')) { const label=target.textContent; if(label.includes('♥')){state.likes=!state.likes;target.textContent=state.likes?'♥　285':'♥　284';toast(state.likes?'You liked this post.':'Like removed.');}else if(label.includes('Reply'))openReplies(target.closest('[data-post-id]')?.dataset.postId || 'seed-0');else toast('Post link copied to share.');return; }
+    if(action==='deleteContent') {
+      const isMessage = target.dataset.kind === 'message';
+      const key = isMessage ? state.activeChat : state.activeReplyPost;
+      const collection = isMessage ? state.messages : state.replies;
+      const item = collection[key]?.find(entry => entry.id === target.dataset.id);
+      if (!canDelete(item)) { target.remove(); toast('The 15-minute deletion window has ended.'); return; }
+      if (!window.confirm(`Delete this ${isMessage ? 'message' : 'comment'} for everyone?`)) return;
+      if (!canDelete(item)) { target.remove(); toast('The 15-minute deletion window has ended.'); return; }
+      const draft = document.querySelector('.modalDemo input[name="message"]')?.value || '';
+      collection[key] = collection[key].filter(entry => entry.id !== item.id);
+      if (isMessage) openChat(key, draft); else openReplies(key, draft);
+      toast(`${isMessage ? 'Message' : 'Comment'} deleted in this local preview.`);
+    }
+    else if(action==='createCircle') modal('Create a circle',`<form data-form="circle"><input class="demoInput" name="name" required placeholder="Circle name"><input class="demoInput" name="interest" required placeholder="Interest"><textarea class="demoArea" name="description" placeholder="What brings your people together?"></textarea><label class="demoCopy"><input type="checkbox" name="private"> Make this circle private</label><button class="demoButton" style="width:100%;margin-top:14px">Create your circle</button></form>`);
     else if(action==='join'){const c=state.circles.find(c=>c[0]===target.dataset.name);if(c&&!c[4]){if(c[6]){state.requestedCircles.add(c[0]);toast('Your request is with the circle host.');}else{c[4]=true;toast(`You joined ${c[0]}.`);}render(state.screen);}}
     else if(action==='cancelCircleRequest'){state.requestedCircles.delete(target.dataset.name);render('circle');toast('Your request was cancelled.');}
     else if(action==='leaveCircle'){const c=state.circles.find(c=>c[0]===target.dataset.name);if(c)c[4]=false;render('circle');toast(`You left ${target.dataset.name}.`);}
@@ -167,31 +200,82 @@
     else if(action==='closeLive'){state.liveSession=null;state.liveGiftEvents=[];document.querySelector('.modalDemo')?.remove();}
     else if(action==='buyCoins'){modal('Add coins',`<p class="demoCopy" style="margin-bottom:12px">Preview wallet · balance ${state.coins} coins</p><div class="demoList" style="padding:0">${[[100,'Pocketful'],[500,'Good company'],[1200,'Big-hearted']].map(([coins,label])=>`<button class="demoPerson" data-action="addCoins" data-coins="${coins}"><span class="grow"><b>${label}</b><p class="demoCopy">◉ ${coins} coins</p></span><span class="demoButton soft">Select</span></button>`).join('')}</div>`);}
     else if(action==='addCoins'){state.coins+=Number(target.dataset.coins);toast(`${target.dataset.coins} demo coins added.`);modal('Coins added',`<p>You now have <b>◉ ${state.coins} coins</b> in your preview wallet.</p><button class="demoButton" data-action="closeModal">Done</button>`);}
-    else if(action==='editProfile')modal('Edit profile',`<input class="demoInput" id="profileName" value="${escapeHtml(state.displayName)}" aria-label="Display name"><textarea class="demoArea" id="profileBio" aria-label="Bio">${escapeHtml(state.bio)}</textarea><button class="demoButton" data-action="saveProfile">Save changes</button>`);
-    else if(action==='saveProfile'){state.displayName=document.querySelector('#profileName')?.value.trim()||state.displayName;state.bio=document.querySelector('#profileBio')?.value.trim()||'';try{localStorage.setItem('circles-preview-profile',JSON.stringify({displayName:state.displayName,bio:state.bio}));}catch{}document.querySelector('.modalDemo')?.remove();render(state.screen);toast('Prototype profile saved in this browser.');}
+    else if(action==='editProfile'||action==='editProfilePhoto'){
+      openProfileEditor();
+      if(action==='editProfilePhoto') document.querySelector('#profilePhotoPicker').click();
+    }
+    else if(action==='chooseProfilePhoto') document.querySelector('#profilePhotoPicker')?.click();
+    else if(action==='saveProfile'){
+      const nextProfile = { displayName: document.querySelector('#profileName')?.value.trim() || state.displayName, bio: document.querySelector('#profileBio')?.value.trim() || '', avatarUrl: profilePhotoDraft };
+      try { localStorage.setItem('circles-preview-profile', JSON.stringify(nextProfile)); }
+      catch { toast('Could not save in this browser. Free some browser storage and try again.'); return; }
+      Object.assign(state, nextProfile);
+      document.querySelector('.modalDemo')?.remove(); render(state.screen);
+      toast('Prototype profile saved in this browser.');
+    }
     else if(action==='openChat')openChat(target.dataset.name);
     else if(action==='publish'){
       const body=document.querySelector('.modalDemo textarea')?.value.trim()||'';
       if(!body&&!state.attachment){toast('Write something or attach media first.');return;}
       const circle=document.querySelector('.modalDemo select')?.value||'Your circle';
-      state.posts.unshift(`<article class="post"><div class="postMeta"><img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=160&h=160&fit=crop&crop=faces" alt=""><div><div class="author">Jules Parker</div><div class="meta">${escapeHtml(circle)} · now</div></div></div><p class="body">${escapeHtml(body)}</p>${state.attachment?`<p class="demoCopy">📎 ${escapeHtml(state.attachment)}</p>`:''}<div class="postActions"><span>♡　0</span><span>◯　Reply</span><span>↗　Share</span></div></article>`);
+      const postId = crypto.randomUUID();
+      state.posts.unshift(`<article class="post" data-post-id="${postId}"><div class="postMeta"><img data-own-avatar src="${escapeHtml(state.avatarUrl)}" alt="Your profile photo"><div><div class="author" data-own-author>${escapeHtml(state.displayName)}</div><div class="meta">${escapeHtml(circle)} · now</div></div></div><p class="body">${escapeHtml(body)}</p>${state.attachment?`<p class="demoCopy">📎 ${escapeHtml(state.attachment)}</p>`:''}<div class="postActions"><span>♡　0</span><span>◯　Reply</span><span>↗　Share</span></div></article>`);
       state.circlePosts[circle] ||= [];
-      state.circlePosts[circle].unshift({author:state.displayName,body:body||`Shared ${state.attachment}`,time:'now'});
+      state.circlePosts[circle].unshift({id:postId,author:state.displayName,isOwn:true,body:body||`Shared ${state.attachment}`,time:'now'});
       state.attachment='';document.querySelector('.modalDemo')?.remove();render(state.screen==='circle'?'circle':'home');toast(`Added to ${circle} in this local preview.`);
     }
     else if(action==='report'){document.querySelector('.modalDemo')?.remove();toast('Preview only: no report was submitted.');}
     else if(action==='closeModal')document.querySelector('.modalDemo')?.remove();
   });
+  function openProfileEditor() {
+    profilePhotoDraft = state.avatarUrl;
+    modal('Edit profile', `<div class="profilePhotoRow"><img class="profilePhotoDemo" id="profilePhotoPreview" src="${escapeHtml(profilePhotoDraft)}" alt="Profile photo preview"><button class="demoButton soft" data-action="chooseProfilePhoto">Change photo</button></div><input type="file" id="profilePhotoPicker" accept="image/jpeg,image/png,image/webp" aria-label="Choose profile photo" hidden><p class="demoCopy" id="profilePhotoStatus" role="status" style="margin-bottom:14px">JPG, PNG or WebP · up to 5 MB. Saved only in this browser preview.</p><input class="demoInput" id="profileName" value="${escapeHtml(state.displayName)}" aria-label="Display name"><textarea class="demoArea" id="profileBio" aria-label="Bio">${escapeHtml(state.bio)}</textarea><div class="demoRow"><button class="demoButton" data-action="saveProfile">Save changes</button><button class="demoButton soft" data-action="closeModal">Cancel</button></div>`);
+  }
+  async function chooseProfilePhoto(input) {
+    const file = input.files?.[0];
+    if (!file) return;
+    const panel = input.closest('.modalPanel');
+    const status = panel.querySelector('#profilePhotoStatus');
+    const controls = panel.querySelectorAll('[data-action="saveProfile"],[data-action="chooseProfilePhoto"]');
+    try {
+      if (!['image/jpeg','image/png','image/webp'].includes(file.type)) throw new Error('Choose a JPG, PNG, or WebP photo.');
+      if (file.size > 5 * 1024 * 1024) throw new Error('Choose a profile photo smaller than 5 MB.');
+      controls.forEach(button => button.disabled = true); input.disabled = true;
+      status.textContent = 'Preparing your photo…';
+      const url = URL.createObjectURL(file);
+      let photo;
+      try {
+        photo = await new Promise((resolve, reject) => { const image = new Image(); image.onload = () => resolve(image); image.onerror = () => reject(new Error('This photo could not be opened. Try another image.')); image.src = url; });
+      } finally { URL.revokeObjectURL(url); }
+      if (!panel.isConnected) return;
+      const canvas = document.createElement('canvas'); canvas.width = 400; canvas.height = 400;
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('This browser could not prepare the photo.');
+      context.fillStyle = '#fff'; context.fillRect(0, 0, 400, 400);
+      const side = Math.min(photo.naturalWidth, photo.naturalHeight);
+      context.drawImage(photo, (photo.naturalWidth - side) / 2, (photo.naturalHeight - side) / 2, side, side, 0, 0, 400, 400);
+      profilePhotoDraft = canvas.toDataURL('image/jpeg', 0.85);
+      panel.querySelector('#profilePhotoPreview').src = profilePhotoDraft;
+      status.textContent = 'Photo ready. Save changes to keep it, or cancel to discard.';
+    } catch (error) { if (panel.isConnected) status.textContent = error.message || 'Could not prepare this photo.'; }
+    finally { controls.forEach(button => button.disabled = false); input.disabled = false; input.value = ''; }
+  }
   function openComposer(circleName){state.attachment='';modal('Share a little something',`<select class="demoInput" aria-label="Choose a circle">${state.circles.filter(c=>c[4]).map(c=>`<option ${c[0]===circleName?'selected':''}>${escapeHtml(c[0])}</option>`).join('')}</select><textarea class="demoArea" name="body" placeholder="What’s on your mind?"></textarea><div class="demoRow" style="margin-bottom:12px"><button class="demoChip" data-action="media" data-kind="image">▧ Photo</button><button class="demoChip" data-action="media" data-kind="gif">GIF</button><button class="demoChip" data-action="media" data-kind="video">▷ Video</button><span class="demoCopy" id="attachmentName"></span></div><input type="file" id="mediaPicker" hidden><button class="demoButton" style="width:100%" data-action="publish">Share with your circle</button>`);}
   function escapeHtml(value){return value.replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));}
-  function filterCircles(query){const q=query==='For you'?'':query.toLowerCase();document.querySelectorAll('.demoCircle').forEach(el=>el.style.display=el.dataset.circle.includes(q)?'':'none');const count=[...document.querySelectorAll('.demoCircle')].filter(el=>el.style.display!=='none').length;const title=document.querySelector('#circleCount');if(title)title.textContent=`${count} circles to explore`;}
-  document.addEventListener('input',event=>{if(event.target.id==='circleSearch'){const value=event.target.value.toLowerCase();document.querySelectorAll('.demoCircle').forEach(el=>el.style.display=el.dataset.circle.includes(value)?'':'none');}if(event.target.id==='giftSearch'){state.giftSearch=event.target.value.toLowerCase();document.querySelectorAll('.giftGridPreview button').forEach(el=>el.style.display=el.dataset.gift.toLowerCase().includes(state.giftSearch)?'':'none');}});
-  document.addEventListener('change',event=>{if(event.target.id==='mediaPicker'&&event.target.files?.[0]){state.attachment=event.target.files[0].name;const label=document.querySelector('#attachmentName');if(label)label.textContent=state.attachment;}});
-  document.addEventListener('submit',event=>{const form=event.target.closest('[data-form]');if(!form)return;event.preventDefault();const data=new FormData(form);if(form.dataset.form==='message'){const body=String(data.get('message')||'').trim();if(!body)return;state.messages.push(body);openChat(state.activeChat);}else if(form.dataset.form==='circle'){const name=String(data.get('name')||'').trim(),interest=String(data.get('interest')||'').trim();if(!name||!interest)return;const isPrivate=data.get('private')==='on';state.circles.unshift([name,interest,String(data.get('description')||'A new place to share what you love.'),'1',true,'🫶',isPrivate]);document.querySelector('.modalDemo')?.remove();render('circles');toast(`${name} is ready.`);}else{document.querySelector('.modalDemo')?.remove();toast('Your reply was added.');}});
+  function filterCircles(){
+    const query=(document.querySelector('#circleSearch')?.value??'').trim().toLowerCase();
+    const interest=document.querySelector('[data-filter].on')?.dataset.filter??'For you';
+    const matches=state.circles.filter(([name,category,desc])=>(interest==='For you'||category===interest)&&`${name} ${desc} ${category}`.toLowerCase().includes(query));
+    document.querySelectorAll('.demoCircle').forEach(el=>el.style.display=matches.some(([name])=>name===el.dataset.name)?'':'none');
+    const title=document.querySelector('#circleCount');if(title)title.textContent=`${matches.length} ${matches.length===1?'circle':'circles'} to explore`;
+  }
+  document.addEventListener('input',event=>{if(event.target.id==='circleSearch'){filterCircles();}if(event.target.id==='giftSearch'){state.giftSearch=event.target.value.toLowerCase();document.querySelectorAll('.giftGridPreview button').forEach(el=>el.style.display=el.dataset.gift.toLowerCase().includes(state.giftSearch)?'':'none');}});
+  document.addEventListener('change',event=>{if(event.target.id==='profilePhotoPicker') void chooseProfilePhoto(event.target); if(event.target.id==='mediaPicker'&&event.target.files?.[0]){state.attachment=event.target.files[0].name;const label=document.querySelector('#attachmentName');if(label)label.textContent=state.attachment;}});
+  document.addEventListener('submit',event=>{const form=event.target.closest('[data-form]');if(!form)return;event.preventDefault();const data=new FormData(form);if(form.dataset.form==='message'){const body=String(data.get('message')||'').trim();if(!body)return;state.messages[state.activeChat].push({id:crypto.randomUUID(),body,own:true,createdAt:Date.now()});openChat(state.activeChat);}else if(form.dataset.form==='circle'){const name=String(data.get('name')||'').trim(),interest=String(data.get('interest')||'').trim();if(!name||!interest)return;const isPrivate=data.get('private')==='on';state.circles.unshift([name,interest,String(data.get('description')||'A new place to share what you love.'),'1',true,'🫶',isPrivate]);document.querySelector('.modalDemo')?.remove();render('circles');toast(`${name} is ready.`);}else if(form.dataset.form==='reply'){const body=String(data.get('message')||'').trim();if(!body)return;state.replies[state.activeReplyPost].push({id:crypto.randomUUID(),body,own:true,createdAt:Date.now()});openReplies(state.activeReplyPost);}});
 
   document.addEventListener('click',event=>{const picker=event.target.closest('[data-action="media"]');if(picker){const input=document.querySelector('#mediaPicker');if(input){input.accept=picker.dataset.kind==='video'?'video/*':picker.dataset.kind==='gif'?'.gif,image/gif':'image/*';input.click();}}});
 
-  const previewControlSelector = '[data-action],.quick,.link,.postActions span,.live,.play,.circle,.avatar,.more';
+  const previewControlSelector = '[data-action],.quick,.link,.postActions span,.live,.play,.circle,.avatar,.more,.postActions button';
   function makePreviewControlsAccessible() {
     document.querySelectorAll(previewControlSelector).forEach((element) => {
       element.setAttribute('role', 'button');
@@ -204,5 +288,5 @@
     event.preventDefault();
     target.click();
   });
-  makePreviewControlsAccessible();
+  render();
 })();
