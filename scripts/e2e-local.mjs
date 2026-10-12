@@ -45,7 +45,7 @@ async function createTestUser(index) {
 try {
   const [host, guest, third, fourth, fifth] = await Promise.all([1, 2, 3, 4, 5].map(createTestUser));
 
-  const { data: originalProfile } = expectNoError(await host.client.from('profiles').select('display_name,bio,interests').eq('id', host.id).single(), 'Read own profile');
+  const originalProfile = expectNoError(await host.client.from('profiles').select('display_name,bio,interests').eq('id', host.id).single(), 'Read own profile');
   expectNoError(await host.client.from('profiles').update({ display_name: 'E2E Profile Updated', bio: 'Profile regression check', interests: ['Testing', 'Circles'] }).eq('id', host.id), 'Update own profile');
   const savedProfile = expectNoError(await host.client.from('profiles').select('display_name,bio,interests').eq('id', host.id).single(), 'Verify own profile update');
   assert.equal(savedProfile.display_name, 'E2E Profile Updated');
@@ -93,8 +93,15 @@ try {
   testMediaPaths.push(mediaPath);
   expectNoError(await guest.client.storage.from('post-media').upload(mediaPath, new Uint8Array([255, 216, 255, 217]), { contentType: 'image/jpeg' }), 'Upload post media');
   expectNoError(await guest.client.from('post_media').insert({ post_id: mediaPost.id, owner_id: guest.id, kind: 'image', storage_path: mediaPath, mime_type: 'image/jpeg' }), 'Register post media');
+  const hiddenDraft = expectNoError(await host.client.from('posts').select('id').eq('id', mediaPost.id), 'Check draft privacy');
+  assert.equal(hiddenDraft.length, 0, 'Other circle members must not see an unpublished draft');
+  assert.ok((await host.client.storage.from('post-media').createSignedUrl(mediaPath, 60)).error, 'Other circle members must not read draft media');
+  expectNoError(await guest.client.storage.from('post-media').remove([mediaPath]), 'Clean up an unpublished upload');
+  assert.ok((await guest.client.storage.from('post-media').createSignedUrl(mediaPath, 60)).error, 'Draft cleanup must actually delete the object');
+  expectNoError(await guest.client.storage.from('post-media').upload(mediaPath, new Uint8Array([255, 216, 255, 217]), { contentType: 'image/jpeg' }), 'Retry draft upload');
   expectNoError(await guest.client.from('posts').update({ visibility: 'published' }).eq('id', mediaPost.id), 'Publish post after media upload');
   expectNoError(await guest.client.storage.from('post-media').createSignedUrl(mediaPath, 60), 'Read media as a circle member');
+  expectNoError(await host.client.storage.from('post-media').createSignedUrl(mediaPath, 60), 'Read published media as another circle member');
   const privateMedia = await third.client.storage.from('post-media').createSignedUrl(mediaPath, 60);
   assert.ok(privateMedia.error, 'A non-member must not read private circle media');
 
@@ -109,6 +116,11 @@ try {
   expectNoError(await host.client.rpc('send_direct_message', { recipient_user_id: guest.id, message_body: 'Mutual follow message' }), 'Send mutual-follow DM');
   const inbox = expectNoError(await guest.client.from('direct_messages').select('id,body').eq('sender_id', host.id).eq('recipient_id', guest.id), 'Read mutual-follow DM');
   assert.equal(inbox.length, 1);
+  for (const change of [{ body: 'Forged message' }, { sender_id: third.id }, { recipient_id: third.id }, { id: randomUUID() }, { created_at: new Date().toISOString() }]) {
+    assert.ok((await guest.client.from('direct_messages').update(change).eq('id', inbox[0].id)).error, 'Recipients must only have permission to update read_at');
+  }
+  const originalMessage = expectNoError(await guest.client.from('direct_messages').select('body').eq('id', inbox[0].id).single(), 'Verify original DM contents');
+  assert.equal(originalMessage.body, 'Mutual follow message');
   const hostConversations = expectNoError(await host.client.rpc('list_mutual_conversations'), 'Load sender conversations');
   assert.ok(hostConversations.some((conversation) => conversation.peer?.id === guest.id), 'Mutual follows should create an inbox conversation even before more messages exist');
   const guestConversations = expectNoError(await guest.client.rpc('list_mutual_conversations'), 'Load recipient conversations');
@@ -155,6 +167,15 @@ try {
   const leakedWallet = expectNoError(await guest.client.from('coin_wallets').select('user_id').eq('user_id', host.id), 'Check wallet row isolation');
   assert.equal(leakedWallet.length, 0, 'A member must not read another member wallet');
 
+  const creditArgs = { p_user_id: third.id, p_product_id: 'com.circles.coins.120', p_transaction_id: `e2e:${runId}:purchase` };
+  assert.ok((await third.client.rpc('credit_coin_purchase', creditArgs)).error, 'Clients must not credit their own wallets');
+  assert.ok((await anon.rpc('credit_coin_purchase', creditArgs)).error, 'Anonymous callers must not credit wallets');
+  const purchaseBalance = expectNoError(await admin.rpc('credit_coin_purchase', creditArgs), 'Credit a verified service purchase');
+  assert.equal(Number(purchaseBalance), 120);
+  assert.equal(expectNoError(await admin.rpc('credit_coin_purchase', creditArgs), 'Retry a verified service purchase'), purchaseBalance, 'Purchase retries must not double-credit');
+  const purchaseLedger = expectNoError(await admin.from('coin_ledger').select('id').eq('user_id', third.id).eq('idempotency_key', `purchase:${creditArgs.p_transaction_id}`), 'Read purchase ledger');
+  assert.equal(purchaseLedger.length, 1);
+
   if (process.env.CIRCLES_E2E_STREAM_FUNCTIONS === 'true') {
     expectNoError(await admin.from('live_sessions').update({ host_heartbeat_at: new Date(Date.now() - 120_000).toISOString() }).eq('id', liveId), 'Age host heartbeat for token expiry test');
     const staleToken = await host.client.functions.invoke('issue-stream-token', { body: { sessionId: liveId, role: 'host' } });
@@ -162,13 +183,15 @@ try {
     assert.equal(staleToken.error.context?.status, 404, 'Stale live-room token requests should return not found');
   }
 
+  expectNoError(await guest.client.from('follows').insert({ follower_id: guest.id, followee_id: host.id }), 'Restore mutual follow before blocking');
   expectNoError(await host.client.rpc('block_user', { target_user_id: guest.id }), 'Block a follower');
+  expectNoError(await host.client.rpc('block_user', { target_user_id: guest.id }), 'Repeat block without error');
   const remainingFollowEdges = expectNoError(await host.client.from('follows').select('follower_id,followee_id').or(`and(follower_id.eq.${host.id},followee_id.eq.${guest.id}),and(follower_id.eq.${guest.id},followee_id.eq.${host.id})`), 'Verify blocking removes both follow edges');
   assert.equal(remainingFollowEdges.length, 0, 'Blocking must remove the follower and following relationships');
   const refollow = await guest.client.from('follows').insert({ follower_id: guest.id, followee_id: host.id });
   assert.ok(refollow.error, 'A blocked follower must not be able to follow again');
 
-  console.log('PASS: own-profile edits and profile RLS, follower/following lists, accurate circle counts, public/private membership flows, owner protection, post creation, mutual-follow DM and unfollow revocation, follower blocking/refollow rejection, host-only live heartbeats, co-host limits, idempotent gifts, and wallet RLS.');
+  console.log('PASS: profile RLS, follow lists, circle membership/counts and owner protection, draft media privacy/upload/cleanup, DM read receipts and immutable contents, unfollow revocation, blocking, host-only heartbeats, co-host limits, idempotent gifts and purchase credits, and wallet RLS.');
 } finally {
   if (testMediaPaths.length) {
     const { error } = await admin.storage.from('post-media').remove(testMediaPaths);

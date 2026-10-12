@@ -236,7 +236,7 @@ function CirclesApp() {
       } catch (error) { if (active) showMessage(error instanceof Error ? error.message : 'Could not refresh circle memberships.'); }
     };
     const channel = supabase!.channel(`memberships-${profile.id}`).on('postgres_changes', { event: '*', schema: 'public', table: 'circle_memberships' }, () => void refreshMemberships()).subscribe();
-    const postsChannel = supabase!.channel(`posts-${profile.id}`).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts' }, async () => {
+    const postsChannel = supabase!.channel(`posts-${profile.id}`).on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, async () => {
       try { const nextFeed = await loadPosts(0, FEED_PAGE_SIZE); if (active) { setFeed(nextFeed); setFeedHasMore(nextFeed.length === FEED_PAGE_SIZE); } }
       catch (error) { if (active) showMessage(error instanceof Error ? error.message : 'Could not refresh posts.'); }
     }).subscribe();
@@ -264,7 +264,7 @@ function CirclesApp() {
     void refreshCirclePosts();
     if (!backendReady || !signedIn || !supabase) return () => { active = false; };
     const channel = supabase.channel(`circle-posts-${selectedCircle.id}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts', filter: `circle_id=eq.${selectedCircle.id}` }, () => void refreshCirclePosts())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'posts', filter: `circle_id=eq.${selectedCircle.id}` }, () => void refreshCirclePosts())
       .subscribe();
     return () => { active = false; void supabase?.removeChannel(channel); };
   }, [selectedCircle?.id, selectedCircle?.isMember, signedIn]);

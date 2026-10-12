@@ -7,4 +7,5 @@ android/
 .env
 .env.local
 .pnpm-store/
+supabase/.temp/
 *.log

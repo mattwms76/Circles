@@ -1,7 +1,5 @@
 project_id = "circles-social"
 
-project_id = "circles-social"
-
 [functions.issue-stream-token]
 verify_jwt = true
 

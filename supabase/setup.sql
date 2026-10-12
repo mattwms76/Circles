@@ -350,8 +350,9 @@ create policy "Members leave their own circles" on public.circle_memberships for
   user_id = (select auth.uid()) and role <> 'owner'
 );
 create policy "Joined members read published circle posts" on public.posts for select to authenticated using (
-  visibility = 'published' and not private.are_blocked((select auth.uid()), author_id) and exists (
-    select 1 from public.circle_memberships m where m.circle_id = posts.circle_id and m.user_id = (select auth.uid()) and m.status = 'member'
+  private.is_circle_member(circle_id, (select auth.uid())) and (
+    (visibility = 'published' and not private.are_blocked((select auth.uid()), author_id))
+    or (visibility = 'removed' and author_id = (select auth.uid()))
   )
 );
 create policy "Joined members create their own posts" on public.posts for insert to authenticated with check (
@@ -422,10 +423,13 @@ create policy "Members upload media into their own post folder" on storage.objec
 );
 create policy "Members read media for posts they can read" on storage.objects for select to authenticated using (
   bucket_id = 'post-media' and exists (
-    select 1 from public.posts p join public.circle_memberships m on m.circle_id = p.circle_id
-    where p.id::text = (storage.foldername(name))[2] and p.visibility = 'published'
-      and m.user_id = (select auth.uid()) and m.status = 'member'
-      and not private.are_blocked((select auth.uid()), p.author_id)
+    select 1 from public.posts p
+    where p.id::text = (storage.foldername(name))[2]
+      and private.is_circle_member(p.circle_id, (select auth.uid()))
+      and (
+        (p.visibility = 'published' and not private.are_blocked((select auth.uid()), p.author_id))
+        or (p.visibility = 'removed' and p.author_id = (select auth.uid()))
+      )
   )
 );
 create policy "Authors delete their media" on storage.objects for delete to authenticated using (
@@ -477,16 +481,17 @@ as $$
 declare
   leaving_user uuid := (select auth.uid());
   membership_status public.circle_member_status;
-  membership_role text;
 begin
   if leaving_user is null then raise exception 'Sign in required'; end if;
-  select m.status, m.role into membership_status, membership_role
-    from public.circle_memberships m
-    where m.circle_id = target_circle_id and m.user_id = leaving_user
-    for update;
+  if private.is_circle_owner(target_circle_id, leaving_user) then
+    raise exception 'Circle owners cannot leave while they own the circle';
+  end if;
+  -- DELETE locks the row itself and uses the member's DELETE policy. FOR UPDATE
+  -- would instead require the owners-only UPDATE policy and hide ordinary members.
+  delete from public.circle_memberships
+    where circle_id = target_circle_id and user_id = leaving_user and role <> 'owner'
+    returning status into membership_status;
   if not found then return 'not_member'; end if;
-  if membership_role = 'owner' then raise exception 'Circle owners cannot leave while they own the circle'; end if;
-  delete from public.circle_memberships where circle_id = target_circle_id and user_id = leaving_user;
   return case when membership_status = 'pending' then 'request_cancelled' else 'left' end;
 end;
 $$;
@@ -729,15 +734,15 @@ language plpgsql
 security invoker
 set search_path = ''
 as $$
-declare blocker_id uuid := (select auth.uid());
+declare v_blocker_id uuid := (select auth.uid());
 begin
-  if blocker_id is null then raise exception 'Sign in to block people'; end if;
-  if target_user_id is null or target_user_id = blocker_id then raise exception 'You cannot block this account'; end if;
-  insert into public.blocks (blocker_id, blocked_id) values (blocker_id, target_user_id)
+  if v_blocker_id is null then raise exception 'Sign in to block people'; end if;
+  if target_user_id is null or target_user_id = v_blocker_id then raise exception 'You cannot block this account'; end if;
+  insert into public.blocks (blocker_id, blocked_id) values (v_blocker_id, target_user_id)
     on conflict (blocker_id, blocked_id) do nothing;
   delete from public.follows
-    where (follower_id = blocker_id and followee_id = target_user_id)
-       or (follower_id = target_user_id and followee_id = blocker_id);
+    where (follower_id = v_blocker_id and followee_id = target_user_id)
+       or (follower_id = target_user_id and followee_id = v_blocker_id);
 end;
 $$;
 revoke all on function public.block_user(uuid) from public, anon;
@@ -751,7 +756,9 @@ set search_path = ''
 as $$
 declare amount integer; balance_after bigint;
 begin
-  if coalesce(current_setting('request.jwt.claim.role', true), '') <> 'service_role' then raise exception 'Service role required'; end if;
+  if coalesce(nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role', '') <> 'service_role' then
+    raise exception 'Service role required';
+  end if;
   select coin_amount into amount from public.coin_packs where id = p_product_id and is_active;
   if amount is null then raise exception 'Coin pack unavailable'; end if;
   insert into public.coin_wallets (user_id) values (p_user_id) on conflict (user_id) do nothing;
@@ -810,6 +817,10 @@ update public.circles c set members_count = (
 grant usage on schema public to authenticated;
 grant select on public.profiles, public.circles, public.circle_memberships, public.posts, public.post_media, public.post_likes, public.post_comments, public.follows, public.direct_messages, public.blocks, public.reports, public.live_sessions, public.live_seats, public.live_seat_requests, public.gifts, public.coin_wallets, public.coin_ledger, public.live_gifts, public.coin_packs to authenticated;
 grant update on public.profiles, public.posts to authenticated;
+-- A column grant does not override Supabase's existing table-level UPDATE grant.
+revoke update on public.direct_messages from public, anon, authenticated;
+revoke update (id, sender_id, recipient_id, body, created_at, read_at)
+  on public.direct_messages from public, anon, authenticated;
 grant update (read_at) on public.direct_messages to authenticated;
 grant update (name, description, interest, is_private, cover_url, cover_color) on public.circles to authenticated;
 grant update (status) on public.circle_memberships to authenticated;
