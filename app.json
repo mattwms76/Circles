@@ -1,0 +1,37 @@
+{
+  "expo": {
+    "name": "Circles",
+    "slug": "circles-social",
+    "scheme": "circles",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": false,
+      "deploymentTarget": "16.4",
+      "bundleIdentifier": "com.circles.social",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Circles uses your camera when you create a post or go live.",
+        "NSMicrophoneUsageDescription": "Circles uses your microphone during livestreams and when recording video."
+      }
+    },
+    "android": {
+      "package": "com.circles.social",
+      "permissions": ["CAMERA", "RECORD_AUDIO", "READ_MEDIA_IMAGES", "READ_MEDIA_VIDEO"]
+    },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Choose photos and videos to share with your circles.",
+          "cameraPermission": "Go live and capture moments for your circles.",
+          "microphonePermission": "Share your voice while you stream or record video."
+        }
+      ],
+      "expo-dev-client",
+      "expo-iap"
+    ],
+    "extra": {}
+  }
+}

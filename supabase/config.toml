@@ -1,0 +1,9 @@
+project_id = "circles-social"
+
+project_id = "circles-social"
+
+[functions.issue-stream-token]
+verify_jwt = true
+
+[functions.verify-coin-purchase]
+verify_jwt = true
