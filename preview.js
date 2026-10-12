@@ -16,6 +16,8 @@
   try { savedProfile = JSON.parse(localStorage.getItem('circles-preview-profile') || '{}'); } catch { /* file previews may not expose local storage */ }
   const state = {
     screen: 'home',
+    returnScreen: 'home',
+    activeCircle: null,
     displayName: savedProfile.displayName || 'Jules Parker',
     bio: savedProfile.bio || 'Collecting little moments and big ideas.',
     circles: [
@@ -26,6 +28,13 @@
       ['Quiet Mornings', 'Slow living', 'A private circle for slower starts.', '841', false, '☕️', true],
     ],
     requestedCircles: new Set(),
+    circlePosts: {
+      'The Film Room': [{ author: 'Mara Ellis', body: 'A little reminder that the best part of a film club is hearing what everyone noticed.', time: 'Yesterday' }],
+      'Tiny Gardens': [{ author: 'Mara Ellis', body: 'First tomato of the season. She is tiny, she is perfect, and she knows it 🍅', time: '2h ago' }],
+      'Sunday Studio': [{ author: 'Cleo James', body: 'What are you making this weekend? Half-finished things welcome here.', time: '3h ago' }],
+      'Kitchen Table Club': [{ author: 'Cleo James', body: 'A pot of lemon pasta and a seat saved for anyone who needs one 🍋', time: '1h ago' }],
+      'Quiet Mornings': [{ author: 'Noah Kim', body: 'No goals for this morning. Just tea, a window, and a slower start.', time: 'Today' }],
+    },
     following: new Set(['Mara Ellis', 'Noah Kim']),
     followers: new Set(['Cleo James', 'Mara Ellis']),
     likes: false,
@@ -48,7 +57,7 @@
   document.head.append(style);
 
   const circlesScreen = () => `<header class="screenHead"><div class="eyebrow">FIND YOUR PEOPLE</div><h1>Explore circles</h1><p>Good corners of the internet, made by people like you.</p></header><div style="padding:0 22px"><input class="demoInput" id="circleSearch" placeholder="Search interests and circles" aria-label="Search circles"></div><div class="demoFilters">${['For you','Film','Gardening','Art','Cooking','Music','Slow living'].map((x,i)=>`<button class="demoChip ${i===0?'on':''}" data-filter="${x}">${x}</button>`).join('')}</div><div class="sectionHead" style="padding:0 22px"><div><div class="eyebrow">A FEW GOOD PLACES</div><h2 id="circleCount">${state.circles.length} circles to explore</h2></div><button class="demoButton" data-action="createCircle">＋ Create</button></div><div class="demoList" id="circleList">${state.circles.map(circleCard).join('')}</div><div class="sectionHead" style="padding:0 22px"><div><div class="eyebrow">PEOPLE TO MEET</div><h2>Follow your curiosity</h2></div></div>${peopleRows()}`;
-  const circleCard = ([name, interest, desc, count, joined, emoji]) => `<article class="demoCard demoCircle" data-circle="${escapeHtml(`${name.toLowerCase()} ${interest.toLowerCase()}`)}"><div class="demoCircleHero">${emoji}</div><div class="demoCircleInfo"><div class="demoTitle">${escapeHtml(name)}</div><p class="demoCopy">${escapeHtml(desc)}</p><div class="demoCircleFoot"><span class="demoCopy">${escapeHtml(interest)} · ${escapeHtml(count)} members</span><button class="demoButton ${joined?'soft':''}" data-action="join" data-name="${escapeHtml(name)}">${joined?'Joined':'Join'}</button></div></div></article>`;
+  const circleCard = ([name, interest, desc, count, joined, emoji]) => `<article class="demoCard demoCircle" role="button" tabindex="0" data-action="openCircle" data-name="${escapeHtml(name)}" data-circle="${escapeHtml(`${name.toLowerCase()} ${interest.toLowerCase()}`)}"><div class="demoCircleHero">${emoji}</div><div class="demoCircleInfo"><div class="demoTitle">${escapeHtml(name)}</div><p class="demoCopy">${escapeHtml(desc)}</p><div class="demoCircleFoot"><span class="demoCopy">${escapeHtml(interest)} · ${escapeHtml(count)} members</span><button class="demoButton ${joined?'soft':''}" data-action="join" data-name="${escapeHtml(name)}">${joined?'Joined':'Join'}</button></div><p class="demoCopy" style="margin-top:9px;color:#ef715b;font-weight:750">Open circle ›</p></div></article>`;
   const peopleRows = () => [
     ['Mara Ellis','maramakes','Photography · Art','https://images.unsplash.com/photo-1531123897727-8f129e1688ce?w=160&h=160&fit=crop&crop=faces'],
     ['Noah Kim','noahafterhours','Music · Film','https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=160&h=160&fit=crop&crop=faces'],
@@ -64,22 +73,42 @@
     };
     return [...names].map(name => { const [handle, image] = known[name] || ['member', '']; return `<div class="demoPerson"><img src="${image}" alt=""><div class="grow"><div class="demoTitle">${escapeHtml(name)}</div><p class="demoCopy">@${escapeHtml(handle)}</p></div></div>`; }).join('');
   };
+  const circleScreen = () => {
+    const circle = state.circles.find((item) => item[0] === state.activeCircle);
+    if (!circle) return `<header class="screenHead"><button class="demoButton soft" data-action="backCircle">‹ Back to circles</button><h1>Circle not found</h1></header>`;
+    const [name, interest, description, count, joined, emoji, isPrivate] = circle;
+    const requested = state.requestedCircles.has(name);
+    const posts = (state.circlePosts[name] || []).map((post) => `<article class="post"><div class="postMeta"><img src="https://images.unsplash.com/photo-1531123897727-8f129e1688ce?w=160&h=160&fit=crop&crop=faces" alt=""><div><div class="author">${escapeHtml(post.author)}</div><div class="meta">${escapeHtml(name)} · ${escapeHtml(post.time)}</div></div></div><p class="body">${escapeHtml(post.body)}</p></article>`).join('');
+    const membership = joined
+      ? `<button class="demoButton" data-action="writeCirclePost" data-name="${escapeHtml(name)}">Write a post in this circle</button><button class="demoButton soft" data-action="leaveCircle" data-name="${escapeHtml(name)}" style="margin-left:8px">Leave circle</button>`
+      : requested
+        ? `<button class="demoButton soft" data-action="cancelCircleRequest" data-name="${escapeHtml(name)}">Request pending · cancel</button>`
+        : `<button class="demoButton" data-action="join" data-name="${escapeHtml(name)}">${isPrivate ? 'Request to join' : 'Join this circle'}</button>`;
+    return `<header class="screenHead"><button class="demoButton soft" data-action="backCircle">‹ Back</button><div class="eyebrow" style="margin-top:14px">${isPrivate ? 'PRIVATE' : 'PUBLIC'} CIRCLE · ${escapeHtml(interest.toUpperCase())}</div><h1>${emoji} ${escapeHtml(name)}</h1><p>${escapeHtml(description)}</p><p style="margin-top:8px">${escapeHtml(count)} members ${joined ? '· You’re a member' : requested ? '· Your request is pending' : ''}</p><div style="margin-top:14px">${membership}</div></header><section class="section"><div class="sectionHead"><div><div class="eyebrow">YOUR COMMUNITY</div><h2>Posts in this circle</h2></div></div>${joined ? posts || '<p class="demoCopy">No posts yet. Start the conversation.</p>' : `<div class="demoCard"><div class="demoTitle">${requested ? 'Your request is with the host' : 'Join to enter the conversation'}</div><p class="demoCopy" style="margin-top:5px">Members can read and share posts here.</p></div>`}</section>`;
+  };
   const profileScreen = () => `<header class="screenHead"><div class="eyebrow">YOUR LITTLE CORNER</div><h1>${escapeHtml(state.displayName)}</h1><p>@julesmakes · ${escapeHtml(state.bio)}</p></header><div class="demoCard walletDemo demoRow"><div class="grow"><div class="demoCopy">YOUR WALLET</div><div style="font-size:23px;font-weight:850;margin-top:5px">◉ ${state.coins} <span style="font-size:12px;font-weight:500">coins</span></div></div><button class="demoButton" data-action="buyCoins">Add coins</button></div><div class="demoCard demoRow"><div class="grow"><div class="demoTitle">${state.following.size} following</div><p class="demoCopy">Your profile and interests</p></div><button class="demoButton soft" data-action="editProfile">Edit profile</button></div><section class="section"><div class="sectionHead"><div><div class="eyebrow">YOUR COMMUNITY</div><h2>Following · ${state.following.size}</h2></div></div><div class="demoList" style="padding:0">${profilePeople(state.following)}</div></section><section class="section"><div class="sectionHead"><div><div class="eyebrow">YOUR COMMUNITY</div><h2>Followers · ${state.followers.size}</h2></div></div><div class="demoList" style="padding:0">${profilePeople(state.followers)}</div></section><div class="sectionHead" style="padding:8px 22px"><div><div class="eyebrow">YOUR CIRCLES</div><h2>Places you belong</h2></div></div><div class="demoList">${state.circles.filter(c=>c[4]).map(circleCard).join('')}</div>`;
 
   function render(screen = state.screen) {
     state.screen = screen;
-    tabs.forEach((tab, index) => { const active = ['home','circles','live','inbox','profile'][index] === screen; tab.classList.toggle('active', active); tab.setAttribute('role','button'); tab.setAttribute('tabindex','0'); tab.setAttribute('aria-current',active?'page':'false'); });
+    const activeScreen = screen === 'circle' ? state.returnScreen : screen;
+    tabs.forEach((tab, index) => { const active = ['home','circles','live','inbox','profile'][index] === activeScreen; tab.classList.toggle('active', active); tab.setAttribute('role','button'); tab.setAttribute('tabindex','0'); tab.setAttribute('aria-current',active?'page':'false'); });
     page.scrollTop = 0;
-    page.innerHTML = screen === 'home' ? homeMarkup : screen === 'circles' ? circlesScreen() : screen === 'live' ? liveScreen() : screen === 'inbox' ? inboxScreen() : profileScreen();
+    page.innerHTML = screen === 'home' ? homeMarkup : screen === 'circles' ? circlesScreen() : screen === 'live' ? liveScreen() : screen === 'inbox' ? inboxScreen() : screen === 'circle' ? circleScreen() : profileScreen();
+    makePreviewControlsAccessible();
     const greeting = page.querySelector('.intro .sub');
     if (greeting) greeting.textContent = `Good morning, ${state.displayName.split(' ')[0]}. What feels like you today?`;
     if(screen==='home'&&state.posts.length){const section=[...page.querySelectorAll('.section')].at(-1);if(section)for(const post of state.posts)section.insertAdjacentHTML('beforeend',post);}
-    document.querySelector('.note').textContent = `Circles · ${screen === 'circles' ? 'explore' : screen} screen · local prototype`;
+    document.querySelector('.note').textContent = `Circles · ${screen === 'circle' ? state.activeCircle : screen === 'circles' ? 'explore' : screen} screen · local prototype`;
   }
   function toast(message) {
     document.querySelector('.toastDemo')?.remove();
     const el = document.createElement('div'); el.className='toastDemo'; el.textContent=message; document.querySelector('.device').append(el);
     setTimeout(()=>el.remove(),2200);
+  }
+  function openCircle(name) {
+    if (state.screen !== 'circle') state.returnScreen = state.screen;
+    state.activeCircle = name;
+    render('circle');
   }
   function modal(title, content) {
     document.querySelector('.modalDemo')?.remove();
@@ -105,8 +134,8 @@
     modal('Live preview', `<p class="previewNotice">Local simulation · no Agora connection or other users are involved.</p><div class="liveDemo" style="margin:0 0 12px;min-height:160px"><div class="demoRow"><span class="badge"><i class="redDot"></i> LIVE</span><span class="viewers">◉ 1.2k watching</span></div><div><h2>${escapeHtml(live.title)}</h2><p>Stage · ${live.seats.length}/4</p></div></div><div class="demoRow" style="flex-wrap:wrap">${seats}</div><div style="display:flex;gap:8px;margin:12px 0">${hostControls}</div><button class="demoButton" data-action="openGifts">🎁 ${live.giftsOpen?'Hide':'Browse'} 300 gifts · ◉ ${state.coins}</button>${gifts}<div style="margin-top:10px">${state.liveGiftEvents.slice(0,3).map(event=>`<p class="demoCopy">${event.emoji} ${escapeHtml(event.name)} · ${event.coins} coins</p>`).join('')}</div><button class="demoChip" data-action="closeLive">Close room</button>`);
   }
 
-  tabs.forEach((tab,index)=>tab.addEventListener('click',()=>render(['home','circles','live','inbox','profile'][index])));
-  tabs.forEach((tab,index)=>tab.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();render(['home','circles','live','inbox','profile'][index]);}}));
+  tabs.forEach((tab,index)=>tab.addEventListener('click',()=>{state.activeCircle=null;render(['home','circles','live','inbox','profile'][index]);}));
+  tabs.forEach((tab,index)=>tab.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();state.activeCircle=null;render(['home','circles','live','inbox','profile'][index]);}}));
   document.addEventListener('click', event => {
     const target=event.target.closest('[data-action], [data-filter], .link, .quick, .postActions span, .live, .play, .circle, .avatar, .more'); if(!target)return;
     const action=target.dataset.action;
@@ -115,11 +144,16 @@
     if(target.classList.contains('link')) { if(target.textContent.includes('Explore')) render('circles'); else if(target.textContent.includes('all'))render('live');else if(target.textContent.includes('post'))openComposer();return; }
     if(target.classList.contains('avatar')){render('profile');return;}
     if(target.classList.contains('live')||target.classList.contains('play')){openLive('Cleo James');return;}
-    if(target.classList.contains('circle')){const name=target.querySelector('.circleName')?.textContent||'Your circle';const circle=state.circles.find(c=>c[0]===name);modal(escapeHtml(name),`<p class="demoCopy" style="margin-bottom:15px">A little place to share what you love. Join the conversation and meet your people.</p>${circle&&!circle[4]?`<button class="demoButton" data-action="join" data-name="${escapeHtml(name)}">${state.requestedCircles.has(name)?'Request sent':circle[6]?'Request to join':'Join this circle'}</button>`:'<p class="demoCopy">You’re a member of this circle. Posts and conversations are waiting for you.</p>'}`);return;}
+    if(action==='openCircle'){openCircle(target.dataset.name);return;}
+    if(target.classList.contains('circle')){const name=target.querySelector('.circleName')?.textContent||'Your circle';openCircle(name);return;}
     if(target.classList.contains('more')){modal('Keep Circles kind',`<p class="demoCopy" style="margin-bottom:14px">This prototype cannot submit a report to moderation.</p><button class="demoButton soft" data-action="report">Dismiss preview</button>`);return;}
     if(target.closest('.postActions')) { const label=target.textContent; if(label.includes('♥')){state.likes=!state.likes;target.textContent=state.likes?'♥　285':'♥　284';toast(state.likes?'You liked this post.':'Like removed.');}else if(label.includes('Reply'))modal('Replies',`<p class="demoCopy">Join the conversation in Tiny Gardens.</p><form data-form="reply" class="demoRow"><input class="demoInput" name="message" placeholder="Write a reply…" style="margin:0"><button class="demoButton">Send</button></form>`);else toast('Post link copied to share.');return; }
     if(action==='createCircle') modal('Create a circle',`<form data-form="circle"><input class="demoInput" name="name" required placeholder="Circle name"><input class="demoInput" name="interest" required placeholder="Interest"><textarea class="demoArea" name="description" placeholder="What brings your people together?"></textarea><label class="demoCopy"><input type="checkbox" name="private"> Make this circle private</label><button class="demoButton" style="width:100%;margin-top:14px">Create your circle</button></form>`);
-    else if(action==='join'){const c=state.circles.find(c=>c[0]===target.dataset.name);if(c&&!c[4]){if(c[6]){state.requestedCircles.add(c[0]);target.textContent='Request sent';target.disabled=true;toast('Your request is with the circle host.');}else{c[4]=true;target.textContent='Joined';target.classList.add('soft');document.querySelector('.modalDemo')?.remove();toast(`You joined ${c[0]}.`);}}}
+    else if(action==='join'){const c=state.circles.find(c=>c[0]===target.dataset.name);if(c&&!c[4]){if(c[6]){state.requestedCircles.add(c[0]);toast('Your request is with the circle host.');}else{c[4]=true;toast(`You joined ${c[0]}.`);}render(state.screen);}}
+    else if(action==='cancelCircleRequest'){state.requestedCircles.delete(target.dataset.name);render('circle');toast('Your request was cancelled.');}
+    else if(action==='leaveCircle'){const c=state.circles.find(c=>c[0]===target.dataset.name);if(c)c[4]=false;render('circle');toast(`You left ${target.dataset.name}.`);}
+    else if(action==='backCircle'){const returnTo=state.returnScreen;state.activeCircle=null;render(returnTo);}
+    else if(action==='writeCirclePost'){openComposer(target.dataset.name);}
     else if(action==='follow'){const n=target.dataset.name;if(state.following.has(n)){state.following.delete(n);target.textContent='Follow';target.classList.remove('soft');toast(`You unfollowed ${n}.`);}else{state.following.add(n);target.textContent='Following';target.classList.add('soft');toast(`You’re following ${n}.`);}}
     else if(action==='startLive')modal('Go live',`<p class="demoCopy" style="margin-bottom:14px">Your room can have you and up to three co-hosts. Viewers can request a seat.</p><input id="liveTitle" class="demoInput" placeholder="What are we hanging out for?"><button class="demoButton" style="width:100%" data-action="confirmLive">Start livestream</button>`);
     else if(action==='confirmLive'){const title=document.querySelector('#liveTitle')?.value||'A little live moment';state.liveSession={title,host:state.displayName,seats:[state.displayName],requests:[],hostMode:true,giftsOpen:false};state.liveGiftEvents=[];renderLive(true);}
@@ -141,21 +175,34 @@
       if(!body&&!state.attachment){toast('Write something or attach media first.');return;}
       const circle=document.querySelector('.modalDemo select')?.value||'Your circle';
       state.posts.unshift(`<article class="post"><div class="postMeta"><img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=160&h=160&fit=crop&crop=faces" alt=""><div><div class="author">Jules Parker</div><div class="meta">${escapeHtml(circle)} · now</div></div></div><p class="body">${escapeHtml(body)}</p>${state.attachment?`<p class="demoCopy">📎 ${escapeHtml(state.attachment)}</p>`:''}<div class="postActions"><span>♡　0</span><span>◯　Reply</span><span>↗　Share</span></div></article>`);
-      state.attachment='';document.querySelector('.modalDemo')?.remove();render('home');toast('Added to this browser preview. It was not sent to a circle.');
+      state.circlePosts[circle] ||= [];
+      state.circlePosts[circle].unshift({author:state.displayName,body:body||`Shared ${state.attachment}`,time:'now'});
+      state.attachment='';document.querySelector('.modalDemo')?.remove();render(state.screen==='circle'?'circle':'home');toast(`Added to ${circle} in this local preview.`);
     }
     else if(action==='report'){document.querySelector('.modalDemo')?.remove();toast('Preview only: no report was submitted.');}
     else if(action==='closeModal')document.querySelector('.modalDemo')?.remove();
   });
-  function openComposer(){state.attachment='';modal('Share a little something',`<select class="demoInput" aria-label="Choose a circle">${state.circles.filter(c=>c[4]).map(c=>`<option>${c[0]}</option>`).join('')}</select><textarea class="demoArea" name="body" placeholder="What’s on your mind?"></textarea><div class="demoRow" style="margin-bottom:12px"><button class="demoChip" data-action="media" data-kind="image">▧ Photo</button><button class="demoChip" data-action="media" data-kind="gif">GIF</button><button class="demoChip" data-action="media" data-kind="video">▷ Video</button><span class="demoCopy" id="attachmentName"></span></div><input type="file" id="mediaPicker" hidden><button class="demoButton" style="width:100%" data-action="publish">Share with your circle</button>`);}
+  function openComposer(circleName){state.attachment='';modal('Share a little something',`<select class="demoInput" aria-label="Choose a circle">${state.circles.filter(c=>c[4]).map(c=>`<option ${c[0]===circleName?'selected':''}>${escapeHtml(c[0])}</option>`).join('')}</select><textarea class="demoArea" name="body" placeholder="What’s on your mind?"></textarea><div class="demoRow" style="margin-bottom:12px"><button class="demoChip" data-action="media" data-kind="image">▧ Photo</button><button class="demoChip" data-action="media" data-kind="gif">GIF</button><button class="demoChip" data-action="media" data-kind="video">▷ Video</button><span class="demoCopy" id="attachmentName"></span></div><input type="file" id="mediaPicker" hidden><button class="demoButton" style="width:100%" data-action="publish">Share with your circle</button>`);}
   function escapeHtml(value){return value.replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));}
   function filterCircles(query){const q=query==='For you'?'':query.toLowerCase();document.querySelectorAll('.demoCircle').forEach(el=>el.style.display=el.dataset.circle.includes(q)?'':'none');const count=[...document.querySelectorAll('.demoCircle')].filter(el=>el.style.display!=='none').length;const title=document.querySelector('#circleCount');if(title)title.textContent=`${count} circles to explore`;}
   document.addEventListener('input',event=>{if(event.target.id==='circleSearch'){const value=event.target.value.toLowerCase();document.querySelectorAll('.demoCircle').forEach(el=>el.style.display=el.dataset.circle.includes(value)?'':'none');}if(event.target.id==='giftSearch'){state.giftSearch=event.target.value.toLowerCase();document.querySelectorAll('.giftGridPreview button').forEach(el=>el.style.display=el.dataset.gift.toLowerCase().includes(state.giftSearch)?'':'none');}});
   document.addEventListener('change',event=>{if(event.target.id==='mediaPicker'&&event.target.files?.[0]){state.attachment=event.target.files[0].name;const label=document.querySelector('#attachmentName');if(label)label.textContent=state.attachment;}});
-  document.addEventListener('submit',event=>{const form=event.target.closest('[data-form]');if(!form)return;event.preventDefault();const data=new FormData(form);if(form.dataset.form==='message'){const body=String(data.get('message')||'').trim();if(!body)return;state.messages.push(body);openChat(state.activeChat);}else if(form.dataset.form==='circle'){const name=String(data.get('name')||'').trim(),interest=String(data.get('interest')||'').trim();if(!name||!interest)return;const isPrivate=data.get('private')==='on';state.circles.unshift([name,interest,String(data.get('description')||'A new place to share what you love.'),'1',!isPrivate,'🫶',isPrivate]);document.querySelector('.modalDemo')?.remove();render('circles');toast(isPrivate?`${name} is ready. People can request to join.`:`${name} is ready.`);}else{document.querySelector('.modalDemo')?.remove();toast('Your reply was added.');}});
+  document.addEventListener('submit',event=>{const form=event.target.closest('[data-form]');if(!form)return;event.preventDefault();const data=new FormData(form);if(form.dataset.form==='message'){const body=String(data.get('message')||'').trim();if(!body)return;state.messages.push(body);openChat(state.activeChat);}else if(form.dataset.form==='circle'){const name=String(data.get('name')||'').trim(),interest=String(data.get('interest')||'').trim();if(!name||!interest)return;const isPrivate=data.get('private')==='on';state.circles.unshift([name,interest,String(data.get('description')||'A new place to share what you love.'),'1',true,'🫶',isPrivate]);document.querySelector('.modalDemo')?.remove();render('circles');toast(`${name} is ready.`);}else{document.querySelector('.modalDemo')?.remove();toast('Your reply was added.');}});
 
   document.addEventListener('click',event=>{const picker=event.target.closest('[data-action="media"]');if(picker){const input=document.querySelector('#mediaPicker');if(input){input.accept=picker.dataset.kind==='video'?'video/*':picker.dataset.kind==='gif'?'.gif,image/gif':'image/*';input.click();}}});
 
-  // Give controls in the original home screen semantic button behavior.
-  document.querySelectorAll('.quick,.link,.postActions span').forEach(el=>{el.setAttribute('role','button');el.setAttribute('tabindex','0');});
-  document.querySelectorAll('.quick,.link,.postActions span').forEach(el=>el.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();el.click();}}));
+  const previewControlSelector = '[data-action],.quick,.link,.postActions span,.live,.play,.circle,.avatar,.more';
+  function makePreviewControlsAccessible() {
+    document.querySelectorAll(previewControlSelector).forEach((element) => {
+      element.setAttribute('role', 'button');
+      element.setAttribute('tabindex', '0');
+    });
+  }
+  document.addEventListener('keydown', (event) => {
+    const target = event.target.closest?.(previewControlSelector);
+    if (!target || (event.key !== 'Enter' && event.key !== ' ')) return;
+    event.preventDefault();
+    target.click();
+  });
+  makePreviewControlsAccessible();
 })();

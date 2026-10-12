@@ -8,10 +8,10 @@ import { CoinStore } from './src/components/CoinStore';
 import { ActionButton } from './src/components/Primitives';
 import { colors } from './src/theme';
 import { styles } from './src/appStyles';
-import { Attachment, Tab, HomeScreen, ExploreScreen, LiveScreen, InboxScreen, ProfileScreen, PublicProfileScreen, CircleDetailSheet, PostRepliesSheet, TabBar, CreatePostSheet, CreateCircleSheet, StartLiveSheet, LiveRoom, ChatScreen } from './src/screens/AppScreens';
+import { Attachment, Tab, HomeScreen, ExploreScreen, LiveScreen, InboxScreen, ProfileScreen, PublicProfileScreen, CircleDetailScreen, PostRepliesSheet, TabBar, CreatePostSheet, CreateCircleSheet, StartLiveSheet, LiveRoom, ChatScreen } from './src/screens/AppScreens';
 import { circles as seedCircles, conversations as seedConversations, currentUser as demoUser, gifts as seedGifts, liveSessions as seedLives, people, posts as seedPosts } from './src/data/demo';
 import { backendReady, supabase } from './src/lib/supabase';
-import { blockUser, createCircle, createIdempotencyKey, createLiveSession, createPost, createPostComment, decideCircleJoinRequest, decideCoHostRequest, endLiveSession, followUser, heartbeatLiveSession, joinCircle, leaveCircle, loadCircleRequests, loadCircles, loadConversationMessages, loadConversations, loadFollowers, loadFollowing, loadGiftCatalog, loadLiveGiftEvents, loadLiveSessions, loadMyPendingCircleIds, loadOwnProfile, loadPeopleAndFollows, loadPosts, loadPostComments, markConversationRead, reportContent, requestCoHost, sendDirectMessage, sendGift, togglePostLike, unfollowUser, updateOwnProfile, loadPublicProfile, loadUserFollowers, loadUserFollowing } from './src/lib/repositories';
+import { blockUser, createCircle, createIdempotencyKey, createLiveSession, createPost, createPostComment, decideCircleJoinRequest, decideCoHostRequest, endLiveSession, followUser, heartbeatLiveSession, joinCircle, leaveCircle, loadCirclePosts, loadCircleRequests, loadCircles, loadConversationMessages, loadConversations, loadFollowers, loadFollowing, loadGiftCatalog, loadLiveGiftEvents, loadLiveSessions, loadMyPendingCircleIds, loadOwnProfile, loadPeopleAndFollows, loadPosts, loadPostComments, markConversationRead, reportContent, requestCoHost, sendDirectMessage, sendGift, togglePostLike, unfollowUser, updateOwnProfile, loadPublicProfile, loadUserFollowers, loadUserFollowing } from './src/lib/repositories';
 import type { Circle, CircleJoinRequest, CirclePost, Conversation, DirectMessage, Gift, LiveGiftEvent, LiveSession, PostComment, Profile, UUID } from './src/types';
 
 const CIRCLE_PAGE_SIZE = 30;
@@ -67,6 +67,11 @@ function CirclesApp() {
   const publicProfileRequest = useRef(0);
   const [chatHasOlder, setChatHasOlder] = useState(false);
   const [selectedCircle, setSelectedCircle] = useState<Circle | null>(null);
+  const [circlePosts, setCirclePosts] = useState<CirclePost[]>([]);
+  const [circlePostsLoading, setCirclePostsLoading] = useState(false);
+  const [circlePostsHasMore, setCirclePostsHasMore] = useState(false);
+  const [circlePostsLoadingMore, setCirclePostsLoadingMore] = useState(false);
+  const activeCircleId = useRef<UUID | null>(null);
   const [selectedPost, setSelectedPost] = useState<CirclePost | null>(null);
   const [postComments, setPostComments] = useState<PostComment[]>([]);
   const [demoComments, setDemoComments] = useState<Record<UUID, PostComment[]>>({});
@@ -114,7 +119,7 @@ function CirclesApp() {
       setCircles([]); setCircleRequests([]); setFeed([]); setLives([]); setConversations([]); setDiscoveryPeople([]);
       setFollowingIds(new Set()); setFollowerIds(new Set()); setMutualIds(new Set()); setRequestedCircles(new Set()); setFollowerProfiles([]); setFollowingProfiles([]); setBlockedIds(new Set());
       setCirclesHasMore(false); setCirclesLoadingMore(false); setFeedHasMore(false); setFeedLoadingMore(false); setPeopleHasMore(false); setPeopleLoadingMore(false); setChatHasOlder(false); setJoiningCircleIds(new Set());
-      setWalletBalance(0); setSelectedConversation(null); setSelectedLive(null); setLiveGiftEvents([]); setSelectedCircle(null); setSelectedPost(null); setPostComments([]); setCommentDraft(''); setSelectedGift(null); setLiveRequests([]); setLiveRequestStatus('none');
+      setWalletBalance(0); setSelectedConversation(null); setSelectedLive(null); setLiveGiftEvents([]); setSelectedCircle(null); activeCircleId.current = null; setCirclePosts([]); setSelectedPost(null); setPostComments([]); setCommentDraft(''); setSelectedGift(null); setLiveRequests([]); setLiveRequestStatus('none');
       setSelectedPublicProfile(null); setPublicProfileFollowers([]); setPublicProfileFollowing([]); setPublicProfileLoading(false); publicProfileRequest.current += 1;
       setShowCreateCircle(false); setShowCreatePost(false); setShowCoinStore(false); setShowStartLive(false); setAttachment(null); setPostBody(''); setCreateTitle(''); setCreateCircleName(''); setCreateCircleDescription(''); setCreateCircleInterest(''); setCreateCirclePrivate(false);
       setStreamingAdapter(null); setStreamCredentials(null); setStreamError(''); setRemoteUids([]); setToast('');
@@ -237,6 +242,32 @@ function CirclesApp() {
     }).subscribe();
     return () => { active = false; void supabase?.removeChannel(channel); void supabase?.removeChannel(postsChannel); };
   }, [signedIn, profile.id]);
+
+  useEffect(() => {
+    if (!selectedCircle) return;
+    let active = true;
+    const refreshCirclePosts = async () => {
+      try {
+        const nextPosts = await loadCirclePosts(selectedCircle.id, 0, FEED_PAGE_SIZE);
+        if (active) {
+          setCirclePosts(nextPosts);
+          setCirclePostsHasMore(nextPosts.length === FEED_PAGE_SIZE);
+        }
+      } catch (error) {
+        if (active) showMessage(error instanceof Error ? error.message : 'Could not load posts in this circle.');
+      } finally {
+        if (active) setCirclePostsLoading(false);
+      }
+    };
+    setCirclePosts([]);
+    setCirclePostsLoading(true);
+    void refreshCirclePosts();
+    if (!backendReady || !signedIn || !supabase) return () => { active = false; };
+    const channel = supabase.channel(`circle-posts-${selectedCircle.id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts', filter: `circle_id=eq.${selectedCircle.id}` }, () => void refreshCirclePosts())
+      .subscribe();
+    return () => { active = false; void supabase?.removeChannel(channel); };
+  }, [selectedCircle?.id, selectedCircle?.isMember, signedIn]);
 
   useEffect(() => {
     if (!backendReady || !signedIn) return;
@@ -470,6 +501,31 @@ function CirclesApp() {
       setFeedHasMore(page.length === FEED_PAGE_SIZE);
     } catch (error) { showMessage(error instanceof Error ? error.message : 'Could not load more posts.'); }
     finally { setFeedLoadingMore(false); }
+  }
+
+  function openCircle(circle: Circle) {
+    activeCircleId.current = circle.id;
+    setSelectedCircle(circle);
+  }
+
+  function closeCircle() {
+    activeCircleId.current = null;
+    setSelectedCircle(null);
+    setCirclePosts([]);
+    setCirclePostsHasMore(false);
+  }
+
+  async function loadMoreCirclePosts() {
+    if (!selectedCircle || circlePostsLoadingMore || !circlePostsHasMore) return;
+    const circleId = selectedCircle.id;
+    setCirclePostsLoadingMore(true);
+    try {
+      const next = await loadCirclePosts(circleId, circlePosts.length, FEED_PAGE_SIZE);
+      if (activeCircleId.current !== circleId) return;
+      setCirclePosts((old) => [...old, ...next.filter((post) => !old.some((item) => item.id === post.id))]);
+      setCirclePostsHasMore(next.length === FEED_PAGE_SIZE);
+    } catch (error) { showMessage(error instanceof Error ? error.message : 'Could not load more circle posts.'); }
+    finally { setCirclePostsLoadingMore(false); }
   }
 
   async function loadWallet() {
@@ -907,6 +963,7 @@ function CirclesApp() {
     if (backendReady && !ensureSignedIn('like posts')) return;
     const nextLiked = !post.liked;
     setFeed((old) => old.map((item) => item.id === postId ? { ...item, liked: nextLiked, likes: item.likes + (nextLiked ? 1 : -1) } : item));
+    setCirclePosts((old) => old.map((item) => item.id === postId ? { ...item, liked: nextLiked, likes: item.likes + (nextLiked ? 1 : -1) } : item));
     if (backendReady) void togglePostLike(postId, nextLiked).catch((error) => { setFeed((old) => old.map((item) => item.id === postId ? { ...item, liked: post.liked, likes: post.likes } : item)); showMessage(error instanceof Error ? error.message : 'Could not update your like.'); });
   }
 
@@ -926,12 +983,13 @@ function CirclesApp() {
   }
 
   function screenContent() {
+    if (selectedCircle) return <CircleDetailScreen circle={selectedCircle} posts={circlePosts} postsLoading={circlePostsLoading} requested={requestedCircles.has(selectedCircle.id)} joining={joiningCircleIds.has(selectedCircle.id)} postsHasMore={circlePostsHasMore} postsLoadingMore={circlePostsLoadingMore} onBack={closeCircle} onJoin={() => void handleJoin(selectedCircle)} onLeave={() => void handleLeave(selectedCircle)} onPost={openPostReplies} onLike={toggleLike} onCreatePost={() => { setPostCircleId(selectedCircle.id); closeCircle(); setShowCreatePost(true); }} onLoadMore={() => void loadMoreCirclePosts()} />;
     if (selectedPublicProfile) return <PublicProfileScreen profile={selectedPublicProfile} followers={publicProfileFollowers} following={publicProfileFollowing} posts={feed.filter((post) => post.author.id === selectedPublicProfile.id)} isFollowing={followingIds.has(selectedPublicProfile.id)} isMutual={mutualIds.has(selectedPublicProfile.id)} loading={publicProfileLoading} signedIn={signedIn} onBack={() => setSelectedPublicProfile(null)} onFollow={() => void handleFollow(selectedPublicProfile)} onMessage={() => openProfileConversation(selectedPublicProfile)} onOpenProfile={(person) => void openPublicProfile(person)} onLike={toggleLike} onReply={openPostReplies} />;
-    if (tab === 'home') return <HomeScreen profile={profile} circles={circles} lives={lives} feed={feed} feedHasMore={feedHasMore} feedLoadingMore={feedLoadingMore} onLoadMore={loadMorePosts} onProfile={() => setTab('profile')} onLive={openLive} onLiveList={() => setTab('live')} onCreatePost={() => setShowCreatePost(true)} onExplore={() => setTab('circles')} onLike={toggleLike} onReply={openPostReplies} onReport={handleReport} onCircle={setSelectedCircle} />;
-    if (tab === 'circles') return <ExploreScreen profile={profile} people={discoveryPeople.filter((person) => person.id !== profile.id && !blockedIds.has(person.id))} followingIds={followingIds} onFollow={handleFollow} onOpenProfile={(person) => void openPublicProfile(person)} peopleHasMore={peopleHasMore} peopleLoadingMore={peopleLoadingMore} onLoadMorePeople={loadMorePeople} circles={filteredCircles} joiningCircleIds={joiningCircleIds} circlesHasMore={circlesHasMore} circlesLoadingMore={circlesLoadingMore} onLoadMoreCircles={loadMoreCircles} requested={requestedCircles} requests={circleRequests} searchText={searchText} onSearch={setSearchText} filter={interestFilter} onFilter={setInterestFilter} onJoin={handleJoin} onCreate={() => setShowCreateCircle(true)} onProfile={() => setTab('profile')} onReport={handleReport} onCircle={setSelectedCircle} onRequestDecision={handleCircleRequestDecision} />;
+    if (tab === 'home') return <HomeScreen profile={profile} circles={circles} lives={lives} feed={feed} feedHasMore={feedHasMore} feedLoadingMore={feedLoadingMore} onLoadMore={loadMorePosts} onProfile={() => setTab('profile')} onLive={openLive} onLiveList={() => setTab('live')} onCreatePost={() => setShowCreatePost(true)} onExplore={() => setTab('circles')} onLike={toggleLike} onReply={openPostReplies} onReport={handleReport} onCircle={openCircle} />;
+    if (tab === 'circles') return <ExploreScreen profile={profile} people={discoveryPeople.filter((person) => person.id !== profile.id && !blockedIds.has(person.id))} followingIds={followingIds} onFollow={handleFollow} onOpenProfile={(person) => void openPublicProfile(person)} peopleHasMore={peopleHasMore} peopleLoadingMore={peopleLoadingMore} onLoadMorePeople={loadMorePeople} circles={filteredCircles} joiningCircleIds={joiningCircleIds} circlesHasMore={circlesHasMore} circlesLoadingMore={circlesLoadingMore} onLoadMoreCircles={loadMoreCircles} requested={requestedCircles} requests={circleRequests} searchText={searchText} onSearch={setSearchText} filter={interestFilter} onFilter={setInterestFilter} onJoin={handleJoin} onCreate={() => setShowCreateCircle(true)} onProfile={() => setTab('profile')} onReport={handleReport} onCircle={openCircle} onRequestDecision={handleCircleRequestDecision} />;
     if (tab === 'live') return <LiveScreen profile={profile} lives={lives} onProfile={() => setTab('profile')} onLive={openLive} onStart={() => { setCreateTitle(''); setCreateCircleName(''); setShowStartLive(true); }} />;
     if (tab === 'inbox') return <InboxScreen profile={profile} conversations={conversations.filter((conversation) => mutualIds.has(conversation.peer.id))} onProfile={() => setTab('profile')} onConversation={(conversation) => void openConversation(conversation)} />;
-    return <ProfileScreen key={profile.id} profile={profile} circles={circles.filter((circle) => circle.isMember)} followers={followerProfiles} following={followingProfiles} walletBalance={walletBalance} followingCount={followingIds.size} followerCount={followerIds.size} signedIn={signedIn} backendReady={backendReady} authEmail={authEmail} authPassword={authPassword} authError={authError} authBusy={authBusy} profileSaving={profileSaving} onSaveProfile={saveProfile} onEmail={setAuthEmail} onPassword={setAuthPassword} onAuth={handleAuth} onStore={() => setShowCoinStore(true)} onCircle={setSelectedCircle} onBlockFollower={confirmBlockFollower} onOpenProfile={(person) => void openPublicProfile(person)} onSignOut={() => void supabase?.auth.signOut()} />;
+    return <ProfileScreen key={profile.id} profile={profile} circles={circles.filter((circle) => circle.isMember)} followers={followerProfiles} following={followingProfiles} walletBalance={walletBalance} followingCount={followingIds.size} followerCount={followerIds.size} signedIn={signedIn} backendReady={backendReady} authEmail={authEmail} authPassword={authPassword} authError={authError} authBusy={authBusy} profileSaving={profileSaving} onSaveProfile={saveProfile} onEmail={setAuthEmail} onPassword={setAuthPassword} onAuth={handleAuth} onStore={() => setShowCoinStore(true)} onCircle={openCircle} onBlockFollower={confirmBlockFollower} onOpenProfile={(person) => void openPublicProfile(person)} onSignOut={() => void supabase?.auth.signOut()} />;
   }
 
   // This local state keeps the start-live sheet independent of the bottom tab.
@@ -939,7 +997,7 @@ function CirclesApp() {
   return <SafeAreaView style={styles.safeArea} edges={['top', 'bottom', 'left', 'right']}><StatusBar barStyle={selectedLive ? 'light-content' : 'dark-content'} />
     <View style={styles.appShell}>
       {screenContent()}
-      <TabBar selected={tab} onChange={setTab} />
+      <TabBar selected={tab} onChange={(nextTab) => { closeCircle(); setTab(nextTab); }} />
       {toast ? <View style={styles.toast}><Text style={styles.toastText}>{toast}</Text></View> : null}
       {showCreatePost ? <CreatePostSheet busy={createPostBusy} circles={circles.filter((circle) => circle.isMember)} selectedCircleId={postCircleId} onSelectCircle={setPostCircleId} body={postBody} onBody={setPostBody} attachment={attachment} onPick={pickAttachment} onClearAttachment={() => setAttachment(null)} onClose={() => setShowCreatePost(false)} onSubmit={() => void handleCreatePost()} /> : null}
       {showCreateCircle ? <CreateCircleSheet busy={createCircleBusy} name={createCircleName} description={createCircleDescription} interest={createCircleInterest} isPrivate={createCirclePrivate} onName={setCreateCircleName} onDescription={setCreateCircleDescription} onInterest={setCreateCircleInterest} onPrivate={setCreateCirclePrivate} onClose={() => setShowCreateCircle(false)} onSubmit={() => void handleCreateCircle()} /> : null}
@@ -947,7 +1005,6 @@ function CirclesApp() {
       {selectedLive ? <LiveRoom session={selectedLive} profile={profile} walletBalance={walletBalance} gifts={gifts} giftEvents={liveGiftEvents} selectedGift={selectedGift} giftSending={giftSending} liveRequestStatus={liveRequestStatus} liveRequests={liveRequests} signedIn={signedIn} backendReady={backendReady} streamCredentials={streamCredentials} streamError={streamError} remoteUids={remoteUids} micEnabled={micEnabled} cameraEnabled={cameraEnabled} onClose={() => void closeLiveRoom(selectedLive)} onGiftSelect={setSelectedGift} onGiftSend={handleGift} onBuyCoins={() => setShowCoinStore(true)} onRequestCoHost={() => void handleRequestCoHost()} onDecision={handleSeatDecision} onReport={() => void handleReport('live_session', selectedLive.id, selectedLive.host.id)} onToggleMic={() => { const next = !micEnabled; if (!streamingAdapter) return; void streamingAdapter.setMicrophoneEnabled(next).then(() => setMicEnabled(next)).catch((error) => showMessage(error instanceof Error ? error.message : 'Could not update your microphone.')); }} onToggleCamera={() => { const next = !cameraEnabled; if (!streamingAdapter) return; void streamingAdapter.setCameraEnabled(next).then(() => setCameraEnabled(next)).catch((error) => showMessage(error instanceof Error ? error.message : 'Could not update your camera.')); }} onSwitchCamera={() => { void streamingAdapter?.switchCamera().catch((error) => showMessage(error instanceof Error ? error.message : 'Could not switch cameras.')); }} /> : null}
       {selectedConversation ? <ChatScreen key={selectedConversation.peer.id} conversation={selectedConversation} profile={profile} hasOlder={chatHasOlder} onLoadOlder={loadOlderMessages} onClose={() => setSelectedConversation(null)} onSend={handleSendMessage} onReport={() => { const lastMessage = selectedConversation.messages.at(-1); void handleReport(lastMessage ? 'message' : 'profile', lastMessage?.id ?? selectedConversation.peer.id, selectedConversation.peer.id); }} /> : null}
       {showCoinStore ? <CoinStore balance={walletBalance} onClose={() => setShowCoinStore(false)} onBalance={setWalletBalance} /> : null}
-      {selectedCircle ? <CircleDetailSheet circle={selectedCircle} posts={feed.filter((post) => post.circleId === selectedCircle.id)} requested={requestedCircles.has(selectedCircle.id)} joining={joiningCircleIds.has(selectedCircle.id)} onClose={() => setSelectedCircle(null)} onJoin={() => void handleJoin(selectedCircle)} onLeave={() => void handleLeave(selectedCircle)} onPost={openPostReplies} onLike={toggleLike} onCreatePost={() => { setPostCircleId(selectedCircle.id); setSelectedCircle(null); setShowCreatePost(true); }} /> : null}
       {selectedPost ? <PostRepliesSheet post={selectedPost} comments={postComments} draft={commentDraft} onDraft={setCommentDraft} onSend={handlePostReply} onClose={() => setSelectedPost(null)} /> : null}
     </View>
   </SafeAreaView>;

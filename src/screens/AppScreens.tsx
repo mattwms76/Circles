@@ -101,16 +101,29 @@ export function PublicProfileScreen({ profile, followers, following, posts, isFo
   </ScrollView>;
 }
 
-export function CircleDetailSheet({ circle, posts, requested, joining, onClose, onJoin, onLeave, onPost, onLike, onCreatePost }: { circle: Circle; posts: CirclePost[]; requested: boolean; joining: boolean; onClose: () => void; onJoin: () => void; onLeave: () => void; onPost: (post: CirclePost) => void; onLike: (id: UUID) => void; onCreatePost: () => void }) {
-  return <Sheet onClose={onClose} title={circle.name} eyebrow={`${circle.interest.toUpperCase()} · ${formatCount(circle.members)} MEMBERS`}>
-    <Text style={styles.circleDetailDescription}>{circle.description || `A community for people who love ${circle.interest.toLowerCase()}.`}</Text>
-    <View style={styles.circleDetailMeta}><Text style={styles.circleDetailPrivacy}>{circle.isPrivate ? '🔒 Private circle' : '🌱 Public circle'}</Text><Text style={styles.circleDetailPrivacy}>{circle.isMember ? 'You’re a member' : requested ? 'Request pending' : 'Find your people here'}</Text></View>
-    {!circle.isMember && !requested ? <ActionButton label={joining ? 'Joining…' : circle.isPrivate ? 'Request to join' : 'Join this circle'} disabled={joining} onPress={onJoin} /> : null}
-    {requested ? <ActionButton compact variant="secondary" label="Cancel join request" onPress={onLeave} /> : null}
-    {circle.isMember ? <><ActionButton compact variant="secondary" label="Write a post in this circle" onPress={onCreatePost} />{circle.isOwner ? <Text style={styles.circleOwnerNote}>You own this circle. Transfer ownership before leaving.</Text> : <Pressable onPress={onLeave} accessibilityRole="button" accessibilityLabel={`Leave ${circle.name}`} style={styles.leaveCircleButton}><Text style={styles.leaveCircleText}>Leave circle</Text></Pressable>}</> : null}
-    <View style={{ height: 22 }} /><SectionTitle eyebrow="IN THIS CIRCLE" title="Recent posts" />
-    {posts.length ? posts.map((post) => <PostCard key={post.id} post={post} onLike={() => onLike(post.id)} onReply={() => onPost(post)} />) : <EmptyState emoji="🌱" title="The first post is yours" detail={circle.isMember ? 'Start a conversation with this circle.' : 'Join this circle to read and share posts.'} />}
-  </Sheet>;
+export function CircleDetailScreen({ circle, posts, postsLoading, requested, joining, postsHasMore, postsLoadingMore, onBack, onJoin, onLeave, onPost, onLike, onCreatePost, onLoadMore }: { circle: Circle; posts: CirclePost[]; postsLoading: boolean; requested: boolean; joining: boolean; postsHasMore: boolean; postsLoadingMore: boolean; onBack: () => void; onJoin: () => void; onLeave: () => void; onPost: (post: CirclePost) => void; onLike: (id: UUID) => void; onCreatePost: () => void; onLoadMore: () => void }) {
+  return <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
+    <View style={styles.publicProfileHeader}><Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="Back to circles"><Text style={styles.publicProfileBack}>‹</Text></Pressable><Text style={styles.publicProfileHeaderLabel}>CIRCLE</Text><View style={{ width: 36 }} /></View>
+    <View style={styles.circlePageHero}>
+      <ImageBackground source={{ uri: circle.imageUrl }} style={styles.circlePageCover} imageStyle={styles.circlePageCoverImage}>
+        <View style={styles.circlePageShade} />
+        {circle.isPrivate ? <Text style={styles.circlePagePrivate}>🔒 PRIVATE</Text> : null}
+        <View style={styles.circlePageCoverCopy}><Text style={styles.circlePageInterest}>{circle.interest.toUpperCase()}</Text><Text style={styles.circlePageTitle}>{circle.name}</Text><Text style={styles.circlePageMembers}>{formatCount(circle.members)} members</Text></View>
+      </ImageBackground>
+    </View>
+    <View style={styles.sectionPad}>
+      <Text style={styles.circleDetailDescription}>{circle.description || `A community for people who love ${circle.interest.toLowerCase()}.`}</Text>
+      <Text style={styles.circleDetailPrivacy}>{circle.isPrivate ? 'Private circle · only members can see posts' : 'Public circle · everyone can discover this community'}</Text>
+      <View style={styles.circlePageActions}>
+        {!circle.isMember && !requested ? <ActionButton label={joining ? 'Joining…' : circle.isPrivate ? 'Request to join' : 'Join this circle'} disabled={joining} onPress={onJoin} /> : null}
+        {requested ? <ActionButton compact variant="secondary" label="Cancel join request" onPress={onLeave} /> : null}
+        {circle.isMember ? <><ActionButton label="Write a post in this circle" onPress={onCreatePost} />{circle.isOwner ? <Text style={styles.circleOwnerNote}>You own this circle. Transfer ownership before leaving.</Text> : <Pressable onPress={onLeave} accessibilityRole="button" accessibilityLabel={`Leave ${circle.name}`} style={styles.leaveCircleButton}><Text style={styles.leaveCircleText}>Leave circle</Text></Pressable>}</> : null}
+      </View>
+      <View style={{ height: 16 }} /><SectionTitle eyebrow="YOUR COMMUNITY" title="Posts in this circle" />
+      {posts.length ? posts.map((post) => <PostCard key={post.id} post={post} onLike={() => onLike(post.id)} onReply={() => onPost(post)} />) : postsLoading ? <Text style={styles.publicProfileEmpty}>Loading circle posts…</Text> : <EmptyState emoji="🌱" title={circle.isMember ? 'Start the conversation' : 'Join this circle to come in'} detail={circle.isMember ? 'Share the first post with your circle.' : requested ? 'Your request is waiting for the circle host.' : 'Members can read and share posts here.'} />}
+      {postsHasMore ? <ActionButton compact variant="outline" label={postsLoadingMore ? 'Loading posts…' : 'Load more posts'} disabled={postsLoadingMore} onPress={onLoadMore} /> : null}
+    </View>
+  </ScrollView>;
 }
 
 export function PostRepliesSheet({ post, comments, draft, onDraft, onSend, onClose }: { post: CirclePost; comments: PostComment[]; draft: string; onDraft: (value: string) => void; onSend: () => Promise<void>; onClose: () => void }) {

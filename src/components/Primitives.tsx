@@ -22,13 +22,13 @@ export function SectionTitle({ eyebrow, title, action, onAction }: { eyebrow?: s
 
 export function CircleTile({ circle, onPress, onJoin, onMore, requested = false, joining = false }: { circle: Circle; onPress?: () => void; onJoin?: () => void; onMore?: () => void; requested?: boolean; joining?: boolean }) {
   return <View style={styles.circleTile}>
-    <Pressable disabled={!onPress} accessibilityRole={onPress ? 'button' : undefined} accessibilityLabel={onPress ? `Open ${circle.name}` : undefined} onPress={onPress} style={styles.circleImageWrap}>
+    <Pressable disabled={!onPress} accessibilityRole={onPress ? 'button' : undefined} accessibilityLabel={onPress ? `Enter ${circle.name}` : undefined} onPress={onPress} style={styles.circleImageWrap}>
       <Image source={{ uri: circle.imageUrl }} style={styles.circleImage} />
       <View style={styles.circlePhotoOverlay} />
       {circle.isPrivate ? <View style={styles.privateBadge}><Text style={styles.privateBadgeText}>PRIVATE</Text></View> : null}
       <View style={styles.circleImageText}><Text style={styles.circleNameOnImage}>{circle.name}</Text><Text style={styles.circleMemberOnImage}>{formatCount(circle.members)} members</Text></View>
     </Pressable>
-    <View style={styles.circleTileFooter}><View style={{ flex: 1 }}><Text style={styles.circleInterest}>{circle.interest}</Text><Text numberOfLines={2} style={styles.circleDescription}>{circle.description}</Text></View>
+    <View style={styles.circleTileFooter}><Pressable disabled={!onPress} accessibilityRole={onPress ? 'button' : undefined} accessibilityLabel={onPress ? `Enter ${circle.name}` : undefined} onPress={onPress} style={{ flex: 1 }}><Text style={styles.circleInterest}>{circle.interest}</Text><Text numberOfLines={2} style={styles.circleDescription}>{circle.description}</Text></Pressable>
       {onMore ? <Pressable onPress={onMore} accessibilityRole="button" accessibilityLabel={`Report ${circle.name}`} style={styles.circleMore}><Text style={styles.moreIcon}>···</Text></Pressable> : null}
       {onJoin ? <Pressable accessibilityRole="button" accessibilityLabel={circle.isMember ? `Joined ${circle.name}` : requested ? `Join request pending for ${circle.name}` : joining ? `Joining ${circle.name}` : `Join ${circle.name}`} accessibilityState={{ disabled: circle.isMember || requested || joining }} disabled={circle.isMember || requested || joining} onPress={onJoin} style={[styles.joinButton, circle.isMember && styles.joinedButton, requested && styles.requestedButton]}><Text style={[styles.joinButtonText, circle.isMember && styles.joinedButtonText]}>{circle.isMember ? 'Joined' : requested ? 'Requested' : joining ? '…' : 'Join'}</Text></Pressable> : null}
     </View>

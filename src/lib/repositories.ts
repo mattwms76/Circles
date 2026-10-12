@@ -87,9 +87,20 @@ export async function decideCircleJoinRequest(circleId: UUID, requesterId: UUID,
 }
 
 export async function loadPosts(offset = 0, pageSize = 20): Promise<CirclePost[]> {
+  return fetchPosts(offset, pageSize);
+}
+
+export async function loadCirclePosts(circleId: UUID, offset = 0, pageSize = 20): Promise<CirclePost[]> {
+  if (!supabase) return demoPosts.filter((post) => post.circleId === circleId).slice(offset, offset + pageSize);
+  return fetchPosts(offset, pageSize, circleId);
+}
+
+async function fetchPosts(offset: number, pageSize: number, circleId?: UUID): Promise<CirclePost[]> {
   if (!supabase) return demoPosts.slice(offset, offset + pageSize);
-  const { data, error } = await supabase.from('posts').select('id,circle_id,body,created_at,profiles!posts_author_id_fkey(id,handle,display_name,avatar_url),circles!posts_circle_id_fkey(name),post_media(id,kind,storage_path),post_likes(user_id)')
-    .eq('visibility', 'published').order('created_at', { ascending: false }).order('id', { ascending: false }).range(offset, offset + pageSize - 1);
+  let query = supabase.from('posts').select('id,circle_id,body,created_at,profiles!posts_author_id_fkey(id,handle,display_name,avatar_url),circles!posts_circle_id_fkey(name),post_media(id,kind,storage_path),post_likes(user_id)')
+    .eq('visibility', 'published');
+  if (circleId) query = query.eq('circle_id', circleId);
+  const { data, error } = await query.order('created_at', { ascending: false }).order('id', { ascending: false }).range(offset, offset + pageSize - 1);
   if (error) throw error;
   if (!data) return [];
   const { data: auth } = await supabase.auth.getUser();
