@@ -8,7 +8,7 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "typecheck": "tsc --noEmit",
-    "test:db": "node --test scripts/database-regression.test.mjs scripts/community-regression.test.mjs scripts/content-deletion-db.test.mjs",
+    "test:db": "node --test scripts/database-regression.test.mjs scripts/community-regression.test.mjs scripts/content-deletion-db.test.mjs scripts/experience-db.test.mjs scripts/replies-db.test.mjs",
     "e2e:local": "node scripts/e2e-local.mjs",
     "test": "node --test scripts/*.test.mjs",
     "check": "pnpm typecheck && pnpm test",

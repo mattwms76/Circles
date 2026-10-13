@@ -1,9 +1,9 @@
-import React from "react";
-import TestRenderer, { act } from "react-test-renderer";
-import ts from "typescript";
-import vm from "node:vm";
-import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
+import React from 'react';
+import TestRenderer, { act } from 'react-test-renderer';
+import ts from 'typescript';
+import vm from 'node:vm';
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 export { act };
@@ -16,7 +16,7 @@ export const deferred = () => {
   return { promise, resolve, reject };
 };
 export function loadSource(file, mocks = {}) {
-  const source = readFileSync(new URL(`../${file}`, import.meta.url), "utf8");
+  const source = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
   const code = ts.transpileModule(source, {
     fileName: file,
     compilerOptions: {
@@ -34,8 +34,18 @@ export function loadSource(file, mocks = {}) {
       exports: module.exports,
       require: (name) => {
         if (name in mocks) return mocks[name];
-        if (name === "react" || name === "react/jsx-runtime")
-          return require(name);
+        if (name === '../lib/textDraftStore') return loadSource('src/lib/textDraftStore.ts');
+        if (name.endsWith('/lib/experience')) return experience;
+        if (name === '../lib/supabase') return { supabase: null, backendReady: false };
+        if (name === '../components/Experience')
+          return {
+            DiscoveryControls: 'DiscoveryControls',
+            ScheduledRooms: 'ScheduledRooms',
+            ReactionBar: 'ReactionBar',
+            experienceStyles: {},
+            useContentReactions: () => ({ reactions: {}, error: '', react: async () => {} }),
+          };
+        if (name === 'react' || name === 'react/jsx-runtime') return require(name);
         throw new Error(`Unmocked ${name} in ${file}`);
       },
       console,
@@ -56,33 +66,49 @@ export function loadSource(file, mocks = {}) {
   );
   return module.exports;
 }
-export const demo = loadSource("src/data/demo.ts");
+export const demo = loadSource('src/data/demo.ts');
+const experienceStorage = new Map();
+export const experience = loadSource('src/lib/experience.ts', {
+  '@react-native-async-storage/async-storage': {
+    getItem: async (k) => experienceStorage.get(k) ?? null,
+    setItem: async (k, v) => {
+      experienceStorage.set(k, v);
+    },
+  },
+  './supabase': { supabase: null },
+  './repositories': {
+    getDemoCurrentUser: () => demo.currentUser,
+    toProfile: (r) => r,
+    relativeTime: () => 'now',
+  },
+});
+
 const screenNames = [
-  "HomeScreen",
-  "ExploreScreen",
-  "LiveScreen",
-  "InboxScreen",
-  "ProfileScreen",
-  "PublicProfileScreen",
-  "CircleDetailScreen",
-  "PostRepliesSheet",
-  "TabBar",
-  "CreatePostSheet",
-  "CreateCircleSheet",
-  "StartLiveSheet",
-  "LiveRoom",
-  "ChatScreen",
-  "OnboardingSheet",
-  "SettingsSheet",
-  "RecoverySheet",
-  "ActivitySheet",
-  "CircleTools",
-  "ModeratorSheet",
-  "ReportSheet",
+  'HomeScreen',
+  'ExploreScreen',
+  'LiveScreen',
+  'InboxScreen',
+  'ProfileScreen',
+  'PublicProfileScreen',
+  'CircleDetailScreen',
+  'PostRepliesSheet',
+  'TabBar',
+  'CreatePostSheet',
+  'CreateCircleSheet',
+  'StartLiveSheet',
+  'LiveRoom',
+  'ChatScreen',
+  'OnboardingSheet',
+  'SettingsSheet',
+  'RecoverySheet',
+  'ActivitySheet',
+  'CircleTools',
+  'ModeratorSheet',
+  'ReportSheet',
 ];
 export const native = new Proxy(
   {
-    Platform: { OS: "android" },
+    Platform: { OS: 'android' },
     AccessibilityInfo: { announceForAccessibility() {} },
     AppState: { addEventListener: () => ({ remove() {} }) },
     Alert: { alert() {} },
@@ -99,19 +125,20 @@ export async function mountApp({
   repositories = {},
   community = {},
   stream = {},
+  imagePicker = {},
 } = {}) {
   const own = {
     ...demo.currentUser,
-    id: "account-a",
-    displayName: "Saved profile",
-    bio: "Saved bio",
-    interests: ["Art"],
-    onboardingCompletedAt: "2026-10-01",
+    id: 'account-a',
+    displayName: 'Saved profile',
+    bio: 'Saved bio',
+    interests: ['Art'],
+    onboardingCompletedAt: '2026-10-01',
   };
   let user = {
     id: own.id,
-    email: "member@test.local",
-    user_metadata: { display_name: "Old sign-up name" },
+    email: 'member@test.local',
+    user_metadata: { display_name: 'Old sign-up name' },
   };
   let authListener = () => {};
   let sequence = 0;
@@ -120,11 +147,11 @@ export async function mountApp({
       {},
       {
         get: (_, key) =>
-          key === "then"
+          key === 'then'
             ? (resolve) => resolve({ data: [], error: null })
-            : key === "maybeSingle"
+            : key === 'maybeSingle'
               ? async () => ({ data: { balance: 25 }, error: null })
-              : key === "single"
+              : key === 'single'
                 ? async () => ({ data: null, error: null })
                 : () => builder(),
       },
@@ -141,11 +168,23 @@ export async function mountApp({
     },
     from: () => builder(),
     channel: () => {
-      const channel = { active: true, handlers: [], on(_type, filter, callback) { this.handlers.push({ filter, callback }); return this; }, subscribe() { return this; } };
+      const channel = {
+        active: true,
+        handlers: [],
+        on(_type, filter, callback) {
+          this.handlers.push({ filter, callback });
+          return this;
+        },
+        subscribe() {
+          return this;
+        },
+      };
       channels.push(channel);
       return channel;
     },
-    removeChannel: async channel => { channel.active = false; },
+    removeChannel: async (channel) => {
+      channel.active = false;
+    },
   };
   const repo = {
     createIdempotencyKey: () => `request-${++sequence}`,
@@ -175,7 +214,7 @@ export async function mountApp({
     loadProfilePosts: async () => [],
     loadPostComments: async () => [],
     loadLiveGiftEvents: async () => [],
-    joinCircle: async (c) => (c.isPrivate ? "pending" : "member"),
+    joinCircle: async (c) => (c.isPrivate ? 'pending' : 'member'),
     createPost: async () => {},
     ...repositories,
   };
@@ -205,53 +244,53 @@ export async function mountApp({
     retainDraftMedia: async (_id, m) => m,
     retainPublishedMedia: async (_id, m) => ({
       ...m,
-      uri: "file:///published.jpg",
+      uri: 'file:///published.jpg',
     }),
   };
   const components = Object.fromEntries(screenNames.map((n) => [n, n]));
-  const app = loadSource("App.tsx", {
-    "./src/lib/contentDeletion": loadSource("src/lib/contentDeletion.ts"),
-    "./src/lib/feedState": loadSource("src/lib/feedState.ts"),
-    "expo-notifications": {
+  const app = loadSource('App.tsx', {
+    './src/lib/contentDeletion': loadSource('src/lib/contentDeletion.ts'),
+    './src/lib/feedState': loadSource('src/lib/feedState.ts'),
+    'expo-notifications': {
       addNotificationResponseReceivedListener: () => ({ remove() {} }),
       getLastNotificationResponseAsync: async () => null,
     },
-    "./src/screens/CommunityScreens": components,
-    "./src/lib/community": services,
-    "./src/lib/drafts": drafts,
-    "./src/lib/media": { clearMediaCache() {} },
-    "./src/lib/diagnostics": {
+    './src/screens/CommunityScreens': components,
+    './src/lib/community': services,
+    './src/lib/drafts': drafts,
+    './src/lib/media': { clearMediaCache() {} },
+    './src/lib/diagnostics': {
       AppErrorBoundary: ({ children }) => children,
       reportDiagnostic: async () => {},
     },
-    "@react-native-async-storage/async-storage": storage,
-    "react-native": native,
-    "react-native-safe-area-context": {
-      SafeAreaProvider: "SafeAreaProvider",
-      SafeAreaView: "SafeAreaView",
+    '@react-native-async-storage/async-storage': storage,
+    'react-native': native,
+    'react-native-safe-area-context': {
+      SafeAreaProvider: 'SafeAreaProvider',
+      SafeAreaView: 'SafeAreaView',
     },
-    "expo-image-picker": {},
-    "./src/lib/streaming": {
+    'expo-image-picker': imagePicker,
+    './src/lib/streaming': {
       streamProvider: {
         issueCredentials: async () => ({
-          token: "test",
-          channel: "test",
+          token: 'test',
+          channel: 'test',
           uid: 1,
         }),
         adapter: () => stream,
       },
     },
-    "./src/components/CoinStore": { CoinStore: "CoinStore" },
-    "./src/components/Primitives": { ActionButton: "ActionButton" },
-    "./src/theme": { colors: {} },
-    "./src/appStyles": { styles: {} },
-    "./src/screens/AppScreens": components,
-    "./src/data/demo": demo,
-    "./src/lib/supabase": {
+    './src/components/CoinStore': { CoinStore: 'CoinStore' },
+    './src/components/Primitives': { ActionButton: 'ActionButton' },
+    './src/theme': { colors: {} },
+    './src/appStyles': { styles: {} },
+    './src/screens/AppScreens': components,
+    './src/data/demo': demo,
+    './src/lib/supabase': {
       backendReady: connected,
       supabase: connected ? client : null,
     },
-    "./src/lib/repositories": repo,
+    './src/lib/repositories': repo,
   });
   let renderer;
   await act(async () => {
@@ -264,11 +303,19 @@ export async function mountApp({
     storage,
     files,
     renderer,
+    async emitChange(table, event = 'INSERT') {
+      await act(async () => {
+        for (const channel of channels.filter((c) => c.active))
+          for (const { filter, callback } of channel.handlers)
+            if (filter.table === table && filter.event === event) callback({ new: {}, old: {} });
+      });
+    },
     async emitDelete(table, id) {
       await act(async () => {
-        for (const channel of channels.filter(channel => channel.active)) {
+        for (const channel of channels.filter((channel) => channel.active)) {
           for (const { filter, callback } of channel.handlers) {
-            if (filter.table === table && filter.event === 'DELETE' && !filter.filter) callback({ old: { id } });
+            if (filter.table === table && filter.event === 'DELETE' && !filter.filter)
+              callback({ old: { id } });
           }
         }
       });
@@ -289,7 +336,7 @@ export async function mountApp({
     },
   };
 }
-export async function mountChat() {
+export async function mountChat(overrides = {}) {
   const files = new Map();
   const storage = {
     getItem: async (k) => files.get(k) ?? null,
@@ -298,34 +345,35 @@ export async function mountChat() {
     },
     removeItem: async (k) => files.delete(k),
   };
-  const screens = loadSource("src/screens/AppScreens.tsx", {
-    "../lib/contentDeletion": loadSource("src/lib/contentDeletion.ts"),
-    "expo-image-picker": {},
-    "@react-native-async-storage/async-storage": storage,
-    "react-native": native,
-    "react-native-safe-area-context": { SafeAreaView: "SafeAreaView" },
-    "expo-video": { useVideoPlayer: () => ({}), VideoView: "VideoView" },
-    "../lib/streaming": {
-      AgoraVideoTile: "AgoraVideoTile",
+  const screens = loadSource('src/screens/AppScreens.tsx', {
+    '../lib/contentDeletion': loadSource('src/lib/contentDeletion.ts'),
+    'expo-image-picker': {},
+    '@react-native-async-storage/async-storage': storage,
+    'react-native': native,
+    'react-native-safe-area-context': { SafeAreaView: 'SafeAreaView' },
+    'expo-video': { useVideoPlayer: () => ({}), VideoView: 'VideoView' },
+    '../lib/streaming': {
+      AgoraVideoTile: 'AgoraVideoTile',
       agoraUidFor: () => 1,
     },
-    "../components/Primitives": new Proxy(
+    '../components/Primitives': new Proxy(
       { formatCount: String },
       { get: (o, k) => o[k] ?? String(k) },
     ),
-    "../theme": { colors: {} },
-    "../appStyles": { styles: {} },
+    '../theme': { colors: {} },
+    '../appStyles': { styles: {} },
   });
   let renderer;
   await act(async () => {
     renderer = TestRenderer.create(
       React.createElement(screens.ChatScreen, {
-        conversation: { peer: demo.people[0], messages: [] },
+        conversation: { peer: demo.people[0], messages: [], unread: 0 },
         profile: demo.currentUser,
         hasOlder: false,
         onClose() {},
         onSend: async () => {},
         onReport() {},
+        ...overrides,
       }),
     );
   });

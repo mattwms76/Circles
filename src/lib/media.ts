@@ -1,5 +1,5 @@
-import * as FileSystem from "expo-file-system/legacy";
-import { requireSupabase } from "./supabase";
+import * as FileSystem from 'expo-file-system/legacy';
+import { requireSupabase } from './supabase';
 export async function uploadWithProgress(
   bucket: string,
   path: string,
@@ -9,19 +9,16 @@ export async function uploadWithProgress(
   signal?: AbortSignal,
 ) {
   const client = requireSupabase();
-  const { data, error } = await client.storage
-    .from(bucket)
-    .createSignedUploadUrl(path);
+  const { data, error } = await client.storage.from(bucket).createSignedUploadUrl(path);
   if (error) throw error;
-  if (signal?.aborted)
-    throw new Error("Upload cancelled. Your draft is saved.");
+  if (signal?.aborted) throw new Error('Upload cancelled. Your draft is saved.');
   const task = FileSystem.createUploadTask(
     data.signedUrl,
     uri,
     {
-      httpMethod: "PUT",
+      httpMethod: 'PUT',
       uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-      headers: { "Content-Type": mimeType, "x-upsert": "false" },
+      headers: { 'Content-Type': mimeType, 'x-upsert': 'false' },
     },
     (progress) =>
       onProgress?.(
@@ -33,18 +30,15 @@ export async function uploadWithProgress(
   const cancel = () => {
     void task.cancelAsync().catch(() => {});
   };
-  signal?.addEventListener("abort", cancel, { once: true });
+  signal?.addEventListener('abort', cancel, { once: true });
   try {
     const response = await task.uploadAsync();
-    if (!response || signal?.aborted)
-      throw new Error("Upload cancelled. Your draft is saved.");
+    if (!response || signal?.aborted) throw new Error('Upload cancelled. Your draft is saved.');
     if (response.status < 200 || response.status >= 300)
-      throw new Error(
-        "Upload did not finish. Check your connection and retry.",
-      );
+      throw new Error('Upload did not finish. Check your connection and retry.');
     onProgress?.(1);
   } finally {
-    signal?.removeEventListener("abort", cancel);
+    signal?.removeEventListener('abort', cancel);
   }
 }
 const signedCache = new Map<string, { url: string; expires: number }>();
@@ -63,7 +57,7 @@ export async function signedMediaUrls(
   );
   if (missing.length) {
     const { data, error } = await requireSupabase()
-      .storage.from("post-media")
+      .storage.from('post-media')
       .createSignedUrls(missing, 600);
     if (error) throw error;
     for (const item of data ?? []) {

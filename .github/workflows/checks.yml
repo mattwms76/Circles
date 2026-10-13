@@ -49,6 +49,10 @@ jobs:
           psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -v ON_ERROR_STOP=1 -f supabase/setup.sql
           psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -v ON_ERROR_STOP=1 -f /tmp/circles-migrations/20261012145107_community_experience.sql
           psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -v ON_ERROR_STOP=1 -f /tmp/circles-migrations/20261012145255_community_foreign_key_indexes.sql
+          psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -v ON_ERROR_STOP=1 -f /tmp/circles-migrations/20261012155424_content_deletion_window.sql
+          psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -v ON_ERROR_STOP=1 -f /tmp/circles-migrations/20261012163503_experience_enhancements.sql
+          psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -v ON_ERROR_STOP=1 -f /tmp/circles-migrations/20261012164050_experience_policy_consolidation.sql
+          psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -v ON_ERROR_STOP=1 -f /tmp/circles-migrations/20261013063428_replies_audit_hardening.sql
       - name: Run Auth, REST, Storage, and account-function integration tests
         run: |
           supabase status -o env > /tmp/circles-supabase.env

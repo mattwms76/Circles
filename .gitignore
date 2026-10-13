@@ -9,3 +9,5 @@ android/
 .pnpm-store/
 supabase/.temp/
 *.log
+
+.tools/

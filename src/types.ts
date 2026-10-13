@@ -12,6 +12,9 @@ export interface Profile {
 }
 
 export interface Circle {
+  rules?: string;
+  createdAtIso?: string;
+  lastActivityAt?: string;
   id: UUID;
   name: string;
   description: string;
@@ -46,6 +49,7 @@ export interface CirclePost {
 }
 
 export interface PostComment {
+  replyToId?: string | null;
   createdAtIso?: string;
   id: UUID;
   postId: UUID;
@@ -55,6 +59,8 @@ export interface PostComment {
 }
 
 export interface DirectMessage {
+  replyToId?: string | null;
+  readAt?: string | null;
   id: UUID;
   senderId: UUID;
   body: string;
@@ -137,7 +143,13 @@ export interface CreatePostInput {
 }
 
 export interface StreamingAdapter {
-  join(input: { sessionId: UUID; role: 'host' | 'cohost' | 'viewer'; token: string; channel: string; uid: number }): Promise<void>;
+  join(input: {
+    sessionId: UUID;
+    role: 'host' | 'cohost' | 'viewer';
+    token: string;
+    channel: string;
+    uid: number;
+  }): Promise<void>;
   leave(): Promise<void>;
   setMicrophoneEnabled(enabled: boolean): Promise<void>;
   setCameraEnabled(enabled: boolean): Promise<void>;

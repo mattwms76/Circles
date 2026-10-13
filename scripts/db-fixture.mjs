@@ -1,4 +1,4 @@
-import { PGlite } from "@electric-sql/pglite";
+import { PGlite } from '@electric-sql/pglite';
 export async function createDatabase(source) {
   const db = new PGlite();
   await db.exec(`
@@ -23,13 +23,10 @@ export async function createDatabase(source) {
   `);
   await db.exec(
     source
-      .replace(/-- runtime-schedule:start[\s\S]*?-- runtime-schedule:end/g, "")
-      .replace(/^create extension .*;\r?\n/gm, "")
-      .replace(
-        /do \$\$\s*declare existing_job (?:record|bigint);[\s\S]*?end;\s*\$\$;/,
-        "",
-      )
-      .replace(/^alter publication .*;\r?$/gm, ""),
+      .replace(/-- runtime-schedule:start[\s\S]*?-- runtime-schedule:end/g, '')
+      .replace(/^create extension .*;\r?\n/gm, '')
+      .replace(/do \$\$\s*declare existing_job (?:record|bigint);[\s\S]*?end;\s*\$\$;/, '')
+      .replace(/^alter publication .*;\r?$/gm, ''),
   );
   return db;
 }

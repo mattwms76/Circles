@@ -37,6 +37,9 @@ For a **fresh project**, apply these files once, in this order:
 2. `supabase/migrations/20261012145107_community_experience.sql`
 3. `supabase/migrations/20261012145255_community_foreign_key_indexes.sql`
 4. `supabase/migrations/20261012155424_content_deletion_window.sql`
+5. `supabase/migrations/20261012163503_experience_enhancements.sql`
+6. `supabase/migrations/20261012164050_experience_policy_consolidation.sql`
+7. `supabase/migrations/20261013063428_replies_audit_hardening.sql`
 
 `setup.sql` is a one-time bootstrap, not a repeatable migration. Historical files in `supabase/migrations` describe upgrades to older bootstraps; they are not a complete from-zero migration chain. Do not run all historical files after the current bootstrap. Existing initialized installations need the applicable upgrades, including `20261012135221_fix_core_flow_authorization.sql` if it has not already been applied, then the two community migrations and the content-deletion migration above.
 
@@ -74,10 +77,10 @@ Live rooms support a host plus up to three co-hosts. Host and co-host heartbeats
 
 ## Verification
 
-- `pnpm check`: TypeScript and credential-free regression tests. There are currently 55 passing checks, including React component tests for repeated sign-in events, navigation during requests, account isolation, immediate chat-draft persistence, failed stream setup cleanup, demo state/media consistency, and profile photo selection, cancellation, upload retry, and account isolation. The component harness runs the actual app code with mocked native SDK and network boundaries; it does not replace device testing. PGlite executes the real SQL with Supabase-style grants and Auth/Storage schema fixtures. Tests cover both the previous six fixes and the new community, moderation, push queue, idempotency, and deletion permissions.
+- `pnpm check`: TypeScript and credential-free regression tests. There are currently 92 passing checks, including React component tests for repeated sign-in events, navigation during requests, account isolation, immediate chat-draft persistence, failed stream setup cleanup, demo state/media consistency, and profile photo selection, cancellation, upload retry, and account isolation. The component harness runs the actual app code with mocked native SDK and network boundaries; it does not replace device testing. PGlite executes the real SQL with Supabase-style grants and Auth/Storage schema fixtures. Tests cover both the previous six fixes and the new community, moderation, push queue, idempotency, and deletion permissions.
 - `pnpm export:android` and `pnpm export:ios`: bundle the native JavaScript to catch module and compilation problems. These are not native device builds.
 - `pnpm e2e:local`: creates and cleans up temporary accounts and fixtures in a **disposable local** Supabase stack. It checks Auth, REST, Storage, circle membership, DMs, live seats, gifts, onboarding, discovery, events, notification privacy, and moderation. It refuses non-local URLs unless explicitly overridden; never run it against the production project.
-- `.github/workflows/checks.yml`: runs static/database checks and both bundle exports, then boots a disposable Supabase Docker stack, applies the three bootstrap files, serves functions, waits for the account endpoint to return its expected method response, and runs API integration tests. It keeps historical migration files outside the startup directory because they are not a from-zero chain.
+- `.github/workflows/checks.yml`: runs static/database checks and both bundle exports, then boots a disposable Supabase Docker stack, applies the complete seven-file bootstrap sequence, serves functions, waits for the account endpoint to return its expected method response, and runs API integration tests. It keeps historical migration files outside the startup directory because they are not a from-zero chain.
 
 For manual local integration, use the same empty-migrations startup and bootstrap procedure as the workflow. Set `CIRCLES_E2E_URL`, `CIRCLES_E2E_ANON_KEY`, and `CIRCLES_E2E_SERVICE_ROLE_KEY` from `supabase status -o env`. Set `CIRCLES_E2E_ACCOUNT_FUNCTIONS=true` when the deletion function is served; set `CIRCLES_E2E_STREAM_FUNCTIONS=true` when Agora token secrets and the stream function are available.
 
@@ -95,3 +98,61 @@ The database advisor reports no security warnings or missing foreign-key indexes
 | Live and wallet | Multiple devices joining/releasing seats, reconnects and background expiry; Apple/Google sandbox purchase, cancellation, and transaction retry. |
 
 At implementation time, TypeScript, isolated regressions, both JavaScript bundle exports, and Deno function checks were run. The connected database's RLS, privileged-function grants, Realtime publication, and scheduled jobs were verified. Docker and native devices were unavailable, so the Docker/API workflow and the device checklist remain unexecuted. The push worker is awaiting deployment approval, and EAS/support details have not been supplied. Changes have not been pushed to GitHub.
+
+
+## Experience enhancements (12 October 2026)
+
+All seven experience areas are implemented in the native app with interactive local equivalents in `preview.html`:
+
+1. Shared spacing, typography, accessible contrast and touch targets, labelled fields, consistent button states, scrolling sheets and a scrolling gift drawer.
+2. Three-step onboarding across selected interests, relevant circles, people to follow, and a first introduction. Private requests explain the approval step.
+3. Discovery combines interest, privacy and recent activity with personalised, newest and popular ordering, recommendation reasons, reset controls and empty states.
+4. Direct-message and comment replies and reactions; conversation search and unread navigation; account-scoped draft storage; the server-enforced 15-minute deletion window with a live countdown. Failed sends preserve drafts.
+5. Circle overview and editable rules, member roles, owner-managed moderator assignments, events and RSVP. Circle moderators can organise events; global moderation remains separately authorised.
+6. Scheduled live rooms, edits/cancellation, opt-in reminders, host-only start, live connection status, gift categories/search/favourites and coin prices. Reminder records and queued deliveries are removed when plans change or a member unsubscribes.
+7. Activity grouped by destination and day, explicit unread labels and filters, direct content navigation, circle notification preferences and conversation muting.
+
+Database migrations `20261012163503_experience_enhancements.sql` and `20261012164050_experience_policy_consolidation.sql` are deployed to the connected Circles project. Reaction tables are included in Realtime. The existing minute scheduler creates upcoming-room reminders in the in-app activity inbox. Device push remains subject to the existing dispatcher approval and EAS/APNs/FCM setup described above; this change does not activate external push delivery.
+
+Verification includes TypeScript, 65 regression checks, Android and iOS bundle exports, browser flow checks, and a 320-pixel layout check. New SQL regressions cover private replies/reactions, owner-only roles, moderator events, private scheduled rooms, reminder deduplication, rescheduling, unsubscribe cleanup and delivery eligibility. Database advisors report no security or performance warnings from these changes; informational notices remain for deliberately server-only tables and unused indexes. Native camera/audio, store transactions and real device push still require the device checks above. No changes have been pushed to GitHub.
+
+
+## Replies and comments audit (13 October 2026)
+
+The audit found and fixed late sends affecting another thread/account, reopened drafts being cleared by a previous send, stale refreshes removing new comments, a silent 200-comment limit, misleading empty states after loading errors, stale reaction requests, and reaction counts truncated by the API row limit. Replies now load newest-first from the server and display chronologically, with an explicit control to load earlier replies. The preview rejects blank submissions, preserves line breaks and clears deleted reply references.
+
+The local regression suite now has 82 passing tests. Targeted checks include 251-comment threads, 1,203 reactions, send failures and repeated taps, account changes, parent deletion, private-circle membership, forged authors, cross-post replies, deletion expiry, reaction races and draft preservation. TypeScript and Android/iOS bundle exports pass. Browser checks cover draft restoration, quoted replies, multiline/HTML-like text rendering, reaction persistence, blank-send prevention and cancelling deletion. The SQL checks use isolated PostgreSQL/PGlite with the actual schema and migrations; native component tests mock transport and native SDK boundaries.
+
+**Deployed and verified (13 October 2026):** `supabase/migrations/20261013063428_replies_audit_hardening.sql` adds direct-comment-author notifications and rejects whitespace-only comments at the database boundary. It was committed to the connected project over a certificate-verified PostgreSQL connection after transactional live checks passed. Checks covered normalization, blank/oversized bodies, private membership, forged authors, cross-post replies, recipient notifications, parent/reaction cleanup, notification deletion, author-only deletion, and the 15-minute deadline. Temporary test records were rolled back before the schema migration was committed; a subsequent read confirmed the migration and restricted function grants. Database access does not restore the Codex Supabase connector or configure the native app. Real-device, two-account Realtime and external push delivery still require integration testing. No changes were pushed to GitHub.
+
+## Full app audit (13 October 2026)
+
+Three additional problems were reproduced or confirmed and fixed:
+
+- Old Explore pagination requests could keep a new query busy, report stale errors, or stop its loading indicator. Query generations now guard both failure and completion paths; a new query resets pagination state.
+- A direct message completing after closing a chat could erase a newer saved draft after reopening it. Message and comment drafts now share ordered storage writes and per-draft edit versions; late sends cannot clear newer text.
+- The CI integration database stopped at the community migrations. Its bootstrap now includes content deletion, experience enhancements, policy consolidation, and reply hardening, matching fresh-install instructions.
+
+Validation: 85 automated tests pass, including three new race regressions that failed before the fixes. TypeScript and Android/iOS JavaScript exports pass. The browser prototype was checked for profile editing/cancellation, notification preferences, conversation search, disabled blank sends, required schedule fields, live-room navigation and gift searching. It produced no browser console errors during these checks. These browser results cover simulated local data, not native SDKs or authenticated server transport.
+
+Live database inspection confirmed the latest migration, RLS on all 33 public tables, configured search paths on privileged public/private functions, client-inaccessible audit trigger functions, private post media/public avatars, expected Realtime tables, and active cleanup/reminder jobs. This was a catalog inspection and targeted transactional verification, not a new Supabase advisor run or an exhaustive proof of every policy.
+
+The native Supabase URL and supplied publishable key are now configured in ignored `.env.local`. The project Auth settings and REST endpoints both accepted the key (HTTP 200), and configured Android/iOS bundle exports pass. This enables the real sign-in/backend path; it does not verify an authenticated user session or reconnect the Codex Supabase plugin. The browser prototype continues to use local demo data. The database password is administrative access and must never be used by the mobile app. Remaining release blockers include the Agora App ID and EAS project ID, which are not configured locally. Docker and native devices are unavailable here, so the full Auth/REST/Storage integration job, camera/audio and reconnection, push delivery, recovery links, actual account deletion, and Apple/Google sandbox purchases still require execution. The push dispatcher remains pending configuration/deployment. A passing bundle export is not a signed native build or a device acceptance test.
+
+
+## Code maintenance (13 October 2026)
+
+Message and comment composers use `src/lib/textDraftStore.ts` for ordered writes, restoration after pending writes, and edit versions that protect newer drafts from late send completions. The storage adapter is injected so persistence failures and account-key isolation can be tested without a device. Coin catalogue failures are now caught, reported, and retryable.
+
+Unused discovery state, imports and refs were removed. TypeScript now checks `noUnusedLocals` and `noUnusedParameters` as part of the normal typecheck. Application source and test scripts follow `.prettierrc.json`; format them with `pnpm dlx prettier@3.6.2 --write App.tsx src scripts`. No runtime dependency was added for formatting.
+
+Verification: 88 tests pass, strict TypeScript passes, and configured Android/iOS bundle exports pass. The new tests exercise ordered draft restoration, recovery after storage failure, account isolation, and store catalogue retry. Existing device/integration release checks above remain outstanding.
+
+
+## Record and post circle videos
+
+Open a circle you belong to and choose **Share a thought**, or open the main composer and select a joined circle. Choose **Record video** to use the phone camera, or **Upload video** to select an existing clip. Recordings can be previewed and removed before posting. Video-only posts and optional captions use the existing private-media upload, progress/cancel/retry controls, saved drafts, and circle timeline playback. The limits remain two minutes and 25 MB. Camera denial and recording cancellation leave the draft intact; a recording completed after an account change is ignored. Posting still checks current circle membership on the client and through database/storage policies.
+
+The mobile app uses the installed Expo image-picker camera API and existing camera/microphone permissions. The browser prototype offers the corresponding video file input with a capture hint on supported phones; it remains a local simulation, and desktop browsers may show a file chooser instead of a recorder. Actual recording and audio must be verified on iOS and Android devices; camera SDK calls are mocked in automated tests.
+
+Verification: 92 automated tests, TypeScript and both configured mobile bundle exports pass. New regression tests cover recording and submitting to the selected circle, permission denial, cancellation, account switching, and recording size/duration limits.
