@@ -53,6 +53,7 @@ jobs:
           psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -v ON_ERROR_STOP=1 -f /tmp/circles-migrations/20261012163503_experience_enhancements.sql
           psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -v ON_ERROR_STOP=1 -f /tmp/circles-migrations/20261012164050_experience_policy_consolidation.sql
           psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -v ON_ERROR_STOP=1 -f /tmp/circles-migrations/20261013063428_replies_audit_hardening.sql
+          psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -v ON_ERROR_STOP=1 -f /tmp/circles-migrations/20261014130512_post_bookmarks.sql
       - name: Run Auth, REST, Storage, and account-function integration tests
         run: |
           supabase status -o env > /tmp/circles-supabase.env
@@ -79,3 +80,25 @@ jobs:
       - name: Stop local stack
         if: always()
         run: supabase stop --no-backup
+
+  preview-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.25.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:visual
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: preview-visual-results
+          path: |
+            test-results/
+            playwright-report/

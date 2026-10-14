@@ -5,7 +5,7 @@
     "scheme": "circles",
     "version": "1.0.0",
     "orientation": "portrait",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": false,
@@ -18,12 +18,7 @@
     },
     "android": {
       "package": "com.circles.social",
-      "permissions": [
-        "CAMERA",
-        "RECORD_AUDIO",
-        "READ_MEDIA_IMAGES",
-        "READ_MEDIA_VIDEO"
-      ]
+      "permissions": ["CAMERA", "RECORD_AUDIO", "READ_MEDIA_IMAGES", "READ_MEDIA_VIDEO"]
     },
     "plugins": [
       [
@@ -36,7 +31,15 @@
       ],
       "expo-dev-client",
       "expo-iap",
-      "expo-notifications"
+      "expo-notifications",
+      "expo-system-ui",
+      "expo-image",
+      [
+        "expo-calendar",
+        {
+          "calendarPermission": "Add Circles events to your calendar when you choose."
+        }
+      ]
     ],
     "extra": {}
   }

@@ -29,6 +29,7 @@ export interface Circle {
 }
 
 export interface PostMedia {
+  storagePath?: string;
   id: UUID;
   kind: MediaKind;
   url: string;

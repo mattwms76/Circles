@@ -278,17 +278,25 @@ async function fetchPosts(
   circleId?: UUID,
   authorId?: UUID,
   postId?: UUID,
+  search?: { text: string; media: 'all' | 'image' | 'video' },
 ): Promise<CirclePost[]> {
   if (!supabase) return demoPosts.slice(offset, offset + pageSize);
   let query = supabase
     .from('posts')
     .select(
-      'id,circle_id,body,created_at,profiles!posts_author_id_fkey(id,handle,display_name,avatar_url),circles!posts_circle_id_fkey(name),post_media(id,kind,storage_path),post_likes(user_id)',
+      `id,circle_id,body,created_at,profiles!posts_author_id_fkey(id,handle,display_name,avatar_url),circles!posts_circle_id_fkey(name),post_media${search && search.media !== 'all' ? '!inner' : ''}(id,kind,storage_path),post_likes(user_id)`,
     )
     .eq('visibility', 'published');
   if (circleId) query = query.eq('circle_id', circleId);
   if (authorId) query = query.eq('author_id', authorId);
   if (postId) query = query.eq('id', postId);
+  if (search?.text.trim())
+    query = query.ilike('body', `%${search.text.trim().replace(/[\\%_]/g, '\\$&')}%`);
+  if (search && search.media !== 'all')
+    query =
+      search.media === 'image'
+        ? query.in('post_media.kind', ['image', 'gif'])
+        : query.eq('post_media.kind', 'video');
   const { data, error } = await query
     .order('created_at', { ascending: false })
     .order('id', { ascending: false })
@@ -305,7 +313,7 @@ async function fetchPosts(
     if (row.post_media?.[0]) {
       const item = row.post_media[0];
       const url = signedUrls.get(item.storage_path);
-      if (url) media = { id: item.id, kind: item.kind, url };
+      if (url) media = { id: item.id, kind: item.kind, url, storagePath: item.storage_path };
     }
     return {
       id: row.id,
@@ -375,18 +383,22 @@ export async function createPost(
   if (error || !post) throw error ?? new Error('Could not save your post.');
   if (!input.media) return;
   const path = `${auth.user.id}/${post.id}/${input.media.fileName.replace(/[^a-zA-Z0-9._-]/g, '-')}`;
-  // Retry the same draft path, never overwrite another post or a published upload.
-  const cleanup = await client.storage.from(postMediaBucket).remove([path]);
-  if (cleanup.error) throw cleanup.error;
+  // Keep partial uploads for TUS resume. A completed upload may precede a lost metadata response.
+  const existing = await client.storage
+    .from(postMediaBucket)
+    .list(`${auth.user.id}/${post.id}`, { search: path.split('/').pop() });
+  if (existing.error) throw existing.error;
+  const uploaded = existing.data.some((file) => file.name === path.split('/').pop());
   try {
-    await uploadWithProgress(
-      postMediaBucket,
-      path,
-      input.media.uri,
-      input.media.mimeType,
-      options.onProgress,
-      options.signal,
-    );
+    if (!uploaded)
+      await uploadWithProgress(
+        postMediaBucket,
+        path,
+        input.media.uri,
+        input.media.mimeType,
+        options.onProgress,
+        options.signal,
+      );
     if (options.signal?.aborted) throw new Error('Upload cancelled. Your draft is saved.');
     const metadata = await client.from('post_media').insert({
       post_id: post.id,
@@ -397,7 +409,6 @@ export async function createPost(
     });
     if (metadata.error && metadata.error.code !== '23505') throw metadata.error;
   } catch (uploadError) {
-    await client.storage.from(postMediaBucket).remove([path]);
     throw uploadError;
   }
   // A lost publish response is ambiguous: preserve the upload and retry with the same request ID.
@@ -986,4 +997,25 @@ export function createIdempotencyKey() {
     globalThis.crypto?.randomUUID?.() ??
     `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`
   );
+}
+
+export async function searchCirclePosts(
+  circleId: string,
+  text: string,
+  media: 'all' | 'image' | 'video',
+  offset = 0,
+): Promise<CirclePost[]> {
+  if (!supabase)
+    return demoPosts
+      .filter(
+        (p) =>
+          p.circleId === circleId &&
+          p.body.toLowerCase().includes(text.toLowerCase()) &&
+          (media === 'all' ||
+            (media === 'image'
+              ? ['image', 'gif'].includes(p.media?.kind ?? '')
+              : p.media?.kind === 'video')),
+      )
+      .slice(offset, offset + 20);
+  return fetchPosts(offset, 20, circleId, undefined, undefined, { text, media });
 }

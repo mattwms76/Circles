@@ -1,0 +1,20 @@
+appId: com.circles.social
+---
+- launchApp
+- tapOn: "Home"
+- tapOn: "Saved posts"
+- assertVisible: "Saved posts"
+- tapOn: "Close"
+- scrollUntilVisible:
+    element: "Post options"
+    direction: DOWN
+- tapOn: "Post options"
+- tapOn: "Save post"
+- scrollUntilVisible:
+    element: "Saved posts"
+    direction: UP
+- tapOn: "Saved posts"
+- assertVisible: "Remove saved post"
+- takeScreenshot: artifacts/saved-posts
+- tapOn: "Remove saved post"
+- tapOn: "Close"

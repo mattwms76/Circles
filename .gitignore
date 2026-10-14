@@ -11,3 +11,7 @@ supabase/.temp/
 *.log
 
 .tools/
+
+playwright-report/
+test-results/
+.maestro/artifacts/

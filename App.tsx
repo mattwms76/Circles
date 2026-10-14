@@ -1,3 +1,5 @@
+import { parseContentLink, type ContentLink } from './src/lib/contentLinks';
+import { PostActionsProvider } from './src/components/PostActions';
 import {
   defaultDiscovery,
   filterDiscovery,
@@ -43,7 +45,7 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { streamProvider } from './src/lib/streaming';
 import { CoinStore } from './src/components/CoinStore';
-import { colors } from './src/theme';
+import { colors, useThemeMode } from './src/theme';
 import { styles } from './src/appStyles';
 import {
   Attachment,
@@ -149,6 +151,7 @@ export default function App() {
 }
 
 function CirclesApp() {
+  const theme = useThemeMode();
   const [tab, setTab] = useState<Tab>('home');
   const [discovery, setDiscovery] = useState(defaultDiscovery);
   const [showSettings, setShowSettings] = useState(false);
@@ -249,6 +252,7 @@ function CirclesApp() {
   const [circlePostsHasMore, setCirclePostsHasMore] = useState(false);
   const [circlePostsLoadingMore, setCirclePostsLoadingMore] = useState(false);
   const activeCircleId = useRef<UUID | null>(null);
+  const [pendingContentLink, setPendingContentLink] = useState<ContentLink | null>(null);
   const [selectedPost, setSelectedPost] = useState<CirclePost | null>(null);
   const [postComments, setPostComments] = useState<PostComment[]>([]);
   const [commentLimit, setCommentLimit] = useState(50);
@@ -3050,286 +3054,363 @@ function CirclesApp() {
     );
   }
 
+  useEffect(() => {
+    const receive = (url: string) => {
+      const link = parseContentLink(url);
+      if (link) setPendingContentLink(link);
+    };
+    void Linking.getInitialURL()
+      .then((url) => {
+        if (url) receive(url);
+      })
+      .catch(() => {});
+    const subscription = Linking.addEventListener('url', ({ url }) => receive(url));
+    return () => subscription.remove();
+  }, []);
+  useEffect(() => {
+    if (!signedIn || !pendingContentLink) return;
+    let active = true;
+    void (async () => {
+      try {
+        if (pendingContentLink.kind === 'post') {
+          const post = await loadPostById(pendingContentLink.id);
+          if (!active) return;
+          if (post) {
+            await openPostReplies(post);
+            setPendingContentLink(null);
+            return;
+          }
+        }
+        const id =
+          pendingContentLink.kind === 'circle'
+            ? pendingContentLink.id
+            : pendingContentLink.circleId;
+        const circle = id ? await loadCircleById(id) : null;
+        if (!active) return;
+        if (circle) {
+          setSelectedCircle(circle);
+          setTab('circles');
+          showMessage('Join this circle to access member posts.');
+        } else showMessage('This content is unavailable or you do not have access.');
+        // Keep post intent while awaiting membership approval; retry after membership refresh.
+        if (!circle || circle.isMember || pendingContentLink.kind === 'circle')
+          setPendingContentLink(null);
+      } catch {
+        if (active) {
+          showMessage('Could not open this link. Open the link again to retry.');
+          setPendingContentLink(null);
+        }
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [
+    signedIn,
+    profile.id,
+    pendingContentLink,
+    circles.map((c) => `${c.id}:${c.isMember}`).join(','),
+  ]);
+
   // This local state keeps the start-live sheet independent of the bottom tab.
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'bottom', 'left', 'right']}>
-      <StatusBar barStyle={selectedLive ? 'light-content' : 'dark-content'} />
-      <View style={styles.appShell}>
-        {screenContent()}
-        <TabBar
-          selected={tab}
-          onChange={(nextTab) => {
-            closeCircle();
-            closePublicProfile();
-            setTab(nextTab);
-          }}
-        />
-        {toast ? (
-          <View accessibilityLiveRegion="polite" style={styles.toast}>
-            <Text style={styles.toastText}>{toast}</Text>
-          </View>
-        ) : null}
-        {showCreatePost ? (
-          <CreatePostSheet
-            progress={uploadProgress}
-            error={postError}
-            onCancel={() => uploadController.current?.abort()}
-            onDiscard={() => {
-              void clearDraft(profile.id);
-              setPostBody('');
-              setAttachment(null);
-              setPostRequestId(createIdempotencyKey());
-              setPostError('');
-            }}
-            busy={createPostBusy}
-            circles={circles.filter((circle) => circle.isMember)}
-            selectedCircleId={postCircleId}
-            onSelectCircle={(value) => {
-              setPostCircleId(value);
-              setPostRequestId(createIdempotencyKey());
-            }}
-            body={postBody}
-            onBody={(value) => {
-              setPostBody(value);
-              setPostRequestId(createIdempotencyKey());
-              setPostError('');
-            }}
-            attachment={attachment}
-            onPick={pickAttachment}
-            onRecordVideo={() => void pickAttachment('video', 'camera')}
-            onClearAttachment={() => {
-              setAttachment(null);
-              setPostRequestId(createIdempotencyKey());
-            }}
-            onClose={() => {
-              if (!createPostBusy) setShowCreatePost(false);
-            }}
-            onSubmit={() => void handleCreatePost()}
-          />
-        ) : null}
-        {showCreateCircle ? (
-          <CreateCircleSheet
-            busy={createCircleBusy}
-            name={createCircleName}
-            description={createCircleDescription}
-            interest={createCircleInterest}
-            isPrivate={createCirclePrivate}
-            onName={setCreateCircleName}
-            onDescription={setCreateCircleDescription}
-            onInterest={setCreateCircleInterest}
-            onPrivate={setCreateCirclePrivate}
-            onClose={() => setShowCreateCircle(false)}
-            onSubmit={() => void handleCreateCircle()}
-          />
-        ) : null}
-        {showStartLive ? (
-          <StartLiveSheet
-            title={createTitle}
-            onTitle={setCreateTitle}
-            onClose={() => setShowStartLive(false)}
-            onSubmit={() => {
-              setShowStartLive(false);
-              void handleStartLive();
+    <PostActionsProvider
+      key={signedIn ? profile.id : 'signed-out'}
+      userId={profile.id}
+      onOpen={openPostReplies}
+      onChanged={(id, body) => {
+        const update = (rows: CirclePost[]) =>
+          body === null
+            ? rows.filter((p) => p.id !== id)
+            : rows.map((p) => (p.id === id ? { ...p, body } : p));
+        setFeed(update);
+        setCirclePosts(update);
+        setPublicProfilePosts(update);
+        if (selectedPost?.id === id)
+          setSelectedPost(body === null ? null : { ...selectedPost, body });
+      }}
+    >
+      <SafeAreaView style={styles.safeArea} edges={['top', 'bottom', 'left', 'right']}>
+        <StatusBar barStyle={selectedLive || theme === 'dark' ? 'light-content' : 'dark-content'} />
+        <View style={styles.appShell}>
+          {screenContent()}
+          <TabBar
+            selected={tab}
+            onChange={(nextTab) => {
+              closeCircle();
+              closePublicProfile();
+              setTab(nextTab);
             }}
           />
-        ) : null}
-        {selectedLive ? (
-          <LiveRoom
-            session={selectedLive}
-            profile={profile}
-            walletBalance={walletBalance}
-            gifts={gifts}
-            giftEvents={liveGiftEvents}
-            selectedGift={selectedGift}
-            giftSending={giftSending}
-            liveRequestStatus={liveRequestStatus}
-            liveRequests={liveRequests}
-            signedIn={signedIn}
-            backendReady={backendReady}
-            streamCredentials={streamCredentials}
-            streamError={streamError}
-            connectionState={connectionState}
-            onReconnect={() => {
-              if (selectedLive)
-                void joinStream(
-                  selectedLive,
-                  selectedLive.host.id === profile.id
-                    ? 'host'
-                    : selectedLive.seats.some((seat) => seat.user.id === profile.id)
-                      ? 'cohost'
-                      : 'viewer',
-                );
-            }}
-            remoteUids={remoteUids}
-            micEnabled={micEnabled}
-            cameraEnabled={cameraEnabled}
-            onClose={() => void closeLiveRoom(selectedLive)}
-            onGiftSelect={setSelectedGift}
-            onGiftSend={handleGift}
-            onBuyCoins={() => setShowCoinStore(true)}
-            onRequestCoHost={() => void handleRequestCoHost()}
-            onDecision={handleSeatDecision}
-            onReport={() =>
-              void handleReport('live_session', selectedLive.id, selectedLive.host.id)
-            }
-            onToggleMic={() => {
-              const next = !micEnabled;
-              if (!streamingAdapter) return;
-              void streamingAdapter
-                .setMicrophoneEnabled(next)
-                .then(() => setMicEnabled(next))
-                .catch((error) =>
-                  showMessage(
-                    error instanceof Error ? error.message : 'Could not update your microphone.',
-                  ),
-                );
-            }}
-            onToggleCamera={() => {
-              const next = !cameraEnabled;
-              if (!streamingAdapter) return;
-              void streamingAdapter
-                .setCameraEnabled(next)
-                .then(() => setCameraEnabled(next))
-                .catch((error) =>
-                  showMessage(
-                    error instanceof Error ? error.message : 'Could not update your camera.',
-                  ),
-                );
-            }}
-            onSwitchCamera={() => {
-              void streamingAdapter
-                ?.switchCamera()
-                .catch((error) =>
-                  showMessage(error instanceof Error ? error.message : 'Could not switch cameras.'),
-                );
-            }}
-          />
-        ) : null}
-        {selectedConversation ? (
-          <ChatScreen
-            key={selectedConversation.peer.id}
-            conversation={selectedConversation}
-            profile={profile}
-            hasOlder={chatHasOlder}
-            onLoadOlder={loadOlderMessages}
-            onClose={() => setSelectedConversation(null)}
-            onSend={handleSendMessage}
-            onDelete={handleDeleteMessage}
-            onReport={() => {
-              const lastMessage = selectedConversation.messages.at(-1);
-              void handleReport(
-                lastMessage ? 'message' : 'profile',
-                lastMessage?.id ?? selectedConversation.peer.id,
-                selectedConversation.peer.id,
-              );
-            }}
-          />
-        ) : null}
-        {showCoinStore ? (
-          <CoinStore
-            balance={walletBalance}
-            onClose={() => setShowCoinStore(false)}
-            onBalance={setWalletBalance}
-          />
-        ) : null}
-        {showOnboarding && !recoveryMode ? (
-          <OnboardingSheet
-            key={profile.id}
-            profile={profile}
-            onComplete={(updated, introduceIn) => {
-              setProfile(updated);
-              setShowOnboarding(false);
-              void refreshAll();
-              if (introduceIn) {
-                setPostCircleId(introduceIn.id);
+          {toast ? (
+            <View accessibilityLiveRegion="polite" style={styles.toast}>
+              <Text style={styles.toastText}>{toast}</Text>
+            </View>
+          ) : null}
+          {showCreatePost ? (
+            <CreatePostSheet
+              progress={uploadProgress}
+              error={postError}
+              onCancel={() => uploadController.current?.abort()}
+              onDiscard={() => {
+                void clearDraft(profile.id);
                 setPostBody('');
+                setAttachment(null);
                 setPostRequestId(createIdempotencyKey());
-                setCircles((old) =>
-                  old.map((c) => (c.id === introduceIn.id ? { ...c, isMember: true } : c)),
+                setPostError('');
+              }}
+              busy={createPostBusy}
+              circles={circles.filter((circle) => circle.isMember)}
+              selectedCircleId={postCircleId}
+              onSelectCircle={(value) => {
+                setPostCircleId(value);
+                setPostRequestId(createIdempotencyKey());
+              }}
+              body={postBody}
+              onBody={(value) => {
+                setPostBody(value);
+                setPostRequestId(createIdempotencyKey());
+                setPostError('');
+              }}
+              attachment={attachment}
+              onPick={pickAttachment}
+              onRecordVideo={() => void pickAttachment('video', 'camera')}
+              onClearAttachment={() => {
+                setAttachment(null);
+                setPostRequestId(createIdempotencyKey());
+              }}
+              onClose={() => {
+                if (!createPostBusy) setShowCreatePost(false);
+              }}
+              onSubmit={() => void handleCreatePost()}
+            />
+          ) : null}
+          {showCreateCircle ? (
+            <CreateCircleSheet
+              busy={createCircleBusy}
+              name={createCircleName}
+              description={createCircleDescription}
+              interest={createCircleInterest}
+              isPrivate={createCirclePrivate}
+              onName={setCreateCircleName}
+              onDescription={setCreateCircleDescription}
+              onInterest={setCreateCircleInterest}
+              onPrivate={setCreateCirclePrivate}
+              onClose={() => setShowCreateCircle(false)}
+              onSubmit={() => void handleCreateCircle()}
+            />
+          ) : null}
+          {showStartLive ? (
+            <StartLiveSheet
+              title={createTitle}
+              onTitle={setCreateTitle}
+              onClose={() => setShowStartLive(false)}
+              onSubmit={() => {
+                setShowStartLive(false);
+                void handleStartLive();
+              }}
+            />
+          ) : null}
+          {selectedLive ? (
+            <LiveRoom
+              session={selectedLive}
+              profile={profile}
+              walletBalance={walletBalance}
+              gifts={gifts}
+              giftEvents={liveGiftEvents}
+              selectedGift={selectedGift}
+              giftSending={giftSending}
+              liveRequestStatus={liveRequestStatus}
+              liveRequests={liveRequests}
+              signedIn={signedIn}
+              backendReady={backendReady}
+              streamCredentials={streamCredentials}
+              streamError={streamError}
+              connectionState={connectionState}
+              onReconnect={() => {
+                if (selectedLive)
+                  void joinStream(
+                    selectedLive,
+                    selectedLive.host.id === profile.id
+                      ? 'host'
+                      : selectedLive.seats.some((seat) => seat.user.id === profile.id)
+                        ? 'cohost'
+                        : 'viewer',
+                  );
+              }}
+              remoteUids={remoteUids}
+              micEnabled={micEnabled}
+              cameraEnabled={cameraEnabled}
+              onClose={() => void closeLiveRoom(selectedLive)}
+              onGiftSelect={setSelectedGift}
+              onGiftSend={handleGift}
+              onBuyCoins={() => setShowCoinStore(true)}
+              onRequestCoHost={() => void handleRequestCoHost()}
+              onDecision={handleSeatDecision}
+              onReport={() =>
+                void handleReport('live_session', selectedLive.id, selectedLive.host.id)
+              }
+              onToggleMic={() => {
+                const next = !micEnabled;
+                if (!streamingAdapter) return;
+                void streamingAdapter
+                  .setMicrophoneEnabled(next)
+                  .then(() => setMicEnabled(next))
+                  .catch((error) =>
+                    showMessage(
+                      error instanceof Error ? error.message : 'Could not update your microphone.',
+                    ),
+                  );
+              }}
+              onToggleCamera={() => {
+                const next = !cameraEnabled;
+                if (!streamingAdapter) return;
+                void streamingAdapter
+                  .setCameraEnabled(next)
+                  .then(() => setCameraEnabled(next))
+                  .catch((error) =>
+                    showMessage(
+                      error instanceof Error ? error.message : 'Could not update your camera.',
+                    ),
+                  );
+              }}
+              onSwitchCamera={() => {
+                void streamingAdapter
+                  ?.switchCamera()
+                  .catch((error) =>
+                    showMessage(
+                      error instanceof Error ? error.message : 'Could not switch cameras.',
+                    ),
+                  );
+              }}
+            />
+          ) : null}
+          {selectedConversation ? (
+            <ChatScreen
+              key={selectedConversation.peer.id}
+              conversation={selectedConversation}
+              profile={profile}
+              hasOlder={chatHasOlder}
+              onLoadOlder={loadOlderMessages}
+              onClose={() => setSelectedConversation(null)}
+              onSend={handleSendMessage}
+              onDelete={handleDeleteMessage}
+              onReport={() => {
+                const lastMessage = selectedConversation.messages.at(-1);
+                void handleReport(
+                  lastMessage ? 'message' : 'profile',
+                  lastMessage?.id ?? selectedConversation.peer.id,
+                  selectedConversation.peer.id,
                 );
-                setShowCreatePost(true);
-              } else setTab('circles');
-            }}
-          />
-        ) : null}
-        {showSettings ? (
-          <SettingsSheet
-            onClose={() => setShowSettings(false)}
-            onBlocksChanged={() => {
-              clearMediaCache();
-              setSearchRevision((v) => v + 1);
-              void loadBlockedPeople().then((items) =>
-                setBlockedIds(new Set(items.map((p) => p.id))),
-              );
-              void refreshAll();
-            }}
-            onDeleted={() => {
-              void clearDraft(profile.id);
-              setShowSettings(false);
-              setSignedIn(false);
-              setTab('profile');
-            }}
-            onModerator={() => {
-              setShowSettings(false);
-              setShowModerator(true);
-            }}
-          />
-        ) : null}
-        {recoveryMode ? (
-          <RecoverySheet
-            email={authEmail}
-            recovery={recoveryMode === 'update'}
-            onClose={() => setRecoveryMode(null)}
-          />
-        ) : null}
-        {showActivity ? (
-          <ActivitySheet
-            items={activity}
-            loading={activityLoading}
-            hasMore={activityHasMore}
-            onMore={() => void refreshActivity(true)}
-            onRefresh={() => void refreshActivity()}
-            onOpen={(item, ids) => void openActivityItem(item, ids)}
-            onClose={() => setShowActivity(false)}
-          />
-        ) : null}
-        {showModerator ? (
-          <ModeratorSheet
-            onClose={() => {
-              setShowModerator(false);
-              void refreshAll();
-            }}
-          />
-        ) : null}
-        {reportTarget ? (
-          <ReportSheet
-            onClose={() => setReportTarget(null)}
-            onSubmit={async (reason) => {
-              if (backendReady) await reportContent({ ...reportTarget, reason });
-              showMessage('Your report has been sent for review.');
-            }}
-          />
-        ) : null}
-        {selectedPost ? (
-          <PostRepliesSheet
-            key={`${profile.id}:${selectedPost.id}`}
-            loading={commentsLoading}
-            loadError={commentsError}
-            hasMore={commentsHasMore}
-            onRetry={() => setCommentsRevision((v) => v + 1)}
-            onLoadMore={() => setCommentLimit((v) => v + 50)}
-            post={selectedPost}
-            comments={postComments}
-            profile={profile}
-            onDelete={handleDeleteComment}
-            draft={commentDraft}
-            onDraft={setCommentDraft}
-            onSend={handlePostReply}
-            onClose={closePostReplies}
-          />
-        ) : null}
-      </View>
-    </SafeAreaView>
+              }}
+            />
+          ) : null}
+          {showCoinStore ? (
+            <CoinStore
+              balance={walletBalance}
+              onClose={() => setShowCoinStore(false)}
+              onBalance={setWalletBalance}
+            />
+          ) : null}
+          {showOnboarding && !recoveryMode ? (
+            <OnboardingSheet
+              key={profile.id}
+              profile={profile}
+              onComplete={(updated, introduceIn) => {
+                setProfile(updated);
+                setShowOnboarding(false);
+                void refreshAll();
+                if (introduceIn) {
+                  setPostCircleId(introduceIn.id);
+                  setPostBody('');
+                  setPostRequestId(createIdempotencyKey());
+                  setCircles((old) =>
+                    old.map((c) => (c.id === introduceIn.id ? { ...c, isMember: true } : c)),
+                  );
+                  setShowCreatePost(true);
+                } else setTab('circles');
+              }}
+            />
+          ) : null}
+          {showSettings ? (
+            <SettingsSheet
+              onClose={() => setShowSettings(false)}
+              onBlocksChanged={() => {
+                clearMediaCache();
+                setSearchRevision((v) => v + 1);
+                void loadBlockedPeople().then((items) =>
+                  setBlockedIds(new Set(items.map((p) => p.id))),
+                );
+                void refreshAll();
+              }}
+              onDeleted={() => {
+                void clearDraft(profile.id);
+                setShowSettings(false);
+                setSignedIn(false);
+                setTab('profile');
+              }}
+              onModerator={() => {
+                setShowSettings(false);
+                setShowModerator(true);
+              }}
+            />
+          ) : null}
+          {recoveryMode ? (
+            <RecoverySheet
+              email={authEmail}
+              recovery={recoveryMode === 'update'}
+              onClose={() => setRecoveryMode(null)}
+            />
+          ) : null}
+          {showActivity ? (
+            <ActivitySheet
+              items={activity}
+              loading={activityLoading}
+              hasMore={activityHasMore}
+              onMore={() => void refreshActivity(true)}
+              onRefresh={() => void refreshActivity()}
+              onOpen={(item, ids) => void openActivityItem(item, ids)}
+              onClose={() => setShowActivity(false)}
+            />
+          ) : null}
+          {showModerator ? (
+            <ModeratorSheet
+              onClose={() => {
+                setShowModerator(false);
+                void refreshAll();
+              }}
+            />
+          ) : null}
+          {reportTarget ? (
+            <ReportSheet
+              onClose={() => setReportTarget(null)}
+              onSubmit={async (reason) => {
+                if (backendReady) await reportContent({ ...reportTarget, reason });
+                showMessage('Your report has been sent for review.');
+              }}
+            />
+          ) : null}
+          {selectedPost ? (
+            <PostRepliesSheet
+              key={`${profile.id}:${selectedPost.id}`}
+              loading={commentsLoading}
+              loadError={commentsError}
+              hasMore={commentsHasMore}
+              onRetry={() => setCommentsRevision((v) => v + 1)}
+              onLoadMore={() => setCommentLimit((v) => v + 50)}
+              post={selectedPost}
+              comments={postComments}
+              profile={profile}
+              onDelete={handleDeleteComment}
+              draft={commentDraft}
+              onDraft={setCommentDraft}
+              onSend={handlePostReply}
+              onClose={closePostReplies}
+            />
+          ) : null}
+        </View>
+      </SafeAreaView>
+    </PostActionsProvider>
   );
 }

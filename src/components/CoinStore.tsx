@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, ScrollView, Text, View } from 'react-native';
 import { useIAP, type Purchase } from 'expo-iap';
-import { colors, radii } from '../theme';
+import { createThemedStyles, colors, radii } from '../theme';
 import { backendReady, requireSupabase } from '../lib/supabase';
 import { ActionButton } from './Primitives';
 
@@ -274,7 +274,7 @@ export function CoinStore({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyles(() => ({
   container: {
     ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(24,22,25,0.45)',
@@ -299,14 +299,14 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   eyebrow: {
     color: colors.coral,
-    fontWeight: '800',
+    fontWeight: '700',
     fontSize: 12,
     letterSpacing: 1.5,
     marginBottom: 6,
   },
-  title: { color: colors.ink, fontSize: 23, fontWeight: '800', letterSpacing: -0.6 },
+  title: { color: colors.ink, fontSize: 23, fontWeight: '700', letterSpacing: -0.6 },
   close: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.surface,
     width: 48,
     height: 48,
     borderRadius: 18,
@@ -338,19 +338,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  packTitle: { color: colors.ink, fontSize: 13, fontWeight: '800' },
+  packTitle: { color: colors.ink, fontSize: 13, fontWeight: '700' },
   packDetail: { color: colors.muted, fontSize: 12, marginTop: 2 },
   buy: {
     minHeight: 48,
     justifyContent: 'center',
     minWidth: 70,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.surface,
     borderRadius: radii.pill,
     paddingHorizontal: 13,
     paddingVertical: 10,
     alignItems: 'center',
   },
-  buyText: { color: colors.ink, fontWeight: '800', fontSize: 12 },
+  buyText: { color: colors.ink, fontWeight: '700', fontSize: 12 },
   storeHint: { color: colors.muted, fontSize: 12, lineHeight: 18, marginTop: 4 },
   feedback: { color: colors.live, fontSize: 12, marginTop: 8 },
   footer: {
@@ -360,4 +360,4 @@ const styles = StyleSheet.create({
     marginTop: 17,
   },
   restore: { color: colors.muted, fontSize: 12, fontWeight: '700', padding: 8 },
-});
+}));

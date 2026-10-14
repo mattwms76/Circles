@@ -1,16 +1,18 @@
+import { ScheduleDateField, AddToCalendar } from './ScheduleDateField';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   AppState,
+  Modal,
+  ScrollView,
   Pressable,
-  StyleSheet,
   Switch,
   Text,
   TextInput,
   View,
 } from 'react-native';
-import { ActionButton, Avatar, Pill } from './Primitives';
-import { colors, spacing, typography } from '../theme';
+import { ActionButton, Avatar, Pill, Icon } from './Primitives';
+import { createThemedStyles, colors, spacing, typography } from '../theme';
 import { supabase } from '../lib/supabase';
 import { loadLiveSessions, followUser, loadFollowing } from '../lib/repositories';
 import { searchDiscovery } from '../lib/community';
@@ -33,7 +35,7 @@ import {
 } from '../lib/experience';
 import type { Circle, LiveSession, Profile } from '../types';
 
-export const experienceStyles = StyleSheet.create({
+export const experienceStyles = createThemedStyles(() => ({
   stack: { gap: 12 },
   row: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
   card: {
@@ -58,7 +60,7 @@ export const experienceStyles = StyleSheet.create({
     padding: 12,
     minHeight: 48,
   },
-  error: { ...typography.secondary, color: colors.live },
+  error: { ...typography.secondary, color: colors.error },
   quiet: { minHeight: 48, minWidth: 48, paddingHorizontal: 8, justifyContent: 'center' },
   quote: {
     borderLeftWidth: 3,
@@ -67,7 +69,7 @@ export const experienceStyles = StyleSheet.create({
     backgroundColor: colors.paper,
     borderRadius: 8,
   },
-});
+}));
 const s = experienceStyles;
 const message = (e: unknown) =>
   e instanceof Error ? e.message : 'Could not save. Please try again.';
@@ -96,54 +98,83 @@ export function DiscoveryControls({
   onChange: (v: DiscoveryOptions) => void;
   onClear: () => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const count =
+    Number(value.privacy !== 'all') +
+    Number(value.sort !== 'recommended') +
+    Number(value.activeOnly);
   return (
     <View style={{ paddingHorizontal: spacing.page, gap: 12, marginBottom: 16 }}>
-      <Text style={s.label}>Membership</Text>
-      <View style={s.row}>
-        {(['all', 'public', 'private'] as const).map((privacy) => (
-          <Pill
-            key={privacy}
-            label={privacy === 'all' ? 'Any circle' : privacy === 'public' ? 'Public' : 'Private'}
-            selected={value.privacy === privacy}
-            onPress={() => onChange({ ...value, privacy })}
-          />
-        ))}
-      </View>
-      <Text style={s.label}>Sort circles</Text>
-      <View style={s.row}>
-        {(['recommended', 'active', 'popular', 'newest'] as const).map((sort) => (
-          <Pill
-            key={sort}
-            label={
-              {
-                recommended: 'For you',
-                active: 'Recently active',
-                popular: 'Popular',
-                newest: 'New',
-              }[sort]
-            }
-            selected={value.sort === sort}
-            onPress={() => onChange({ ...value, sort })}
-          />
-        ))}
-      </View>
-      <View style={s.row}>
-        <Text style={[s.label, { flex: 1 }]}>Active in the last 7 days</Text>
-        <Switch
-          accessibilityLabel="Active in the last seven days"
-          value={value.activeOnly}
-          onValueChange={(activeOnly) => onChange({ ...value, activeOnly })}
-        />
-      </View>
       <ActionButton
         compact
         variant="outline"
-        label="Clear search and filters"
-        onPress={() => {
-          onChange(defaultDiscovery);
-          onClear();
-        }}
+        label={`Filters${count ? ` · ${count} active` : ''}`}
+        onPress={() => setOpen(true)}
       />
+      <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.45)' }}>
+          <ScrollView
+            style={{
+              maxHeight: '85%',
+              backgroundColor: colors.paper,
+              borderTopLeftRadius: 24,
+              borderTopRightRadius: 24,
+            }}
+            contentContainerStyle={{ padding: 24, paddingBottom: 48, gap: 16 }}
+          >
+            <Text style={s.title}>Filter circles</Text>
+            <Text style={s.label}>Membership</Text>
+            <View style={s.row}>
+              {(['all', 'public', 'private'] as const).map((privacy) => (
+                <Pill
+                  key={privacy}
+                  label={
+                    privacy === 'all' ? 'Any circle' : privacy === 'public' ? 'Public' : 'Private'
+                  }
+                  selected={value.privacy === privacy}
+                  onPress={() => onChange({ ...value, privacy })}
+                />
+              ))}
+            </View>
+            <Text style={s.label}>Sort circles</Text>
+            <View style={s.row}>
+              {(['recommended', 'active', 'popular', 'newest'] as const).map((sort) => (
+                <Pill
+                  key={sort}
+                  label={
+                    {
+                      recommended: 'For you',
+                      active: 'Recently active',
+                      popular: 'Popular',
+                      newest: 'New',
+                    }[sort]
+                  }
+                  selected={value.sort === sort}
+                  onPress={() => onChange({ ...value, sort })}
+                />
+              ))}
+            </View>
+            <View style={s.row}>
+              <Text style={[s.label, { flex: 1 }]}>Active in the last 7 days</Text>
+              <Switch
+                accessibilityLabel="Active in the last seven days"
+                value={value.activeOnly}
+                onValueChange={(activeOnly) => onChange({ ...value, activeOnly })}
+              />
+            </View>
+            <ActionButton
+              compact
+              variant="outline"
+              label="Clear search and filters"
+              onPress={() => {
+                onChange(defaultDiscovery);
+                onClear();
+              }}
+            />
+            <ActionButton label="Show results" onPress={() => setOpen(false)} />
+          </ScrollView>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -221,35 +252,53 @@ export function ReactionBar({
   onReact: (emoji: string, remove: boolean) => void;
   light?: boolean;
 }) {
+  const [choosing, setChoosing] = useState(false);
   return (
     <View style={s.row}>
-      {reactionEmoji.map((emoji) => {
-        const count = items.filter((r) => r.emoji === emoji).length,
-          selected = items.some((r) => r.emoji === emoji && r.user_id === viewerId);
-        return (
-          <Pressable
-            key={emoji}
-            accessibilityRole="button"
-            accessibilityLabel={`${selected ? 'Remove' : 'Add'} ${emoji} reaction, ${count}`}
-            accessibilityState={{ selected }}
-            onPress={() => onReact(emoji, selected)}
-            style={[
-              s.quiet,
-              {
-                borderRadius: 14,
-                backgroundColor: selected ? colors.lilac : light ? '#ffffff18' : colors.paper,
-              },
-            ]}
-          >
-            <Text
-              style={{ fontSize: 14, color: selected ? colors.ink : light ? 'white' : colors.ink }}
+      {reactionEmoji
+        .filter((emoji) => choosing || items.some((item) => item.emoji === emoji))
+        .map((emoji) => {
+          const count = items.filter((r) => r.emoji === emoji).length,
+            selected = items.some((r) => r.emoji === emoji && r.user_id === viewerId);
+          return (
+            <Pressable
+              key={emoji}
+              accessibilityRole="button"
+              accessibilityLabel={`${selected ? 'Remove' : 'Add'} ${emoji} reaction, ${count}`}
+              accessibilityState={{ selected }}
+              onPress={() => {
+                onReact(emoji, selected);
+                setChoosing(false);
+              }}
+              style={[
+                s.quiet,
+                {
+                  borderRadius: 14,
+                  backgroundColor: selected ? colors.lilac : light ? '#ffffff18' : colors.paper,
+                },
+              ]}
             >
-              {emoji}
-              {count ? ` ${count}` : ''}
-            </Text>
-          </Pressable>
-        );
-      })}
+              <Text
+                style={{
+                  fontSize: 14,
+                  color: selected ? colors.ink : light ? 'white' : colors.ink,
+                }}
+              >
+                {emoji}
+                {count ? ` ${count}` : ''}
+              </Text>
+            </Pressable>
+          );
+        })}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={choosing ? 'Close reactions' : 'Add reaction'}
+        accessibilityState={{ expanded: choosing }}
+        onPress={() => setChoosing(!choosing)}
+        style={s.quiet}
+      >
+        <Icon name="plus" color={light ? 'white' : colors.muted} />
+      </Pressable>
     </View>
   );
 }
@@ -513,12 +562,7 @@ export function ScheduledRooms({
       {editing ? (
         <View style={s.card}>
           <LabeledField label="Room title" value={title} onChangeText={setTitle} maxLength={120} />
-          <LabeledField
-            label="Local date and time (YYYY-MM-DD HH:MM)"
-            value={date}
-            onChangeText={setDate}
-            placeholder="2026-11-14 18:30"
-          />
+          <ScheduleDateField value={date} onChangeText={setDate} />
           <Text style={s.hint}>
             Time zone: {Intl.DateTimeFormat().resolvedOptions().timeZone}. Reminders arrive 15
             minutes before the room.
@@ -565,6 +609,7 @@ export function ScheduledRooms({
         <View key={room.id} style={s.card}>
           <Text style={s.label}>{room.title}</Text>
           <Text style={s.body}>{new Date(room.starts_at).toLocaleString()}</Text>
+          <AddToCalendar title={room.title} startsAt={room.starts_at} />
           <Text style={s.hint}>
             {room.host?.displayName ?? 'You'} ·{' '}
             {room.status === 'live' ? 'Started' : room.circle_id ? 'Circle members' : 'Open room'}

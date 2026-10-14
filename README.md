@@ -156,3 +156,35 @@ Open a circle you belong to and choose **Share a thought**, or open the main com
 The mobile app uses the installed Expo image-picker camera API and existing camera/microphone permissions. The browser prototype offers the corresponding video file input with a capture hint on supported phones; it remains a local simulation, and desktop browsers may show a file chooser instead of a recorder. Actual recording and audio must be verified on iOS and Android devices; camera SDK calls are mocked in automated tests.
 
 Verification: 92 automated tests, TypeScript and both configured mobile bundle exports pass. New regression tests cover recording and submitting to the selected circle, permission denial, cancellation, account switching, and recording size/duration limits.
+
+
+### Design refresh (14 October 2026)
+
+The native app and browser prototype now use a compact Home greeting, an activity bell with unread count, compact live/circle shortcuts and an earlier timeline. Circle pages have an image identity and separate Posts, Events and About tabs; membership, rules, notifications and owner/moderator tools remain available in their relevant sections.
+
+Shared typography and spacing are more restrained. Primary actions retain terracotta emphasis while secondary controls use quieter surfaces and consistent icons. The posting sheet has an aligned media toolbar, large playable attachment previews, replace/remove controls, upload progress and a publish footer outside the scroll area. Empty posts cannot be submitted. Comments and messages show existing reactions with an expandable picker and a contextual Reply/Delete menu; the existing 15-minute deletion rules still apply.
+
+Colours follow the device's light/dark appearance without resetting drafts. Sheets respect Reduce Motion, text retains native font scaling, and the browser supports narrow screens, keyboard dialog navigation and a System/Light/Dark preview selector. Loading, empty, error and success feedback uses the shared palette. The prototype notice is outside the simulated phone.
+
+`expo-system-ui` and the automatic appearance configuration require a rebuilt development client/native app. JavaScript exports do not install those native changes on a phone. Physical-device keyboard, camera and large-text checks remain a release QA step. The browser uses simulated local data and is not a substitute for those checks.
+
+Validation: 96 automated tests, strict TypeScript and Android/iOS JavaScript exports. New UI regressions cover tab isolation, the fixed composer footer, reaction selection, reduced motion, and theme changes preserving component state.
+
+
+### Audit enhancements (14 October 2026)
+
+Explore now opens with collapsed advanced filters, an active-filter count and circles before people. The preview selected-filter contrast is corrected for dark mode. Native and preview palettes come from `src/design-tokens.json`; run `pnpm tokens:sync` after changing colours. `pnpm tokens:check` prevents palette drift in CI. Home/Explore, loading states, post controls, video playback, circle search and scheduling are separated into feature modules.
+
+Post options include owner-only editing and soft deletion at any time while membership permits. Deletion removes the post from the timeline rather than purging stored records. Comment and direct-message deletion still has its existing 15-minute limit. Saved posts are private per account and sync through `post_bookmarks`; inaccessible/removed posts are omitted from the saved view. Apply `supabase/migrations/20261014130512_post_bookmarks.sql` before using connected bookmarks. **Deployed on 14 October 2026 after explicit approval.** Ownership and private-circle access were verified on the connected database using synthetic records rolled back after the checks.
+
+Sharing produces `circles://post/<id>?circle=<circle-id>` and `circles://circle/<id>` links. The installed app retains content intent through sign-in, checks current access, and opens the circle join flow if necessary. These are installed-app scheme links, not hosted universal links or an app-store fallback. Post text is not included when sharing private content. Circle posts support server-side text search and photo/video filters with pagination and stale-request protection.
+
+Uploads now use TUS in 6 MB chunks with bounded network retries and persistent per-account resume information. Cancel pauses the transfer and keeps the existing draft; Retry resumes within the storage upload session lifetime. Completed files are retained when a metadata/publish response is lost. Playback creates a thumbnail, pauses offscreen/background video, renews a private URL once after playback error and offers manual retry. Native upload and media-player behaviour still requires device/network acceptance testing; the browser remains a local prototype.
+
+Events and live-room schedules use native date/time selection, a timezone-aware confirmation display, existing future-date validation and an OS Add to calendar form. The preview uses browser date/time fields and calendar downloads. Rebuild the native client for the new date-picker, calendar and image modules.
+
+Run `pnpm check` for palette consistency, TypeScript and automated regression tests. `pnpm test:visual` runs preview layout/contrast and save/edit interaction checks, capturing light/dark screenshots; CI installs Chromium and retains reports. `.maestro/discovery.yaml` and `.maestro/post-controls.yaml` provide device smoke flows. Run them against a disposable test account (or a demo build) on both platforms, in light and dark appearance, preserving screenshots as release evidence. They are supplied but have not been run on physical devices here.
+
+Run `pnpm release:check` before preparing a release. Add `EXPO_PUBLIC_AGORA_APP_ID`, `EXPO_PUBLIC_EAS_PROJECT_ID` and `EXPO_PUBLIC_SUPPORT_EMAIL` to the ignored `.env.local` when available. `app.config.ts` maps the EAS project ID into Expo configuration. No placeholder IDs were inserted. Verify APNs/FCM credentials, notification-dispatcher deployment/scheduling, real two-account flows, interruption/resume, Agora sessions and store sandbox purchases separately. Passing exports is not native/device certification.
+
+Validation for this enhancement pass: 105 automated tests pass, strict TypeScript and shared-token checks pass, and both final Android/iOS bundle exports pass. Browser verification covered dark-mode contrast (15.6:1 for the selected filter), a 390 px viewport without horizontal overflow, filtering, saving/unsaving, author editing and circle search. The new Playwright CI job and Maestro device flows are authored but were not executed here. The Supabase bookmark migration was subsequently deployed after explicit approval; connected-database ownership and private-circle checks passed, and synthetic test data was rolled back.

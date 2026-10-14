@@ -33,7 +33,43 @@ export function loadSource(file, mocks = {}) {
       module,
       exports: module.exports,
       require: (name) => {
-        if (name in mocks) return mocks[name];
+        if (name in mocks)
+          return name.endsWith('/theme')
+            ? {
+                createThemedStyles: (factory) => factory(),
+                useThemeMode: () => 'light',
+                useReducedMotion: () => true,
+                ...mocks[name],
+              }
+            : mocks[name];
+        if (name === './DiscoveryScreens')
+          return { HomeScreen: 'HomeScreen', ExploreScreen: 'ExploreScreen' };
+        if (name.endsWith('/components/LoadingCards')) return { LoadingCards: 'LoadingCards' };
+        if (name === './design-tokens.json')
+          return JSON.parse(
+            readFileSync(new URL('../src/design-tokens.json', import.meta.url), 'utf8'),
+          );
+        if (name.endsWith('/lib/contentLinks')) return loadSource('src/lib/contentLinks.ts');
+        if (name.endsWith('/components/PostActions') || name === './PostActions')
+          return {
+            PostActionsProvider: ({ children }) => children,
+            SavedPostsButton: 'SavedPostsButton',
+            usePostActions: () => null,
+          };
+        if (name.endsWith('/components/CirclePostSearch'))
+          return {
+            CirclePostSearch: 'CirclePostSearch',
+            useCirclePostSearch: () => ({
+              active: false,
+              rows: [],
+              loading: false,
+              error: '',
+              more: false,
+            }),
+          };
+        if (name.endsWith('/ScheduleDateField'))
+          return { ScheduleDateField: 'ScheduleDateField', AddToCalendar: 'AddToCalendar' };
+        if (name === './PostVideo') return { PostVideo: 'PostVideo' };
         if (name === '../lib/textDraftStore') return loadSource('src/lib/textDraftStore.ts');
         if (name.endsWith('/lib/experience')) return experience;
         if (name === '../lib/supabase') return { supabase: null, backendReady: false };

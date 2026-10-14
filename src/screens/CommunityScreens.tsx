@@ -1,3 +1,4 @@
+import { ScheduleDateField, AddToCalendar } from '../components/ScheduleDateField';
 import {
   CircleOverview,
   FollowSuggestions,
@@ -13,7 +14,6 @@ import {
   Linking,
   Modal,
   Pressable,
-  StyleSheet,
   Switch,
   Text,
   TextInput,
@@ -23,7 +23,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { ActionButton, Avatar, CircleTile, EmptyState, Pill } from '../components/Primitives';
 import { Sheet } from './AppScreens';
-import { colors } from '../theme';
+import { createThemedStyles, useReducedMotion, colors } from '../theme';
 import { backendReady } from '../lib/supabase';
 import { joinCircle } from '../lib/repositories';
 import {
@@ -649,9 +649,10 @@ export function ActivitySheet({
   onClose: () => void;
 }) {
   const [unreadOnly, setUnreadOnly] = useState(false);
+  const reducedMotion = useReducedMotion();
   const groups = groupActivity(items).filter((g) => !unreadOnly || g.unread > 0);
   return (
-    <Modal animationType="slide" onRequestClose={onClose}>
+    <Modal animationType={reducedMotion ? 'none' : 'fade'} onRequestClose={onClose}>
       <SafeAreaView style={ui.page}>
         <View style={ex.row}>
           <Text style={[ex.title, { flex: 1 }]}>Your activity</Text>
@@ -723,7 +724,13 @@ export function ActivitySheet({
     </Modal>
   );
 }
-export function CircleTools({ circle }: { circle: Circle }) {
+export function CircleTools({
+  circle,
+  section = 'about',
+}: {
+  circle: Circle;
+  section?: 'about' | 'events';
+}) {
   const [role, setRole] = useState(circle.isOwner ? 'owner' : 'member');
   const canOrganise = circle.isOwner || role === 'moderator';
   const [welcome, setWelcome] = useState('');
@@ -763,65 +770,89 @@ export function CircleTools({ circle }: { circle: Circle }) {
   if (!circle.isMember) return null;
   return (
     <View style={{ gap: 12, marginVertical: 14 }}>
-      <CircleOverview circle={circle} onRole={setRole} />
-      {welcome ? (
-        <View style={ui.card}>
-          <Text style={ui.label}>PINNED WELCOME</Text>
-          <Text style={ui.copy}>{welcome}</Text>
-        </View>
-      ) : null}
-      <Toggle
-        label="Notifications for this circle"
-        value={enabled}
-        onChange={(v) => {
-          if (!busy) void run(() => setCircleNotifications(circle.id, v));
-        }}
-      />
-      <Text style={ui.heading}>Upcoming events</Text>
-      {events.map((event) => (
-        <View key={event.id} style={ui.card}>
-          <Text style={ui.label}>{event.title}</Text>
-          <Text style={ui.copy}>{new Date(event.starts_at).toLocaleString()}</Text>
-          <Text style={ui.copy}>{event.description}</Text>
-          <ActionButton
-            compact
-            variant={event.attending ? 'secondary' : 'outline'}
-            label={event.attending ? 'Going · cancel RSVP' : 'Join event'}
-            disabled={busy}
-            onPress={() => void run(() => rsvpEvent(event))}
-          />
-          {canOrganise ? (
-            <ActionButton
-              compact
-              variant="outline"
-              label="Cancel event"
-              disabled={busy}
-              onPress={() =>
-                Alert.alert('Cancel this event?', event.title, [
-                  { text: 'Keep event', style: 'cancel' },
-                  {
-                    text: 'Cancel event',
-                    style: 'destructive',
-                    onPress: () => void run(() => cancelEvent(event.id)),
-                  },
-                ])
-              }
+      <View style={section === 'about' ? undefined : { display: 'none' }}>
+        <CircleOverview circle={circle} onRole={setRole} />
+
+        {welcome ? (
+          <View style={ui.card}>
+            <Text style={ui.label}>PINNED WELCOME</Text>
+            <Text style={ui.copy}>{welcome}</Text>
+          </View>
+        ) : null}
+        <Toggle
+          label="Notifications for this circle"
+          value={enabled}
+          onChange={(v) => {
+            if (!busy) void run(() => setCircleNotifications(circle.id, v));
+          }}
+        />
+      </View>
+      {section === 'events' ? (
+        <>
+          <Text style={ui.heading}>Upcoming events</Text>
+          {events.map((event) => (
+            <View key={event.id} style={ui.card}>
+              <Text style={ui.label}>{event.title}</Text>
+              <Text style={ui.copy}>{new Date(event.starts_at).toLocaleString()}</Text>
+              <Text style={ui.copy}>{event.description}</Text>
+              <AddToCalendar
+                title={event.title}
+                startsAt={event.starts_at}
+                description={event.description}
+              />
+              <ActionButton
+                compact
+                variant={event.attending ? 'secondary' : 'outline'}
+                label={event.attending ? 'Going · cancel RSVP' : 'Join event'}
+                disabled={busy}
+                onPress={() => void run(() => rsvpEvent(event))}
+              />
+              {canOrganise ? (
+                <ActionButton
+                  compact
+                  variant="outline"
+                  label="Cancel event"
+                  disabled={busy}
+                  onPress={() =>
+                    Alert.alert('Cancel this event?', event.title, [
+                      { text: 'Keep event', style: 'cancel' },
+                      {
+                        text: 'Cancel event',
+                        style: 'destructive',
+                        onPress: () => void run(() => cancelEvent(event.id)),
+                      },
+                    ])
+                  }
+                />
+              ) : null}
+            </View>
+          ))}
+          {!events.length ? (
+            <EmptyState
+              emoji="◷"
+              title="Time for something together"
+              detail="Upcoming events will appear here. Your host can plan the first one."
             />
           ) : null}
-        </View>
-      ))}
-      {!events.length ? <Text style={ui.copy}>No events scheduled yet.</Text> : null}
+        </>
+      ) : null}
       {canOrganise ? (
         <>
           <ActionButton
             compact
             variant="outline"
-            label={editing ? 'Close host tools' : 'Edit welcome and schedule events'}
+            label={
+              editing
+                ? 'Close host tools'
+                : section === 'events'
+                  ? 'Schedule an event'
+                  : 'Edit welcome'
+            }
             onPress={() => setEditing(!editing)}
           />
           {editing ? (
             <>
-              {circle.isOwner ? (
+              {circle.isOwner && section === 'about' ? (
                 <>
                   <Field
                     label="Pinned welcome"
@@ -837,32 +868,36 @@ export function CircleTools({ circle }: { circle: Circle }) {
                   />
                 </>
               ) : null}
-              <Field label="Event title" value={title} onChangeText={setTitle} maxLength={120} />
-              <Field
-                label="Event description"
-                value={description}
-                onChangeText={setDescription}
-                multiline
-                maxLength={2000}
-              />
-              <Field
-                label="Local date and time (YYYY-MM-DD HH:MM)"
-                value={date}
-                onChangeText={setDate}
-                placeholder="2026-11-14 18:30"
-              />
-              <ActionButton
-                label="Schedule event"
-                disabled={busy || title.trim().length < 2}
-                onPress={() =>
-                  void run(async () => {
-                    await scheduleEvent(circle.id, title, description, date.replace(' ', 'T'));
-                    setTitle('');
-                    setDescription('');
-                    setDate('');
-                  })
-                }
-              />
+              {section === 'events' ? (
+                <>
+                  <Field
+                    label="Event title"
+                    value={title}
+                    onChangeText={setTitle}
+                    maxLength={120}
+                  />
+                  <Field
+                    label="Event description"
+                    value={description}
+                    onChangeText={setDescription}
+                    multiline
+                    maxLength={2000}
+                  />
+                  <ScheduleDateField value={date} onChangeText={setDate} />
+                  <ActionButton
+                    label="Schedule event"
+                    disabled={busy || title.trim().length < 2}
+                    onPress={() =>
+                      void run(async () => {
+                        await scheduleEvent(circle.id, title, description, date.replace(' ', 'T'));
+                        setTitle('');
+                        setDescription('');
+                        setDate('');
+                      })
+                    }
+                  />
+                </>
+              ) : null}
             </>
           ) : null}
         </>
@@ -1027,7 +1062,7 @@ export function ReportSheet({
     </Sheet>
   );
 }
-const ui = StyleSheet.create({
+const ui = createThemedStyles(() => ({
   page: { flex: 1, padding: 20, backgroundColor: colors.paper },
   center: { alignItems: 'center', gap: 12, marginBottom: 20 },
   row: {
@@ -1040,7 +1075,7 @@ const ui = StyleSheet.create({
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
   heading: {
     fontSize: 20,
-    fontWeight: '800',
+    fontWeight: '700',
     color: colors.ink,
     marginTop: 20,
     marginBottom: 12,
@@ -1067,14 +1102,14 @@ const ui = StyleSheet.create({
     marginBottom: 12,
     gap: 6,
   },
-  error: { fontSize: 15, lineHeight: 22, color: '#A32B22', marginVertical: 12 },
+  error: { fontSize: 15, lineHeight: 22, color: colors.error, marginVertical: 12 },
   feedback: {
     fontSize: 15,
     lineHeight: 23,
     color: colors.ink,
     marginVertical: 14,
   },
-});
+}));
 
 function ReportedMedia({ kind, url }: { kind: string; url: string }) {
   const player = useVideoPlayer(kind === 'video' ? url : null);

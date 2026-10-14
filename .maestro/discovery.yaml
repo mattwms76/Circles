@@ -1,0 +1,17 @@
+appId: com.circles.social
+---
+- launchApp
+- tapOn: "Explore"
+- assertVisible: "Explore circles"
+- assertVisible: "Filters"
+- takeScreenshot: artifacts/explore-closed
+- tapOn: "Filters"
+- assertVisible: "Filter circles"
+- tapOn: "Private"
+- tapOn: "Show results"
+- assertVisible: "Filters · 1 active"
+- takeScreenshot: artifacts/explore-filtered
+- tapOn: "Filters · 1 active"
+- tapOn: "Clear search and filters"
+- tapOn: "Show results"
+- assertVisible: "Filters"

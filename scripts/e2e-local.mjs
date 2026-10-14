@@ -255,6 +255,24 @@ try {
     'Create circle post',
   );
   assert.ok(post.id);
+  expectNoError(
+    await guest.client.from('post_bookmarks').insert({ user_id: guest.id, post_id: post.id }),
+    'Save post',
+  );
+  const saved = expectNoError(
+    await guest.client.from('post_bookmarks').select('post_id'),
+    'Load saved posts',
+  );
+  assert.ok(saved.some((row) => row.post_id === post.id));
+  const privateSaved = expectNoError(
+    await host.client.from('post_bookmarks').select('post_id').eq('user_id', guest.id),
+    'Check bookmark privacy',
+  );
+  assert.equal(privateSaved.length, 0);
+  expectNoError(
+    await guest.client.from('post_bookmarks').delete().eq('post_id', post.id),
+    'Unsave post',
+  );
   const mediaPost = expectNoError(
     await guest.client
       .from('posts')

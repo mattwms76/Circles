@@ -1,3 +1,4 @@
+import { resumableUpload } from './resumableUpload';
 import * as FileSystem from 'expo-file-system/legacy';
 import { requireSupabase } from './supabase';
 export async function uploadWithProgress(
@@ -8,39 +9,11 @@ export async function uploadWithProgress(
   onProgress?: (value: number) => void,
   signal?: AbortSignal,
 ) {
-  const client = requireSupabase();
-  const { data, error } = await client.storage.from(bucket).createSignedUploadUrl(path);
-  if (error) throw error;
-  if (signal?.aborted) throw new Error('Upload cancelled. Your draft is saved.');
-  const task = FileSystem.createUploadTask(
-    data.signedUrl,
-    uri,
-    {
-      httpMethod: 'PUT',
-      uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-      headers: { 'Content-Type': mimeType, 'x-upsert': 'false' },
-    },
-    (progress) =>
-      onProgress?.(
-        progress.totalBytesExpectedToSend > 0
-          ? progress.totalBytesSent / progress.totalBytesExpectedToSend
-          : 0,
-      ),
-  );
-  const cancel = () => {
-    void task.cancelAsync().catch(() => {});
-  };
-  signal?.addEventListener('abort', cancel, { once: true });
-  try {
-    const response = await task.uploadAsync();
-    if (!response || signal?.aborted) throw new Error('Upload cancelled. Your draft is saved.');
-    if (response.status < 200 || response.status >= 300)
-      throw new Error('Upload did not finish. Check your connection and retry.');
-    onProgress?.(1);
-  } finally {
-    signal?.removeEventListener('abort', cancel);
-  }
+  const info = await FileSystem.getInfoAsync(uri);
+  if (!info.exists) throw new Error('The attachment is no longer on this device. Choose it again.');
+  await resumableUpload(bucket, path, uri, mimeType, info.size, onProgress, signal);
 }
+
 const signedCache = new Map<string, { url: string; expires: number }>();
 export function clearMediaCache() {
   signedCache.clear();
@@ -78,4 +51,12 @@ export async function signedMediaUrls(
       return item ? [[path, item.url] as const] : [];
     }),
   );
+}
+
+export async function refreshMediaUrl(path: string): Promise<string> {
+  const { data, error } = await requireSupabase()
+    .storage.from('post-media')
+    .createSignedUrl(path, 600);
+  if (error) throw error;
+  return data.signedUrl;
 }

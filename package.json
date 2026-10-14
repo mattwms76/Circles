@@ -11,27 +11,37 @@
     "test:db": "node --test scripts/database-regression.test.mjs scripts/community-regression.test.mjs scripts/content-deletion-db.test.mjs scripts/experience-db.test.mjs scripts/replies-db.test.mjs",
     "e2e:local": "node scripts/e2e-local.mjs",
     "test": "node --test scripts/*.test.mjs",
-    "check": "pnpm typecheck && pnpm test",
+    "check": "pnpm tokens:check && pnpm typecheck && pnpm test",
     "export:android": "expo export --platform android",
-    "export:ios": "expo export --platform ios"
+    "export:ios": "expo export --platform ios",
+    "tokens:sync": "node scripts/design-tokens.mjs",
+    "tokens:check": "node scripts/design-tokens.mjs --check",
+    "release:check": "node scripts/release-readiness.mjs",
+    "test:visual": "playwright test"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-native-community/datetimepicker": "9.1.0",
     "@supabase/supabase-js": "2.117.3",
     "expo": "57.0.27",
+    "expo-calendar": "57.0.5",
     "expo-dev-client": "57.0.19",
     "expo-file-system": "57.0.7",
     "expo-iap": "5.6.3",
+    "expo-image": "~57.0.5",
     "expo-image-picker": "57.0.20",
     "expo-notifications": "57.0.22",
+    "expo-system-ui": "~57.0.4",
     "expo-video": "57.0.5",
     "react": "19.2.3",
     "react-native": "0.86.3",
     "react-native-agora": "4.6.4",
-    "react-native-safe-area-context": "~5.7.0"
+    "react-native-safe-area-context": "~5.7.0",
+    "tus-js-client": "4.3.1"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.8",
+    "@playwright/test": "1.63.0",
     "@types/react": "19.2.14",
     "react-test-renderer": "19.2.3",
     "typescript": "5.9.3"

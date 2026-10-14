@@ -1,15 +1,15 @@
+import { LoadingCards } from '../components/LoadingCards';
+export { LoadingCards } from '../components/LoadingCards';
+import { CirclePostSearch, useCirclePostSearch } from '../components/CirclePostSearch';
+import { contentLink } from '../lib/contentLinks';
 import { createTextDraftStore } from '../lib/textDraftStore';
 import {
-  DiscoveryControls,
   ScheduledRooms,
   ReactionBar,
   useContentReactions,
   experienceStyles as ex,
 } from '../components/Experience';
 import {
-  recommendationReason,
-  defaultDiscovery,
-  type DiscoveryOptions,
   searchMessages,
   conversationMuted,
   muteConversation,
@@ -23,6 +23,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
+  Share,
   AppState,
   Image,
   ImageBackground,
@@ -43,8 +44,9 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import { AgoraVideoTile, agoraUidFor } from '../lib/streaming';
 import {
   ActionButton,
+  Icon,
+  type IconName,
   Avatar,
-  CircleTile,
   EmptyState,
   Pill,
   PostCard,
@@ -52,11 +54,10 @@ import {
   TopBar,
   formatCount,
 } from '../components/Primitives';
-import { colors } from '../theme';
+import { colors, useReducedMotion } from '../theme';
 import { styles } from '../appStyles';
 import type {
   Circle,
-  CircleJoinRequest,
   CirclePost,
   Conversation,
   DirectMessage,
@@ -76,500 +77,7 @@ export type Attachment = {
   kind: 'image' | 'gif' | 'video';
 };
 
-export function HomeScreen({
-  loading,
-  refreshing,
-  error,
-  onRefresh,
-  onActivity,
-  unreadActivity,
-  profile,
-  circles,
-  lives,
-  feed,
-  feedHasMore,
-  feedLoadingMore,
-  onLoadMore,
-  onProfile,
-  onLive,
-  onLiveList,
-  onCreatePost,
-  onExplore,
-  onLike,
-  onReply,
-  onReport,
-  onCircle,
-}: {
-  loading: boolean;
-  refreshing: boolean;
-  error: string;
-  onRefresh: () => void;
-  onActivity: () => void;
-  unreadActivity: number;
-  profile: Profile;
-  circles: Circle[];
-  lives: LiveSession[];
-  feed: CirclePost[];
-  feedHasMore: boolean;
-  feedLoadingMore: boolean;
-  onLoadMore: () => void;
-  onProfile: () => void;
-  onLive: (session: LiveSession) => void;
-  onLiveList: () => void;
-  onCreatePost: () => void;
-  onExplore: () => void;
-  onLike: (id: UUID) => void;
-  onReply: (post: CirclePost) => void;
-  onReport: (
-    kind: 'post' | 'profile' | 'circle' | 'message' | 'live_session',
-    id: UUID,
-    user?: UUID,
-  ) => void;
-  onCircle: (circle: Circle) => void;
-}) {
-  const hour = new Date().getHours();
-  const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
-  const today = new Date()
-    .toLocaleDateString('en-GB', { weekday: 'long', month: 'long', day: 'numeric' })
-    .toUpperCase();
-  return (
-    <FlatList
-      data={feed}
-      keyExtractor={(post) => post.id}
-      contentContainerStyle={styles.pageContent}
-      refreshing={refreshing}
-      onRefresh={onRefresh}
-      initialNumToRender={5}
-      maxToRenderPerBatch={5}
-      windowSize={7}
-      ListHeaderComponent={
-        <>
-          <TopBar profile={profile} onProfile={onProfile} />
-          <View style={styles.greeting}>
-            <Text style={styles.greetingEyebrow}>{today}</Text>
-            <Text style={styles.greetingTitle}>A place to find{'\n'}your people.</Text>
-            <Text style={styles.greetingCopy}>
-              {greeting}, {profile.displayName.split(' ')[0]}. What feels like you today?
-            </Text>
-          </View>
-          <View style={styles.quickActions}>
-            <Pressable style={styles.quickAction} onPress={onCreatePost}>
-              <Text style={styles.quickEmoji}>✎</Text>
-              <Text style={styles.quickText}>Share a thought</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.quickAction, styles.quickActionTint]}
-              onPress={() => (lives[0] ? onLive(lives[0]) : onExplore())}
-            >
-              <Text style={styles.quickEmoji}>◉</Text>
-              <Text style={styles.quickText}>
-                {lives.length ? 'Join something live' : 'Explore circles'}
-              </Text>
-            </Pressable>
-          </View>
-          <View style={styles.sectionPad}>
-            <SectionTitle
-              eyebrow="HAPPENING NOW"
-              title="Live in your circles"
-              action="See all"
-              onAction={onLiveList}
-            />
-            {lives.slice(0, 2).map((session, index) => (
-              <Pressable
-                key={session.id}
-                onPress={() => onLive(session)}
-                style={[styles.liveFeature, index === 1 && { backgroundColor: colors.night }]}
-              >
-                <ImageBackground
-                  source={{
-                    uri:
-                      index === 0
-                        ? 'https://images.unsplash.com/photo-1490645935967-10de6ba17061?w=900&h=600&fit=crop'
-                        : 'https://images.unsplash.com/photo-1516280440614-37939bbacd81?w=900&h=600&fit=crop',
-                  }}
-                  style={styles.liveFeatureImage}
-                  imageStyle={{ borderRadius: 23 }}
-                >
-                  <View style={styles.liveShade} />
-                  <View style={styles.liveTop}>
-                    <View style={styles.liveBadge}>
-                      <View style={styles.liveDot} />
-                      <Text style={styles.liveBadgeText}>LIVE</Text>
-                    </View>
-                    <Text style={styles.viewerChip}>◉ {formatCount(session.viewerCount)}</Text>
-                  </View>
-                  <View style={styles.liveBottom}>
-                    <View style={styles.liveHost}>
-                      <Avatar profile={session.host} size={35} ring />
-                      <View>
-                        <Text style={styles.liveHostName}>{session.host.displayName}</Text>
-                        <Text style={styles.liveCircleName}>{session.circleName}</Text>
-                      </View>
-                    </View>
-                    <View style={styles.playButton}>
-                      <Text style={styles.playText}>▶</Text>
-                    </View>
-                  </View>
-                  <Text numberOfLines={1} style={styles.liveFeatureTitle}>
-                    {session.title}
-                  </Text>
-                </ImageBackground>
-              </Pressable>
-            ))}
-          </View>
-          <View style={styles.sectionPad}>
-            <SectionTitle
-              eyebrow="YOUR LITTLE CORNERS"
-              title="Your circles"
-              action="Explore"
-              onAction={onExplore}
-            />
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ paddingRight: 22 }}
-            >
-              {circles
-                .filter((circle) => circle.isMember)
-                .map((circle) => (
-                  <Pressable
-                    key={circle.id}
-                    onPress={() => onCircle(circle)}
-                    style={[styles.miniCircle, { backgroundColor: circle.color }]}
-                  >
-                    <Text style={styles.miniCircleEmoji}>
-                      {circle.interest === 'Film'
-                        ? '🎞️'
-                        : circle.interest === 'Gardening'
-                          ? '🌱'
-                          : circle.interest === 'Music'
-                            ? '🎧'
-                            : '🫶'}
-                    </Text>
-                    <Text numberOfLines={2} style={styles.miniCircleName}>
-                      {circle.name}
-                    </Text>
-                    <Text style={styles.miniCircleCount}>
-                      {formatCount(circle.members)} members
-                    </Text>
-                  </Pressable>
-                ))}
-            </ScrollView>
-          </View>
-          <View style={styles.sectionPad}>
-            <ActionButton
-              compact
-              variant="outline"
-              label={`Activity${unreadActivity ? ` · ${unreadActivity} unread` : ''}`}
-              onPress={onActivity}
-            />
-            <SectionTitle
-              eyebrow="FROM YOUR PEOPLE"
-              title="The latest"
-              action="Write a post"
-              onAction={onCreatePost}
-            />
-            {error ? (
-              <EmptyState
-                emoji="☁️"
-                title="Could not refresh"
-                detail={error}
-                action="Try again"
-                onAction={onRefresh}
-              />
-            ) : null}
-          </View>
-        </>
-      }
-      renderItem={({ item: post }) => (
-        <View style={styles.sectionPad}>
-          <PostCard
-            post={post}
-            onLike={() => onLike(post.id)}
-            onReply={() => onReply(post)}
-            onOpenCircle={() => {
-              const circle = circles.find((c) => c.id === post.circleId);
-              if (circle) onCircle(circle);
-            }}
-            onMore={() => onReport('post', post.id, post.author.id)}
-          />
-        </View>
-      )}
-      ListEmptyComponent={
-        loading ? (
-          <LoadingCards />
-        ) : (
-          <View style={styles.sectionPad}>
-            <EmptyState
-              emoji="🌱"
-              title={
-                circles.some((c) => c.isMember) ? 'Start a conversation' : 'Find your first circle'
-              }
-              detail={
-                circles.some((c) => c.isMember)
-                  ? 'Share a thought, photo, or question with your people.'
-                  : 'Choose a community around something you love.'
-              }
-              action={circles.some((c) => c.isMember) ? 'Write a post' : 'Explore circles'}
-              onAction={circles.some((c) => c.isMember) ? onCreatePost : onExplore}
-            />
-          </View>
-        )
-      }
-      ListFooterComponent={
-        feedHasMore ? (
-          <View style={styles.sectionPad}>
-            <ActionButton
-              compact
-              variant="outline"
-              label={feedLoadingMore ? 'Loading posts…' : 'Load more posts'}
-              disabled={feedLoadingMore}
-              onPress={onLoadMore}
-            />
-          </View>
-        ) : null
-      }
-    />
-  );
-}
-
-export function ExploreScreen({
-  discovery = defaultDiscovery,
-  onDiscovery = () => {},
-  loading,
-  error,
-  onRetry,
-  profile,
-  people: suggestedPeople,
-  followingIds,
-  onFollow,
-  onOpenProfile,
-  peopleHasMore,
-  peopleLoadingMore,
-  onLoadMorePeople,
-  circles,
-  joiningCircleIds,
-  circlesHasMore,
-  circlesLoadingMore,
-  onLoadMoreCircles,
-  requested,
-  requests,
-  searchText,
-  onSearch,
-  filter,
-  onFilter,
-  onJoin,
-  onCreate,
-  onProfile,
-  onReport,
-  onCircle,
-  onRequestDecision,
-}: {
-  discovery?: DiscoveryOptions;
-  onDiscovery?: (value: DiscoveryOptions) => void;
-  loading: boolean;
-  error: string;
-  onRetry: () => void;
-  profile: Profile;
-  people: Profile[];
-  followingIds: Set<UUID>;
-  onFollow: (person: Profile) => void;
-  onOpenProfile: (person: Profile) => void;
-  peopleHasMore: boolean;
-  peopleLoadingMore: boolean;
-  onLoadMorePeople: () => void;
-  circles: Circle[];
-  joiningCircleIds: Set<UUID>;
-  circlesHasMore: boolean;
-  circlesLoadingMore: boolean;
-  onLoadMoreCircles: () => void;
-  requested: Set<UUID>;
-  requests: CircleJoinRequest[];
-  searchText: string;
-  onSearch: (text: string) => void;
-  filter: string;
-  onFilter: (filter: string) => void;
-  onJoin: (circle: Circle) => void;
-  onCreate: () => void;
-  onProfile: () => void;
-  onReport: (type: 'circle', id: UUID) => void;
-  onCircle: (circle: Circle) => void;
-  onRequestDecision: (request: CircleJoinRequest, accepted: boolean) => void;
-}) {
-  const interests = [
-    'For you',
-    'All',
-    'Film',
-    'Gardening',
-    'Art',
-    'Cooking',
-    'Music',
-    'Slow living',
-  ];
-  const rows: (
-    | { kind: 'person'; value: Profile }
-    | { kind: 'circle'; value: Circle }
-    | { kind: 'heading'; value: string }
-  )[] = [
-    { kind: 'heading', value: 'People to meet' },
-    ...suggestedPeople.map((value) => ({ kind: 'person' as const, value })),
-    { kind: 'heading', value: 'Circles to explore' },
-    ...circles.map((value) => ({ kind: 'circle' as const, value })),
-  ];
-  return (
-    <FlatList
-      data={rows}
-      keyExtractor={(item) => (item.kind === 'heading' ? item.value : item.kind + item.value.id)}
-      contentContainerStyle={styles.pageContent}
-      keyboardShouldPersistTaps="handled"
-      initialNumToRender={8}
-      windowSize={7}
-      refreshing={loading}
-      onRefresh={onRetry}
-      ListHeaderComponent={
-        <>
-          <TopBar profile={profile} onProfile={onProfile} />
-          <View style={styles.screenHeading}>
-            <Text style={styles.screenEyebrow}>FIND YOUR PEOPLE</Text>
-            <Text style={styles.screenTitle}>Explore circles</Text>
-            <Text style={styles.screenCopy}>Search communities and people across Circles.</Text>
-          </View>
-          <View style={styles.searchBox}>
-            <TextInput
-              accessibilityLabel="Search all circles and people"
-              value={searchText}
-              onChangeText={onSearch}
-              placeholder="Try film, baking, or a member’s name"
-              placeholderTextColor={colors.muted}
-              style={[styles.searchInput, { flex: 1 }]}
-            />
-          </View>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.filterRow}
-          >
-            {interests.map((item) => (
-              <Pill
-                key={item}
-                label={item}
-                selected={filter === item}
-                onPress={() => onFilter(item)}
-              />
-            ))}
-          </ScrollView>
-          <DiscoveryControls
-            value={discovery}
-            onChange={onDiscovery}
-            onClear={() => {
-              onSearch('');
-              onFilter('For you');
-            }}
-          />
-          <View style={styles.sectionPad}>
-            <ActionButton compact label="Create a circle" onPress={onCreate} />
-            {requests.map((request) => (
-              <View key={request.id} style={styles.conversationRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.conversationName}>{request.requester.displayName}</Text>
-                  <Text style={styles.conversationPreview}>{request.circleName}</Text>
-                </View>
-                <ActionButton
-                  compact
-                  label="Accept"
-                  onPress={() => onRequestDecision(request, true)}
-                />
-                <ActionButton
-                  compact
-                  variant="outline"
-                  label="Decline"
-                  onPress={() => onRequestDecision(request, false)}
-                />
-              </View>
-            ))}
-            {error ? (
-              <EmptyState
-                emoji="☁️"
-                title="Search is unavailable"
-                detail={error}
-                action="Retry search"
-                onAction={onRetry}
-              />
-            ) : null}
-            {loading ? <LoadingCards /> : null}
-          </View>
-        </>
-      }
-      renderItem={({ item }) => (
-        <View style={styles.sectionPad}>
-          {item.kind === 'heading' ? (
-            <SectionTitle title={item.value} />
-          ) : item.kind === 'circle' ? (
-            <>
-              <Text style={ex.hint}>{recommendationReason(item.value, profile.interests)}</Text>
-              <CircleTile
-                circle={item.value}
-                onPress={() => onCircle(item.value as Circle)}
-                onJoin={() => onJoin(item.value as Circle)}
-                onMore={() => onReport('circle', item.value.id)}
-                requested={requested.has(item.value.id)}
-                joining={joiningCircleIds.has(item.value.id)}
-              />
-            </>
-          ) : (
-            <View style={styles.conversationRow}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`Open ${item.value.displayName}'s profile`}
-                onPress={() => onOpenProfile(item.value as Profile)}
-                style={styles.publicProfileRow}
-              >
-                <Avatar profile={item.value} />
-                <View style={styles.conversationMain}>
-                  <Text style={styles.conversationName}>{item.value.displayName}</Text>
-                  <Text style={styles.conversationPreview}>@{item.value.handle}</Text>
-                </View>
-              </Pressable>
-              <ActionButton
-                compact
-                variant={followingIds.has(item.value.id) ? 'secondary' : 'outline'}
-                label={followingIds.has(item.value.id) ? 'Following' : 'Follow'}
-                onPress={() => onFollow(item.value as Profile)}
-              />
-            </View>
-          )}
-        </View>
-      )}
-      ListFooterComponent={
-        <View style={styles.sectionPad}>
-          {!loading && !circles.length && !suggestedPeople.length ? (
-            <EmptyState
-              emoji="🔎"
-              title="No matches yet"
-              detail="Try another name or interest, or create a circle."
-            />
-          ) : null}
-          {peopleHasMore ? (
-            <ActionButton
-              compact
-              label={peopleLoadingMore ? 'Loading…' : 'More people'}
-              disabled={peopleLoadingMore}
-              onPress={onLoadMorePeople}
-            />
-          ) : null}
-          {circlesHasMore ? (
-            <ActionButton
-              compact
-              label={circlesLoadingMore ? 'Loading…' : 'More circles'}
-              disabled={circlesLoadingMore}
-              onPress={onLoadMoreCircles}
-            />
-          ) : null}
-        </View>
-      }
-    />
-  );
-}
+export { HomeScreen, ExploreScreen } from './DiscoveryScreens';
 
 export function LiveScreen({
   circles = [],
@@ -1384,7 +892,7 @@ export function CircleDetailScreen({
   onCreatePost,
   onLoadMore,
 }: {
-  tools: React.ReactNode;
+  tools: React.ReactElement<{ section?: 'about' | 'events' }>;
   refreshing: boolean;
   onRefresh: () => void;
   circle: Circle;
@@ -1402,9 +910,12 @@ export function CircleDetailScreen({
   onCreatePost: () => void;
   onLoadMore: () => void;
 }) {
+  const search = useCirclePostSearch(circle.id);
+  const [section, setSection] = useState<'posts' | 'events' | 'about'>('posts');
+  useEffect(() => setSection('posts'), [circle.id]);
   return (
     <FlatList
-      data={posts}
+      data={section === 'posts' ? (search.active ? search.rows : posts) : []}
       keyExtractor={(post) => post.id}
       contentContainerStyle={styles.pageContent}
       initialNumToRender={5}
@@ -1421,7 +932,7 @@ export function CircleDetailScreen({
             >
               <Text style={styles.publicProfileBack}>‹</Text>
             </Pressable>
-            <Text style={styles.publicProfileHeaderLabel}>CIRCLE</Text>
+            <Text style={styles.publicProfileHeaderLabel}>{circle.interest}</Text>
             <View style={{ width: 36 }} />
           </View>
           <View style={styles.circlePageHero}>
@@ -1433,22 +944,57 @@ export function CircleDetailScreen({
               <View style={styles.circlePageShade} />
               {circle.isPrivate ? <Text style={styles.circlePagePrivate}>🔒 PRIVATE</Text> : null}
               <View style={styles.circlePageCoverCopy}>
-                <Text style={styles.circlePageInterest}>{circle.interest.toUpperCase()}</Text>
+                <View style={styles.circleIdentity}>
+                  <Image source={{ uri: circle.imageUrl }} style={styles.circleIdentityImage} />
+                  <Text style={styles.circlePageInterest}>{circle.interest}</Text>
+                </View>
                 <Text style={styles.circlePageTitle}>{circle.name}</Text>
                 <Text style={styles.circlePageMembers}>{formatCount(circle.members)} members</Text>
               </View>
             </ImageBackground>
           </View>
           <View style={styles.sectionPad}>
-            <Text style={styles.circleDetailDescription}>
-              {circle.description ||
-                `A community for people who love ${circle.interest.toLowerCase()}.`}
-            </Text>
-            <Text style={styles.circleDetailPrivacy}>
-              {circle.isPrivate
-                ? 'Private circle · only members can see posts'
-                : 'Public circle · everyone can discover this community'}
-            </Text>
+            <View accessibilityRole="tablist" style={styles.circleTabs}>
+              {(['posts', 'events', 'about'] as const).map((value) => (
+                <Pressable
+                  key={value}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: section === value }}
+                  onPress={() => setSection(value)}
+                  style={[styles.circleTab, section === value && styles.circleTabSelected]}
+                >
+                  <Text
+                    style={{
+                      color: section === value ? colors.coral : colors.muted,
+                      fontSize: 16,
+                      fontWeight: '600',
+                    }}
+                  >
+                    {value[0].toUpperCase() + value.slice(1)}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            {section === 'about' ? (
+              <>
+                <Text style={styles.circleDetailDescription}>{circle.description}</Text>
+                <Text style={styles.circleDetailPrivacy}>
+                  {circle.isPrivate ? 'Private circle · members only' : 'Public circle'} ·{' '}
+                  {circle.isMember ? 'You’re a member' : 'Join to participate'}
+                </Text>
+              </>
+            ) : null}
+            <ActionButton
+              compact
+              variant="outline"
+              label="Share circle"
+              onPress={() =>
+                void Share.share({
+                  message: `Join ${circle.name} on Circles: ${contentLink('circle', circle.id)}`,
+                })
+              }
+            />
+            {section === 'posts' && circle.isMember ? <CirclePostSearch search={search} /> : null}
             <View style={styles.circlePageActions}>
               {!circle.isMember && !requested ? (
                 <ActionButton
@@ -1469,27 +1015,36 @@ export function CircleDetailScreen({
               ) : null}
               {circle.isMember ? (
                 <>
-                  <ActionButton label="Write a post in this circle" onPress={onCreatePost} />
-                  {circle.isOwner ? (
-                    <Text style={styles.circleOwnerNote}>
-                      You own this circle. Transfer ownership before leaving.
-                    </Text>
-                  ) : (
-                    <Pressable
-                      onPress={onLeave}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Leave ${circle.name}`}
-                      style={styles.leaveCircleButton}
-                    >
-                      <Text style={styles.leaveCircleText}>Leave circle</Text>
-                    </Pressable>
-                  )}
+                  {section === 'posts' ? (
+                    <ActionButton label="Write a post in this circle" onPress={onCreatePost} />
+                  ) : null}
+                  {section === 'about' ? (
+                    circle.isOwner ? (
+                      <Text style={styles.circleOwnerNote}>
+                        You own this circle. Transfer ownership before leaving.
+                      </Text>
+                    ) : (
+                      <Pressable
+                        onPress={onLeave}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Leave ${circle.name}`}
+                        style={styles.leaveCircleButton}
+                      >
+                        <Text style={styles.leaveCircleText}>Leave circle</Text>
+                      </Pressable>
+                    )
+                  ) : null}
                 </>
               ) : null}
             </View>
-            <View style={{ height: 16 }} />
-            <SectionTitle eyebrow="YOUR COMMUNITY" title="Posts in this circle" />
-            {tools}
+            {section !== 'posts' && circle.isMember ? React.cloneElement(tools, { section }) : null}
+            {section !== 'posts' && !circle.isMember ? (
+              <EmptyState
+                emoji="◌"
+                title="Join this circle"
+                detail="Events and member information are available once you join."
+              />
+            ) : null}
           </View>
         </>
       }
@@ -1499,13 +1054,19 @@ export function CircleDetailScreen({
         </View>
       )}
       ListEmptyComponent={
-        postsLoading ? (
+        section !== 'posts' ? null : (search.active ? search.loading : postsLoading) ? (
           <LoadingCards />
         ) : (
           <View style={styles.sectionPad}>
             <EmptyState
               emoji="🌱"
-              title={circle.isMember ? 'Start the conversation' : 'Join this circle to come in'}
+              title={
+                search.active
+                  ? 'No matching posts'
+                  : circle.isMember
+                    ? 'Start the conversation'
+                    : 'Join this circle to come in'
+              }
               detail={
                 circle.isMember
                   ? 'Share the first post with your circle.'
@@ -1520,17 +1081,47 @@ export function CircleDetailScreen({
         )
       }
       ListFooterComponent={
-        postsHasMore ? (
+        section === 'posts' && (search.active ? search.more : postsHasMore) ? (
           <View style={styles.sectionPad}>
             <ActionButton
               label={postsLoadingMore ? 'Loading posts…' : 'Load more posts'}
               disabled={postsLoadingMore}
-              onPress={onLoadMore}
+              onPress={search.active ? search.loadMore : onLoadMore}
             />
           </View>
         ) : null
       }
     />
+  );
+}
+
+export function ContentActions({
+  children,
+  light = false,
+}: {
+  children: React.ReactNode;
+  light?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <View style={{ alignSelf: 'flex-start', width: open ? '100%' : undefined }}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={open ? 'Close actions' : 'Message actions'}
+        accessibilityState={{ expanded: open }}
+        onPress={() => setOpen(!open)}
+        style={{ minHeight: 48, minWidth: 48, justifyContent: 'center', alignItems: 'center' }}
+      >
+        <Icon name="more" color={light ? 'white' : colors.muted} />
+      </Pressable>
+      {open ? (
+        <View
+          style={[ex.row, { borderTopWidth: 1, borderColor: light ? '#ffffff40' : colors.line }]}
+        >
+          {children}
+        </View>
+      ) : null}
+    </View>
   );
 }
 
@@ -1765,7 +1356,15 @@ export function PostRepliesSheet({
       {comments.map((comment) => {
         const parent = comments.find((c) => c.id === comment.replyToId);
         return (
-          <View key={comment.id} style={ex.card}>
+          <View
+            key={comment.id}
+            style={[
+              ex.card,
+              comment.replyToId
+                ? { marginLeft: 12, borderLeftWidth: 3, borderLeftColor: colors.line }
+                : null,
+            ]}
+          >
             <View style={ex.row}>
               <Avatar profile={comment.author} size={40} />
               <View style={{ flex: 1 }}>
@@ -1784,25 +1383,34 @@ export function PostRepliesSheet({
               </View>
             ) : null}
             <Text style={ex.body}>{comment.body}</Text>
-            <ReactionBar
-              items={reactionState.reactions[comment.id]}
-              viewerId={profile.id}
-              onReact={(emoji, remove) => void reactionState.react(comment.id, emoji, remove)}
-            />
-            <View style={ex.row}>
-              <ActionButton
-                compact
-                variant="outline"
-                label="Reply"
-                onPress={() => setReplyTo(comment)}
-              />
-              <DeleteOwnContentButton
-                ownerId={comment.author.id}
+            <View
+              style={{
+                flexDirection: 'row',
+                flexWrap: 'wrap',
+                alignItems: 'flex-start',
+                justifyContent: 'space-between',
+              }}
+            >
+              <ReactionBar
+                items={reactionState.reactions[comment.id]}
                 viewerId={profile.id}
-                createdAtIso={comment.createdAtIso}
-                kind="comment"
-                onDelete={() => onDelete(comment)}
+                onReact={(emoji, remove) => void reactionState.react(comment.id, emoji, remove)}
               />
+              <ContentActions>
+                <ActionButton
+                  compact
+                  variant="outline"
+                  label="Reply"
+                  onPress={() => setReplyTo(comment)}
+                />
+                <DeleteOwnContentButton
+                  ownerId={comment.author.id}
+                  viewerId={profile.id}
+                  createdAtIso={comment.createdAtIso}
+                  kind="comment"
+                  onDelete={() => onDelete(comment)}
+                />
+              </ContentActions>
             </View>
           </View>
         );
@@ -1977,10 +1585,24 @@ export function CreatePostSheet({
   onSubmit: () => void;
 }) {
   return (
-    <Sheet onClose={onClose} title="Share a little something" eyebrow="A NOTE FOR YOUR PEOPLE">
+    <Sheet
+      onClose={onClose}
+      title="Create a post"
+      eyebrow=""
+      footer={
+        <ActionButton
+          label={busy ? 'Sharing…' : error ? 'Retry sharing' : 'Share with your circle'}
+          onPress={onSubmit}
+          disabled={busy || !circles.length || (!body.trim() && !attachment)}
+        />
+      }
+    >
       {circles.length ? (
         <>
-          <Text style={styles.sheetLabel}>POST TO</Text>
+          <Text style={styles.sheetLabel}>
+            Posting to{' '}
+            {circles.find((circle) => circle.id === selectedCircleId)?.name ?? 'your circle'}
+          </Text>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -2000,6 +1622,7 @@ export function CreatePostSheet({
         <Text style={styles.sheetCopy}>Join a circle before you share a post.</Text>
       )}
       <TextInput
+        accessibilityLabel="Post text"
         multiline
         value={body}
         onChangeText={onBody}
@@ -2013,7 +1636,7 @@ export function CreatePostSheet({
       {attachment ? (
         <View style={styles.attachmentPreview}>
           <AttachmentPreviewMedia attachment={attachment} />
-          <View style={{ flex: 1 }}>
+          <View style={{ flex: 1, paddingHorizontal: 12 }}>
             <Text style={styles.attachmentTitle}>
               {attachment.kind === 'video'
                 ? 'Video attached'
@@ -2023,7 +1646,15 @@ export function CreatePostSheet({
             </Text>
             <Text style={styles.attachmentMeta}>{attachment.fileName}</Text>
           </View>
+          <ActionButton
+            compact
+            variant="outline"
+            label="Replace attachment"
+            disabled={busy}
+            onPress={() => onPick(attachment.kind)}
+          />
           <Pressable
+            style={{ minHeight: 48, minWidth: 48, alignItems: 'center', justifyContent: 'center' }}
             disabled={busy}
             onPress={onClearAttachment}
             accessibilityRole="button"
@@ -2034,25 +1665,27 @@ export function CreatePostSheet({
         </View>
       ) : null}
       <View style={styles.mediaButtons}>
-        <MediaButton icon="▧" label="Photo" disabled={busy} onPress={() => void onPick('image')} />
-        <MediaButton icon="GIF" label="GIF" disabled={busy} onPress={() => void onPick('gif')} />
         <MediaButton
-          icon="▷"
+          icon="photo"
+          label="Photo"
+          disabled={busy}
+          onPress={() => void onPick('image')}
+        />
+        <MediaButton icon="gif" label="GIF" disabled={busy} onPress={() => void onPick('gif')} />
+        <MediaButton
+          icon="video"
           label="Upload video"
           disabled={busy}
           onPress={() => void onPick('video')}
         />
+        <MediaButton
+          icon="camera"
+          label="Record video"
+          disabled={busy || !circles.length}
+          onPress={onRecordVideo}
+        />
       </View>
-      <ActionButton
-        variant="outline"
-        label="Record video"
-        disabled={busy || !circles.length}
-        onPress={onRecordVideo}
-      />
-      <Text style={styles.sheetCopy}>
-        Videos up to 2 minutes and 25 MB. Preview your recording, choose a circle you belong to,
-        then share it to that circle’s timeline.
-      </Text>
+      <Text style={styles.sheetCopy}>Videos up to 2 minutes · 25 MB maximum.</Text>
       <Text style={styles.sheetCopy}>
         Draft saved on this device. You can close this and come back.
       </Text>
@@ -2061,6 +1694,22 @@ export function CreatePostSheet({
           <Text accessibilityLiveRegion="polite" style={styles.sheetCopy}>
             {attachment ? `Uploading · ${Math.round(progress * 100)}%` : 'Sharing your post…'}
           </Text>
+          {attachment ? (
+            <View
+              accessibilityRole="progressbar"
+              accessibilityValue={{ min: 0, max: 100, now: Math.round(progress * 100) }}
+              style={{ height: 4, backgroundColor: colors.line, borderRadius: 2 }}
+            >
+              <View
+                style={{
+                  height: 4,
+                  width: `${Math.max(0, Math.min(1, progress)) * 100}%`,
+                  backgroundColor: colors.primary,
+                  borderRadius: 2,
+                }}
+              />
+            </View>
+          ) : null}
           {attachment && progress < 1 ? (
             <ActionButton compact variant="outline" label="Cancel upload" onPress={onCancel} />
           ) : null}
@@ -2069,7 +1718,7 @@ export function CreatePostSheet({
       {error ? (
         <Text
           accessibilityRole="alert"
-          style={{ color: '#A32B22', fontSize: 15, marginVertical: 12 }}
+          style={{ color: colors.error, fontSize: 15, marginVertical: 12 }}
         >
           {error}
         </Text>
@@ -2077,11 +1726,6 @@ export function CreatePostSheet({
       {!busy ? (
         <ActionButton compact variant="outline" label="Discard draft" onPress={onDiscard} />
       ) : null}
-      <ActionButton
-        label={busy ? 'Sharing…' : error ? 'Retry sharing' : 'Share with your circle'}
-        onPress={onSubmit}
-        disabled={busy || !circles.length}
-      />
     </Sheet>
   );
 }
@@ -2097,12 +1741,7 @@ export function AttachmentPreviewMedia({ attachment }: { attachment: Attachment 
 export function VideoAttachmentPreview({ uri }: { uri: string }) {
   const player = useVideoPlayer(uri);
   return (
-    <VideoView
-      player={player}
-      style={styles.attachmentImage}
-      contentFit="cover"
-      nativeControls={false}
-    />
+    <VideoView player={player} style={styles.attachmentImage} contentFit="cover" nativeControls />
   );
 }
 
@@ -2249,17 +1888,20 @@ export function Sheet({
   eyebrow,
   onClose,
   children,
+  footer,
 }: {
+  footer?: React.ReactNode;
   title: string;
   eyebrow: string;
   onClose: () => void;
   children: React.ReactNode;
 }) {
   const insets = useSafeAreaInsets();
+  const reducedMotion = useReducedMotion();
   return (
-    <Modal transparent animationType="slide" onRequestClose={onClose}>
+    <Modal transparent animationType={reducedMotion ? 'none' : 'fade'} onRequestClose={onClose}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.modalShade}
       >
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
@@ -2267,7 +1909,7 @@ export function Sheet({
           <View style={styles.grabber} />
           <View style={styles.sheetHeader}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.sheetEyebrow}>{eyebrow}</Text>
+              {eyebrow ? <Text style={styles.sheetEyebrow}>{eyebrow}</Text> : null}
               <Text style={styles.sheetTitle}>{title}</Text>
             </View>
             <Pressable
@@ -2287,6 +1929,7 @@ export function Sheet({
             {children}
             <View style={{ height: 24 }} />
           </ScrollView>
+          {footer ? <View style={styles.sheetFooter}>{footer}</View> : null}
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -2299,7 +1942,7 @@ export function MediaButton({
   onPress,
   disabled,
 }: {
-  icon: string;
+  icon: IconName;
   label: string;
   onPress: () => void;
   disabled?: boolean;
@@ -2313,7 +1956,7 @@ export function MediaButton({
       accessibilityState={{ disabled: Boolean(disabled) }}
       style={[styles.mediaButton, disabled && { opacity: 0.45 }]}
     >
-      <Text style={styles.mediaIcon}>{icon}</Text>
+      <Icon name={icon} color={colors.coral} />
       <Text style={styles.mediaLabel}>{label}</Text>
     </Pressable>
   );
@@ -3061,29 +2704,38 @@ export function ChatScreen({
               ) : null}
               <Text style={[ex.body, mine && { color: 'white' }]}>{message.body}</Text>
               <Text style={[ex.hint, mine && { color: 'white' }]}>{message.createdAt}</Text>
-              <ReactionBar
-                items={reactionState.reactions[message.id]}
-                viewerId={profile.id}
-                light={mine}
-                onReact={(emoji, remove) => void reactionState.react(message.id, emoji, remove)}
-              />
-              <View style={ex.row}>
-                <Pressable
-                  style={ex.quiet}
-                  accessibilityRole="button"
-                  accessibilityLabel="Reply to message"
-                  onPress={() => setReplyTo(message)}
-                >
-                  <Text style={[ex.label, mine && { color: 'white' }]}>Reply</Text>
-                </Pressable>
-                <DeleteOwnContentButton
-                  ownerId={message.senderId}
+              <View
+                style={{
+                  flexDirection: 'row',
+                  flexWrap: 'wrap',
+                  alignItems: 'flex-start',
+                  justifyContent: 'space-between',
+                }}
+              >
+                <ReactionBar
+                  items={reactionState.reactions[message.id]}
                   viewerId={profile.id}
-                  createdAtIso={message.createdAtIso}
-                  kind="message"
                   light={mine}
-                  onDelete={() => onDelete(message)}
+                  onReact={(emoji, remove) => void reactionState.react(message.id, emoji, remove)}
                 />
+                <ContentActions light={mine}>
+                  <Pressable
+                    style={ex.quiet}
+                    accessibilityRole="button"
+                    accessibilityLabel="Reply to message"
+                    onPress={() => setReplyTo(message)}
+                  >
+                    <Text style={[ex.label, mine && { color: 'white' }]}>Reply</Text>
+                  </Pressable>
+                  <DeleteOwnContentButton
+                    ownerId={message.senderId}
+                    viewerId={profile.id}
+                    createdAtIso={message.createdAtIso}
+                    kind="message"
+                    light={mine}
+                    onDelete={() => onDelete(message)}
+                  />
+                </ContentActions>
               </View>
             </View>
           );
@@ -3128,19 +2780,5 @@ export function ChatScreen({
         />
       </View>
     </KeyboardAvoidingView>
-  );
-}
-
-export function LoadingCards() {
-  return (
-    <View
-      accessibilityLabel="Loading content"
-      accessibilityRole="progressbar"
-      style={{ padding: 20, gap: 16 }}
-    >
-      {[0, 1, 2].map((i) => (
-        <View key={i} style={{ height: 110, borderRadius: 18, backgroundColor: colors.line }} />
-      ))}
-    </View>
   );
 }

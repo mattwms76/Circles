@@ -176,6 +176,12 @@ test('Reply target is passed on send and is cleared when its parent is deleted',
   t.after(() => c.close());
   await act(async () =>
     c.renderer.root
+      .findAllByType('Pressable')
+      .find((b) => b.props.accessibilityLabel === 'Message actions')
+      .props.onPress(),
+  );
+  await act(async () =>
+    c.renderer.root
       .findAllByType('ActionButton')
       .find((b) => b.props.label === 'Reply')
       .props.onPress(),

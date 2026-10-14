@@ -1,8 +1,128 @@
+import { contentLink } from '../lib/contentLinks';
+import { usePostActions } from './PostActions';
+import { PostVideo } from './PostVideo';
 import React from 'react';
 import { Image, Pressable, Share, StyleSheet, Text, View } from 'react-native';
-import { useVideoPlayer, VideoView } from 'expo-video';
-import { colors, radii } from '../theme';
+import { createThemedStyles, colors, radii } from '../theme';
 import type { Circle, CirclePost, Profile } from '../types';
+
+export type IconName = 'bell' | 'photo' | 'video' | 'camera' | 'edit' | 'plus' | 'more' | 'gif';
+export function Icon({ name, color = colors.ink }: { name: IconName; color?: string }) {
+  const stroke = { borderColor: color, borderWidth: 1.7 };
+  return (
+    <View
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={{ width: 24, height: 24, alignItems: 'center', justifyContent: 'center' }}
+    >
+      {name === 'bell' ? (
+        <>
+          <View
+            style={[
+              stroke,
+              {
+                width: 15,
+                height: 16,
+                borderTopLeftRadius: 9,
+                borderTopRightRadius: 9,
+                borderBottomLeftRadius: 3,
+                borderBottomRightRadius: 3,
+              },
+            ]}
+          />
+          <View
+            style={{ width: 5, height: 2, backgroundColor: color, marginTop: 2, borderRadius: 2 }}
+          />
+        </>
+      ) : name === 'photo' ? (
+        <View style={[stroke, { width: 21, height: 18, borderRadius: 4, overflow: 'hidden' }]}>
+          <View
+            style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: color, margin: 3 }}
+          />
+          <View
+            style={[
+              stroke,
+              { width: 13, height: 13, transform: [{ rotate: '45deg' }], marginLeft: 6 },
+            ]}
+          />
+        </View>
+      ) : name === 'camera' ? (
+        <View
+          style={[
+            stroke,
+            {
+              width: 22,
+              height: 17,
+              borderRadius: 4,
+              alignItems: 'center',
+              justifyContent: 'center',
+            },
+          ]}
+        >
+          <View style={[stroke, { width: 8, height: 8, borderRadius: 4 }]} />
+          <View
+            style={{
+              position: 'absolute',
+              top: -5,
+              width: 9,
+              height: 3,
+              backgroundColor: color,
+              borderRadius: 2,
+            }}
+          />
+        </View>
+      ) : name === 'video' ? (
+        <View
+          style={[
+            stroke,
+            {
+              width: 21,
+              height: 17,
+              borderRadius: 4,
+              alignItems: 'center',
+              justifyContent: 'center',
+            },
+          ]}
+        >
+          <View
+            style={{
+              borderLeftWidth: 6,
+              borderLeftColor: color,
+              borderTopWidth: 4,
+              borderBottomWidth: 4,
+              borderTopColor: 'transparent',
+              borderBottomColor: 'transparent',
+              marginLeft: 2,
+            }}
+          />
+        </View>
+      ) : name === 'edit' ? (
+        <View
+          style={[
+            stroke,
+            { width: 7, height: 21, borderRadius: 2, transform: [{ rotate: '40deg' }] },
+          ]}
+        />
+      ) : name === 'plus' ? (
+        <>
+          <View style={{ width: 18, height: 2, backgroundColor: color }} />
+          <View style={{ position: 'absolute', width: 2, height: 18, backgroundColor: color }} />
+        </>
+      ) : name === 'more' ? (
+        <View style={{ flexDirection: 'row', gap: 3 }}>
+          {[0, 1, 2].map((i) => (
+            <View
+              key={i}
+              style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: color }}
+            />
+          ))}
+        </View>
+      ) : (
+        <Text style={{ color, fontSize: 10, fontWeight: '700' }}>GIF</Text>
+      )}
+    </View>
+  );
+}
 
 export function Avatar({
   profile,
@@ -47,7 +167,11 @@ export function TopBar({
   profile,
   onProfile,
   dark = false,
+  onActivity,
+  unreadActivity = 0,
 }: {
+  onActivity?: () => void;
+  unreadActivity?: number;
   profile: Profile;
   onProfile?: () => void;
   dark?: boolean;
@@ -55,18 +179,46 @@ export function TopBar({
   return (
     <View style={styles.topBar}>
       <BrandMark light={dark} />
-      {onProfile ? (
-        <Pressable
-          style={{ minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center' }}
-          onPress={onProfile}
-          accessibilityRole="button"
-          accessibilityLabel="Open profile"
-        >
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        {onActivity ? (
+          <Pressable
+            onPress={onActivity}
+            accessibilityRole="button"
+            accessibilityLabel={`Activity, ${unreadActivity} unread`}
+            style={{ minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center' }}
+          >
+            <Icon name="bell" />
+            {unreadActivity > 0 ? (
+              <View
+                style={{
+                  position: 'absolute',
+                  right: 2,
+                  top: 0,
+                  backgroundColor: colors.primary,
+                  borderRadius: 12,
+                  paddingHorizontal: 5,
+                }}
+              >
+                <Text style={{ color: 'white', fontSize: 12 }}>
+                  {unreadActivity > 99 ? '99+' : unreadActivity}
+                </Text>
+              </View>
+            ) : null}
+          </Pressable>
+        ) : null}
+        {onProfile ? (
+          <Pressable
+            style={{ minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center' }}
+            onPress={onProfile}
+            accessibilityRole="button"
+            accessibilityLabel="Open profile"
+          >
+            <Avatar profile={profile} size={36} />
+          </Pressable>
+        ) : (
           <Avatar profile={profile} size={36} />
-        </Pressable>
-      ) : (
-        <Avatar profile={profile} size={36} />
-      )}
+        )}
+      </View>
     </View>
   );
 }
@@ -85,7 +237,9 @@ export function SectionTitle({
   return (
     <View style={styles.sectionTitleRow}>
       <View style={{ flex: 1, minWidth: 0 }}>
-        {eyebrow ? <Text style={styles.eyebrow}>{eyebrow.toUpperCase()}</Text> : null}
+        {eyebrow ? (
+          <Text style={styles.eyebrow}>{eyebrow.charAt(0) + eyebrow.slice(1).toLowerCase()}</Text>
+        ) : null}
         <Text style={styles.sectionTitle}>{title}</Text>
       </View>
       {action && onAction ? (
@@ -209,6 +363,7 @@ export function PostCard({
   onOpenCircle?: () => void;
   onMore?: () => void;
 }) {
+  const actions = usePostActions();
   return (
     <View style={styles.postCard}>
       <View style={styles.postMeta}>
@@ -227,9 +382,9 @@ export function PostCard({
             </Text>
           )}
         </View>
-        {onMore ? (
+        {actions || onMore ? (
           <Pressable
-            onPress={onMore}
+            onPress={() => (actions ? actions.open(post, onMore) : onMore?.())}
             hitSlop={12}
             accessibilityRole="button"
             accessibilityLabel="Post options"
@@ -240,7 +395,7 @@ export function PostCard({
       </View>
       <Text style={styles.postBody}>{post.body}</Text>
       {post.media?.kind === 'video' ? (
-        <VideoPost uri={post.media.url} />
+        <PostVideo media={post.media} />
       ) : post.media ? (
         <Image source={{ uri: post.media.url }} style={styles.postImage} resizeMode="cover" />
       ) : null}
@@ -266,7 +421,7 @@ export function PostCard({
         <Pressable
           onPress={() =>
             void Share.share({
-              message: `${post.body}\n\nShared from ${post.circleName} on Circles`,
+              message: `Open this post in ${post.circleName} on Circles. Circle membership is required.\n${contentLink('post', post.id, post.circleId)}`,
             })
           }
           style={styles.postAction}
@@ -278,19 +433,6 @@ export function PostCard({
         </Pressable>
       </View>
     </View>
-  );
-}
-
-function VideoPost({ uri }: { uri: string }) {
-  const player = useVideoPlayer(uri);
-  return (
-    <VideoView
-      player={player}
-      style={styles.postImage}
-      contentFit="cover"
-      nativeControls
-      fullscreenOptions={{ enable: true }}
-    />
   );
 }
 
@@ -390,7 +532,7 @@ export function formatCount(count: number) {
   return count >= 1000 ? `${(count / 1000).toFixed(count >= 10000 ? 0 : 1)}k` : String(count);
 }
 
-const styles = StyleSheet.create({
+const styles = createThemedStyles(() => ({
   avatarFrame: { alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   avatarRing: { borderWidth: 2, borderColor: colors.coral, padding: 2 },
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: 9 },
@@ -398,7 +540,7 @@ const styles = StyleSheet.create({
     width: 27,
     height: 27,
     borderRadius: 10,
-    backgroundColor: colors.coral,
+    backgroundColor: colors.primary,
     position: 'relative',
   },
   glyphDot: {
@@ -412,7 +554,7 @@ const styles = StyleSheet.create({
   },
   glyphDotRight: { left: 14, top: 10 },
   glyphDotBottom: { top: 15, left: 5 },
-  brandText: { color: colors.ink, fontWeight: '800', fontSize: 19, letterSpacing: -0.8 },
+  brandText: { color: colors.ink, fontWeight: '700', fontSize: 19, letterSpacing: -0.8 },
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -431,12 +573,12 @@ const styles = StyleSheet.create({
   },
   eyebrow: {
     color: colors.coral,
-    fontWeight: '800',
+    fontWeight: '700',
     fontSize: 12,
     letterSpacing: 1.4,
     marginBottom: 5,
   },
-  sectionTitle: { color: colors.ink, fontSize: 21, fontWeight: '800', letterSpacing: -0.6 },
+  sectionTitle: { color: colors.ink, fontSize: 21, fontWeight: '700', letterSpacing: -0.6 },
   actionText: { color: colors.coral, fontWeight: '700', fontSize: 13, paddingBottom: 3 },
   circleTile: {
     backgroundColor: colors.surface,
@@ -454,16 +596,16 @@ const styles = StyleSheet.create({
     top: 13,
     right: 13,
     borderRadius: radii.pill,
-    backgroundColor: 'rgba(255,255,255,0.88)',
+    backgroundColor: colors.surface,
     paddingHorizontal: 9,
     paddingVertical: 5,
   },
-  privateBadgeText: { fontSize: 12, fontWeight: '800', color: colors.ink, letterSpacing: 1 },
+  privateBadgeText: { fontSize: 12, fontWeight: '700', color: colors.ink, letterSpacing: 1 },
   circleImageText: { position: 'absolute', left: 16, right: 16, bottom: 15 },
   circleNameOnImage: {
     color: '#FFFFFF',
     fontSize: 22,
-    fontWeight: '800',
+    fontWeight: '700',
     textShadowColor: 'rgba(0,0,0,0.3)',
     textShadowRadius: 8,
   },
@@ -472,7 +614,7 @@ const styles = StyleSheet.create({
   circleInterest: {
     fontSize: 12,
     color: colors.coral,
-    fontWeight: '800',
+    fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
   },
@@ -492,11 +634,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 13,
     paddingVertical: 9,
     borderRadius: radii.pill,
-    backgroundColor: colors.coral,
+    backgroundColor: colors.primary,
   },
   joinedButton: { backgroundColor: colors.sage },
   requestedButton: { backgroundColor: colors.butter },
-  joinButtonText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
+  joinButtonText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
   joinedButtonText: { color: colors.green },
   postCard: {
     backgroundColor: colors.surface,
@@ -507,10 +649,10 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
   },
   postMeta: { flexDirection: 'row', alignItems: 'center', gap: 11, marginBottom: 12 },
-  postAuthor: { color: colors.ink, fontWeight: '800', fontSize: 14 },
+  postAuthor: { color: colors.ink, fontWeight: '700', fontSize: 14 },
   postCircle: { color: colors.muted, fontSize: 12, marginTop: 3 },
   moreIcon: { fontSize: 25, lineHeight: 20, color: colors.muted, letterSpacing: 1 },
-  postBody: { color: colors.ink, fontSize: 14, lineHeight: 21, marginBottom: 12 },
+  postBody: { color: colors.ink, fontSize: 16, lineHeight: 24, marginBottom: 12 },
   postImage: {
     width: '100%',
     height: 222,
@@ -523,18 +665,19 @@ const styles = StyleSheet.create({
   postActionLabel: { color: colors.muted, fontSize: 12, fontWeight: '600' },
   actionButton: {
     minHeight: 48,
+    paddingVertical: 12,
     paddingHorizontal: 17,
-    borderRadius: radii.pill,
+    borderRadius: radii.small,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.coral,
+    backgroundColor: colors.primary,
   },
   actionButtonCompact: { minHeight: 48, paddingHorizontal: 13 },
-  button_primary: { backgroundColor: colors.coral },
+  button_primary: { backgroundColor: colors.primary },
   button_secondary: { backgroundColor: colors.coralSoft },
   button_dark: { backgroundColor: colors.night },
   button_outline: { backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.line },
-  actionButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' },
+  actionButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
   pill: {
     borderRadius: radii.pill,
     borderWidth: 1,
@@ -558,7 +701,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.line,
   },
-  emptyTitle: { color: colors.ink, fontSize: 16, fontWeight: '800' },
+  emptyTitle: { color: colors.ink, fontSize: 16, fontWeight: '700' },
   emptyDetail: {
     color: colors.muted,
     fontSize: 12,
@@ -566,4 +709,4 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 6,
   },
-});
+}));
