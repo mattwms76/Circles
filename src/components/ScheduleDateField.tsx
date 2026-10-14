@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Alert, Platform, Pressable, Text, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { createEventInCalendarAsync } from 'expo-calendar/legacy';
-import { colors } from '../theme';
+import { colors, typography } from '../theme';
 
 export function ScheduleDateField({
   value,
@@ -16,8 +16,10 @@ export function ScheduleDateField({
   const date = Number.isFinite(parsed.getTime()) ? parsed : new Date(Date.now() + 3600000);
   return (
     <View style={{ gap: 12 }}>
-      <Text style={{ color: colors.ink, fontWeight: '600' }}>Date and time</Text>
-      <View style={{ flexDirection: 'row', gap: 12 }}>
+      <Text style={{ ...typography.body, color: colors.ink, fontWeight: '600' }}>
+        Date and time
+      </Text>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
         {(['date', 'time'] as const).map((kind) => (
           <Pressable
             key={kind}
@@ -32,7 +34,7 @@ export function ScheduleDateField({
               borderRadius: 14,
             }}
           >
-            <Text style={{ color: colors.ink }}>
+            <Text style={{ ...typography.body, color: colors.ink }}>
               {kind === 'date'
                 ? date.toLocaleDateString()
                 : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -59,10 +61,12 @@ export function ScheduleDateField({
             setMode(null);
           }}
         >
-          <Text style={{ color: colors.coral, padding: 12 }}>Done</Text>
+          <Text style={{ ...typography.body, color: colors.coral, padding: 12, minHeight: 48 }}>
+            Done
+          </Text>
         </Pressable>
       ) : null}
-      <Text style={{ color: colors.muted }}>
+      <Text style={{ ...typography.body, color: colors.muted }}>
         {value ? date.toLocaleString() : 'Choose a future date and time'} ·{' '}
         {Intl.DateTimeFormat().resolvedOptions().timeZone}
       </Text>
@@ -94,7 +98,9 @@ export function AddToCalendar({
       }}
       style={{ minHeight: 48, justifyContent: 'center' }}
     >
-      <Text style={{ color: colors.coral, fontWeight: '600' }}>Add to calendar</Text>
+      <Text style={{ ...typography.body, color: colors.coral, fontWeight: '600' }}>
+        Add to calendar
+      </Text>
     </Pressable>
   );
 }

@@ -23,13 +23,13 @@ test('Discovery filters begin closed, retain selection, and show results on dism
     );
   });
   t.after(() => act(async () => renderer.unmount()));
-  assert.equal(renderer.root.findByType('Modal').props.visible, false);
+  assert.equal(renderer.root.findAllByType('Modal').length, 0);
   await act(async () => renderer.root.findByProps({ label: 'Filters · 1 active' }).props.onPress());
-  assert.equal(renderer.root.findByType('Modal').props.visible, true);
+  assert.equal(renderer.root.findAllByType('Modal').length, 1);
   await act(async () => renderer.root.findByProps({ label: 'Public' }).props.onPress());
   assert.equal(changed[0].privacy, 'public');
   await act(async () => renderer.root.findByProps({ label: 'Show results' }).props.onPress());
-  assert.equal(renderer.root.findByType('Modal').props.visible, false);
+  assert.equal(renderer.root.findAllByType('Modal').length, 0);
 });
 test('Circle search ignores stale results and filters across server pages', async (t) => {
   const first = deferred(),
@@ -37,7 +37,7 @@ test('Circle search ignores stale results and filters across server pages', asyn
   const requests = [];
   const { useCirclePostSearch } = loadSource('src/components/CirclePostSearch.tsx', {
     'react-native': native,
-    '../theme': { colors: {} },
+    '../theme': { colors: {}, typography: { body: { fontSize: 16, lineHeight: 24 } } },
     '../lib/repositories': {
       searchCirclePosts: (circle, text, media, offset) => {
         requests.push({ circle, text, media, offset });
@@ -74,7 +74,7 @@ test('Native date picker commits an ISO instant and cancellation does not alter 
     },
     '@react-native-community/datetimepicker': 'DateTimePicker',
     'expo-calendar/legacy': {},
-    '../theme': { colors: {} },
+    '../theme': { colors: {}, typography: { body: { fontSize: 16, lineHeight: 24 } } },
   });
   let renderer;
   await act(async () => {
@@ -143,7 +143,7 @@ test('Video errors renew private URLs once; backgrounding pauses playback and ex
         return 'https://renewed.example/video';
       },
     },
-    '../theme': { colors: {} },
+    '../theme': { colors: {}, typography: { body: { fontSize: 16, lineHeight: 24 } } },
   });
   let renderer;
   await act(async () => {

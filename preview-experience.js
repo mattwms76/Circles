@@ -157,8 +157,8 @@ window.createCirclesExperience = ({
         }${button('Schedule an event', 'circleTools', '', false)}</div>`;
     }
     if (screen === 'live') {
-      page.querySelector('.screenHead')?.insertAdjacentHTML(
-        'afterend',
+      page.insertAdjacentHTML(
+        'beforeend',
         `<section class="ex-section"><div class="ex-card"><h2 class="ex-title">Upcoming rooms</h2>${button('Schedule a live room', 'scheduleRoom', '', false)}${
           model.rooms
             .filter((r) => !r.cancelled)
@@ -181,8 +181,19 @@ window.createCirclesExperience = ({
         .querySelector('.screenHead')
         ?.insertAdjacentHTML(
           'afterend',
-          `<div class="ex-section ex-toolbar">${button('Activity', 'activity')}${button('Notification preferences', 'preferences')}${button('Find circles for my interests', 'onboarding')}</div>`,
+          `<div class="ex-section profileToolbar">${button('Activity', 'activity')}<details><summary>Settings</summary><div class="ex-stack">${button('Notification preferences', 'preferences')}${button('Find circles for my interests', 'onboarding')}</div></details></div>`,
         );
+    }
+    if (screen === 'profile') {
+      const edit = page.querySelector('[data-action="editProfile"]');
+      const oldCard = edit?.closest('.demoCard');
+      if (edit) {
+        edit.classList.remove('soft');
+        page.querySelector('.screenHead').append(edit);
+      }
+      oldCard?.remove();
+      const wallet = page.querySelector('.walletDemo');
+      if (wallet) page.append(wallet);
     }
     labelFields();
   };
@@ -298,10 +309,34 @@ window.createCirclesExperience = ({
       kind === 'message' ? `Chat with ${e(key)}` : 'Replies',
       `<div class="ex-stack">${kind === 'message' ? `<label class="ex-label">Search this conversation<input id="exMessageSearch" class="demoInput" value="${e(chatSearch)}" placeholder="Search all messages"></label>${button(model.muted[key] ? 'Unmute conversation' : 'Mute conversation', 'muteChat')}` : ''}<p class="ex-hint">Your draft is saved on this device. You can delete your own ${kind === 'message' ? 'messages' : 'comments'} for 15 minutes.</p><div id="chatMessages" class="ex-stack">${items.map((m) => entryMarkup(m, kind, key)).join('') || `<p class="ex-empty">${kind === 'message' ? 'No messages to show.' : 'No comments yet. Start the conversation.'}</p>`}</div>${parent ? `<div class="ex-quote"><p>Replying to: ${e(parent.body)}</p>${button('Cancel reply', 'cancelReply')}</div>` : ''}<form data-form="ex-thread" class="ex-stack"><label class="ex-label">${kind === 'message' ? 'Message' : 'Comment'}<textarea class="demoArea" name="message" maxlength="${kind === 'message' ? 4000 : 2000}" required>${e(model.drafts[draftKey] || '')}</textarea></label><button class="demoButton" type="submit" ${model.drafts[draftKey]?.trim() ? '' : 'disabled'}>Send</button></form></div>`,
     );
+    const panel = document.querySelector('.modalPanel');
+    panel.classList.add('threadPanel');
+    panel.classList.toggle('commentThread', kind === 'comment');
+    const stack = panel.querySelector('.ex-stack');
+    stack.classList.add('threadLayout');
+    const messages = stack.querySelector('#chatMessages');
+    messages.classList.add('threadMessages');
+    const composer = stack.querySelector('form');
+    composer.classList.add('threadComposer');
+    const options = document.createElement('details');
+    options.className = 'threadOptions';
+    options.innerHTML =
+      kind === 'message'
+        ? '<summary>Conversation options</summary>'
+        : '<summary>About replies</summary>';
+    while (stack.firstElementChild !== messages) options.append(stack.firstElementChild);
+    stack.prepend(options);
+    if (kind === 'comment')
+      messages.querySelectorAll('.message').forEach((entry, i) => {
+        const author = document.createElement('strong');
+        author.className = 'commentAuthor';
+        author.textContent = items[i].own ? state.displayName : items[i].author || 'Circle member';
+        entry.prepend(author);
+      });
     save();
   }
   function roomCard(room) {
-    return `<div class="ex-card"><strong>${e(room.title)}</strong><p>${e(new Date(room.at).toLocaleString())}</p><p class="ex-hint">${e(room.circle || 'Open room')} · ${room.started ? 'Live in this preview' : 'Scheduled'}</p><div class="ex-row">${button('Add to calendar', 'calendar', `data-title="${e(room.title)}" data-at="${room.at}"`)}${button(room.reminded ? 'Reminder on · turn off' : 'Remind me', 'remind', `data-id="${room.id}"`)}${button(room.started ? 'Open room' : 'Start room now', 'startRoom', `data-id="${room.id}"`)}${!room.started ? button('Edit schedule', 'editRoom', `data-id="${room.id}"`) + button('Cancel room', 'cancelRoom', `data-id="${room.id}"`) : ''}</div></div>`;
+    return `<div class="ex-card"><strong>${e(room.title)}</strong><p>${e(new Date(room.at).toLocaleString())}</p><p class="ex-hint">${e(room.circle || 'Open room')} · ${room.started ? 'Live in this preview' : 'Scheduled'}</p><div class="ex-row">${button('Add to calendar', 'calendar', `data-title="${e(room.title)}" data-at="${room.at}"`)}${button(room.reminded ? 'Reminder on · turn off' : 'Remind me', 'remind', `data-id="${room.id}"`)}<details class="hostActions"><summary>Host actions</summary>${button(room.started ? 'Open room' : 'Start room now', 'startRoom', `data-id="${room.id}"`)}${!room.started ? button('Edit schedule', 'editRoom', `data-id="${room.id}"`) + button('Cancel room', 'cancelRoom', `data-id="${room.id}"`) : ''}</details></div></div>`;
   }
   function schedule(room) {
     editingRoom = room?.id || null;
@@ -376,11 +411,11 @@ window.createCirclesExperience = ({
         .filter((c) => c[4])
         .map(
           (c) =>
-            `<label class="ex-row"><input type="checkbox" data-circle-pref="${e(c[0])}" ${model.circleNotifications[c[0]] !== false ? 'checked' : ''}>${e(c[0])}</label>`,
+            `<label class="ex-row"><input type="checkbox" role="switch" data-circle-pref="${e(c[0])}" ${model.circleNotifications[c[0]] !== false ? 'checked' : ''}>${e(c[0])}</label>`,
         )
         .join(
           '',
-        )}${['Mara Ellis', 'Noah Kim', 'Cleo James'].map((name) => `<label class="ex-row"><input type="checkbox" data-chat-pref="${name}" ${!model.muted[name] ? 'checked' : ''}>Messages from ${name}</label>`).join('')}<p class="ex-hint">These settings affect this local prototype. The native app saves them to your account.</p></div>`,
+        )}${['Mara Ellis', 'Noah Kim', 'Cleo James'].map((name) => `<label class="ex-row"><input type="checkbox" role="switch" data-chat-pref="${name}" ${!model.muted[name] ? 'checked' : ''}>Messages from ${name}</label>`).join('')}<p class="ex-hint">These settings affect this local prototype. The native app saves them to your account.</p></div>`,
     );
   }
   function gifts() {

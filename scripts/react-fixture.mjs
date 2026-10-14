@@ -42,6 +42,13 @@ export function loadSource(file, mocks = {}) {
                 ...mocks[name],
               }
             : mocks[name];
+        if (name.endsWith('/Sheet'))
+          return loadSource('src/components/Sheet.tsx', {
+            'react-native': native,
+            'react-native-safe-area-context': { useSafeAreaInsets: () => ({ bottom: 0, top: 0 }) },
+            '../theme': { colors: {} },
+            '../appStyles': { styles: {} },
+          });
         if (name === './DiscoveryScreens')
           return { HomeScreen: 'HomeScreen', ExploreScreen: 'ExploreScreen' };
         if (name.endsWith('/components/LoadingCards')) return { LoadingCards: 'LoadingCards' };

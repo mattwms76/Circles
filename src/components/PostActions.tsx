@@ -1,5 +1,6 @@
+import { Sheet } from './Sheet';
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { Alert, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Alert, Pressable, Text, TextInput, View } from 'react-native';
 import { loadSavedPostIds, savePost, updateOwnPost } from '../lib/postActions';
 import { loadPostById } from '../lib/repositories';
 import { colors } from '../theme';
@@ -24,9 +25,29 @@ function Button({
       accessibilityRole="button"
       disabled={disabled}
       onPress={onPress}
-      style={{ padding: 14, minHeight: 48, opacity: disabled ? 0.5 : 1 }}
+      style={{
+        padding: 14,
+        minHeight: 48,
+        borderRadius: 14,
+        backgroundColor: label === 'Save changes' ? colors.primary : 'transparent',
+        opacity: disabled ? 0.5 : 1,
+      }}
     >
-      <Text style={{ color: colors.coral, fontWeight: '600' }}>{label}</Text>
+      <Text
+        style={{
+          color:
+            label === 'Save changes'
+              ? colors.onPrimary
+              : label.startsWith('Delete')
+                ? colors.error
+                : colors.coral,
+          fontSize: 16,
+          lineHeight: 24,
+          fontWeight: '600',
+        }}
+      >
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -115,177 +136,156 @@ export function PostActionsProvider({
       }}
     >
       {children}
-      <Modal
-        visible={!!post || list !== null}
-        transparent
-        animationType="slide"
-        onRequestClose={() => {
-          if (!busy) {
-            setPost(null);
-            setList(null);
+      {!!post || list !== null ? (
+        <Sheet
+          title={post ? (editing ? 'Edit post' : 'Post options') : 'Saved posts'}
+          eyebrow=""
+          footer={
+            post && editing ? (
+              <Button
+                disabled={busy}
+                label="Save changes"
+                onPress={() =>
+                  void run(async () => {
+                    await updateOwnPost(post, userId, body);
+                    if (alive.current) {
+                      changed(post.id, body.trim());
+                      setPost(null);
+                    }
+                  })
+                }
+              />
+            ) : undefined
           }
-        }}
-      >
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: '#0008' }}>
-          <ScrollView
-            keyboardShouldPersistTaps="handled"
-            style={{
-              maxHeight: '90%',
-              backgroundColor: colors.paper,
-              borderTopLeftRadius: 24,
-              borderTopRightRadius: 24,
-            }}
-            contentContainerStyle={{ padding: 24, paddingBottom: 48, gap: 12 }}
-          >
-            <Text style={{ fontSize: 22, fontWeight: '700', color: colors.ink }}>
-              {post ? (editing ? 'Edit post' : 'Post options') : 'Saved posts'}
+          onClose={() => {
+            if (!busy) {
+              setPost(null);
+              setList(null);
+            }
+          }}
+        >
+          {error ? (
+            <Text accessibilityRole="alert" style={{ color: colors.error }}>
+              {error}
             </Text>
-            {error ? (
-              <Text accessibilityRole="alert" style={{ color: colors.error }}>
-                {error}
-              </Text>
-            ) : null}
-            {busy ? <Text style={{ color: colors.muted }}>Loading…</Text> : null}
-            {post ? (
-              <>
-                {editing ? (
-                  <>
-                    <TextInput
-                      accessibilityLabel="Edit post text"
-                      multiline
-                      value={body}
-                      onChangeText={setBody}
-                      maxLength={5000}
-                      style={{
-                        minHeight: 120,
-                        padding: 12,
-                        color: colors.ink,
-                        borderWidth: 1,
-                        borderColor: colors.line,
-                        borderRadius: 12,
-                      }}
-                    />
-                    <Button
-                      disabled={busy}
-                      label="Save changes"
-                      onPress={() =>
-                        void run(async () => {
-                          await updateOwnPost(post, userId, body);
-                          if (alive.current) {
-                            changed(post.id, body.trim());
-                            setPost(null);
-                          }
-                        })
-                      }
-                    />
-                  </>
-                ) : (
-                  <>
-                    <Button
-                      disabled={busy}
-                      label={saved.includes(post.id) ? 'Remove from saved posts' : 'Save post'}
-                      onPress={() =>
-                        void run(async () => {
-                          const next = !saved.includes(post.id);
-                          await savePost(userId, post.id, next);
-                          if (alive.current) {
-                            setSaved(await loadSavedPostIds(userId));
-                            setPost(null);
-                          }
-                        })
-                      }
-                    />
-                    {post.author.id === userId ? (
-                      <>
-                        <Text style={{ color: colors.muted }}>
-                          You can edit or remove your timeline posts at any time while you are a
-                          member. Removal hides the post from the timeline.
-                        </Text>
-                        <Button
-                          label="Edit post"
-                          disabled={busy}
-                          onPress={() => setEditing(true)}
-                        />
-                        <Button
-                          label="Delete post"
-                          disabled={busy}
-                          onPress={() =>
-                            Alert.alert(
-                              'Delete this post?',
-                              'It will be removed from the timeline.',
-                              [
-                                { text: 'Cancel', style: 'cancel' },
-                                {
-                                  text: 'Delete',
-                                  style: 'destructive',
-                                  onPress: () =>
-                                    void run(async () => {
-                                      await updateOwnPost(post, userId, null);
-                                      if (alive.current) {
-                                        changed(post.id, null);
-                                        setPost(null);
-                                      }
-                                    }),
-                                },
-                              ],
-                            )
-                          }
-                        />
-                      </>
-                    ) : report.current ? (
-                      <Button
-                        label="Report post"
-                        onPress={() => {
-                          setPost(null);
-                          report.current?.();
-                        }}
-                      />
-                    ) : null}
-                  </>
-                )}
-              </>
-            ) : list?.length ? (
-              list.map((item) => (
-                <View key={item.id} style={{ borderBottomWidth: 1, borderColor: colors.line }}>
-                  <Button
-                    label={`${item.circleName} · ${item.body || 'Media post'}`}
-                    onPress={() => {
-                      setList(null);
-                      onOpen(item);
+          ) : null}
+          {busy ? <Text style={{ color: colors.muted }}>Loading…</Text> : null}
+          {post ? (
+            <>
+              {editing ? (
+                <>
+                  <TextInput
+                    accessibilityLabel="Edit post text"
+                    multiline
+                    value={body}
+                    onChangeText={setBody}
+                    maxLength={5000}
+                    style={{
+                      minHeight: 120,
+                      fontSize: 16,
+                      lineHeight: 24,
+                      padding: 12,
+                      color: colors.ink,
+                      borderWidth: 1,
+                      borderColor: colors.line,
+                      borderRadius: 12,
                     }}
                   />
+                </>
+              ) : (
+                <>
                   <Button
-                    label="Remove saved post"
                     disabled={busy}
+                    label={saved.includes(post.id) ? 'Remove from saved posts' : 'Save post'}
                     onPress={() =>
                       void run(async () => {
-                        await savePost(userId, item.id, false);
+                        const next = !saved.includes(post.id);
+                        await savePost(userId, post.id, next);
                         if (alive.current) {
-                          setSaved((ids) => ids.filter((id) => id !== item.id));
-                          setList((rows) => rows?.filter((p) => p.id !== item.id) ?? null);
+                          setSaved(await loadSavedPostIds(userId));
+                          setPost(null);
                         }
                       })
                     }
                   />
-                </View>
-              ))
-            ) : !busy ? (
-              <Text style={{ color: colors.muted }}>
-                No accessible saved posts. Save a post from its options menu. Posts from circles you
-                leave are hidden.
-              </Text>
-            ) : null}
-            <Button
-              label="Close"
-              disabled={busy}
-              onPress={() => {
-                setPost(null);
-                setList(null);
-              }}
-            />
-          </ScrollView>
-        </View>
-      </Modal>
+                  {post.author.id === userId ? (
+                    <>
+                      <Text style={{ color: colors.muted }}>
+                        You can edit or remove your timeline posts at any time while you are a
+                        member. Removal hides the post from the timeline.
+                      </Text>
+                      <Button label="Edit post" disabled={busy} onPress={() => setEditing(true)} />
+                      <Button
+                        label="Delete post"
+                        disabled={busy}
+                        onPress={() =>
+                          Alert.alert(
+                            'Delete this post?',
+                            'It will be removed from the timeline.',
+                            [
+                              { text: 'Cancel', style: 'cancel' },
+                              {
+                                text: 'Delete',
+                                style: 'destructive',
+                                onPress: () =>
+                                  void run(async () => {
+                                    await updateOwnPost(post, userId, null);
+                                    if (alive.current) {
+                                      changed(post.id, null);
+                                      setPost(null);
+                                    }
+                                  }),
+                              },
+                            ],
+                          )
+                        }
+                      />
+                    </>
+                  ) : report.current ? (
+                    <Button
+                      label="Report post"
+                      onPress={() => {
+                        setPost(null);
+                        report.current?.();
+                      }}
+                    />
+                  ) : null}
+                </>
+              )}
+            </>
+          ) : list?.length ? (
+            list.map((item) => (
+              <View key={item.id} style={{ borderBottomWidth: 1, borderColor: colors.line }}>
+                <Button
+                  label={`${item.circleName} · ${item.body || 'Media post'}`}
+                  onPress={() => {
+                    setList(null);
+                    onOpen(item);
+                  }}
+                />
+                <Button
+                  label="Remove saved post"
+                  disabled={busy}
+                  onPress={() =>
+                    void run(async () => {
+                      await savePost(userId, item.id, false);
+                      if (alive.current) {
+                        setSaved((ids) => ids.filter((id) => id !== item.id));
+                        setList((rows) => rows?.filter((p) => p.id !== item.id) ?? null);
+                      }
+                    })
+                  }
+                />
+              </View>
+            ))
+          ) : !busy ? (
+            <Text style={{ color: colors.muted }}>
+              No accessible saved posts. Save a post from its options menu. Posts from circles you
+              leave are hidden.
+            </Text>
+          ) : null}
+        </Sheet>
+      ) : null}
     </Context.Provider>
   );
 }

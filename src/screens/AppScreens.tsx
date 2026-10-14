@@ -1,3 +1,5 @@
+import { Sheet } from '../components/Sheet';
+export { Sheet } from '../components/Sheet';
 import { LoadingCards } from '../components/LoadingCards';
 export { LoadingCards } from '../components/LoadingCards';
 import { CirclePostSearch, useCirclePostSearch } from '../components/CirclePostSearch';
@@ -28,7 +30,6 @@ import {
   Image,
   ImageBackground,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   FlatList,
@@ -54,7 +55,7 @@ import {
   TopBar,
   formatCount,
 } from '../components/Primitives';
-import { colors, useReducedMotion } from '../theme';
+import { colors } from '../theme';
 import { styles } from '../appStyles';
 import type {
   Circle,
@@ -122,7 +123,6 @@ export function LiveScreen({
         </View>
         <ActionButton compact label="Go live" onPress={onStart} />
       </View>
-      <ScheduledRooms profile={profile} circles={circles} onLive={onLive} />
       <View style={styles.sectionPad}>
         <SectionTitle eyebrow="RIGHT NOW" title={`${lives.length} rooms are live`} />
         {lives.map((session, index) => (
@@ -167,6 +167,7 @@ export function LiveScreen({
           </Pressable>
         ))}
       </View>
+      <ScheduledRooms profile={profile} circles={circles} onLive={onLive} />
     </ScrollView>
   );
 }
@@ -594,7 +595,7 @@ export function ProfileScreen({
             ◉ {walletBalance.toLocaleString()} <Text style={styles.walletCoins}>coins</Text>
           </Text>
         </View>
-        <ActionButton compact variant="dark" label="Add coins" onPress={onStore} />
+        <ActionButton compact variant="outline" label="Add coins" onPress={onStore} />
       </View>
       <View style={styles.sectionPad}>
         <SectionTitle eyebrow="YOUR LITTLE CORNERS" title="Circles you’re in" />
@@ -933,12 +934,21 @@ export function CircleDetailScreen({
               <Text style={styles.publicProfileBack}>‹</Text>
             </Pressable>
             <Text style={styles.publicProfileHeaderLabel}>{circle.interest}</Text>
-            <View style={{ width: 36 }} />
+            <ActionButton
+              compact
+              variant="outline"
+              label="Share circle"
+              onPress={() =>
+                void Share.share({
+                  message: `Join ${circle.name} on Circles: ${contentLink('circle', circle.id)}`,
+                })
+              }
+            />
           </View>
           <View style={styles.circlePageHero}>
             <ImageBackground
               source={{ uri: circle.imageUrl }}
-              style={styles.circlePageCover}
+              style={[styles.circlePageCover, section !== 'about' && { minHeight: 96 }]}
               imageStyle={styles.circlePageCoverImage}
             >
               <View style={styles.circlePageShade} />
@@ -984,16 +994,6 @@ export function CircleDetailScreen({
                 </Text>
               </>
             ) : null}
-            <ActionButton
-              compact
-              variant="outline"
-              label="Share circle"
-              onPress={() =>
-                void Share.share({
-                  message: `Join ${circle.name} on Circles: ${contentLink('circle', circle.id)}`,
-                })
-              }
-            />
             {section === 'posts' && circle.isMember ? <CirclePostSearch search={search} /> : null}
             <View style={styles.circlePageActions}>
               {!circle.isMember && !requested ? (
@@ -1321,6 +1321,41 @@ export function PostRepliesSheet({
       onClose={onClose}
       title="Replies"
       eyebrow={`${post.circleName.toUpperCase()} · ${comments.length}${hasMore ? '+' : ''} REPLIES`}
+      footer={
+        <View style={{ gap: 8 }}>
+          {replyTo ? (
+            <View style={ex.quote}>
+              <Text style={ex.hint}>Replying to {replyTo.author.displayName}</Text>
+              <Text numberOfLines={2} style={ex.body}>
+                {replyTo.body}
+              </Text>
+              <ActionButton
+                compact
+                variant="outline"
+                label="Cancel reply"
+                onPress={() => setReplyTo(null)}
+              />
+            </View>
+          ) : null}
+          <Text style={ex.label}>Your reply</Text>
+          <TextInput
+            accessibilityLabel="Your reply"
+            value={draft}
+            editable={ready && !busy}
+            onChangeText={update}
+            placeholder="Write a reply…"
+            placeholderTextColor={colors.muted}
+            style={ex.field}
+            maxLength={2000}
+            multiline
+          />
+          <ActionButton
+            label={busy ? 'Sending…' : 'Send reply'}
+            disabled={!ready || busy || !draft.trim()}
+            onPress={() => void send()}
+          />
+        </View>
+      }
     >
       <View style={styles.replyPost}>
         <Text style={ex.label}>{post.author.displayName}</Text>
@@ -1423,37 +1458,6 @@ export function PostRepliesSheet({
           {error || reactionState.error}
         </Text>
       ) : null}
-      {replyTo ? (
-        <View style={ex.quote}>
-          <Text style={ex.hint}>Replying to {replyTo.author.displayName}</Text>
-          <Text numberOfLines={2} style={ex.body}>
-            {replyTo.body}
-          </Text>
-          <ActionButton
-            compact
-            variant="outline"
-            label="Cancel reply"
-            onPress={() => setReplyTo(null)}
-          />
-        </View>
-      ) : null}
-      <Text style={ex.label}>Your reply</Text>
-      <TextInput
-        accessibilityLabel="Your reply"
-        value={draft}
-        editable={ready && !busy}
-        onChangeText={update}
-        placeholder="Write a reply…"
-        placeholderTextColor={colors.muted}
-        style={ex.field}
-        maxLength={2000}
-        multiline
-      />
-      <ActionButton
-        label={busy ? 'Sending…' : 'Send reply'}
-        disabled={!ready || busy || !draft.trim()}
-        onPress={() => void send()}
-      />
     </Sheet>
   );
 }
@@ -1883,59 +1887,6 @@ export function StartLiveSheet({
   );
 }
 
-export function Sheet({
-  title,
-  eyebrow,
-  onClose,
-  children,
-  footer,
-}: {
-  footer?: React.ReactNode;
-  title: string;
-  eyebrow: string;
-  onClose: () => void;
-  children: React.ReactNode;
-}) {
-  const insets = useSafeAreaInsets();
-  const reducedMotion = useReducedMotion();
-  return (
-    <Modal transparent animationType={reducedMotion ? 'none' : 'fade'} onRequestClose={onClose}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.modalShade}
-      >
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <View style={[styles.sheetPanel, { paddingBottom: Math.max(16, insets.bottom) }]}>
-          <View style={styles.grabber} />
-          <View style={styles.sheetHeader}>
-            <View style={{ flex: 1 }}>
-              {eyebrow ? <Text style={styles.sheetEyebrow}>{eyebrow}</Text> : null}
-              <Text style={styles.sheetTitle}>{title}</Text>
-            </View>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Close dialog"
-              onPress={onClose}
-              style={styles.closeButton}
-            >
-              <Text style={styles.closeButtonText}>×</Text>
-            </Pressable>
-          </View>
-          <ScrollView
-            keyboardShouldPersistTaps="handled"
-            contentContainerStyle={{ gap: 12 }}
-            showsVerticalScrollIndicator={false}
-          >
-            {children}
-            <View style={{ height: 24 }} />
-          </ScrollView>
-          {footer ? <View style={styles.sheetFooter}>{footer}</View> : null}
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
-  );
-}
-
 export function MediaButton({
   icon,
   label,
@@ -2020,6 +1971,7 @@ export function LiveRoom({
   onToggleCamera: () => void;
   onSwitchCamera: () => void;
 }) {
+  const insets = useSafeAreaInsets();
   const host = session.host.id === profile.id;
   const onStage =
     host || session.seats.some((seat) => seat.user.id === profile.id && seat.role === 'cohost');
@@ -2275,10 +2227,8 @@ export function LiveRoom({
         </SafeAreaView>
       </ImageBackground>
       {selectedGift ? (
-        <ScrollView
-          style={styles.giftDrawer}
-          contentContainerStyle={{ padding: 20, paddingBottom: 40 }}
-          keyboardShouldPersistTaps="handled"
+        <View
+          style={[styles.giftDrawer, { padding: 20, paddingBottom: Math.max(16, insets.bottom) }]}
         >
           <View style={styles.giftDrawerHeader}>
             <View>
@@ -2330,7 +2280,11 @@ export function LiveRoom({
             ))}
           </ScrollView>
           {giftError ? <Text style={ex.error}>{giftError}</Text> : null}
-          <View style={styles.giftGrid}>
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            style={{ flex: 1 }}
+            contentContainerStyle={styles.giftGrid}
+          >
             {!displayGifts.length ? (
               <Text style={ex.body}>No matching gifts. Try All gifts or clear the search.</Text>
             ) : null}
@@ -2350,7 +2304,7 @@ export function LiveRoom({
                 <Text style={styles.giftPrice}>◉ {gift.coins.toLocaleString()}</Text>
               </Pressable>
             ))}
-          </View>
+          </ScrollView>
           <ActionButton
             compact
             variant="outline"
@@ -2385,7 +2339,7 @@ export function LiveRoom({
           <Pressable style={ex.quiet} onPress={() => onBuyCoins()} disabled={giftSending}>
             <Text style={styles.walletLink}>Need coins? Open wallet</Text>
           </Pressable>
-        </ScrollView>
+        </View>
       ) : null}
     </View>
   );

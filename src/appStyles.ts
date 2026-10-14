@@ -477,7 +477,7 @@ export const styles = createThemedStyles(() => ({
     letterSpacing: -0.7,
   },
   profileHandle: { color: colors.coral, fontSize: 12, fontWeight: '700', marginTop: 3 },
-  profileBio: { color: colors.muted, fontSize: 12, textAlign: 'center', marginTop: 9 },
+  profileBio: { color: colors.muted, fontSize: 14, textAlign: 'center', marginTop: 9 },
   profileEditButton: {
     minHeight: 48,
     justifyContent: 'center',
@@ -498,14 +498,16 @@ export const styles = createThemedStyles(() => ({
   walletCard: {
     marginHorizontal: 20,
     borderRadius: 22,
-    backgroundColor: colors.butter,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.line,
     padding: 17,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 16,
   },
-  walletEyebrow: { color: '#8C7748', fontSize: 12, letterSpacing: 1.2, fontWeight: '700' },
+  walletEyebrow: { color: colors.muted, fontSize: 12, letterSpacing: 1.2, fontWeight: '700' },
   walletAmount: { color: colors.ink, fontSize: 19, fontWeight: '700', marginTop: 5 },
   walletCoins: { color: colors.muted, fontSize: 12, fontWeight: '600' },
   profileCircleRow: {

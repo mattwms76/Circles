@@ -203,3 +203,20 @@ test('Reply target is passed on send and is cleared when its parent is deleted',
     0,
   );
 });
+
+test('Reply composer stays outside scrolling comments and the sheet contains no raw View text', async (t) => {
+  const f = fixture();
+  const view = await f.mount({ onSend: async () => {} });
+  t.after(() => view.close());
+  for (let node = view.input().parent; node; node = node.parent) {
+    assert.notEqual(node.type, 'ScrollView', 'The composer must remain in the fixed footer');
+  }
+  for (const node of view.renderer.root.findAllByType('View')) {
+    assert.equal(
+      node.children.some((child) => typeof child === 'string'),
+      false,
+      'Native View cannot contain raw text',
+    );
+  }
+  assert.equal(view.renderer.root.findByType('KeyboardAvoidingView').props.behavior, 'height');
+});

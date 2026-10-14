@@ -371,9 +371,9 @@
         );
     if (screen === 'circle') {
       page
-        .querySelector('.circleHeading')
+        .querySelector('.circleHeading [data-action=backCircle]')
         ?.insertAdjacentHTML(
-          'beforeend',
+          'afterend',
           '<button class="demoButton soft" data-enhance="shareCircle">Share circle</button>',
         );
       if (
@@ -384,8 +384,31 @@
           .querySelector('#circle-panel')
           ?.insertAdjacentHTML(
             'afterbegin',
-            '<div class="ex-stack" style="margin-bottom:16px"><input class="demoInput" id="postSearch" aria-label="Search posts in this circle" placeholder="Search this circle’s posts"><select class="demoInput" id="postMediaFilter" aria-label="Filter posts by media"><option value="all">All posts</option><option value="image">Photos</option><option value="video">Videos</option></select><p id="postSearchCount" class="demoCopy" aria-live="polite"></p></div>',
+            '<details class="postFilters"><summary>Search and filters</summary><div class="ex-stack"><input class="demoInput" id="postSearch" aria-label="Search posts in this circle" placeholder="Search this circle’s posts"><select class="demoInput" id="postMediaFilter" aria-label="Filter posts by media"><option value="all">All posts</option><option value="image">Photos</option><option value="video">Videos</option></select><p id="postSearchCount" class="demoCopy" aria-live="polite"></p></div></details>',
           );
+    }
+    const mediaFilter = page.querySelector('#postMediaFilter');
+    if (mediaFilter) {
+      const group = document.createElement('div');
+      group.className = 'ex-row';
+      group.setAttribute('role', 'group');
+      group.setAttribute('aria-label', 'Filter posts by media');
+      for (const option of mediaFilter.options) {
+        const chip = document.createElement('button');
+        chip.className = 'demoChip';
+        chip.textContent = option.text;
+        chip.setAttribute('aria-pressed', String(option.selected));
+        chip.addEventListener('click', () => {
+          mediaFilter.value = option.value;
+          group
+            .querySelectorAll('button')
+            .forEach((button) => button.setAttribute('aria-pressed', String(button === chip)));
+          mediaFilter.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+        group.append(chip);
+      }
+      mediaFilter.hidden = true;
+      mediaFilter.after(group);
     }
     const observer = new IntersectionObserver((entries) =>
       entries.forEach((entry) => {
@@ -726,6 +749,28 @@
         )
         .join('')}</div><button class="demoChip" data-action="closeLive">Close room</button>`,
     );
+    if (live.giftsOpen) {
+      const panel = document.querySelector('.modalPanel');
+      const searchInput = panel.querySelector('#giftSearch');
+      const search = searchInput.closest('label') || searchInput;
+      const grid = panel.querySelector('.giftGridPreview');
+      const head = panel.querySelector('.modalHead');
+      head.querySelector('h2').textContent = 'Send a gift';
+      panel.setAttribute('aria-label', 'Send a gift');
+      const back = document.createElement('button');
+      back.className = 'demoChip';
+      back.dataset.action = 'openGifts';
+      back.textContent = 'Back to room';
+      [...panel.children].forEach((child) => {
+        if (child !== head && child !== search && child !== grid) child.remove();
+      });
+      panel.insertBefore(back, search);
+      const balance = document.createElement('p');
+      balance.className = 'ex-hint';
+      balance.textContent = `Balance · ◉ ${state.coins} coins`;
+      panel.insertBefore(balance, search);
+      panel.classList.add('giftPanel');
+    }
     experience?.gifts();
   }
 
@@ -863,7 +908,7 @@
     } else if (action === 'createCircle')
       modal(
         'Create a circle',
-        `<form data-form="circle"><input class="demoInput" name="name" required placeholder="Circle name"><input class="demoInput" name="interest" required placeholder="Interest"><textarea class="demoArea" name="description" placeholder="What brings your people together?"></textarea><label class="demoCopy"><input type="checkbox" name="private"> Make this circle private</label><button class="demoButton" style="width:100%;margin-top:14px">Create your circle</button></form>`,
+        `<form data-form="circle"><input class="demoInput" name="name" required placeholder="Circle name"><input class="demoInput" name="interest" required placeholder="Interest"><textarea class="demoArea" name="description" placeholder="What brings your people together?"></textarea><label class="demoCopy"><input type="checkbox" role="switch" name="private"> Make this circle private</label><button class="demoButton" style="width:100%;margin-top:14px">Create your circle</button></form>`,
       );
     else if (action === 'join') {
       const c = state.circles.find((c) => c[0] === target.dataset.name);

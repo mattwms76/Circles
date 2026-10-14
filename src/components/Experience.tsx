@@ -1,16 +1,7 @@
+import { Sheet } from './Sheet';
 import { ScheduleDateField, AddToCalendar } from './ScheduleDateField';
 import React, { useEffect, useRef, useState } from 'react';
-import {
-  Alert,
-  AppState,
-  Modal,
-  ScrollView,
-  Pressable,
-  Switch,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { Alert, AppState, Pressable, Switch, Text, TextInput, View } from 'react-native';
 import { ActionButton, Avatar, Pill, Icon } from './Primitives';
 import { createThemedStyles, colors, spacing, typography } from '../theme';
 import { supabase } from '../lib/supabase';
@@ -111,70 +102,63 @@ export function DiscoveryControls({
         label={`Filters${count ? ` · ${count} active` : ''}`}
         onPress={() => setOpen(true)}
       />
-      <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.45)' }}>
-          <ScrollView
-            style={{
-              maxHeight: '85%',
-              backgroundColor: colors.paper,
-              borderTopLeftRadius: 24,
-              borderTopRightRadius: 24,
-            }}
-            contentContainerStyle={{ padding: 24, paddingBottom: 48, gap: 16 }}
-          >
-            <Text style={s.title}>Filter circles</Text>
-            <Text style={s.label}>Membership</Text>
-            <View style={s.row}>
-              {(['all', 'public', 'private'] as const).map((privacy) => (
-                <Pill
-                  key={privacy}
-                  label={
-                    privacy === 'all' ? 'Any circle' : privacy === 'public' ? 'Public' : 'Private'
-                  }
-                  selected={value.privacy === privacy}
-                  onPress={() => onChange({ ...value, privacy })}
-                />
-              ))}
-            </View>
-            <Text style={s.label}>Sort circles</Text>
-            <View style={s.row}>
-              {(['recommended', 'active', 'popular', 'newest'] as const).map((sort) => (
-                <Pill
-                  key={sort}
-                  label={
-                    {
-                      recommended: 'For you',
-                      active: 'Recently active',
-                      popular: 'Popular',
-                      newest: 'New',
-                    }[sort]
-                  }
-                  selected={value.sort === sort}
-                  onPress={() => onChange({ ...value, sort })}
-                />
-              ))}
-            </View>
-            <View style={s.row}>
-              <Text style={[s.label, { flex: 1 }]}>Active in the last 7 days</Text>
-              <Switch
-                accessibilityLabel="Active in the last seven days"
-                value={value.activeOnly}
-                onValueChange={(activeOnly) => onChange({ ...value, activeOnly })}
+      {open ? (
+        <Sheet
+          title="Filter circles"
+          eyebrow=""
+          onClose={() => setOpen(false)}
+          footer={<ActionButton label="Show results" onPress={() => setOpen(false)} />}
+        >
+          <Text style={s.label}>Membership</Text>
+          <View style={s.row}>
+            {(['all', 'public', 'private'] as const).map((privacy) => (
+              <Pill
+                key={privacy}
+                label={
+                  privacy === 'all' ? 'Any circle' : privacy === 'public' ? 'Public' : 'Private'
+                }
+                selected={value.privacy === privacy}
+                onPress={() => onChange({ ...value, privacy })}
               />
-            </View>
-            <ActionButton
-              compact
-              variant="outline"
-              label="Clear search and filters"
-              onPress={() => {
-                onChange(defaultDiscovery);
-                onClear();
-              }}
+            ))}
+          </View>
+          <Text style={s.label}>Sort circles</Text>
+          <View style={s.row}>
+            {(['recommended', 'active', 'popular', 'newest'] as const).map((sort) => (
+              <Pill
+                key={sort}
+                label={
+                  {
+                    recommended: 'For you',
+                    active: 'Recently active',
+                    popular: 'Popular',
+                    newest: 'New',
+                  }[sort]
+                }
+                selected={value.sort === sort}
+                onPress={() => onChange({ ...value, sort })}
+              />
+            ))}
+          </View>
+          <View style={s.row}>
+            <Text style={[s.label, { flex: 1 }]}>Active in the last 7 days</Text>
+            <Switch
+              accessibilityLabel="Active in the last seven days"
+              value={value.activeOnly}
+              onValueChange={(activeOnly) => onChange({ ...value, activeOnly })}
             />
-            <ActionButton label="Show results" onPress={() => setOpen(false)} />
-          </ScrollView>
-        </View>
-      </Modal>
+          </View>
+          <ActionButton
+            compact
+            variant="outline"
+            label="Clear search and filters"
+            onPress={() => {
+              onChange(defaultDiscovery);
+              onClear();
+            }}
+          />
+        </Sheet>
+      ) : null}
     </View>
   );
 }
@@ -504,6 +488,7 @@ export function ScheduledRooms({
   circles: Circle[];
   onLive: (room: LiveSession) => void;
 }) {
+  const [hostTools, setHostTools] = useState<string | null>(null);
   const [rooms, setRooms] = useState<ScheduledRoom[]>([]),
     [editing, setEditing] = useState<string | null>(null),
     [title, setTitle] = useState(''),
@@ -627,48 +612,58 @@ export function ScheduledRooms({
                 <View style={s.stack}>
                   <ActionButton
                     compact
-                    label="Start room now"
-                    disabled={busy}
-                    onPress={() =>
-                      void run(async () => {
-                        const id = await manageScheduledRoom(room.id, 'start');
-                        const live = (await loadLiveSessions()).find((l) => l.id === id);
-                        if (!live) throw new Error('Room started. Refresh Live to join it.');
-                        onLive(live);
-                      })
-                    }
-                  />
-                  <ActionButton
-                    compact
                     variant="outline"
-                    label="Edit schedule"
-                    disabled={busy}
-                    onPress={() => {
-                      setEditing(room.id);
-                      setTitle(room.title);
-                      const d = new Date(room.starts_at);
-                      setDate(
-                        `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`,
-                      );
-                      setCircle(room.circle_id);
-                    }}
+                    label={hostTools === room.id ? 'Hide host actions' : 'Host actions'}
+                    onPress={() => setHostTools(hostTools === room.id ? null : room.id)}
                   />
-                  <ActionButton
-                    compact
-                    variant="destructive"
-                    label="Cancel scheduled room"
-                    disabled={busy}
-                    onPress={() =>
-                      Alert.alert('Cancel this room?', room.title, [
-                        { text: 'Keep room', style: 'cancel' },
-                        {
-                          text: 'Cancel room',
-                          style: 'destructive',
-                          onPress: () => void run(() => manageScheduledRoom(room.id, 'cancel')),
-                        },
-                      ])
-                    }
-                  />
+                  {hostTools === room.id ? (
+                    <>
+                      <ActionButton
+                        compact
+                        label="Start room now"
+                        disabled={busy}
+                        onPress={() =>
+                          void run(async () => {
+                            const id = await manageScheduledRoom(room.id, 'start');
+                            const live = (await loadLiveSessions()).find((l) => l.id === id);
+                            if (!live) throw new Error('Room started. Refresh Live to join it.');
+                            onLive(live);
+                          })
+                        }
+                      />
+                      <ActionButton
+                        compact
+                        variant="outline"
+                        label="Edit schedule"
+                        disabled={busy}
+                        onPress={() => {
+                          setEditing(room.id);
+                          setTitle(room.title);
+                          const d = new Date(room.starts_at);
+                          setDate(
+                            `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`,
+                          );
+                          setCircle(room.circle_id);
+                        }}
+                      />
+                      <ActionButton
+                        compact
+                        variant="destructive"
+                        label="Cancel scheduled room"
+                        disabled={busy}
+                        onPress={() =>
+                          Alert.alert('Cancel this room?', room.title, [
+                            { text: 'Keep room', style: 'cancel' },
+                            {
+                              text: 'Cancel room',
+                              style: 'destructive',
+                              onPress: () => void run(() => manageScheduledRoom(room.id, 'cancel')),
+                            },
+                          ])
+                        }
+                      />
+                    </>
+                  ) : null}
                 </View>
               ) : null}
             </>
