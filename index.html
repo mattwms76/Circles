@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta property="og:title" content="You’re invited to Circles">
+  <meta property="og:description" content="Open your invitation to join a circle around something you love.">
+  <meta name="description" content="An invitation to find your people on Circles.">
+  <title>A Circles invitation</title>
+  <style>
+    :root{font-family:system-ui,-apple-system,sans-serif;color:#25222c;background:#faf7f2;color-scheme:light dark}*{box-sizing:border-box}body{margin:0;min-height:100dvh;display:grid;place-items:center;padding:24px}main{width:100%;max-width:480px;border:1px solid #e6e0e4;border-radius:24px;padding:32px;background:#fff}h1{font-size:32px;line-height:1.2;letter-spacing:-.7px;margin:20px 0 16px}p{font-size:16px;line-height:1.6}.brand{color:#a53d2e;letter-spacing:2px;font-size:13px;font-weight:700}.hint{color:#68616e;font-size:14px}a,button{display:block;min-height:48px;width:100%;text-align:center;background:#a53d2e;color:#fff;border:0;border-radius:14px;padding:14px 20px;text-decoration:none;font:600 16px/24px system-ui;margin-top:24px;cursor:pointer}a:focus-visible,button:focus-visible{outline:3px solid #25222c;outline-offset:4px}[hidden]{display:none}@media(prefers-color-scheme:dark){:root{background:#15131a;color:#f7f2f7}main{background:#211e28;border-color:#403848}.brand{color:#ffb5a7}.hint{color:#c5bacb}a,button{background:#ffb5a7;color:#2b1815}}
+  </style>
+</head>
+<body>
+  <main>
+    <div class="brand">CIRCLES · AN INVITATION</div>
+    <h1 id="title">You’re invited.</h1>
+    <p id="description" role="status" aria-live="polite">Checking your invitation…</p>
+    <p id="privacy" class="hint"></p>
+    <a id="open" hidden>Open in Circles</a>
+    <p id="install" class="hint" hidden>Install the Circles app, then open this invitation again. Sign in to continue.</p>
+    <p id="expiry" class="hint"></p>
+    <button id="retry" hidden>Try again</button>
+  </main>
+  <script>
+    const project='https://vvclcsqletcxzoaayqzq.supabase.co';
+    const publishableKey='sb_publishable_oSGySw2AkKxXJxW1BxV7FA_FjT4sZvJ';
+    const token=new URL(location.href).searchParams.get('token');
+    const title=document.getElementById('title'),description=document.getElementById('description'),retry=document.getElementById('retry');
+    async function load(){
+      retry.hidden=true;
+      if(!token||!/^[a-f0-9]{64}$/.test(token)){title.textContent='A place for your people.';description.textContent='Ask a circle host for an invitation link to get started.';return;}
+      try{
+        const response=await fetch(project+'/rest/v1/rpc/invite_preview',{method:'POST',headers:{apikey:publishableKey,'Content-Type':'application/json'},body:JSON.stringify({invite_token:token})});
+        if(!response.ok)throw Error('Invitations are temporarily unavailable.');
+        const invite=await response.json();
+        if(!invite){title.textContent='This invitation has ended.';description.textContent='It expired or was revoked. Ask the host for a new link.';return;}
+        title.textContent=invite.name;description.textContent=invite.description;
+        document.title=invite.name+' · Circles';
+        document.getElementById('privacy').textContent=invite.private?'Private circle · Host approval is required.':'Join to read and participate.';
+        document.getElementById('expiry').textContent='Expires '+new Date(invite.expiresAt).toLocaleString();
+        const open=document.getElementById('open');open.href='circles://invite/'+token;open.hidden=false;
+        document.getElementById('install').hidden=false;
+      }catch{description.textContent='We couldn’t check this invitation. Please try again.';retry.hidden=false;}
+    }
+    retry.addEventListener('click',load);load();
+  </script>
+</body>
+</html>
