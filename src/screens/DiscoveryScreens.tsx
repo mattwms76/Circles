@@ -19,6 +19,7 @@ import { colors } from '../theme';
 import { styles } from '../appStyles';
 import type { Circle, CircleJoinRequest, CirclePost, LiveSession, Profile, UUID } from '../types';
 export function HomeScreen({
+  stories,
   loading,
   refreshing,
   error,
@@ -42,6 +43,7 @@ export function HomeScreen({
   onReport,
   onCircle,
 }: {
+  stories?: React.ReactNode;
   loading: boolean;
   refreshing: boolean;
   error: string;
@@ -95,6 +97,7 @@ export function HomeScreen({
             </Text>
             <Text style={styles.greetingCopy}>A little closer to your people.</Text>
           </View>
+          {stories}
           <View style={styles.quickActions}>
             <Pressable
               accessibilityRole="button"

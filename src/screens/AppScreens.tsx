@@ -188,27 +188,22 @@ export function InboxScreen({
   const visible = conversations.filter(
     (c) =>
       (!onlyUnread || c.unread > 0) &&
-      c.peer.displayName.toLowerCase().includes(query.toLowerCase()),
+      `${c.peer.displayName} ${c.peer.handle}`.toLowerCase().includes(query.trim().toLowerCase()),
   );
   return (
     <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
       <TopBar profile={profile} onProfile={onProfile} />
-      <View style={styles.screenHeading}>
-        <Text style={styles.screenEyebrow}>ONE TO ONE</Text>
+      <View style={styles.inboxHeading}>
         <Text style={styles.screenTitle}>Messages</Text>
-        <Text style={styles.screenCopy}>Good conversations start with a follow both ways.</Text>
-      </View>
-      <View style={styles.messageBanner}>
-        <Text style={styles.messageBannerEmoji}>💌</Text>
-        <Text style={styles.messageBannerCopy}>
-          Your inbox is for the people who follow you back.
-        </Text>
+        <Text style={styles.screenCopy}>Your people, one conversation at a time.</Text>
       </View>
       <View style={styles.sectionPad}>
-        <SectionTitle eyebrow="YOUR PEOPLE" title="Recent chats" />
         <TextInput
           accessibilityLabel="Find a conversation"
-          placeholder="Find a conversation"
+          placeholder="Search name or handle"
+          placeholderTextColor={colors.muted}
+          autoCorrect={false}
+          autoCapitalize="none"
           value={query}
           onChangeText={setQuery}
           style={ex.field}
@@ -219,7 +214,11 @@ export function InboxScreen({
             selected={!onlyUnread}
             onPress={() => setOnlyUnread(false)}
           />
-          <Pill label="Unread" selected={onlyUnread} onPress={() => setOnlyUnread(true)} />
+          <Pill
+            label={`Unread · ${conversations.filter((c) => c.unread > 0).length}`}
+            selected={onlyUnread}
+            onPress={() => setOnlyUnread(true)}
+          />
         </View>
         {visible.length === 0 && conversations.length > 0 ? (
           <Text style={ex.body}>
@@ -230,23 +229,39 @@ export function InboxScreen({
           <Pressable
             key={conversation.id}
             onPress={() => onConversation(conversation)}
-            style={styles.conversationRow}
+            accessibilityRole="button"
+            accessibilityLabel={`${conversation.peer.displayName}${conversation.unread ? `, ${conversation.unread} unread messages` : ''}`}
+            style={({ pressed }) => [
+              styles.conversationRow,
+              conversation.unread > 0 && styles.conversationUnread,
+              pressed && { opacity: 0.7 },
+            ]}
           >
             <Avatar profile={conversation.peer} size={52} />
             <View style={styles.conversationMain}>
               <View style={styles.conversationHead}>
-                <Text style={styles.conversationName}>{conversation.peer.displayName}</Text>
+                <Text numberOfLines={1} style={styles.conversationName}>
+                  {conversation.peer.displayName}
+                </Text>
                 <Text style={styles.conversationTime}>
                   {conversation.messages.at(-1)?.createdAt ?? ''}
                 </Text>
               </View>
-              <Text numberOfLines={1} style={styles.conversationPreview}>
+              <Text
+                numberOfLines={2}
+                style={[
+                  styles.conversationPreview,
+                  conversation.unread > 0 && { color: colors.ink, fontWeight: '600' },
+                ]}
+              >
                 {conversation.messages.at(-1)?.body ?? 'Say hello 👋'}
               </Text>
             </View>
             {conversation.unread > 0 ? (
               <View style={styles.unreadDot}>
-                <Text style={styles.unreadText}>{conversation.unread}</Text>
+                <Text style={styles.unreadText}>
+                  {conversation.unread > 99 ? '99+' : conversation.unread}
+                </Text>
               </View>
             ) : null}
           </Pressable>
@@ -875,6 +890,7 @@ export function PublicProfileScreen({
 }
 
 export function CircleDetailScreen({
+  stories,
   tools,
   refreshing,
   onRefresh,
@@ -893,6 +909,7 @@ export function CircleDetailScreen({
   onCreatePost,
   onLoadMore,
 }: {
+  stories?: React.ReactNode;
   tools: React.ReactElement<{ section?: 'about' | 'events' }>;
   refreshing: boolean;
   onRefresh: () => void;
@@ -963,6 +980,7 @@ export function CircleDetailScreen({
               </View>
             </ImageBackground>
           </View>
+          {section === 'posts' && circle.isMember ? stories : null}
           <View style={styles.sectionPad}>
             <View accessibilityRole="tablist" style={styles.circleTabs}>
               {(['posts', 'events', 'about'] as const).map((value) => (
@@ -2382,6 +2400,7 @@ export function ChatScreen({
   const [muteBusy, setMuteBusy] = useState(false);
   const initialUnread = useRef(conversation.unread);
   const [unreadOnly, setUnreadOnly] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
   const searchGeneration = useRef(0);
   useEffect(() => {
     let active = true;
@@ -2538,46 +2557,89 @@ export function ChatScreen({
         </Pressable>
         <Avatar profile={conversation.peer} size={40} />
         <View style={{ flex: 1 }}>
-          <Text style={ex.label}>{conversation.peer.displayName}</Text>
+          <Text numberOfLines={1} style={styles.chatName}>
+            {conversation.peer.displayName}
+          </Text>
           <Text style={ex.hint}>{muted ? 'Notifications muted' : 'Following each other'}</Text>
         </View>
         <Pressable
           style={ex.quiet}
-          onPress={onReport}
+          onPress={() => setToolsOpen((open) => !open)}
+          accessibilityState={{ expanded: toolsOpen }}
           accessibilityRole="button"
-          accessibilityLabel="Report conversation"
+          accessibilityLabel="Conversation options"
         >
           <Text style={ex.label}>•••</Text>
         </Pressable>
       </View>
-      <TextInput
-        accessibilityLabel="Search this conversation"
-        placeholder="Search this conversation"
-        value={query}
-        onChangeText={setQuery}
-        style={ex.field}
-      />
-      <View style={ex.row}>
-        <Pill label="All messages" selected={!unreadOnly} onPress={() => setUnreadOnly(false)} />
-        <Pill
-          label={`Unread on arrival · ${initialUnread.current}`}
-          selected={unreadOnly}
-          onPress={() => setUnreadOnly(true)}
-        />
-        <ActionButton
-          compact
-          variant="outline"
-          label={muteBusy ? 'Saving…' : muted ? 'Unmute' : 'Mute'}
-          disabled={muteBusy}
-          onPress={() => {
-            setMuteBusy(true);
-            void muteConversation(conversation.peer.id, !muted)
-              .then(() => setMuted(!muted))
-              .catch((e) => setSearchError(e.message))
-              .finally(() => setMuteBusy(false));
-          }}
-        />
-      </View>
+      {toolsOpen ? (
+        <ScrollView
+          style={{ maxHeight: 240 }}
+          contentContainerStyle={styles.chatTools}
+          keyboardShouldPersistTaps="handled"
+        >
+          <TextInput
+            accessibilityLabel="Search this conversation"
+            placeholder="Search this conversation"
+            placeholderTextColor={colors.muted}
+            value={query}
+            onChangeText={setQuery}
+            style={ex.field}
+          />
+          <View style={ex.row}>
+            <Pill
+              label="All messages"
+              selected={!unreadOnly}
+              onPress={() => setUnreadOnly(false)}
+            />
+            <Pill
+              label={`Unread on arrival · ${initialUnread.current}`}
+              selected={unreadOnly}
+              onPress={() => setUnreadOnly(true)}
+            />
+            <ActionButton
+              compact
+              variant="outline"
+              label={muteBusy ? 'Saving…' : muted ? 'Unmute' : 'Mute'}
+              disabled={muteBusy}
+              onPress={() => {
+                setMuteBusy(true);
+                void muteConversation(conversation.peer.id, !muted)
+                  .then(() => setMuted(!muted))
+                  .catch((e) => setSearchError(e.message))
+                  .finally(() => setMuteBusy(false));
+              }}
+            />
+          </View>
+          <View style={ex.row}>
+            <ActionButton
+              compact
+              variant="outline"
+              label="Report conversation"
+              onPress={onReport}
+            />
+            {query || unreadOnly ? (
+              <ActionButton
+                compact
+                variant="outline"
+                label="Clear filters"
+                onPress={() => {
+                  setQuery('');
+                  setUnreadOnly(false);
+                }}
+              />
+            ) : null}
+          </View>
+        </ScrollView>
+      ) : query.trim() || unreadOnly ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => setToolsOpen(true)}
+          style={styles.chatFilterNotice}
+        >
+          <Text style={ex.label}>Filtered messages · Show options</Text>
+        </Pressable>
+      ) : null}
       {searchBusy ? <Text style={ex.hint}>Searching…</Text> : null}
       {searchError || reactionState.error ? (
         <Text accessibilityRole="alert" style={ex.error}>
@@ -2628,6 +2690,7 @@ export function ChatScreen({
         data={displayed}
         inverted={!query.trim() && !unreadOnly}
         keyExtractor={(item) => item.id}
+        style={{ flex: 1 }}
         contentContainerStyle={styles.chatMessages}
         keyboardShouldPersistTaps="handled"
         maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
@@ -2656,8 +2719,12 @@ export function ChatScreen({
                   </Text>
                 </View>
               ) : null}
-              <Text style={[ex.body, mine && { color: 'white' }]}>{message.body}</Text>
-              <Text style={[ex.hint, mine && { color: 'white' }]}>{message.createdAt}</Text>
+              <Text selectable style={[styles.messageText, mine && { color: colors.onPrimary }]}>
+                {message.body}
+              </Text>
+              <Text style={[styles.messageTime, mine && { color: colors.onPrimary }]}>
+                {message.createdAt}
+              </Text>
               <View
                 style={{
                   flexDirection: 'row',
@@ -2721,9 +2788,10 @@ export function ChatScreen({
           maxLength={4000}
           placeholder="Write a message…"
           placeholderTextColor={colors.muted}
-          style={[styles.messageInput, { fontSize: 16 }]}
-          onSubmitEditing={() => void send()}
-          returnKeyType="send"
+          style={styles.messageInput}
+          multiline
+          submitBehavior="newline"
+          textAlignVertical="top"
           accessibilityLabel="Message"
         />
         <ActionButton

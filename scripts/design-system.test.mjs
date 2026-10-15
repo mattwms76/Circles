@@ -226,3 +226,38 @@ test('System appearance updates styles without resetting component state; reduce
   await act(async () => motionListener(false));
   assert.equal(probe().props.reduced, false);
 });
+
+test('Conversation tools expand without replacing the draft or multiline composer', async (t) => {
+  const { ChatScreen } = screenModule();
+  let renderer;
+  await act(async () => {
+    renderer = TestRenderer.create(
+      React.createElement(ChatScreen, {
+        conversation: { peer: demo.people[0], messages: [], unread: 0 },
+        profile: demo.currentUser,
+        hasOlder: false,
+        onSend: async () => {},
+        onClose() {},
+        onReport() {},
+      }),
+    );
+  });
+  t.after(() => act(async () => renderer.unmount()));
+  const input = () => renderer.root.findByProps({ accessibilityLabel: 'Message' });
+  const toggle = () => renderer.root.findByProps({ accessibilityLabel: 'Conversation options' });
+  assert.equal(
+    renderer.root.findAllByProps({ accessibilityLabel: 'Search this conversation' }).length,
+    0,
+  );
+  assert.equal(input().props.multiline, true);
+  assert.equal(input().props.submitBehavior, 'newline');
+  await act(async () => input().props.onChangeText('Hello\nSee you tomorrow'));
+  await act(async () => toggle().props.onPress());
+  assert.equal(toggle().props.accessibilityState.expanded, true);
+  assert.equal(
+    renderer.root.findAllByProps({ accessibilityLabel: 'Search this conversation' }).length,
+    1,
+  );
+  await act(async () => toggle().props.onPress());
+  assert.equal(input().props.value, 'Hello\nSee you tomorrow');
+});

@@ -4,6 +4,7 @@ const http = require('node:http'),
 const root = path.resolve(__dirname, '..');
 const files = {
   '/preview.html': 'text/html',
+  '/preview-stories.js': 'text/javascript',
   '/preview.js': 'text/javascript',
   '/preview-experience.js': 'text/javascript',
   '/preview-design.css': 'text/css',

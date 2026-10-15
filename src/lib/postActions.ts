@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
 import type { CirclePost } from '../types';
+import { readStringList } from './localData';
 export async function updateOwnPost(post: CirclePost, userId: string, body: string | null) {
   if (post.author.id !== userId) throw new Error('You can only change your own posts.');
   if (body !== null && ((!body.trim() && !post.media) || body.length > 5000))
@@ -16,7 +17,7 @@ export async function updateOwnPost(post: CirclePost, userId: string, body: stri
   if (error) throw error;
 }
 export async function loadSavedPostIds(userId: string): Promise<string[]> {
-  if (!supabase) return JSON.parse((await AsyncStorage.getItem(`saved-posts:${userId}`)) ?? '[]');
+  if (!supabase) return readStringList(await AsyncStorage.getItem(`saved-posts:${userId}`));
   const ids: string[] = [];
   for (let offset = 0; ; offset += 500) {
     const { data, error } = await supabase

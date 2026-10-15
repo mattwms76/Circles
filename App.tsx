@@ -1,3 +1,5 @@
+import { inspectPickedMedia } from './src/lib/pickedMedia';
+import { Stories } from './src/components/Stories';
 import { parseContentLink, type ContentLink } from './src/lib/contentLinks';
 import { PostActionsProvider } from './src/components/PostActions';
 import {
@@ -236,6 +238,7 @@ function CirclesApp() {
   const createCircleBusyRef = useRef(false);
   const [createPostBusy, setCreatePostBusy] = useState(false);
   const createPostBusyRef = useRef(false);
+  const attachmentPicker = useRef<symbol | null>(null);
   const [joiningCircleIds, setJoiningCircleIds] = useState<Set<UUID>>(new Set());
   const [showCoinStore, setShowCoinStore] = useState(false);
   const [selectedLive, setSelectedLive] = useState<LiveSession | null>(null);
@@ -407,6 +410,7 @@ function CirclesApp() {
       setCreatePostBusy(false);
       setGiftSending(false);
       createCircleBusyRef.current = false;
+      attachmentPicker.current = null;
       createPostBusyRef.current = false;
       giftSendingRef.current = false;
     };
@@ -2020,7 +2024,11 @@ function CirclesApp() {
     kind: 'image' | 'gif' | 'video',
     source: 'library' | 'camera' = 'library',
   ) {
-    const current = captureAccount();
+    if (attachmentPicker.current || createPostBusyRef.current) return;
+    const picker = Symbol();
+    attachmentPicker.current = picker;
+    const accountCurrent = captureAccount();
+    const current = () => accountCurrent() && attachmentPicker.current === picker;
     try {
       if (source === 'camera') {
         const permission = await ImagePicker.requestCameraPermissionsAsync();
@@ -2049,20 +2057,8 @@ function CirclesApp() {
       if (!current()) return;
       if (result.canceled || !result.assets[0]) return;
       const asset = result.assets[0];
-      const maxBytes = 25 * 1024 * 1024;
-      if (asset.fileSize !== undefined && asset.fileSize > maxBytes) {
-        Alert.alert('File is too large', 'Choose media smaller than 25 MB.');
-        return;
-      }
-      if (kind === 'video' && typeof asset.duration === 'number' && asset.duration > 120_000) {
-        Alert.alert('Video is too long', 'Choose a video that is two minutes or shorter.');
-        return;
-      }
-      const isGifFile =
-        asset.fileName?.toLowerCase().endsWith('.gif') ||
-        asset.uri.toLowerCase().split('?')[0].endsWith('.gif');
-      const mimeType =
-        asset.mimeType ?? (kind === 'video' ? 'video/mp4' : isGifFile ? 'image/gif' : 'image/jpeg');
+      const { mimeType } = await inspectPickedMedia(asset, kind, 120);
+      if (!current()) return;
       if (kind === 'gif' && mimeType !== 'image/gif') {
         Alert.alert('Choose a GIF', 'Please select an animated GIF file.');
         return;
@@ -2088,12 +2084,14 @@ function CirclesApp() {
             ? 'Could not record video. Check camera and microphone permissions in device settings.'
             : 'Could not open your media library.',
       );
+    } finally {
+      if (attachmentPicker.current === picker) attachmentPicker.current = null;
     }
   }
 
   async function handleCreatePost() {
     if (!ensureSignedIn('share a post')) return;
-    if (createPostBusyRef.current) return;
+    if (createPostBusyRef.current || attachmentPicker.current) return;
     const current = captureAccount();
     if (!circles.some((circle) => circle.id === postCircleId && circle.isMember)) {
       showMessage('Join a circle before sharing a post.');
@@ -2879,6 +2877,17 @@ function CirclesApp() {
     if (selectedCircle)
       return (
         <CircleDetailScreen
+          stories={
+            <Stories
+              key={profile.id + selectedCircle.id}
+              profile={profile}
+              circles={[selectedCircle]}
+              scope={selectedCircle.id}
+              connected={backendReady}
+              enabled={signedIn || !backendReady}
+              refreshing={refreshing}
+            />
+          }
           tools={<CircleTools key={selectedCircle.id} circle={selectedCircle} />}
           refreshing={circlePostsLoading}
           onRefresh={() => void refreshSelectedCircle()}
@@ -2928,6 +2937,16 @@ function CirclesApp() {
     if (tab === 'home')
       return (
         <HomeScreen
+          stories={
+            <Stories
+              key={profile.id + String(signedIn)}
+              profile={profile}
+              circles={circles}
+              connected={backendReady}
+              enabled={signedIn || !backendReady}
+              refreshing={refreshing}
+            />
+          }
           loading={initialLoading}
           refreshing={refreshing}
           error={loadError}
@@ -3181,7 +3200,10 @@ function CirclesApp() {
                 setPostRequestId(createIdempotencyKey());
               }}
               onClose={() => {
-                if (!createPostBusy) setShowCreatePost(false);
+                if (!createPostBusy) {
+                  attachmentPicker.current = null;
+                  setShowCreatePost(false);
+                }
               }}
               onSubmit={() => void handleCreatePost()}
             />

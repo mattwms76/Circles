@@ -14,24 +14,35 @@ export function PostVideo({ media }: { media: PostMedia }) {
   const [poster, setPoster] = useState<VideoThumbnail | null>(null),
     [started, setStarted] = useState(false);
   const alive = useRef(true),
-    renewing = useRef(false);
+    renewing = useRef(false),
+    generation = useRef(0);
   const retry = async () => {
     if (renewing.current) return;
     renewing.current = true;
+    const request = generation.current;
     setBusy(true);
     setError(false);
     try {
       const url = media.storagePath ? await refreshMediaUrl(media.storagePath) : media.url;
-      if (alive.current) await player.replaceAsync(url);
+      if (alive.current && request === generation.current) await player.replaceAsync(url);
     } catch {
-      if (alive.current) setError(true);
+      if (alive.current && request === generation.current) setError(true);
     } finally {
-      renewing.current = false;
-      if (alive.current) setBusy(false);
+      if (request === generation.current) {
+        renewing.current = false;
+        if (alive.current) setBusy(false);
+      }
     }
   };
   useEffect(() => {
     alive.current = true;
+    generation.current++;
+    const sourceGeneration = generation.current;
+    renewing.current = false;
+    setError(false);
+    setBusy(false);
+    setPoster(null);
+    setStarted(false);
     let refreshed = false,
       thumbnailRequested = false;
     const status = player.addListener('statusChange', ({ status }) => {
@@ -48,7 +59,8 @@ export function PostVideo({ media }: { media: PostMedia }) {
           void player
             .generateThumbnailsAsync(0)
             .then((images) => {
-              if (alive.current) setPoster(images[0] ?? null);
+              if (alive.current && sourceGeneration === generation.current)
+                setPoster(images[0] ?? null);
             })
             .catch(() => {});
         }
@@ -66,11 +78,12 @@ export function PostVideo({ media }: { media: PostMedia }) {
     );
     return () => {
       alive.current = false;
+      generation.current++;
       status.remove();
       app.remove();
       clearInterval(timer);
     };
-  }, [player, media.storagePath]);
+  }, [player, media.storagePath, media.url]);
   return (
     <View ref={container} style={{ borderRadius: 16, overflow: 'hidden' }}>
       <VideoView

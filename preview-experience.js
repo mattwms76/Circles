@@ -99,6 +99,7 @@ window.createCirclesExperience = ({
   let discovery = { privacy: 'all', sort: 'recommended', active: false },
     chatSearch = '',
     unreadOnly = false,
+    inboxQuery = '',
     activityUnread = false,
     onboardStep = 0,
     editingRoom = null,
@@ -172,7 +173,7 @@ window.createCirclesExperience = ({
         .querySelector('.screenHead')
         ?.insertAdjacentHTML(
           'afterend',
-          `<div class="ex-section"><label class="ex-label">Find a conversation<input id="exInboxSearch" class="demoInput" placeholder="Search people"></label>${button(unreadOnly ? 'Show all conversations' : 'Show unread conversations', 'unreadInbox')}</div>`,
+          `<div class="ex-section inboxToolbar"><label class="ex-label">Find a conversation<input id="exInboxSearch" class="demoInput" value="${e(inboxQuery)}" placeholder="Search people"></label><div class="ex-row">${button('All conversations', 'unreadInbox', `data-filter="all" aria-pressed="${!unreadOnly}"`)}${button('Unread', 'unreadInbox', `data-filter="unread" aria-pressed="${unreadOnly}"`)}</div></div>`,
         );
       filterInbox();
     }
@@ -252,15 +253,37 @@ window.createCirclesExperience = ({
       );
   }
   function filterInbox() {
-    const q = (document.querySelector('#exInboxSearch')?.value || '').toLowerCase();
+    inboxQuery = document.querySelector('#exInboxSearch')?.value || '';
+    const q = inboxQuery.trim().toLowerCase();
+    let visible = 0;
     page.querySelectorAll('[data-action=openChat]').forEach((el) => {
       const name = el.dataset.name;
+      const unread = model.activity.filter(
+        (a) => a.kind === 'messages' && a.target === name && !a.read,
+      ).length;
+      el.classList.toggle('hasUnread', unread > 0);
+      const badge = el.querySelector('.inboxUnread');
+      if (badge) {
+        badge.hidden = !unread;
+        badge.textContent = unread > 99 ? '99+' : String(unread);
+      }
+      const latest = state.messages[name]?.at(-1);
+      if (latest) el.querySelector('.grow .demoCopy').textContent = latest.body;
       el.hidden = !(
         name.toLowerCase().includes(q) &&
         (!unreadOnly ||
           model.activity.some((a) => a.kind === 'messages' && a.target === name && !a.read))
       );
+      if (!el.hidden) visible++;
     });
+    page.querySelector('.inboxEmpty')?.remove();
+    if (!visible)
+      page
+        .querySelector('.inboxList')
+        ?.insertAdjacentHTML(
+          'beforeend',
+          '<p class="ex-empty inboxEmpty" role="status">No conversations match. Clear your search or select All conversations.</p>',
+        );
   }
   function content(kind, key) {
     return (kind === 'message' ? state.messages : state.replies)[key] || [];
@@ -312,6 +335,14 @@ window.createCirclesExperience = ({
     const panel = document.querySelector('.modalPanel');
     panel.classList.add('threadPanel');
     panel.classList.toggle('commentThread', kind === 'comment');
+    panel.classList.toggle('messageThread', kind === 'message');
+    if (kind === 'message') {
+      panel.querySelector('.modalHead h2').textContent = key;
+      const note = document.createElement('p');
+      note.className = 'chatPeerStatus';
+      note.textContent = model.muted[key] ? 'Notifications muted' : 'Following each other';
+      panel.querySelector('.modalHead').after(note);
+    }
     const stack = panel.querySelector('.ex-stack');
     stack.classList.add('threadLayout');
     const messages = stack.querySelector('#chatMessages');
@@ -326,6 +357,8 @@ window.createCirclesExperience = ({
         : '<summary>About replies</summary>';
     while (stack.firstElementChild !== messages) options.append(stack.firstElementChild);
     stack.prepend(options);
+    if (kind === 'message' && chatSearch) options.open = true;
+    if (kind === 'message' && !chatSearch) messages.scrollTop = messages.scrollHeight;
     if (kind === 'comment')
       messages.querySelectorAll('.message').forEach((entry, i) => {
         const author = document.createElement('strong');
@@ -510,7 +543,7 @@ window.createCirclesExperience = ({
         discovery = { privacy: 'all', sort: 'recommended', active: false };
         render('circles');
       } else if (action === 'unreadInbox') {
-        unreadOnly = !unreadOnly;
+        unreadOnly = el.dataset.filter === 'unread';
         render('inbox');
       } else if (action === 'muteChat') {
         model.muted[activeKey] = !model.muted[activeKey];

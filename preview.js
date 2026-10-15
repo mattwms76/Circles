@@ -37,6 +37,7 @@
     if (composerMedia) URL.revokeObjectURL(composerMedia.url);
     composerMedia = null;
   };
+  let stories;
   let experience;
   const page = document.querySelector('.page');
   const tabs = [...document.querySelectorAll('.tab')];
@@ -263,7 +264,7 @@
   const liveScreen = () =>
     `<header class="screenHead"><div class="eyebrow">YOUR CIRCLES, RIGHT NOW</div><h1>Live together.</h1><p>Drop into a room or start one of your own.</p></header><div class="demoCard demoRow"><div class="grow"><div class="demoTitle">Your turn to host?</div><p class="demoCopy">Invite up to three people onto the stage.</p></div><button class="demoButton" data-action="startLive">Go live</button></div>${['Cleo James', 'Mara Ellis', 'Noah Kim'].map((name, i) => `<article class="liveDemo" data-action="watchLive" data-name="${name}" role="button" tabindex="0"><div class="demoRow"><span class="badge"><i class="redDot"></i> LIVE</span><span class="viewers">◉ ${['1.2k', '862', '531'][i]} watching</span></div><div class="demoRow"><div class="grow"><h2>${['Making lemon pasta from scratch', 'A tiny photo walk through my neighbourhood', 'Listening to the whole record, side A'][i]}</h2><p>${['Kitchen Table Club', 'The Film Room', 'Soft Sounds'][i]} · ${name}</p></div><button class="demoButton" data-action="watchLive" data-name="${name}">Watch</button></div></article>`).join('')}`;
   const inboxScreen = () =>
-    `<header class="screenHead"><div class="eyebrow">YOUR PEOPLE</div><h1>Inbox</h1><p>Messages with people who follow you back.</p></header><div class="demoList">${[
+    `<header class="screenHead inboxHeading"><h1>Messages</h1><p>Your people, one conversation at a time.</p></header><div class="demoList inboxList">${[
       [
         'Mara Ellis',
         'I saved you a seat for the photo walk tomorrow 📷',
@@ -285,7 +286,7 @@
     ]
       .map(
         ([name, msg, time, img]) =>
-          `<button class="demoPerson" style="text-align:left;width:100%" data-action="openChat" data-name="${name}"><img src="${img}" alt=""><div class="grow"><div class="demoTitle">${name}</div><p class="demoCopy">${msg}</p></div><span class="demoCopy">${time}</span></button>`,
+          `<button class="demoPerson inboxConversation" data-action="openChat" data-name="${name}"><img src="${img}" alt=""><div class="grow"><div class="demoTitle">${name}</div><p class="demoCopy">${msg}</p></div><span class="inboxMeta"><span class="demoCopy">${time}</span><span class="inboxUnread" hidden></span></span></button>`,
       )
       .join('')}</div>`;
   const profilePeople = (names) => {
@@ -604,6 +605,7 @@
       label.textContent = state.displayName;
     });
     experience?.decorate(screen);
+    stories?.decorate();
     enhancePosts(screen);
     makePreviewControlsAccessible();
     document.querySelector('.note').textContent =
@@ -1412,6 +1414,7 @@
     canDelete,
     deleteControl,
   });
+  stories = window.createCirclesStories({ state, page, modal, render, toast, escapeHtml });
   const previewMeta = document.createElement('aside');
   previewMeta.className = 'previewMeta';
   previewMeta.innerHTML =

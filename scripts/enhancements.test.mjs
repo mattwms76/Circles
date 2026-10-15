@@ -52,7 +52,8 @@ test('Post edits enforce ownership before writing and preserve media-only posts'
 });
 test('Resumable transfers reuse previous uploads; cancellation preserves the session and ignores delayed start', async () => {
   const files = new Map();
-  let instance;
+  let instance,
+    abortFailure = false;
   class Upload {
     constructor(file, options) {
       this.options = options;
@@ -69,6 +70,7 @@ test('Resumable transfers reuse previous uploads; cancellation preserves the ses
     }
     async abort(terminate) {
       this.terminate = terminate;
+      if (abortFailure) throw new Error('Transport closed');
     }
   }
   const storage = {
@@ -122,6 +124,21 @@ test('Resumable transfers reuse previous uploads; cancellation preserves the ses
     await new Promise((resolve) => setTimeout(resolve, 0));
     instance.options.onSuccess();
     await next;
+    abortFailure = true;
+    const failedAbort = new AbortController();
+    const cancelled = api.resumableUpload(
+      'post-media',
+      'a/p/video.mp4',
+      'file:///video.mp4',
+      'video/mp4',
+      100,
+      undefined,
+      failedAbort.signal,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    failedAbort.abort();
+    await assert.rejects(cancelled, /draft is saved/);
+    await new Promise((resolve) => setTimeout(resolve, 0));
   } finally {
     if (old === undefined) delete process.env.EXPO_PUBLIC_SUPABASE_URL;
     else process.env.EXPO_PUBLIC_SUPABASE_URL = old;
@@ -199,4 +216,23 @@ test('Shared light and dark tokens maintain readable selected controls', () => {
         b = luminance(bg);
       assert.ok((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05) >= 4.5);
     }
+});
+
+test('Malformed cached IDs recover without breaking stories or saved posts', async () => {
+  const { readStringList } = loadSource('src/lib/localData.ts');
+  for (const raw of [null, 'broken', '{}', 'null', '42'])
+    assert.equal(readStringList(raw).length, 0);
+  assert.deepEqual(Array.from(readStringList('["a",null,5,"a","", "b"]')), ['a', 'b']);
+  let raw = '{}';
+  const api = loadSource('src/lib/postActions.ts', {
+    '@react-native-async-storage/async-storage': {
+      getItem: async () => raw,
+      setItem: async (_key, value) => {
+        raw = value;
+      },
+    },
+    './supabase': { supabase: null },
+  });
+  await api.savePost('a', 'post-1', true);
+  assert.deepEqual(Array.from(await api.loadSavedPostIds('a')), ['post-1']);
 });

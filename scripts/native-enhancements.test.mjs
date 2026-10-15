@@ -112,6 +112,7 @@ test('Video errors renew private URLs once; backgrounding pauses playback and ex
     pauses = 0,
     renewals = 0;
   const replacements = [];
+  let pendingRenewal;
   const player = {
     addListener: (_name, fn) => {
       status = fn;
@@ -140,7 +141,7 @@ test('Video errors renew private URLs once; backgrounding pauses playback and ex
     '../lib/media': {
       refreshMediaUrl: async () => {
         renewals++;
-        return 'https://renewed.example/video';
+        return pendingRenewal ? pendingRenewal.promise : 'https://renewed.example/video';
       },
     },
     '../theme': { colors: {}, typography: { body: { fontSize: 16, lineHeight: 24 } } },
@@ -171,4 +172,21 @@ test('Video errors renew private URLs once; backgrounding pauses playback and ex
   );
   await act(async () => appState('background'));
   assert.equal(pauses, 1);
+  pendingRenewal = deferred();
+  await act(async () => renderer.root.findAllByType('Pressable').at(-1).props.onPress());
+  await act(async () =>
+    renderer.update(
+      React.createElement(PostVideo, {
+        media: {
+          id: 'new',
+          kind: 'video',
+          url: 'https://new.example/video',
+          storagePath: 'owner/new/video',
+        },
+      }),
+    ),
+  );
+  await act(async () => pendingRenewal.resolve('https://stale.example/video'));
+  assert.equal(replacements.length, 1, 'old URL renewal must not replace the new video');
+  assert.equal(renderer.root.findAllByType('Pressable')[0].props.accessibilityLabel, 'Play video');
 });

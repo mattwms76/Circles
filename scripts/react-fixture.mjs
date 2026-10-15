@@ -49,6 +49,7 @@ export function loadSource(file, mocks = {}) {
             '../theme': { colors: {} },
             '../appStyles': { styles: {} },
           });
+        if (name.endsWith('/components/Stories')) return { Stories: 'Stories' };
         if (name === './DiscoveryScreens')
           return { HomeScreen: 'HomeScreen', ExploreScreen: 'ExploreScreen' };
         if (name.endsWith('/components/LoadingCards')) return { LoadingCards: 'LoadingCards' };
@@ -56,6 +57,14 @@ export function loadSource(file, mocks = {}) {
           return JSON.parse(
             readFileSync(new URL('../src/design-tokens.json', import.meta.url), 'utf8'),
           );
+        if (name.endsWith('/lib/pickedMedia'))
+          return loadSource('src/lib/pickedMedia.ts', {
+            'expo-file-system/legacy': {
+              getInfoAsync: async () => ({ exists: true, isDirectory: false, size: 1024 }),
+            },
+          });
+        if (name.endsWith('/localData') || name === './localData')
+          return loadSource('src/lib/localData.ts');
         if (name.endsWith('/lib/contentLinks')) return loadSource('src/lib/contentLinks.ts');
         if (name.endsWith('/components/PostActions') || name === './PostActions')
           return {

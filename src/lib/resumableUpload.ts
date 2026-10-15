@@ -103,9 +103,12 @@ export async function resumableUpload(
       },
     );
     const cancel = () => {
-      void upload
-        .abort(false)
-        .finally(() => finish(new Error('Upload paused. Your draft is saved.')));
+      const stopped = () => finish(new Error('Upload paused. Your draft is saved.'));
+      // A transport failure while aborting must still settle the caller without an
+      // unhandled rejected promise. Retain the resumable upload for Retry.
+      void Promise.resolve()
+        .then(() => upload.abort(false))
+        .then(stopped, stopped);
     };
     signal?.addEventListener('abort', cancel, { once: true });
     if (signal?.aborted) {
