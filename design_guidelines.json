@@ -1,0 +1,219 @@
+{
+  "app_name": "Circles",
+  "personality": "3 Editorial Mobile LIGHT + DARK",
+  "personality_one_liner": "A warm, curated editorial community experience blending high-contrast Lora serif typography with soft terracotta accents and breathing room.",
+  "color": {
+    "light": {
+      "surface": "#FAF7F5",
+      "onSurface": "#2A2522",
+      "surfaceSecondary": "#F2EBE5",
+      "onSurfaceSecondary": "#4A423D",
+      "surfaceTertiary": "#E8DFD8",
+      "onSurfaceTertiary": "#5C534D",
+      "surfaceInverse": "#2A2522",
+      "onSurfaceInverse": "#FAF7F5",
+      "brand": "#C86A4A",
+      "onBrand": "#FFFFFF",
+      "brandPrimary": "#C86A4A",
+      "onBrandPrimary": "#FFFFFF",
+      "brandSecondary": "#D9876C",
+      "onBrandSecondary": "#2A2522",
+      "brandTertiary": "#F4D5CA",
+      "onBrandTertiary": "#A84C2F",
+      "success": "#4A7A59",
+      "onSuccess": "#FFFFFF",
+      "warning": "#D4A352",
+      "onWarning": "#2A2522",
+      "error": "#B84A4A",
+      "onError": "#FFFFFF",
+      "info": "#5C7685",
+      "onInfo": "#FFFFFF",
+      "border": "#E8DFD8",
+      "borderStrong": "#D1C2BA",
+      "divider": "#E8DFD8",
+      "muted": "#8C7C75"
+    },
+    "dark": {
+      "surface": "#1C1918",
+      "onSurface": "#EBE5E0",
+      "surfaceSecondary": "#262221",
+      "onSurfaceSecondary": "#D1C7C0",
+      "surfaceTertiary": "#332D2A",
+      "onSurfaceTertiary": "#B8AAA2",
+      "surfaceInverse": "#FAF7F5",
+      "onSurfaceInverse": "#2A2522",
+      "brand": "#D97A54",
+      "onBrand": "#1C1918",
+      "brandPrimary": "#D97A54",
+      "onBrandPrimary": "#1C1918",
+      "brandSecondary": "#B55B3D",
+      "onBrandSecondary": "#FAF7F5",
+      "brandTertiary": "#422920",
+      "onBrandTertiary": "#E5A28A",
+      "success": "#5C966E",
+      "onSuccess": "#1C1918",
+      "warning": "#E8B966",
+      "onWarning": "#1C1918",
+      "error": "#D96666",
+      "onError": "#1C1918",
+      "info": "#7A9CA8",
+      "onInfo": "#1C1918",
+      "border": "#332D2A",
+      "borderStrong": "#4A423D",
+      "divider": "#332D2A",
+      "muted": "#94867D"
+    }
+  },
+  "typography": {
+    "displayFontFamily": "Lora",
+    "textFontFamily": "DMSans",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Editorial rhythm. Generous vertical breathing room. Typographic hierarchy dictates separation instead of hard dividers. Minimum touch targets 44pt.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 0,
+    "md": 8,
+    "lg": 16,
+    "pill": 999
+  },
+  "shadow_tier": 0,
+  "navigation": "bottom_tabs",
+  "icon_set": "Feather",
+  "glassmorphism": {
+    "enabled": false,
+    "do's": ["Use solid surface colors or soft brand tints", "Prioritize typographic layout and whitespace over layer depth"],
+    "dont's": ["Do not use blur or glass effects anywhere in this app. Keep it paper-like, flat, and tactile."]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "solid surfaceSecondary",
+      "android": "solid surfaceSecondary",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Onboarding",
+      "purpose": "A warm welcome setting up the user profile, interests, and suggested circles.",
+      "states": {
+        "loading": "Clean centered spinner in terracotta",
+        "empty": "N/A",
+        "error": "Soft terracotta toast anchored top, no hard shadows."
+      },
+      "layout": "Full-bleed atmospheric terracotta gradient scene per step. Content overlaid via top-to-bottom gradient scrim (transparent to 80% surfaceInverse). Primary actions stick to bottom thumb zone."
+    },
+    {
+      "name": "Home Timeline Feed",
+      "purpose": "Curated editorial feed displaying personal timeline posts, photos, likes, and comments.",
+      "states": {
+        "loading": "Skeleton feed cards with muted pulsing",
+        "empty": "Editorial illustration + 'Your feed is quiet. Discover new circles to begin.' + Join Circles CTA.",
+        "error": "Text-heavy error + 'Retry' text link with terracotta underline."
+      },
+      "layout": "Mini-magazine layout. Left-aligned Lora headings. Meta-data in small caps DM Sans. Generous padding between feed cards (24-32pt). Images have subtle rounded corners (radius md). No heavy card shadows—delineate posts by whitespace and a 1px soft border or divider."
+    },
+    {
+      "name": "Circles Directory & Explore",
+      "purpose": "Discover and browse communities using filtered chip rows.",
+      "states": {
+        "loading": "Grid of muted skeleton rectangles",
+        "empty": "Empty state illustration + 'No circles match your search.'",
+        "error": "Retry message inline."
+      },
+      "layout": "Sticky horizontal filter chip row at top (terracotta outlined when active). List of cards acting as curated directory items: Large cover image, Lora headline, concise sans-serif metadata (member count, category). Primary 'Join' button directly accessible on the card."
+    },
+    {
+      "name": "Circle Detail",
+      "purpose": "Deep dive into a specific community's Posts, Events, and About info.",
+      "states": {
+        "loading": "Spinner centered in the tab area",
+        "empty": "Content tab is empty. 'Be the first to post in this circle.'",
+        "error": "Toast with retry option."
+      },
+      "layout": "Hero image banner with top-to-bottom gradient scrim. Large Lora heading for the community name floating over the scrim bottom. Below header: A clear 'Join' CTA, member count row, and an editorial sticky tab bar (Posts, Events, About). Vertically scrolling content sectioned by bold typography."
+    },
+    {
+      "name": "Messaging Inbox",
+      "purpose": "Direct messages and circle group chats in one calm list.",
+      "states": {
+        "loading": "Row skeleton loading",
+        "empty": "Quiet illustration + 'No active conversations. Reach out in a circle.'",
+        "error": "Inline error block."
+      },
+      "layout": "Clean, flat list format. Avatar circle on left, strong name in Lora, 1-line snippet in DM Sans. Unread indicators as small brandPrimary dots. Inside chat: Flat conversation bubbles (surfaceSecondary for received, brandTertiary for sent) without tails. Sticky composer at bottom above keyboard."
+    },
+    {
+      "name": "Live Rooms",
+      "purpose": "Scheduled live listening and speaking rooms with real-time text chat.",
+      "states": {
+        "loading": "Pulsing avatar skeletons",
+        "empty": "Schedule calendar empty state + 'No rooms live right now.'",
+        "error": "Retry connection overlay."
+      },
+      "layout": "Split layout: Top 40% holds host avatars and Lora title against a warm off-white or dark background (not a loud gradient). Bottom 60% holds the real-time chat feed. Flat bottom action bar for microphone toggle, raise hand, and text input."
+    },
+    {
+      "name": "Coins Wallet & Gifting",
+      "purpose": "View coin balance, recent transactions, and purchase more.",
+      "states": {
+        "loading": "Spinner in the center",
+        "empty": "'Your wallet is empty.' + 'Buy Coins' CTA",
+        "error": "Soft error toast."
+      },
+      "layout": "Simple receipt-book aesthetic. Large serif number for balance at top. Transaction history presented as a clean, minimal list beneath a divider. No neon gamification."
+    }
+  ],
+  "images": {
+    "onboarding_background": {
+      "url": "https://images.pexels.com/photos/7605540/pexels-photo-7605540.jpeg",
+      "dark": "https://images.unsplash.com/photo-1635776062764-e025521e3df3",
+      "alt": "Warm abstract terracotta gradient"
+    },
+    "home_feed_hero": {
+      "url": "https://images.pexels.com/photos/8020617/pexels-photo-8020617.jpeg",
+      "alt": "Diverse friends walking outdoors under cloudy sky"
+    },
+    "circle_cover_creative": {
+      "url": "https://images.pexels.com/photos/4623520/pexels-photo-4623520.jpeg",
+      "alt": "Team brainstorming in a modern office"
+    }
+  },
+  "haptics": {
+    "primary_button_press": "light",
+    "tab_switch": "light",
+    "like_post": "medium",
+    "send_message": "light",
+    "join_circle": "success",
+    "send_gift": "success",
+    "pull_to_refresh": "light"
+  },
+  "instructions_to_main_agent": [
+    "Load Lora (serif) for display/headings and DM Sans (sans-serif) for body text and UI components. Ensure weight never exceeds 500 (use 400 for regular, 500 for emphasis).",
+    "Enforce the 'Warm Editorial' personality strictly: Use the provided light/dark mode color tokens. Terracotta (brandPrimary) is the only accent—no blues, indigos, or purples anywhere in the app.",
+    "Never use glassmorphism or blur effects. This app uses solid paper-like background surfaces (`surface`, `surfaceSecondary`) to build elevation and separation.",
+    "For all background images containing overlaid text (e.g., Onboarding backgrounds, Circle Detail covers), implement the mandatory 3-stop vertical gradient scrim (`transparent` to `surfaceInverse` at ≥70% opacity).",
+    "Ensure safe area usage is applied correctly. For Live Rooms, ensure the real-time chat input is protected by KeyboardAvoidingView.",
+    "Include empty states on all data-driven screens (Feeds, Chat list, Wallet, Circles directory).",
+    "Use flat, 1px or 0.5px `border` properties instead of box shadows to separate cards if whitespace is not enough."
+  ]
+}
