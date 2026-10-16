@@ -8,6 +8,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { apiGet, apiPost } from "@/src/api/client";
 import { Avatar, Body, Display, Loading } from "@/src/components/ui";
 import { Icon } from "@/src/components/icon";
+import { GiftSheet } from "@/src/components/gift-sheet";
 import { useToast } from "@/src/components/toast";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
@@ -16,6 +17,7 @@ type Room = {
   id: string;
   title: string;
   status: string;
+  host_id: string;
   host_name: string;
   is_host: boolean;
   joined: boolean;
@@ -39,6 +41,7 @@ export default function RoomScreen() {
 
   const [text, setText] = useState("");
   const [micOn, setMicOn] = useState(false);
+  const [gifting, setGifting] = useState(false);
 
   const { data: room, isLoading } = useQuery({
     queryKey: ["room", id],
@@ -115,9 +118,16 @@ export default function RoomScreen() {
         <View style={styles.liveBadge}>
           <Body size={11} weight="medium" color={colors.onError} style={{ fontFamily: fonts.textMedium }}>● LIVE</Body>
         </View>
-        <Pressable testID="room-leave" onPress={leave} hitSlop={8}>
-          <Icon name="x" size={24} color={colors.onSurface} />
-        </Pressable>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
+          {!room.is_host ? (
+            <Pressable testID="room-cheer" onPress={() => setGifting(true)} hitSlop={8}>
+              <Icon name="gift" size={22} color={colors.brandPrimary} />
+            </Pressable>
+          ) : null}
+          <Pressable testID="room-leave" onPress={leave} hitSlop={8}>
+            <Icon name="x" size={24} color={colors.onSurface} />
+          </Pressable>
+        </View>
       </View>
 
       <View style={styles.stage}>
@@ -208,6 +218,14 @@ export default function RoomScreen() {
           </Pressable>
         </View>
       </KeyboardStickyView>
+
+      <GiftSheet
+        visible={gifting}
+        onClose={() => setGifting(false)}
+        recipientId={room.host_id}
+        recipientName={room.host_name}
+        roomId={room.id}
+      />
     </View>
   );
 }

@@ -182,6 +182,18 @@ class CircleIn(BaseModel):
     is_private: bool = False
 
 
+class CircleUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    category: Optional[str] = None
+    cover_url: Optional[str] = None
+    welcome_message: Optional[str] = None
+
+
+class RoleUpdate(BaseModel):
+    role: str  # "moderator" | "member"
+
+
 class PostIn(BaseModel):
     circle_id: str
     text: str = ""
@@ -312,18 +324,20 @@ async def get_user(user_id: str, user: dict = Depends(current_user)):
 # ------------------------------ Circles ------------------------------------
 async def enrich_circle(c: dict, uid: str) -> dict:
     member_count = await db.memberships.count_documents({"circle_id": c["id"]})
-    is_member = await db.memberships.find_one({"circle_id": c["id"], "user_id": uid}) is not None
+    membership = await db.memberships.find_one({"circle_id": c["id"], "user_id": uid})
     return {
         "id": c["id"],
         "name": c["name"],
         "description": c.get("description", ""),
         "category": c.get("category", "General"),
         "cover_url": c.get("cover_url"),
+        "welcome_message": c.get("welcome_message"),
         "is_private": c.get("is_private", False),
         "owner_id": c.get("owner_id"),
         "member_count": member_count,
-        "is_member": is_member,
+        "is_member": membership is not None,
         "is_owner": c.get("owner_id") == uid,
+        "my_role": membership.get("role", "member") if membership else None,
         "created_at": c.get("created_at"),
     }
 
@@ -372,6 +386,40 @@ async def get_circle(circle_id: str, user: dict = Depends(current_user)):
     if not c:
         raise HTTPException(404, "Circle not found")
     return await enrich_circle(c, user["id"])
+
+
+@api.put("/circles/{circle_id}")
+async def update_circle(circle_id: str, body: CircleUpdate, user: dict = Depends(current_user)):
+    c = await db.circles.find_one({"id": circle_id})
+    if not c:
+        raise HTTPException(404, "Circle not found")
+    if c.get("owner_id") != user["id"]:
+        raise HTTPException(403, "Only the owner can edit this circle")
+    updates = {k: v for k, v in body.dict().items() if v is not None}
+    if updates:
+        await db.circles.update_one({"id": circle_id}, {"$set": updates})
+    fresh = await db.circles.find_one({"id": circle_id})
+    return await enrich_circle(fresh, user["id"])
+
+
+@api.post("/circles/{circle_id}/members/{target_id}/role")
+async def set_member_role(circle_id: str, target_id: str, body: RoleUpdate, user: dict = Depends(current_user)):
+    c = await db.circles.find_one({"id": circle_id})
+    if not c:
+        raise HTTPException(404, "Circle not found")
+    if c.get("owner_id") != user["id"]:
+        raise HTTPException(403, "Only the owner can manage roles")
+    if body.role not in ("moderator", "member"):
+        raise HTTPException(400, "Invalid role")
+    if target_id == c.get("owner_id"):
+        raise HTTPException(400, "The owner's role cannot be changed")
+    m = await db.memberships.find_one({"circle_id": circle_id, "user_id": target_id})
+    if not m:
+        raise HTTPException(404, "That person is not a member")
+    await db.memberships.update_one(
+        {"circle_id": circle_id, "user_id": target_id}, {"$set": {"role": body.role}}
+    )
+    return {"ok": True, "role": body.role}
 
 
 @api.post("/circles/{circle_id}/join")
@@ -473,6 +521,7 @@ async def enrich_post(p: dict, uid: str) -> dict:
     like_count = await db.likes.count_documents({"post_id": p["id"]})
     liked = await db.likes.find_one({"post_id": p["id"], "user_id": uid}) is not None
     comment_count = await db.comments.count_documents({"post_id": p["id"]})
+    gift_count = await db.gifts.count_documents({"post_id": p["id"]})
     return {
         "id": p["id"],
         "text": p.get("text", ""),
@@ -485,6 +534,7 @@ async def enrich_post(p: dict, uid: str) -> dict:
         "like_count": like_count,
         "liked": liked,
         "comment_count": comment_count,
+        "gift_count": gift_count,
         "created_at": p.get("created_at"),
     }
 
@@ -1006,6 +1056,8 @@ async def send_gift(body: GiftIn, user: dict = Depends(current_user)):
     cost = GIFT_COSTS.get(body.gift_type)
     if cost is None:
         raise HTTPException(400, "Unknown gift")
+    if body.recipient_id == user["id"]:
+        raise HTTPException(400, "You cannot gift yourself")
     fresh = await db.users.find_one({"id": user["id"]})
     if fresh.get("coins", 0) < cost:
         raise HTTPException(400, "Not enough coins")
@@ -1033,8 +1085,47 @@ async def send_gift(body: GiftIn, user: dict = Depends(current_user)):
             "created_at": now_iso(),
         }
     )
+    await db.gifts.insert_one(
+        {
+            "id": new_id(),
+            "sender_id": user["id"],
+            "recipient_id": body.recipient_id,
+            "gift_type": body.gift_type,
+            "post_id": body.post_id,
+            "room_id": body.room_id,
+            "created_at": now_iso(),
+        }
+    )
     updated = await db.users.find_one({"id": user["id"]})
     return {"balance": updated.get("coins", 0), "gift_type": body.gift_type}
+
+
+# ----------------------------- Reminders ----------------------------------
+@api.get("/reminders")
+async def reminders(user: dict = Depends(current_user)):
+    rsvps = await db.event_rsvps.find({"user_id": user["id"]}).to_list(500)
+    event_ids = [r["event_id"] for r in rsvps]
+    if not event_ids:
+        return []
+    now = datetime.now(timezone.utc)
+    horizon = (now + timedelta(hours=24)).isoformat()
+    now_s = now.isoformat()
+    events = await db.events.find(
+        {"id": {"$in": event_ids}, "starts_at": {"$gte": now_s, "$lte": horizon}}
+    ).sort("starts_at", 1).to_list(50)
+    out = []
+    for e in events:
+        circle = await db.circles.find_one({"id": e["circle_id"]})
+        out.append(
+            {
+                "id": e["id"],
+                "title": e["title"],
+                "starts_at": e["starts_at"],
+                "circle_id": e["circle_id"],
+                "circle_name": circle["name"] if circle else "",
+            }
+        )
+    return out
 
 
 # ----------------------------- Moderation ----------------------------------

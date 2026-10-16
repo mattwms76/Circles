@@ -1,12 +1,12 @@
-import { useState } from "react";
-import { Pressable, ScrollView, View } from "react-native";
+import { useEffect, useState } from "react";
+import { Pressable, ScrollView, TextInput, View } from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
-import { apiGet, apiPost, mediaUrl } from "@/src/api/client";
+import { apiGet, apiPost, apiPut, mediaUrl } from "@/src/api/client";
 import type { Circle } from "@/src/components/circle-card";
 import { PostCard, type Post } from "@/src/components/post-card";
 import { Avatar, Body, Button, Display, EmptyState, Loading, Overline } from "@/src/components/ui";
@@ -31,6 +31,8 @@ export default function CircleDetail() {
 
   const [tab, setTab] = useState<TabKey>("posts");
   const [eventModal, setEventModal] = useState(false);
+  const [welcome, setWelcome] = useState("");
+  const [editingWelcome, setEditingWelcome] = useState(false);
 
   const { data: circle, isLoading } = useQuery({
     queryKey: ["circle", id],
@@ -65,6 +67,32 @@ export default function CircleDetail() {
       router.push(`/chat/${conv.id}?title=${encodeURIComponent(m.name)}`);
     } catch {
       toast.show("Could not open chat", "error");
+    }
+  };
+
+  useEffect(() => {
+    if (circle?.welcome_message != null) setWelcome(circle.welcome_message);
+  }, [circle?.welcome_message]);
+
+  const saveWelcome = async () => {
+    try {
+      await apiPut(`/api/circles/${id}`, { welcome_message: welcome.trim() });
+      qc.invalidateQueries({ queryKey: ["circle", id] });
+      setEditingWelcome(false);
+      toast.show("Welcome message pinned", "success");
+    } catch {
+      toast.show("Could not save", "error");
+    }
+  };
+
+  const toggleModerator = async (m: Member) => {
+    const next = m.role === "moderator" ? "member" : "moderator";
+    try {
+      await apiPost(`/api/circles/${id}/members/${m.id}/role`, { role: next });
+      qc.invalidateQueries({ queryKey: ["circle-members", id] });
+      toast.show(next === "moderator" ? `${m.name.split(" ")[0]} is now a moderator` : "Moderator removed", "success");
+    } catch (e: any) {
+      toast.show(e?.message ?? "Could not update role", "error");
     }
   };
 
@@ -152,13 +180,23 @@ export default function CircleDetail() {
         </View>
 
         {tab === "posts" ? (
-          (posts ?? []).length === 0 ? (
-            <View style={{ marginTop: spacing["2xl"] }}>
-              <EmptyState icon="feather" title="No posts yet" message="Be the first to post in this circle." />
-            </View>
-          ) : (
-            (posts ?? []).map((p) => <PostCard key={p.id} post={p} onToggleLike={toggleLike} />)
-          )
+          <>
+            {circle.welcome_message ? (
+              <View style={styles.welcome} testID="welcome-banner">
+                <Icon name="bookmark" size={16} color={colors.onBrandTertiary} />
+                <Body size={14} color={colors.onSurface} style={{ flex: 1, lineHeight: 20 }}>
+                  {circle.welcome_message}
+                </Body>
+              </View>
+            ) : null}
+            {(posts ?? []).length === 0 ? (
+              <View style={{ marginTop: spacing["2xl"] }}>
+                <EmptyState icon="feather" title="No posts yet" message="Be the first to post in this circle." />
+              </View>
+            ) : (
+              (posts ?? []).map((p) => <PostCard key={p.id} post={p} onToggleLike={toggleLike} />)
+            )}
+          </>
         ) : null}
 
         {tab === "events" ? (
@@ -194,9 +232,40 @@ export default function CircleDetail() {
         ) : null}
 
         {tab === "about" ? (
-          <View style={{ padding: spacing.lg, gap: spacing.sm }}>
-            <Overline>About</Overline>
-            <Body size={15} color={colors.onSurfaceSecondary} style={{ lineHeight: 24 }}>{circle.description}</Body>
+          <View style={{ padding: spacing.lg, gap: spacing.lg }}>
+            <View style={{ gap: spacing.sm }}>
+              <Overline>About</Overline>
+              <Body size={15} color={colors.onSurfaceSecondary} style={{ lineHeight: 24 }}>{circle.description}</Body>
+            </View>
+            {circle.is_owner ? (
+              <View style={{ gap: spacing.sm }}>
+                <Overline>Pinned welcome message</Overline>
+                {editingWelcome ? (
+                  <>
+                    <TextInput
+                      testID="welcome-input"
+                      value={welcome}
+                      onChangeText={setWelcome}
+                      placeholder="Welcome new members with a note…"
+                      placeholderTextColor={colors.muted}
+                      multiline
+                      style={styles.welcomeInput}
+                    />
+                    <View style={{ flexDirection: "row", gap: spacing.sm }}>
+                      <Button testID="welcome-save" small label="Save" onPress={saveWelcome} style={{ flex: 1 }} />
+                      <Button small variant="ghost" label="Cancel" onPress={() => setEditingWelcome(false)} style={{ flex: 1 }} />
+                    </View>
+                  </>
+                ) : (
+                  <Pressable testID="welcome-edit" style={styles.welcomeEdit} onPress={() => setEditingWelcome(true)}>
+                    <Body size={14} color={circle.welcome_message ? colors.onSurface : colors.muted} style={{ flex: 1 }}>
+                      {circle.welcome_message || "Add a welcome message for new members"}
+                    </Body>
+                    <Icon name="edit-2" size={16} color={colors.brandPrimary} />
+                  </Pressable>
+                )}
+              </View>
+            ) : null}
           </View>
         ) : null}
 
@@ -212,6 +281,15 @@ export default function CircleDetail() {
                     {m.role !== "member" ? <Body size={12} color={colors.brandPrimary}>{m.role}</Body> : null}
                   </View>
                 </Pressable>
+                {circle.is_owner && m.role !== "owner" ? (
+                  <Pressable
+                    testID={`role-${m.id}`}
+                    style={[styles.roleBtn, m.role === "moderator" && { backgroundColor: colors.brandPrimary }]}
+                    onPress={() => toggleModerator(m)}
+                  >
+                    <Icon name="shield" size={16} color={m.role === "moderator" ? colors.onBrandPrimary : colors.brandPrimary} />
+                  </Pressable>
+                ) : null}
                 <Pressable testID={`message-${m.id}`} style={styles.msgBtn} onPress={() => messageMember(m)}>
                   <Icon name="message-circle" size={18} color={colors.brandPrimary} />
                 </Pressable>
@@ -252,4 +330,37 @@ const useStyles = makeStyles((colors) => ({
   memberRow: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   memberInfo: { flexDirection: "row", alignItems: "center", gap: spacing.md, flex: 1 },
   msgBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.brandTertiary, alignItems: "center", justifyContent: "center" },
+  roleBtn: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
+  welcome: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.sm,
+    margin: spacing.lg,
+    marginBottom: 0,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.brandTertiary,
+  },
+  welcomeInput: {
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    minHeight: 80,
+    textAlignVertical: "top",
+    fontFamily: fonts.textRegular,
+    fontSize: 15,
+    color: colors.onSurface,
+  },
+  welcomeEdit: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceSecondary,
+  },
 }));

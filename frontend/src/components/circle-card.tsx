@@ -14,11 +14,13 @@ export type Circle = {
   description: string;
   category: string;
   cover_url: string | null;
+  welcome_message?: string | null;
   is_private: boolean;
   owner_id: string;
   member_count: number;
   is_member: boolean;
   is_owner: boolean;
+  my_role?: string | null;
 };
 
 export function CircleCard({

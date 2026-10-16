@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useState } from "react";
 import { Pressable, View } from "react-native";
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
@@ -6,8 +6,10 @@ import { useRouter } from "expo-router";
 
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
 import { mediaUrl } from "@/src/api/client";
+import { useAuth } from "@/src/auth/auth-context";
 import { Avatar, Body, Display, Overline } from "@/src/components/ui";
 import { Icon } from "@/src/components/icon";
+import { GiftSheet } from "@/src/components/gift-sheet";
 import { timeAgo } from "@/src/lib/time";
 
 export type Post = {
@@ -22,6 +24,7 @@ export type Post = {
   like_count: number;
   liked: boolean;
   comment_count: number;
+  gift_count: number;
   created_at: string;
 };
 
@@ -35,6 +38,9 @@ function PostCardComponent({
   const styles = useStyles();
   const { colors } = useTheme();
   const router = useRouter();
+  const { user } = useAuth();
+  const [gifting, setGifting] = useState(false);
+  const isMine = user?.id === post.author_id;
 
   return (
     <View style={styles.card} testID={`post-${post.id}`}>
@@ -91,7 +97,23 @@ function PostCardComponent({
             {post.comment_count > 0 ? post.comment_count : "Comment"}
           </Body>
         </Pressable>
+        {!isMine ? (
+          <Pressable testID={`gift-${post.id}`} style={styles.action} onPress={() => setGifting(true)}>
+            <Icon name="gift" size={18} color={post.gift_count > 0 ? colors.brandPrimary : colors.muted} />
+            <Body size={13} color={post.gift_count > 0 ? colors.brandPrimary : colors.muted}>
+              {post.gift_count > 0 ? post.gift_count : "Gift"}
+            </Body>
+          </Pressable>
+        ) : null}
       </View>
+
+      <GiftSheet
+        visible={gifting}
+        onClose={() => setGifting(false)}
+        recipientId={post.author_id}
+        recipientName={post.author_name}
+        postId={post.id}
+      />
     </View>
   );
 }

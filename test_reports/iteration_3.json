@@ -1,0 +1,43 @@
+{
+  "summary": "Iteration 3 testing of the 3 new Circles features: Circle Roles (PUT /circles/{id}, members role toggle), Gift On Posts (POST /gifts + gift_count on feed/circle posts + room cheer), and Event Reminders (GET /reminders 24h horizon + Home banner). Backend: 17/17 pytest cases pass covering PUT ownership (200/403), role toggle happy path, 400 for owner-target, 400 for invalid role, 404 for non-member, insufficient coins -> 400, unknown gift -> 400, gift_count propagates to /feed and /circles/{id}/posts, room gift accepted with room_id, reminders 24h horizon includes RSVP'd event + excludes >24h events, plus regression (login/feed/post/like/comment). Frontend (390x844): Guide login works, reminder-banner renders on home for RSVP'd soon-event + routes to /circle/{id} on tap, welcome-banner shows on Posts tab, PostCard gift-{postId} is visible ONLY on others' posts and hidden on own posts, GiftSheet opens with gift-opt-Heart, sending a Heart shows success toast 'Sent a Heart to Mara' and increments gift_count, Room screen shows room-cheer for non-hosts, Owner on About tab can tap welcome-edit -> welcome-input -> welcome-save and non-owners don't see welcome-edit, Owner on People tab shows role-{uid} shield that toggles member<->moderator (API-confirmed), non-owners don't see role buttons. Deprecated-warning noise from pre-existing props.pointerEvents and shadow* carries over from iter 1/2 — non-blocking.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "pointerEvents prop", "issue": "Console warning 'props.pointerEvents is deprecated. Use style.pointerEvents' — pre-existing from iter 1. Non-blocking."},
+      {"component": "shadow* style props", "issue": "Console warning '\"shadow*\" style props are deprecated. Use \"boxShadow\"' — pre-existing. Non-blocking."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter3_features.py",
+    "/app/test_reports/pytest/iter3_results.xml"
+  ],
+  "action_items": [
+    "DOC-ONLY MISMATCH: review_request/spec mentions testIDs 'tab-Posts/tab-Events/tab-People/tab-About', but the actual code at /app/frontend/app/circle/[id].tsx:172 iterates over lowercase ['posts','events','about','people'] and renders testID={`tab-${t}`}. Resulting testIDs are 'tab-posts','tab-events','tab-about','tab-people'. Either (a) update the spec/docs or (b) change the testID to use PascalCase while keeping the label capitalized separately. All UI tests here used the lowercase values that match the code.",
+    "Pre-existing: migrate remaining props.pointerEvents and shadow* style props to RN Web unified APIs to silence warnings."
+  ],
+  "critical_code_review_comments": [
+    "/api/reminders uses ISO-string comparison on starts_at ($gte now_s, $lte horizon). This relies on the stored starts_at being an ISO 8601 string with a timezone — if a client ever posts a naive local-time string this will silently mis-filter. Suggest validating in Pydantic (datetime field) and storing a normalized UTC ISO string, or using a BSON datetime field with proper indexing.",
+    "/api/gifts allows gifting to self because recipient_id is accepted as-is. UI hides the button on own posts (post-card.tsx shows gift action only when post.author_id !== me.id) but the API still allows it. Add `if body.recipient_id == user['id']: raise HTTPException(400, 'Cannot gift yourself')` to defend against misuse.",
+    "/api/gifts debits the sender and credits the recipient in two separate update_one calls with no transaction — a crash between the two writes could leak/burn coins. For production, wrap in a Mongo multi-document transaction or at minimum reverse the sender debit on failure.",
+    "server.py is 1322 lines — same recommendation as iter 2 to split into routers (circles/posts/gifts/reminders/rooms). Easy to accidentally drop/dupe route decorators at this size.",
+    "PUT /circles/{id} accepts cover_url and name without any URL/content validation. Add minimal validation (length limits, URL scheme check for cover_url).",
+    "GET /feed computes gift_count via count_documents inside a loop over posts — N+1 query. For scale, use a single aggregation {$lookup} on gifts or precompute gift_count as a counter field on the post updated by POST /gifts.",
+    "Reminders endpoint lacks a per-user dedupe/dismiss persistence: the Home banner dismiss is held only in local component state and resets on next cold start / tab remount. If 'dismiss' is intended to persist, add POST /reminders/{id}/dismiss and GET /reminders should filter dismissed ones."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter3_features.py (new — 17 pytest cases for iter 3)",
+    "/app/test_reports/pytest/iter3_results.xml (new — junit output)"
+  ],
+  "success_rate": {"backend": "100% (17/17)", "frontend": "100% of new-feature flows verified (reminder, welcome banner, welcome edit+save, role toggle, non-owner hidden, gift sheet + send toast, non-host room-cheer, own-post gift hidden)"},
+  "seed_data_creation": "All test data is auto-generated per test with TEST_ prefix (circles 'TEST_Roles_*', 'TEST_UI_*', 'TEST_FinUI', users 'TEST_<hex>@circles.app'), idempotent and safe to re-run. No seed/production data modified. For reminder UI validation a 2h-ahead event was created in a throwaway circle and RSVP'd by a throwaway user.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend base = EXPO_PUBLIC_BACKEND_URL in /app/frontend/.env (https://circles-demo-1.preview.emergentagent.com), routes under /api. Credentials: guide@circles.app/circles123 (owner of seed circles, host of seeded live room, ~630 coins). Demo demo@circles.app/demo1234 is NOT onboarded — logging in routes to /onboarding; new registrations also need to pick interests before being allowed into the tabs. If you need a non-onboarded user on a specific screen, you can navigate directly via /circle/{id} or /room/{id} after login — those screens render even if onboarding wasn't completed. Auth is stored in web localStorage as JSON-stringified token under key 'auth_token' — don't set a raw string there, it will trigger a parse warning and auth will fail to hydrate. Circle detail tab testIDs are LOWERCASE: tab-posts, tab-events, tab-about, tab-people (spec says PascalCase but code uses lowercase — see action_items). Key new testIDs: reminder-banner, reminder-dismiss (home); welcome-banner (Posts tab), welcome-edit/welcome-input/welcome-save (About tab, owner-only), role-{uid} (People tab, owner-only); gift-{postId} on PostCard (hidden on own posts), gift-opt-Heart/Flower/Star/Crown/Rocket inside GiftSheet; room-cheer in /room/{id} (non-hosts only). New users start with 100 coins — Heart (10) and Flower (25) are the only reliably sendable gifts without buying coins; Crown/Rocket will 400 Not enough coins. GIFT_COSTS: Heart=10, Flower=25, Star=50, Crown=120, Rocket=300. Reminders filter is a 24h horizon via ISO string comparison; create events with starts_at = (now + 2h).isoformat() to reliably hit the window.",
+  "rca_of_issue": ""
+}

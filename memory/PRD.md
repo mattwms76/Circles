@@ -51,12 +51,17 @@ Rebuild the "Circles" app (github.com/mattwms76/Circles) as a fresh Expo + FastA
 - People tab: 4th circle tab listing members with a one-tap message (direct chat) button; About tab is description-only.
 - Live Rooms seats: raise-hand toggle, host promotes listeners to co-host (max 3 seats) / demotes, role + raised-hand badges on stage. (Real audio still needs Agora + native build.)
 
+## Implemented — Iteration 3 (2026-10-16)
+- Circle Roles: owner-only PUT /circles/{id} (edit welcome message / name / description); POST /circles/{id}/members/{uid}/role to name or remove moderators. Pinned welcome banner on Posts tab; owner welcome editor in About; moderator toggle in People tab.
+- Gift On Posts: PostCard gift action (non-own posts) + live-room "cheer host" open a GiftSheet (Heart→Rocket); gifts debit/credit coins, are recorded, and show a gift_count on posts. Self-gifting blocked at the API.
+- Event Reminders: GET /reminders returns RSVP'd events starting within 24h; Home shows a dismissible "Starting soon" banner that opens the circle.
+
 ## Backlog / Remaining
-- P1: Real-time via websockets (currently polling); unread counts on inbox; chat header avatar.
-- P1: Circle events creation UI (backend ready); RSVP.
+- P1: Real-time via websockets (currently polling); server-persisted reminder dismissal.
 - P2: Real live audio (Agora) — needs App ID + native dev build.
 - P2: Real in-app purchases (store) — currently simulated top-ups.
-- P2: Stories, post bookmarks, richer moderation actions (remove/audit).
+- P2: Mongo transaction around gift debit/credit; optimize feed gift_count (N+1) before scale.
+- P2: Stories, post bookmarks, richer moderation actions.
 
 ## Next Tasks
 - Add unread badges + websocket realtime for chat/rooms.
