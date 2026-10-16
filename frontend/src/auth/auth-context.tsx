@@ -12,13 +12,20 @@ export type User = {
   onboarded: boolean;
   coins: number;
   is_moderator: boolean;
+  is_minor?: boolean;
 };
 
 type AuthContextValue = {
   user: User | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (name: string, email: string, password: string) => Promise<void>;
+  signUp: (
+    name: string,
+    email: string,
+    password: string,
+    dateOfBirth: string,
+    acceptedTerms: boolean,
+  ) => Promise<void>;
   signOut: () => Promise<void>;
   refresh: () => Promise<void>;
   updateUser: (patch: Partial<User>) => void;
@@ -52,11 +59,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(res.user);
   };
 
-  const signUp = async (name: string, email: string, password: string) => {
+  const signUp = async (
+    name: string,
+    email: string,
+    password: string,
+    dateOfBirth: string,
+    acceptedTerms: boolean,
+  ) => {
     const res = await apiPost<{ access_token: string; user: User }>("/api/auth/register", {
       name,
       email,
       password,
+      date_of_birth: dateOfBirth,
+      accepted_terms: acceptedTerms,
     });
     await setToken(res.access_token);
     setUser(res.user);

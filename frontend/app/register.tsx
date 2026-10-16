@@ -22,15 +22,19 @@ export default function Register() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [dob, setDob] = useState("");
+  const [agreed, setAgreed] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const submit = async () => {
     if (!name.trim()) return toast.show("What should we call you?", "error");
     if (!email.trim()) return toast.show("Enter your email", "error");
     if (password.length < 6) return toast.show("Password needs 6+ characters", "error");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dob)) return toast.show("Enter your date of birth as YYYY-MM-DD", "error");
+    if (!agreed) return toast.show("Please accept the Terms and Privacy Policy", "error");
     setBusy(true);
     try {
-      await signUp(name.trim(), email.trim().toLowerCase(), password);
+      await signUp(name.trim(), email.trim().toLowerCase(), password, dob, agreed);
       router.replace("/onboarding");
     } catch (e) {
       toast.show(e instanceof ApiError ? e.message : "Could not create account", "error");
@@ -95,6 +99,40 @@ export default function Register() {
           style={styles.input}
         />
 
+        <Body size={12} weight="medium" color={colors.onSurfaceSecondary} style={styles.label}>
+          Date of birth
+        </Body>
+        <TextInput
+          testID="register-dob"
+          value={dob}
+          onChangeText={setDob}
+          placeholder="YYYY-MM-DD"
+          placeholderTextColor={colors.muted}
+          autoCapitalize="none"
+          keyboardType="numbers-and-punctuation"
+          style={styles.input}
+        />
+        <Body size={12} color={colors.muted} style={{ marginTop: -spacing.sm, marginBottom: spacing.md }}>
+          You must be at least 13 to use Circles.
+        </Body>
+
+        <Pressable testID="register-consent" onPress={() => setAgreed((v) => !v)} style={styles.consentRow} hitSlop={6}>
+          <View style={[styles.checkbox, agreed && { backgroundColor: colors.brandPrimary, borderColor: colors.brandPrimary }]}>
+            {agreed ? <Icon name="check" size={14} color={colors.onBrandPrimary} /> : null}
+          </View>
+          <Body size={13} color={colors.onSurfaceSecondary} style={{ flex: 1 }}>
+            I agree to the{" "}
+            <Body size={13} weight="medium" color={colors.brandPrimary} onPress={() => router.push("/legal/terms")}>
+              Terms of Service
+            </Body>{" "}
+            and{" "}
+            <Body size={13} weight="medium" color={colors.brandPrimary} onPress={() => router.push("/legal/privacy")}>
+              Privacy Policy
+            </Body>
+            .
+          </Body>
+        </Pressable>
+
         <Button testID="register-submit" label="Create account" onPress={submit} loading={busy} style={{ marginTop: spacing.lg }} />
 
         <Pressable style={styles.switch} onPress={() => router.replace("/login")} testID="go-login">
@@ -129,4 +167,15 @@ const useStyles = makeStyles((colors) => ({
     minHeight: 50,
   },
   switch: { marginTop: spacing.xl, alignItems: "center" },
+  consentRow: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm, marginTop: spacing.sm },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: radius.sm === 0 ? 4 : radius.sm,
+    borderWidth: 1.5,
+    borderColor: colors.borderStrong,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 1,
+  },
 }));

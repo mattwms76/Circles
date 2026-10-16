@@ -8,7 +8,7 @@ import { ScreenHeader } from "@/src/components/header";
 import { makeStyles, radius, spacing, useTheme } from "@/src/theme";
 import { formatDateTime } from "@/src/lib/time";
 
-type Report = { id: string; target_type: string; target_id: string; reason: string; created_at: string };
+type Report = { id: string; target_type: string; target_id: string; reason: string; category?: string; priority?: boolean; created_at: string };
 
 export default function Moderation() {
   const styles = useStyles();
@@ -31,9 +31,16 @@ export default function Moderation() {
           keyExtractor={(r) => r.id}
           renderItem={({ item }) => (
             <View style={styles.card} testID={`report-${item.id}`}>
-              <Overline>{item.target_type} · {formatDateTime(item.created_at)}</Overline>
-              <Display size={16} weight="medium">{item.reason}</Display>
-              <Body size={12} color={colors.muted}>Target: {item.target_id}</Body>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
+                <Overline>{item.category ?? item.target_type} · {formatDateTime(item.created_at)}</Overline>
+                {item.priority ? (
+                  <View style={styles.priorityBadge}>
+                    <Body size={10} weight="medium" color={colors.onError}>PRIORITY</Body>
+                  </View>
+                ) : null}
+              </View>
+              <Display size={16} weight="medium">{item.reason || item.target_type}</Display>
+              <Body size={12} color={colors.muted}>Target: {item.target_type} · {item.target_id}</Body>
             </View>
           )}
           contentContainerStyle={{ padding: spacing.lg, paddingBottom: insets.bottom + spacing["2xl"], gap: spacing.md }}
@@ -51,4 +58,5 @@ export default function Moderation() {
 const useStyles = makeStyles((colors) => ({
   root: { flex: 1, backgroundColor: colors.surface },
   card: { backgroundColor: colors.surfaceSecondary, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.xs },
+  priorityBadge: { backgroundColor: colors.error, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 },
 }));

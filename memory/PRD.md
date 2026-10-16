@@ -65,6 +65,16 @@ Rebuild the "Circles" app (github.com/mattwms76/Circles) as a fresh Expo + FastA
 - Backend polish: mute/ban duration capped at 7 days (MAX_MOD_MINUTES=10080, clamp_minutes); GET /circles/{id}/members now returns muted_until; event starts_at normalized to UTC on write (norm_iso).
 - Design-system fixes (8): raised light `muted` contrast to ~4.9:1; added central `type` scale in theme.ts; Chip + Button-small bumped to 44px touch targets; new `CoinIcon` (terracotta $ token) replacing empty-ring placeholder in Wallet; supporter badge 10→11px; hitSlop on post like/comment/gift; fixed Discover category-chip clipping; removed ~22 redundant fontFamily overrides across 15 files.
 
+## Compliance X1–X7 (2026-06, fork) — IMPLEMENTED & VERIFIED (iter8: 31/31 tests pass)
+Against global social-media legislation (EU DSA/GDPR, UK OSA, US COPPA/state, AU under-16, India DPDP, Brazil ECA Digital):
+- X1/X7 Legal + consent: in-app Privacy Policy & Terms screens (app/legal/[doc].tsx), consent checkbox at register, server-tracked consent (consents collection) + GET /api/legal versions.
+- X3 Age gate: DOB required at register; under-13 blocked (403, MIN_AGE=13); 13–17 flagged is_minor=true with high-privacy defaults (minors see no gifting prompts).
+- X2 Data rights: GET /api/users/me/export (full data portability JSON + share/download) and DELETE /api/users/me (erasure; blocked for circle owners until transfer) + Profile UI.
+- X4 Blocking: blocks collection; block/unblock/list; enforced in feed, start_direct, send_message (both directions); Block+Report on user profile; Blocked accounts screen.
+- X5 Illegal-content: report categories with priority set (csam/illegal/self_harm/violence) → GET /api/moderation/priority queue for moderators + logged/escalation warning. (Real CSAM hash-matching/NCMEC = separate vendor integration — NOT built.)
+- X6 Reporting breadth + feedback: ReportSheet with categories; report post/comment/message/user/room; GET /api/reports/mine (status); DSA statement-of-reasons via moderation_actions (logged on remove/mute/ban) → GET /api/moderation/actions/mine; appeals (POST .../appeal, GET /api/moderation/appeals) + my-activity screen.
+Residual/known gaps (documented, not built): real age-assurance vendor; CSAM hash-matching; formal UK/EU risk-assessment documents; signed URLs for private media; DELETE /users/me is non-atomic on standalone Mongo.
+
 ## Security Audit (2026-06, fork) — ALL ITEMS FIXED & VERIFIED (iter7: 31/31 backend tests pass)
 - SEC-001 CRITICAL ✅ Seed accounts gated behind ENABLE_DEMO_SEED env; passwords sourced from GUIDE_PASSWORD/DEMO_PASSWORD env (no credentials in source); production leaves seeding disabled.
 - SEC-002 HIGH ✅ Conversation messages/read/typing gated by get_conv_or_403 (direct→members, circle→circle membership); non-members 403.

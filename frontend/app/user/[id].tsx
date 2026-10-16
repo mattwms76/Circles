@@ -1,12 +1,14 @@
+import { useState } from "react";
 import { ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
 import { useAuth } from "@/src/auth/auth-context";
 import { apiGet, apiPost } from "@/src/api/client";
 import { Avatar, Body, Button, Display, Loading, Overline } from "@/src/components/ui";
 import { ScreenHeader } from "@/src/components/header";
+import { ReportSheet } from "@/src/components/report-sheet";
 import { useToast } from "@/src/components/toast";
 import { makeStyles, spacing, useTheme } from "@/src/theme";
 
@@ -34,11 +36,24 @@ export default function UserProfile() {
   const router = useRouter();
   const toast = useToast();
   const { user, updateUser } = useAuth();
+  const qc = useQueryClient();
+  const [reporting, setReporting] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["user", id],
     queryFn: () => apiGet<PublicProfile>(`/api/users/${id}`),
   });
+
+  const block = async () => {
+    try {
+      await apiPost(`/api/users/${id}/block`, {});
+      qc.invalidateQueries({ queryKey: ["feed"] });
+      toast.show("Blocked. They can no longer message you.", "success");
+      router.back();
+    } catch (e: any) {
+      toast.show(e?.message ?? "Could not block", "error");
+    }
+  };
 
   const message = async () => {
     try {
@@ -87,10 +102,12 @@ export default function UserProfile() {
         {!isMe ? (
           <View style={styles.actions}>
             <Button testID="message-user" label="Message" icon="message-circle" onPress={message} style={{ flex: 1 }} />
+            <Button testID="report-user" label="Report" variant="secondary" icon="flag" onPress={() => setReporting(true)} />
+            <Button testID="block-user" label="Block" variant="secondary" icon="slash" onPress={block} />
           </View>
         ) : null}
 
-        {!isMe ? (
+        {!isMe && !user?.is_minor ? (
           <View style={styles.giftSection}>
             <Overline>Send a gift</Overline>
             <View style={styles.gifts}>
@@ -108,6 +125,8 @@ export default function UserProfile() {
           </View>
         ) : null}
       </ScrollView>
+
+      <ReportSheet visible={reporting} onClose={() => setReporting(false)} targetType="user" targetId={id!} />
     </View>
   );
 }

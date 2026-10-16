@@ -1,0 +1,35 @@
+{
+  "summary": "Iteration 8 — compliance X1–X7 backend tested end-to-end with 31 pytest cases (all passing serially). Covered: age gate (under-13/adult/minor/invalid DOB/consent/duplicate), /api/legal + consent persistence (verified via /users/me/export), data export shape + own email, account deletion full flow + owner guard (and guide owner guard, non-destructive), blocking cycle (feed hide, start-direct 403, both-direction message 403, blocks list, unblock → messaging restored, self-block 400), priority report categories (csam=priority:true, spam=priority:false, mod-only /moderation/priority), expanded report target types (invalid=400, post/comment/message/user/room=200), /reports/mine feedback with resolve → status/resolution, moderator post removal → /moderation/actions/mine entry + appeal success + 403 for someone-else + 409 double-appeal + /moderation/appeals, mute logs 'muted' action. Regression: guide/demo login, feed, post+like+comment, circles+search, rooms, events, wallet, self-gift 400, 7-day mute cap, private-circle gating, conversation IDOR 403.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter8_compliance.py",
+    "/app/test_reports/pytest/iter8_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now 1971 lines — recommend splitting into routers (auth, circles, posts, conv, rooms, wallet, moderation, compliance) before adding more features.",
+    "DELETE /users/me is non-atomic across ~15 collections on standalone Mongo. A partial-failure (e.g. network blip mid-delete) can leave orphaned data (gifts, event_rsvps, moderation_actions, appeals etc.). Consider a soft-delete + background purge or a cleanup worker to guarantee eventual consistency. Also note: moderation_actions, appeals, gifts, event_rsvps, room_messages, notifications are NOT removed on account deletion — intentional for audit, but worth documenting.",
+    "/moderation/priority and /moderation/appeals both gate on user.is_moderator only; circle-level mods have no priority queue. Fine for now, but note the asymmetry.",
+    "Report created with target_type='user'/'room' doesn't look up a circle_id, so /circles/{id}/reports will never surface them. Consider a global /moderation/reports fallback list (which does exist) — document the UX implication for circle mods.",
+    "Register rate limit is 5/minute per IP — correct & intentional, but parallel test runners share one IP in this preview. Documented in the test harness via retry/sleep."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter8_compliance.py (new)",
+    "/app/test_reports/pytest/iter8_results.xml (new)"
+  ],
+  "success_rate": {"backend": "100% (31/31)", "frontend": "n/a (backend-only round)"},
+  "seed_data_creation": "Used existing guide/demo seed. Throwaway TEST_* users created per-test for destructive flows (deletion, blocking, appeals, mute). No seed data mutated beyond mod actions on throwaways; guide still owns seed circles.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Register endpoint is rate-limited to 5/min per source IP. When running pytest in parallel (xdist 2 workers), concurrent register calls will trip 429s. Either (a) run with `-o addopts=''` to disable xdist, or (b) use the built-in 429 retry helper in test_iter8_compliance.py `_register()`. Email is normalised to lowercase on register — assertions must `.lower()` compare. Guide account owns ALL seed circles so `DELETE /users/me` as guide always 400s (owner guard); use throwaway users for destructive tests. The under-13 DOB computation uses `datetime.now(utc).date()` so a 10-year-old DOB is reliably <13 regardless of leap-day edge cases.",
+  "rca_of_issue": "N/A — no backend bugs found. Initial 7 test failures were test-harness issues (register 429 under parallel execution + an email-case assertion), fixed in the test file. After serial run, 31/31 pass in 133s."
+}

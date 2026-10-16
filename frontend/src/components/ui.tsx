@@ -48,6 +48,7 @@ export function Body({
   color,
   style,
   numberOfLines,
+  onPress,
 }: {
   children: ReactNode;
   size?: number;
@@ -55,11 +56,13 @@ export function Body({
   color?: string;
   style?: TextStyle;
   numberOfLines?: number;
+  onPress?: () => void;
 }) {
   const { colors } = useTheme();
   return (
     <Text
       numberOfLines={numberOfLines}
+      onPress={onPress}
       style={[
         {
           fontFamily: weight === "medium" ? fonts.textMedium : fonts.textRegular,

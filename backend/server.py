@@ -123,6 +123,48 @@ def new_id() -> str:
     return str(uuid.uuid4())
 
 
+# ----- Compliance constants & helpers (age, consent, safety) ----------------
+MIN_AGE = 13          # COPPA hard floor — accounts below this are refused
+MINOR_AGE = 18        # treated as a minor (high-privacy defaults) below this
+LEGAL_VERSIONS = {"terms_version": "2026-06-01", "privacy_version": "2026-06-01"}
+PRIORITY_REPORT_CATEGORIES = {"csam", "illegal", "self_harm", "violence"}
+REPORT_CATEGORIES = {"spam", "harassment", "hate", "violence", "self_harm", "csam", "illegal", "other"}
+REPORT_TARGET_TYPES = {"post", "comment", "message", "user", "room"}
+
+
+def compute_age(dob: str) -> Optional[int]:
+    try:
+        d = datetime.fromisoformat(dob).date()
+    except (ValueError, TypeError):
+        return None
+    today = datetime.now(timezone.utc).date()
+    return today.year - d.year - ((today.month, today.day) < (d.month, d.day))
+
+
+async def is_blocked(a: str, b: str) -> bool:
+    """True if a blocked b or b blocked a (block is mutual for contact)."""
+    hit = await db.blocks.find_one(
+        {"$or": [{"blocker_id": a, "blocked_id": b}, {"blocker_id": b, "blocked_id": a}]}
+    )
+    return hit is not None
+
+
+async def log_mod_action(action: str, target_type: str, target_id: str, actor_id: str,
+                         affected_user_id: Optional[str], reason: str) -> None:
+    """DSA 'statement of reasons' audit trail for every moderation action."""
+    await db.moderation_actions.insert_one({
+        "id": new_id(),
+        "action": action,
+        "target_type": target_type,
+        "target_id": target_id,
+        "actor_id": actor_id,
+        "affected_user_id": affected_user_id,
+        "reason": reason,
+        "status": "active",
+        "created_at": now_iso(),
+    })
+
+
 def hash_password(pw: str) -> str:
     return bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode()
 
@@ -155,6 +197,7 @@ def public_user(doc: dict) -> dict:
         "onboarded": doc.get("onboarded", False),
         "coins": doc.get("coins", 0),
         "is_moderator": doc.get("is_moderator", False),
+        "is_minor": doc.get("is_minor", False),
         "created_at": doc.get("created_at"),
     }
 
@@ -196,6 +239,8 @@ class RegisterIn(BaseModel):
     email: EmailStr
     password: str = Field(min_length=6, max_length=128)
     name: str = Field(min_length=1, max_length=60)
+    date_of_birth: str = Field(description="ISO date YYYY-MM-DD")
+    accepted_terms: bool = False
 
 
 class LoginIn(BaseModel):
@@ -278,9 +323,19 @@ class GiftIn(BaseModel):
 
 
 class ReportIn(BaseModel):
-    target_type: str
+    target_type: str  # post | comment | message | user | room
     target_id: str
-    reason: str
+    reason: str = Field(default="", max_length=2000)
+    category: str = "other"  # spam|harassment|hate|violence|self_harm|csam|illegal|other
+
+
+class ResolveIn(BaseModel):
+    action: str = "dismiss"  # removed | dismissed | warned
+    note: str = Field(default="", max_length=1000)
+
+
+class AppealIn(BaseModel):
+    reason: str = Field(min_length=1, max_length=1000)
 
 
 # ---------------------------------------------------------------------------
@@ -309,8 +364,16 @@ GIFT_COSTS = {"Heart": 10, "Flower": 25, "Star": 50, "Crown": 120, "Rocket": 300
 @limiter.limit("5/minute")
 async def register(request: Request, body: RegisterIn):
     email = body.email.lower()
+    if not body.accepted_terms:
+        raise HTTPException(400, "You must accept the Terms of Service and Privacy Policy")
+    age = compute_age(body.date_of_birth)
+    if age is None:
+        raise HTTPException(400, "Enter a valid date of birth")
+    if age < MIN_AGE:
+        raise HTTPException(403, f"You must be at least {MIN_AGE} years old to use Circles")
     if await db.users.find_one({"email": email}):
         raise HTTPException(409, "Email already registered")
+    is_minor = age < MINOR_AGE
     doc = {
         "id": new_id(),
         "email": email,
@@ -322,9 +385,23 @@ async def register(request: Request, body: RegisterIn):
         "onboarded": False,
         "coins": 100,
         "is_moderator": False,
+        "date_of_birth": body.date_of_birth,
+        "is_minor": is_minor,
+        # Minors default to high-privacy (DSA / AADC / DPDP): no gifting prompts, private profile.
+        "private_profile": is_minor,
+        "tos_version": LEGAL_VERSIONS["terms_version"],
+        "privacy_version": LEGAL_VERSIONS["privacy_version"],
+        "consent_at": now_iso(),
         "created_at": now_iso(),
     }
     await db.users.insert_one(doc)
+    await db.consents.insert_one({
+        "id": new_id(),
+        "user_id": doc["id"],
+        "tos_version": LEGAL_VERSIONS["terms_version"],
+        "privacy_version": LEGAL_VERSIONS["privacy_version"],
+        "accepted_at": now_iso(),
+    })
     return {"access_token": create_token(doc["id"]), "user": private_user(doc)}
 
 
@@ -536,6 +613,8 @@ async def mute_member(circle_id: str, target_id: str, body: MuteIn, user: dict =
     )
     if res.matched_count == 0:
         raise HTTPException(404, "Not a member")
+    await log_mod_action("muted", "user", target_id, user["id"], target_id,
+                         f"Muted in this circle until {until}")
     return {"ok": True, "muted_until": until}
 
 
@@ -563,6 +642,8 @@ async def remove_member(circle_id: str, target_id: str, body: MuteIn, user: dict
         {"$set": {"until": until, "created_at": now_iso()}},
         upsert=True,
     )
+    await log_mod_action("removed", "user", target_id, user["id"], target_id,
+                         f"Removed from this circle until {until}")
     return {"ok": True, "banned_until": until}
 
 
@@ -701,6 +782,14 @@ async def feed(user: dict = Depends(current_user)):
         posts = await db.posts.find(
             {"deleted": {"$ne": True}, "circle_id": {"$in": pub_ids}}
         ).sort("created_at", -1).to_list(50)
+    # Hide posts authored by people this user has blocked (either direction).
+    blocks = await db.blocks.find(
+        {"$or": [{"blocker_id": user["id"]}, {"blocked_id": user["id"]}]}
+    ).to_list(1000)
+    blocked_ids = {b["blocked_id"] for b in blocks} | {b["blocker_id"] for b in blocks}
+    blocked_ids.discard(user["id"])
+    if blocked_ids:
+        posts = [p for p in posts if p["author_id"] not in blocked_ids]
     cache: dict = {}
     return [await enrich_post(p, user["id"], await top_supporter_ids(p["circle_id"], cache)) for p in posts]
 
@@ -805,6 +894,9 @@ async def delete_post(post_id: str, user: dict = Depends(current_user)):
         {"target_type": "post", "target_id": post_id, "status": "open"},
         {"$set": {"status": "resolved"}},
     )
+    if p["author_id"] != user["id"]:
+        await log_mod_action("post_removed", "post", post_id, user["id"], p["author_id"],
+                             "Post removed by a moderator for violating community guidelines")
     return {"ok": True}
 
 
@@ -942,6 +1034,8 @@ async def start_direct(body: DirectIn, user: dict = Depends(current_user)):
     other = await db.users.find_one({"id": body.user_id})
     if not other:
         raise HTTPException(404, "User not found")
+    if await is_blocked(user["id"], body.user_id):
+        raise HTTPException(403, "You can't message this person")
     existing = await db.conversations.find_one(
         {"type": "direct", "members": {"$all": [user["id"], body.user_id]}}
     )
@@ -1037,7 +1131,11 @@ async def get_typing(conv_id: str, user: dict = Depends(current_user)):
 
 @api.post("/conversations/{conv_id}/messages")
 async def send_message(conv_id: str, body: MessageIn, user: dict = Depends(current_user)):
-    await get_conv_or_403(conv_id, user["id"])
+    conv = await get_conv_or_403(conv_id, user["id"])
+    if conv.get("type") == "direct":
+        other_id = next((m for m in conv.get("members", []) if m != user["id"]), None)
+        if other_id and await is_blocked(user["id"], other_id):
+            raise HTTPException(403, "You can't message this person")
     if not body.text.strip() and not body.image_url:
         raise HTTPException(400, "Message cannot be empty")
     doc = {
@@ -1388,22 +1486,39 @@ async def reminders(user: dict = Depends(current_user)):
 # ----------------------------- Moderation ----------------------------------
 @api.post("/reports")
 async def create_report(body: ReportIn, user: dict = Depends(current_user)):
+    if body.target_type not in REPORT_TARGET_TYPES:
+        raise HTTPException(400, "Invalid report target")
+    category = body.category if body.category in REPORT_CATEGORIES else "other"
     circle_id = None
     if body.target_type == "post":
         p = await db.posts.find_one({"id": body.target_id})
         circle_id = p["circle_id"] if p else None
+    elif body.target_type == "comment":
+        cm = await db.comments.find_one({"id": body.target_id})
+        if cm:
+            pp = await db.posts.find_one({"id": cm.get("post_id")})
+            circle_id = pp["circle_id"] if pp else None
+    priority = category in PRIORITY_REPORT_CATEGORIES
     doc = {
         "id": new_id(),
         "reporter_id": user["id"],
         "target_type": body.target_type,
         "target_id": body.target_id,
         "circle_id": circle_id,
+        "category": category,
         "reason": body.reason,
+        "priority": priority,
         "status": "open",
+        "resolution": None,
         "created_at": now_iso(),
     }
     await db.reports.insert_one(doc)
-    return {"ok": True}
+    # Priority (CSAM/illegal/self-harm/violence) reports are preserved for escalation
+    # to a human safety team / law enforcement (e.g. NCMEC). Hash-matching is a
+    # separate vendor integration — see /app/backend docs.
+    if priority:
+        logger.warning(f"PRIORITY report {doc['id']} category={category} target={body.target_type}:{body.target_id}")
+    return {"ok": True, "report_id": doc["id"], "priority": priority}
 
 
 async def enrich_report(r: dict) -> dict:
@@ -1428,15 +1543,89 @@ async def circle_reports(circle_id: str, user: dict = Depends(current_user)):
 
 
 @api.post("/reports/{report_id}/resolve")
-async def resolve_report(report_id: str, user: dict = Depends(current_user)):
+async def resolve_report(report_id: str, body: ResolveIn, user: dict = Depends(current_user)):
     r = await db.reports.find_one({"id": report_id})
     if not r:
         raise HTTPException(404, "Report not found")
     is_mod = user.get("is_moderator") or (r.get("circle_id") and await is_circle_mod(r["circle_id"], user["id"]))
     if not is_mod:
         raise HTTPException(403, "Not allowed")
-    await db.reports.update_one({"id": report_id}, {"$set": {"status": "resolved"}})
+    await db.reports.update_one(
+        {"id": report_id},
+        {"$set": {"status": "resolved", "resolution": {
+            "action": body.action, "note": body.note,
+            "resolved_by": user["id"], "resolved_at": now_iso(),
+        }}},
+    )
     return {"ok": True}
+
+
+@api.get("/reports/mine")
+async def my_reports(user: dict = Depends(current_user)):
+    """Notice-and-action feedback loop: a reporter sees the status of their reports."""
+    reports = await db.reports.find({"reporter_id": user["id"]}).sort("created_at", -1).to_list(200)
+    return [{k: v for k, v in r.items() if k != "_id"} for r in reports]
+
+
+@api.get("/moderation/actions/mine")
+async def actions_against_me(user: dict = Depends(current_user)):
+    """DSA statement of reasons: a user sees moderation actions taken against them."""
+    actions = await db.moderation_actions.find(
+        {"affected_user_id": user["id"]}
+    ).sort("created_at", -1).to_list(200)
+    out = []
+    for a in actions:
+        appeal = await db.appeals.find_one({"action_id": a["id"], "user_id": user["id"]})
+        data = {k: v for k, v in a.items() if k != "_id"}
+        data["appealed"] = appeal is not None
+        data["appeal_status"] = appeal.get("status") if appeal else None
+        out.append(data)
+    return out
+
+
+@api.post("/moderation/actions/{action_id}/appeal")
+async def appeal_action(action_id: str, body: AppealIn, user: dict = Depends(current_user)):
+    action = await db.moderation_actions.find_one({"id": action_id})
+    if not action:
+        raise HTTPException(404, "Action not found")
+    if action.get("affected_user_id") != user["id"]:
+        raise HTTPException(403, "You can only appeal actions taken against you")
+    if await db.appeals.find_one({"action_id": action_id, "user_id": user["id"]}):
+        raise HTTPException(409, "You already appealed this action")
+    await db.appeals.insert_one({
+        "id": new_id(),
+        "action_id": action_id,
+        "user_id": user["id"],
+        "reason": body.reason,
+        "status": "open",
+        "created_at": now_iso(),
+    })
+    return {"ok": True}
+
+
+@api.get("/moderation/appeals")
+async def list_appeals(user: dict = Depends(current_user)):
+    if not user.get("is_moderator"):
+        raise HTTPException(403, "Not a moderator")
+    appeals = await db.appeals.find({"status": "open"}).sort("created_at", -1).to_list(200)
+    out = []
+    for a in appeals:
+        action = await db.moderation_actions.find_one({"id": a["action_id"]})
+        data = {k: v for k, v in a.items() if k != "_id"}
+        data["action"] = {k: v for k, v in action.items() if k != "_id"} if action else None
+        out.append(data)
+    return out
+
+
+@api.get("/moderation/priority")
+async def priority_reports(user: dict = Depends(current_user)):
+    """Priority safety queue (CSAM / illegal / self-harm / violence) for global moderators."""
+    if not user.get("is_moderator"):
+        raise HTTPException(403, "Not a moderator")
+    reports = await db.reports.find(
+        {"status": "open", "priority": True}
+    ).sort("created_at", -1).to_list(200)
+    return [await enrich_report(r) for r in reports]
 
 
 @api.get("/moderation/reports")
@@ -1528,6 +1717,101 @@ async def serve_file(path: str):
         logger.error(f"serve failed: {e}")
         raise HTTPException(404, "File not found")
     return Response(content=content, media_type=ctype, headers={"Cache-Control": "public, max-age=31536000"})
+
+
+# ----------------------- Compliance: legal, blocking, data rights ----------
+@api.get("/legal")
+async def legal_versions():
+    """Current Terms/Privacy versions so consent can be tracked server-side."""
+    return LEGAL_VERSIONS
+
+
+@api.post("/users/{target_id}/block")
+async def block_user(target_id: str, user: dict = Depends(current_user)):
+    if target_id == user["id"]:
+        raise HTTPException(400, "You can't block yourself")
+    if not await db.users.find_one({"id": target_id}):
+        raise HTTPException(404, "User not found")
+    await db.blocks.update_one(
+        {"blocker_id": user["id"], "blocked_id": target_id},
+        {"$setOnInsert": {"id": new_id(), "blocker_id": user["id"], "blocked_id": target_id, "created_at": now_iso()}},
+        upsert=True,
+    )
+    return {"ok": True}
+
+
+@api.post("/users/{target_id}/unblock")
+async def unblock_user(target_id: str, user: dict = Depends(current_user)):
+    await db.blocks.delete_one({"blocker_id": user["id"], "blocked_id": target_id})
+    return {"ok": True}
+
+
+@api.get("/users/me/blocks")
+async def my_blocks(user: dict = Depends(current_user)):
+    blocks = await db.blocks.find({"blocker_id": user["id"]}).to_list(500)
+    out = []
+    for b in blocks:
+        u = await db.users.find_one({"id": b["blocked_id"]})
+        if u:
+            out.append({"id": u["id"], "name": u.get("name", ""), "avatar_url": u.get("avatar_url")})
+    return out
+
+
+@api.get("/users/me/export")
+async def export_my_data(user: dict = Depends(current_user)):
+    """Data portability (GDPR Art.20 / DPDP / LGPD): all of the user's own data."""
+    uid = user["id"]
+    posts = await db.posts.find({"author_id": uid}).to_list(2000)
+    comments = await db.comments.find({"author_id": uid}).to_list(2000)
+    messages = await db.messages.find({"author_id": uid}).to_list(5000)
+    memberships = await db.memberships.find({"user_id": uid}).to_list(2000)
+    transactions = await db.transactions.find({"user_id": uid}).to_list(2000)
+    gifts = await db.gifts.find({"sender_id": uid}).to_list(2000)
+    consents = await db.consents.find({"user_id": uid}).to_list(100)
+
+    def clean(rows):
+        return [{k: v for k, v in r.items() if k != "_id"} for r in rows]
+
+    return {
+        "exported_at": now_iso(),
+        "profile": private_user(user),
+        "posts": clean(posts),
+        "comments": clean(comments),
+        "messages": clean(messages),
+        "memberships": clean(memberships),
+        "transactions": clean(transactions),
+        "gifts_sent": clean(gifts),
+        "consents": clean(consents),
+    }
+
+
+@api.delete("/users/me")
+async def delete_my_account(user: dict = Depends(current_user)):
+    """Right to erasure: hard-delete the account and the user's personal content."""
+    uid = user["id"]
+    # Owners must transfer/leave circles they own first (keeps communities intact).
+    owned = await db.circles.count_documents({"owner_id": uid})
+    if owned:
+        raise HTTPException(
+            400,
+            "Transfer or delete the circles you own before deleting your account",
+        )
+    await db.posts.delete_many({"author_id": uid})
+    await db.comments.delete_many({"author_id": uid})
+    await db.messages.delete_many({"author_id": uid})
+    await db.likes.delete_many({"user_id": uid})
+    await db.memberships.delete_many({"user_id": uid})
+    await db.event_rsvps.delete_many({"user_id": uid})
+    await db.room_participants.delete_many({"user_id": uid})
+    await db.typing.delete_many({"user_id": uid})
+    await db.conversation_reads.delete_many({"user_id": uid})
+    await db.blocks.delete_many({"$or": [{"blocker_id": uid}, {"blocked_id": uid}]})
+    await db.conversations.delete_many({"type": "direct", "members": uid})
+    await db.uploads.delete_many({"owner_id": uid})
+    await db.reports.delete_many({"reporter_id": uid})
+    await db.consents.delete_many({"user_id": uid})
+    await db.users.delete_one({"id": uid})
+    return {"ok": True}
 
 
 app.include_router(api)

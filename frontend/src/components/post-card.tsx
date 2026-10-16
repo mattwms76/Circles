@@ -6,12 +6,13 @@ import { useRouter } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { makeStyles, radius, spacing, useTheme } from "@/src/theme";
-import { mediaUrl, apiDelete, apiPost } from "@/src/api/client";
+import { mediaUrl, apiDelete } from "@/src/api/client";
 import { useAuth } from "@/src/auth/auth-context";
 import { useToast } from "@/src/components/toast";
 import { Avatar, Body, Display, Overline } from "@/src/components/ui";
 import { Icon } from "@/src/components/icon";
 import { GiftSheet } from "@/src/components/gift-sheet";
+import { ReportSheet } from "@/src/components/report-sheet";
 import { timeAgo } from "@/src/lib/time";
 
 export type Post = {
@@ -48,6 +49,7 @@ function PostCardComponent({
   const qc = useQueryClient();
   const [gifting, setGifting] = useState(false);
   const [menu, setMenu] = useState(false);
+  const [reporting, setReporting] = useState(false);
   const isMine = user?.id === post.author_id;
   const canRemove = isMine || canModerate || user?.is_moderator;
 
@@ -67,14 +69,9 @@ function PostCardComponent({
     }
   };
 
-  const reportPost = async () => {
+  const reportPost = () => {
     setMenu(false);
-    try {
-      await apiPost("/api/reports", { target_type: "post", target_id: post.id, reason: "Reported from feed" });
-      toast.show("Thanks — a moderator will review this", "success");
-    } catch {
-      toast.show("Could not report", "error");
-    }
+    setReporting(true);
   };
 
   return (
@@ -162,6 +159,8 @@ function PostCardComponent({
         recipientName={post.author_name}
         postId={post.id}
       />
+
+      <ReportSheet visible={reporting} onClose={() => setReporting(false)} targetType="post" targetId={post.id} />
 
       <Modal visible={menu} transparent animationType="fade" onRequestClose={() => setMenu(false)}>
         <Pressable style={styles.menuBackdrop} onPress={() => setMenu(false)} />
