@@ -51,7 +51,14 @@ Rebuild the "Circles" app (github.com/mattwms76/Circles) as a fresh Expo + FastA
 - People tab: 4th circle tab listing members with a one-tap message (direct chat) button; About tab is description-only.
 - Live Rooms seats: raise-hand toggle, host promotes listeners to co-host (max 3 seats) / demotes, role + raised-hand badges on stage. (Real audio still needs Agora + native build.)
 
-## Implemented — Iteration 3 (2026-10-16)
+## Implemented — Iteration 4 (2026-10-16)
+- Moderator Tools: owners/moderators remove posts in their circle; any member can report a post (⋯ menu); circle-scoped report queue (/circle-reports/{id}) with remove/dismiss; deleting a post auto-resolves its reports. (19/19 tests)
+- Reminder Nudges: NudgeWatcher toasts once when an RSVP'd event starts within the hour (dedup in storage), on top of the 24h Home banner.
+- Gift Leaderboard: gifts attributed to their circle; circle People tab shows "Top supporters" (top coin senders).
+
+## Pending — Real Live Audio (Agora) [AWAITING KEYS + NATIVE BUILD]
+- Playbook obtained (react-native-agora 4.x native + agora-rtc-sdk-ng web; FastAPI RTC token endpoint with agora-token-builder).
+- Requires AGORA_APP_ID + AGORA_APP_CERTIFICATE from the user; cannot run in Expo Go/web preview (needs a dev/native build). The raise-hand/co-host stage is already built and will attach to Agora audio once keys are provided and a build is generated.
 - Circle Roles: owner-only PUT /circles/{id} (edit welcome message / name / description); POST /circles/{id}/members/{uid}/role to name or remove moderators. Pinned welcome banner on Posts tab; owner welcome editor in About; moderator toggle in People tab.
 - Gift On Posts: PostCard gift action (non-own posts) + live-room "cheer host" open a GiftSheet (Heart→Rocket); gifts debit/credit coins, are recorded, and show a gift_count on posts. Self-gifting blocked at the API.
 - Event Reminders: GET /reminders returns RSVP'd events starting within 24h; Home shows a dismissible "Starting soon" banner that opens the circle.

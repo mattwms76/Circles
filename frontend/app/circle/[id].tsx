@@ -53,6 +53,11 @@ export default function CircleDetail() {
     queryFn: () => apiGet<Member[]>(`/api/circles/${id}/members`),
     enabled: tab === "about" || tab === "people",
   });
+  const { data: leaders } = useQuery({
+    queryKey: ["circle-leaderboard", id],
+    queryFn: () => apiGet<{ id: string; name: string; avatar_url: string | null; total: number }[]>(`/api/circles/${id}/leaderboard`),
+    enabled: tab === "people",
+  });
 
   const rsvp = async (ev: CircleEvent) => {
     qc.setQueryData<CircleEvent[]>(["circle-events", id], (old) =>
@@ -194,7 +199,7 @@ export default function CircleDetail() {
                 <EmptyState icon="feather" title="No posts yet" message="Be the first to post in this circle." />
               </View>
             ) : (
-              (posts ?? []).map((p) => <PostCard key={p.id} post={p} onToggleLike={toggleLike} />)
+              (posts ?? []).map((p) => <PostCard key={p.id} post={p} onToggleLike={toggleLike} canModerate={circle.is_owner || circle.my_role === "moderator"} />)
             )}
           </>
         ) : null}
@@ -266,11 +271,45 @@ export default function CircleDetail() {
                 )}
               </View>
             ) : null}
+            {circle.is_owner || circle.my_role === "moderator" ? (
+              <View style={{ gap: spacing.sm }}>
+                <Overline>Moderation</Overline>
+                <Button
+                  testID="review-reports"
+                  small
+                  variant="ghost"
+                  icon="shield"
+                  label="Review reports"
+                  onPress={() => router.push(`/circle-reports/${id}`)}
+                />
+              </View>
+            ) : null}
           </View>
         ) : null}
 
         {tab === "people" ? (
           <View style={{ padding: spacing.lg, gap: spacing.md }}>
+            {leaders && leaders.length > 0 ? (
+              <View style={styles.leaderCard} testID="leaderboard">
+                <Overline>Top supporters</Overline>
+                <View style={styles.leaderRow}>
+                  {leaders.slice(0, 3).map((l, i) => (
+                    <Pressable key={l.id} style={styles.leader} onPress={() => router.push(`/user/${l.id}`)}>
+                      <View>
+                        <Avatar uri={l.avatar_url} name={l.name} size={52} />
+                        <View style={[styles.rankBadge, i === 0 && { backgroundColor: colors.warning }]}>
+                          <Body size={10} weight="medium" color={colors.onSurface} style={{ fontFamily: fonts.textMedium }}>{i + 1}</Body>
+                        </View>
+                      </View>
+                      <Body size={12} weight="medium" color={colors.onSurface} numberOfLines={1} style={{ maxWidth: 70, textAlign: "center", fontFamily: fonts.textMedium }}>
+                        {l.name.split(" ")[0]}
+                      </Body>
+                      <Body size={11} color={colors.brandPrimary}>{l.total} coins</Body>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            ) : null}
             <Overline>{(members ?? []).length} members</Overline>
             {(members ?? []).map((m) => (
               <View key={m.id} style={styles.memberRow} testID={`member-${m.id}`}>
@@ -331,6 +370,22 @@ const useStyles = makeStyles((colors) => ({
   memberInfo: { flexDirection: "row", alignItems: "center", gap: spacing.md, flex: 1 },
   msgBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.brandTertiary, alignItems: "center", justifyContent: "center" },
   roleBtn: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
+  leaderCard: { backgroundColor: colors.surfaceSecondary, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.md },
+  leaderRow: { flexDirection: "row", justifyContent: "space-around" },
+  leader: { alignItems: "center", gap: 4 },
+  rankBadge: {
+    position: "absolute",
+    bottom: -2,
+    right: -2,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: colors.brandTertiary,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: colors.surfaceSecondary,
+  },
   welcome: {
     flexDirection: "row",
     alignItems: "flex-start",

@@ -55,6 +55,12 @@ export default function RoomScreen() {
     refetchInterval: 3500,
   });
 
+  const { data: liveConfig } = useQuery({
+    queryKey: ["live-config"],
+    queryFn: () => apiGet<{ enabled: boolean }>("/api/live/config"),
+    staleTime: 300000,
+  });
+
   useEffect(() => {
     apiPost(`/api/rooms/${id}/join`, {})
       .then(() => qc.invalidateQueries({ queryKey: ["room", id] }))
@@ -137,6 +143,12 @@ export default function RoomScreen() {
         <Body size={12} color={colors.muted} style={{ textAlign: "center", marginBottom: spacing.lg }}>
           {room.is_host ? "Tap a listener to invite them up · " : ""}{room.cohost_count}/3 co-host seats
         </Body>
+        <View style={styles.voiceChip}>
+          <Icon name={liveConfig?.enabled ? "volume-2" : "headphones"} size={13} color={colors.onSurfaceSecondary} />
+          <Body size={11} color={colors.onSurfaceSecondary}>
+            {liveConfig?.enabled ? "Live voice on" : "Voice preview — live audio activates on a native build"}
+          </Body>
+        </View>
         <View style={styles.speakers}>
           {room.participants.map((p) => {
             const isSpeaker = p.role === "host" || p.role === "cohost";
@@ -235,6 +247,18 @@ const useStyles = makeStyles((colors) => ({
   topBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: spacing.lg, paddingVertical: spacing.sm },
   liveBadge: { backgroundColor: colors.error, paddingHorizontal: spacing.md, paddingVertical: 4, borderRadius: radius.pill },
   stage: { paddingHorizontal: spacing.lg, paddingVertical: spacing.lg, borderBottomWidth: 1, borderBottomColor: colors.divider },
+  voiceChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    alignSelf: "center",
+    marginTop: -spacing.sm,
+    marginBottom: spacing.lg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceSecondary,
+  },
   speakers: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: spacing.lg },
   speaker: { alignItems: "center", gap: 4, width: 76 },
   speakerRing: { padding: 3, borderRadius: 36, borderWidth: 2, borderColor: "transparent" },

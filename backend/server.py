@@ -595,14 +595,30 @@ async def toggle_like(post_id: str, user: dict = Depends(current_user)):
     return {"liked": liked, "like_count": like_count}
 
 
+async def is_circle_mod(circle_id: str, uid: str) -> bool:
+    c = await db.circles.find_one({"id": circle_id})
+    if c and c.get("owner_id") == uid:
+        return True
+    m = await db.memberships.find_one({"circle_id": circle_id, "user_id": uid})
+    return bool(m and m.get("role") in ("owner", "moderator"))
+
+
 @api.delete("/posts/{post_id}")
 async def delete_post(post_id: str, user: dict = Depends(current_user)):
     p = await db.posts.find_one({"id": post_id})
     if not p:
         raise HTTPException(404, "Post not found")
-    if p["author_id"] != user["id"] and not user.get("is_moderator"):
+    allowed = p["author_id"] == user["id"] or user.get("is_moderator")
+    if not allowed:
+        allowed = await is_circle_mod(p["circle_id"], user["id"])
+    if not allowed:
         raise HTTPException(403, "Not allowed")
     await db.posts.update_one({"id": post_id}, {"$set": {"deleted": True}})
+    # resolve any open reports on this post
+    await db.reports.update_many(
+        {"target_type": "post", "target_id": post_id, "status": "open"},
+        {"$set": {"status": "resolved"}},
+    )
     return {"ok": True}
 
 
@@ -1064,6 +1080,14 @@ async def send_gift(body: GiftIn, user: dict = Depends(current_user)):
     recipient = await db.users.find_one({"id": body.recipient_id})
     if not recipient:
         raise HTTPException(404, "Recipient not found")
+    # attribute the gift to a circle (from the post or room it was sent on)
+    gift_circle_id = None
+    if body.post_id:
+        gp = await db.posts.find_one({"id": body.post_id})
+        gift_circle_id = gp["circle_id"] if gp else None
+    elif body.room_id:
+        gr = await db.rooms.find_one({"id": body.room_id})
+        gift_circle_id = gr.get("circle_id") if gr else None
     await db.users.update_one({"id": user["id"]}, {"$inc": {"coins": -cost}})
     await db.users.update_one({"id": body.recipient_id}, {"$inc": {"coins": cost}})
     txn = {
@@ -1091,13 +1115,31 @@ async def send_gift(body: GiftIn, user: dict = Depends(current_user)):
             "sender_id": user["id"],
             "recipient_id": body.recipient_id,
             "gift_type": body.gift_type,
+            "cost": cost,
             "post_id": body.post_id,
             "room_id": body.room_id,
+            "circle_id": gift_circle_id,
             "created_at": now_iso(),
         }
     )
     updated = await db.users.find_one({"id": user["id"]})
     return {"balance": updated.get("coins", 0), "gift_type": body.gift_type}
+
+
+@api.get("/circles/{circle_id}/leaderboard")
+async def circle_leaderboard(circle_id: str, user: dict = Depends(current_user)):
+    gifts = await db.gifts.find({"circle_id": circle_id}).to_list(2000)
+    totals: dict = {}
+    for g in gifts:
+        amt = g.get("cost") or GIFT_COSTS.get(g.get("gift_type"), 0)
+        totals[g["sender_id"]] = totals.get(g["sender_id"], 0) + amt
+    ranked = sorted(totals.items(), key=lambda kv: kv[1], reverse=True)[:5]
+    out = []
+    for sender_id, total in ranked:
+        u = await db.users.find_one({"id": sender_id})
+        if u:
+            out.append({"id": u["id"], "name": u["name"], "avatar_url": u.get("avatar_url"), "total": total})
+    return out
 
 
 # ----------------------------- Reminders ----------------------------------
@@ -1131,11 +1173,16 @@ async def reminders(user: dict = Depends(current_user)):
 # ----------------------------- Moderation ----------------------------------
 @api.post("/reports")
 async def create_report(body: ReportIn, user: dict = Depends(current_user)):
+    circle_id = None
+    if body.target_type == "post":
+        p = await db.posts.find_one({"id": body.target_id})
+        circle_id = p["circle_id"] if p else None
     doc = {
         "id": new_id(),
         "reporter_id": user["id"],
         "target_type": body.target_type,
         "target_id": body.target_id,
+        "circle_id": circle_id,
         "reason": body.reason,
         "status": "open",
         "created_at": now_iso(),
@@ -1144,12 +1191,94 @@ async def create_report(body: ReportIn, user: dict = Depends(current_user)):
     return {"ok": True}
 
 
+async def enrich_report(r: dict) -> dict:
+    data = {k: v for k, v in r.items() if k != "_id"}
+    if r.get("target_type") == "post":
+        p = await db.posts.find_one({"id": r["target_id"]})
+        if p:
+            author = await db.users.find_one({"id": p["author_id"]})
+            data["post_text"] = p.get("text", "")
+            data["post_image"] = p.get("image_url")
+            data["post_author"] = author["name"] if author else "Unknown"
+            data["post_deleted"] = bool(p.get("deleted"))
+    return data
+
+
+@api.get("/circles/{circle_id}/reports")
+async def circle_reports(circle_id: str, user: dict = Depends(current_user)):
+    if not await is_circle_mod(circle_id, user["id"]):
+        raise HTTPException(403, "Not a moderator of this circle")
+    reports = await db.reports.find({"circle_id": circle_id, "status": "open"}).sort("created_at", -1).to_list(200)
+    return [await enrich_report(r) for r in reports]
+
+
+@api.post("/reports/{report_id}/resolve")
+async def resolve_report(report_id: str, user: dict = Depends(current_user)):
+    r = await db.reports.find_one({"id": report_id})
+    if not r:
+        raise HTTPException(404, "Report not found")
+    is_mod = user.get("is_moderator") or (r.get("circle_id") and await is_circle_mod(r["circle_id"], user["id"]))
+    if not is_mod:
+        raise HTTPException(403, "Not allowed")
+    await db.reports.update_one({"id": report_id}, {"$set": {"status": "resolved"}})
+    return {"ok": True}
+
+
 @api.get("/moderation/reports")
 async def list_reports(user: dict = Depends(current_user)):
     if not user.get("is_moderator"):
         raise HTTPException(403, "Not a moderator")
     reports = await db.reports.find({"status": "open"}).sort("created_at", -1).to_list(200)
-    return [{k: v for k, v in r.items() if k != "_id"} for r in reports]
+    return [await enrich_report(r) for r in reports]
+
+
+# ------------------------------ Live Audio (Agora) -------------------------
+import time as _time
+from agora_token_builder import RtcTokenBuilder
+
+AGORA_APP_ID = os.environ.get("AGORA_APP_ID", "").strip()
+AGORA_APP_CERTIFICATE = os.environ.get("AGORA_APP_CERTIFICATE", "").strip()
+AGORA_ROLE_PUBLISHER = 1
+AGORA_ROLE_SUBSCRIBER = 2
+RTC_TTL = 3600
+
+
+class RtcTokenReq(BaseModel):
+    uid: int = Field(gt=0, lt=2_000_000_000)
+
+
+@api.get("/live/config")
+async def live_config(user: dict = Depends(current_user)):
+    # Lets the client know whether real audio is available.
+    return {"enabled": bool(AGORA_APP_ID and AGORA_APP_CERTIFICATE), "app_id": AGORA_APP_ID}
+
+
+@api.post("/rooms/{room_id}/rtc-token")
+async def rtc_token(room_id: str, body: RtcTokenReq, user: dict = Depends(current_user)):
+    if not (AGORA_APP_ID and AGORA_APP_CERTIFICATE):
+        raise HTTPException(503, "Live audio is not configured")
+    room = await db.rooms.find_one({"id": room_id})
+    if not room:
+        raise HTTPException(404, "Room not found")
+    part = await db.room_participants.find_one({"room_id": room_id, "user_id": user["id"]})
+    if not part:
+        raise HTTPException(403, "Join the room first")
+    # Role is derived from server-side membership, never trusted from the client.
+    can_speak = part.get("role") in ("host", "cohost")
+    agora_role = AGORA_ROLE_PUBLISHER if can_speak else AGORA_ROLE_SUBSCRIBER
+    channel = f"room_{room_id}"
+    expire_ts = int(_time.time()) + RTC_TTL
+    token = RtcTokenBuilder.buildTokenWithUid(
+        AGORA_APP_ID, AGORA_APP_CERTIFICATE, channel, body.uid, agora_role, expire_ts
+    )
+    return {
+        "appId": AGORA_APP_ID,
+        "channel": channel,
+        "uid": body.uid,
+        "token": token,
+        "canSpeak": can_speak,
+        "expiresIn": RTC_TTL,
+    }
 
 
 # ------------------------------ Uploads ------------------------------------

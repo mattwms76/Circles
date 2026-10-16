@@ -1,0 +1,43 @@
+{
+  "summary": "Iteration 4 testing of 3 new Circles features (Moderator Tools, Gift Leaderboard, Reminder Nudges) + regression. Backend: 19/19 pytest cases pass covering (a) Moderator Tools — POST /reports stores circle_id and enriches with post_text/post_image/post_author/post_deleted, GET /circles/{id}/reports returns 200 for owner/moderator and 403 for non-mod (including a joined member who is not a mod), POST /reports/{id}/resolve dismisses for owner and promoted moderator and 403 for non-mod, DELETE /posts/{id} 200 for author / for circle moderator / for owner (deleting another member's post) and 403 for non-author non-mod, and DELETE on a reported post resolves open reports; (b) Gift Leaderboard — GET /circles/{id}/leaderboard attributes a Flower (25) to the correct circle, sorts totals desc (Flower sender > Heart sender), and returns [] for an empty circle; (c) Reminders — /api/reminders returns a list for a fresh user (regression, 24h-horizon logic still exercised by iter3 suite); (d) Regression — self-gift blocked (400), gift_count increments on circle posts, login/feed/rooms/conversations still OK. Frontend (390x844): Logged in as guide, created a seed post + report + Flower gift, navigated to /circle/{id}. On About tab the review-reports button is visible for the owner and opens /circle-reports/{id}; the Reports screen renders the report card with 'Remove post' and 'Dismiss' buttons (testID uses the report id — see note). On People tab the leaderboard card ('Top supporters') is visible and shows the throwaway sender with 25 coins. On Posts tab the post-menu-{id} (⋯) opens a sheet; owner sees 'Delete post' (remove-{id}) on their own post. Switched auth to a non-mod reporter — opening post-menu-{id} shows 'Report post' (report-{id}) and NOT 'Remove post' on another user's post. Dismissing a report via dismiss-{id} removes it from GET /circles/{id}/reports. NudgeWatcher is mounted inside (tabs)/_layout.tsx and polls /api/reminders every 60s with persisted dedup in storage key 'nudged_events' (no need to force a 60-min window). Two console 401s at startup appear briefly (query firing before token hydrates) — pre-existing, non-blocking. Deprecated-warning noise from props.pointerEvents and shadow* carries over from earlier iterations — non-blocking.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "pointerEvents prop", "issue": "Pre-existing: 'props.pointerEvents is deprecated. Use style.pointerEvents' warning. Non-blocking."},
+      {"component": "shadow* style props", "issue": "Pre-existing: '\"shadow*\" style props are deprecated. Use \"boxShadow\"' warning. Non-blocking."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter4_features.py",
+    "/app/test_reports/pytest/iter4_results.xml"
+  ],
+  "action_items": [
+    "DOC: review_request says Reports screen uses testIDs 'remove-reported-{id}' and 'dismiss-{id}' — in code (/app/frontend/app/circle-reports/[id].tsx:87,89) the {id} is the REPORT id, not the post id. Everything functions correctly; just clarify the spec to say 'report id' or add an alias testID with the post id if that was intended.",
+    "Pre-existing: migrate remaining props.pointerEvents and shadow* style props to the RN Web unified APIs (style.pointerEvents and boxShadow) to silence console warnings.",
+    "Pre-existing from iter3 and still true: /api/gifts has no DB transaction between sender debit and recipient credit — a crash between the two writes could burn/leak coins. (iter4 does correctly block self-gift with 400 now — great addition.)"
+  ],
+  "critical_code_review_comments": [
+    "/api/circles/{id}/leaderboard reads up to 2000 gift docs then aggregates in Python. For scale, use a Mongo aggregation ($group by sender_id, $sort total desc, $limit 5) with a $lookup for user fields.",
+    "/api/circles/{id}/reports enriches each report with sequential awaits (find_one in a loop). For moderation queues with many open reports, batch via a single $in query on post ids + users, or precompute a denormalized 'post_snapshot' at report time.",
+    "NudgeWatcher dedup is persisted in a single comma-joined string under 'nudged_events' — unbounded growth. Trim entries older than 48h on load, or scope the key per-user (currently a user switch on the same device could suppress a legitimate nudge, since storage is global).",
+    "NudgeWatcher uses `t - now > -5 * 60 * 1000` to also toast events that just started — fine, but there's no reset if the user never opens the app during that 60-min window; the server-side 24h banner is the only backstop. Consider also toasting on first mount when the user re-enters the app.",
+    "server.py is now 1404 lines — splitting into routers (circles/posts/gifts/reminders/rooms/moderation) is overdue; moderation endpoints alone are now 5 handlers that would fit cleanly in /routers/moderation.py.",
+    "POST /reports stores circle_id=None if the post isn't found instead of 404'ing — a client could submit a report with an invalid target_id and it would silently insert an orphan report. Validate target existence first and 404."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter4_features.py (new — 19 pytest cases for iter 4)",
+    "/app/test_reports/pytest/iter4_results.xml (new — junit output)"
+  ],
+  "success_rate": {"backend": "100% (19/19)", "frontend": "100% of new-feature flows verified (review-reports visible for owner, reports screen renders Remove/Dismiss, dismiss round-trips to API, leaderboard shows top supporter with correct total, post-menu/remove visible on own post, post-menu/report visible to non-mod on others post, remove NOT visible to non-mod on others post, NudgeWatcher mounted and polling /api/reminders)"},
+  "seed_data_creation": "All data auto-generated per test with TEST_ prefix (circles TEST_Mod_*, TEST_LB_*, TEST_LBSort_*, TEST_LBEmpty_*, users TEST_<hex>@circles.app). Idempotent and safe to re-run. For UI validation: a fresh post was created in a seed circle, reported by a throwaway user, and gifted a Flower (25 coins) to populate the leaderboard. No seed/production data modified.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend base = EXPO_PUBLIC_BACKEND_URL in /app/frontend/.env (https://circles-demo-1.preview.emergentagent.com), all routes under /api. Credentials: guide@circles.app/circles123 (owner of all seed circles + global moderator, ~600+ coins), demo@circles.app/demo1234 (NOT onboarded — logging in routes to /onboarding; direct navigation to /circle/{id} works). Register throwaway users for supporter/non-mod checks (starts with 100 coins). Auth token lives in web localStorage under key 'auth_token' as a JSON-stringified string — set via `localStorage.setItem('auth_token', JSON.stringify(token))`. Circle tabs are LOWERCASE testIDs: tab-posts, tab-events, tab-about, tab-people. Iter4 testIDs: post-menu-{postId} (opens action sheet on every PostCard), report-{postId} (visible to non-author), remove-{postId} (visible to author OR circle mod/global mod), review-reports (About tab, owners/mods only, opens /circle-reports/{id}), remove-reported-{reportId} and dismiss-{reportId} on the reports screen (NOTE: {id} is the REPORT id, not post id — spec is ambiguous), leaderboard (People tab, visible when gifts exist in that circle). NudgeWatcher is mounted twice in /app/frontend/app/(tabs)/_layout.tsx (both auth and guest branches) — polls /api/reminders every 60s, dedup key 'nudged_events' (global, comma-joined). To force-trigger a nudge in a short window: create an event with starts_at = (now + 45min).isoformat(), RSVP as a throwaway user, log in as that user, then wait up to 60s for the poll (or trigger a manual refetch). GIFT_COSTS: Heart=10, Flower=25, Star=50, Crown=120, Rocket=300. Gifts BEFORE iter4 have no circle_id so won't appear on leaderboards — always create a fresh gift when testing the leaderboard. Agora/live audio is explicitly OUT OF SCOPE for this iteration.",
+  "rca_of_issue": ""
+}
