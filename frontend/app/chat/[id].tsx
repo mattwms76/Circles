@@ -40,6 +40,22 @@ export default function Chat() {
     refetchInterval: 4000,
   });
 
+  const { data: typing } = useQuery({
+    queryKey: ["typing", id],
+    queryFn: () => apiGet<{ names: string[] }>(`/api/conversations/${id}/typing`),
+    refetchInterval: 3000,
+  });
+
+  const lastTypingSent = useRef(0);
+  const onChangeText = (t: string) => {
+    setText(t);
+    const now = Date.now();
+    if (now - lastTypingSent.current > 3000) {
+      lastTypingSent.current = now;
+      apiPost(`/api/conversations/${id}/typing`, {}).catch(() => {});
+    }
+  };
+
   const send = async () => {
     if (!text.trim()) return;
     const body = text.trim();
@@ -94,11 +110,18 @@ export default function Chat() {
       )}
 
       <KeyboardStickyView offset={{ closed: 0, opened: insets.bottom }}>
+        {typing && typing.names.length > 0 ? (
+          <View style={styles.typingRow}>
+            <Body size={12} color={colors.muted}>
+              {typing.names.length === 1 ? `${typing.names[0]} is typing…` : "Several people are typing…"}
+            </Body>
+          </View>
+        ) : null}
         <View style={styles.composer}>
           <TextInput
             testID="chat-input"
             value={text}
-            onChangeText={setText}
+            onChangeText={onChangeText}
             placeholder="Message…"
             placeholderTextColor={colors.muted}
             style={styles.input}
@@ -132,6 +155,7 @@ const useStyles = makeStyles((colors) => ({
     borderTopColor: colors.divider,
     backgroundColor: colors.surface,
   },
+  typingRow: { paddingHorizontal: spacing.lg, paddingTop: spacing.xs, backgroundColor: colors.surface },
   input: {
     flex: 1,
     maxHeight: 120,

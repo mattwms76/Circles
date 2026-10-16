@@ -44,6 +44,13 @@ Rebuild the "Circles" app (github.com/mattwms76/Circles) as a fresh Expo + FastA
 - Profile: edit name/bio/avatar, wallet + my-circles + moderation shortcuts, sign out.
 - Design: full warm-editorial theme, Lora/DM Sans fonts, Feather icons, light + dark, toasts.
 
+## Implemented — Iteration 2 (2026-10-16) — 17/17 new backend tests pass
+- Unread: per-conversation unread counts, total-unread endpoint, read-on-open, inbox count badges + bold snippets, Messages tab numeric badge.
+- Typing: 6s TTL typing flag per conversation; chat shows "X is typing…".
+- Events & RSVP: host schedules events (title/description/datetime picker), members RSVP/un-RSVP, "N going" counts.
+- People tab: 4th circle tab listing members with a one-tap message (direct chat) button; About tab is description-only.
+- Live Rooms seats: raise-hand toggle, host promotes listeners to co-host (max 3 seats) / demotes, role + raised-hand badges on stage. (Real audio still needs Agora + native build.)
+
 ## Backlog / Remaining
 - P1: Real-time via websockets (currently polling); unread counts on inbox; chat header avatar.
 - P1: Circle events creation UI (backend ready); RSVP.

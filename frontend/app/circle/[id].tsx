@@ -11,12 +11,13 @@ import type { Circle } from "@/src/components/circle-card";
 import { PostCard, type Post } from "@/src/components/post-card";
 import { Avatar, Body, Button, Display, EmptyState, Loading, Overline } from "@/src/components/ui";
 import { Icon } from "@/src/components/icon";
+import { EventComposer } from "@/src/components/event-composer";
 import { useToast } from "@/src/components/toast";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
 import { formatDateTime } from "@/src/lib/time";
 
-type TabKey = "posts" | "events" | "about";
-type CircleEvent = { id: string; title: string; description: string; starts_at: string; host_name: string };
+type TabKey = "posts" | "events" | "about" | "people";
+type CircleEvent = { id: string; title: string; description: string; starts_at: string; host_name: string; rsvp_count: number; going: boolean };
 type Member = { id: string; name: string; avatar_url: string | null; role: string };
 
 export default function CircleDetail() {
@@ -29,6 +30,7 @@ export default function CircleDetail() {
   const qc = useQueryClient();
 
   const [tab, setTab] = useState<TabKey>("posts");
+  const [eventModal, setEventModal] = useState(false);
 
   const { data: circle, isLoading } = useQuery({
     queryKey: ["circle", id],
@@ -47,8 +49,24 @@ export default function CircleDetail() {
   const { data: members } = useQuery({
     queryKey: ["circle-members", id],
     queryFn: () => apiGet<Member[]>(`/api/circles/${id}/members`),
-    enabled: tab === "about",
+    enabled: tab === "about" || tab === "people",
   });
+
+  const rsvp = async (ev: CircleEvent) => {
+    qc.setQueryData<CircleEvent[]>(["circle-events", id], (old) =>
+      (old ?? []).map((e) => (e.id === ev.id ? { ...e, going: !e.going, rsvp_count: e.rsvp_count + (e.going ? -1 : 1) } : e)),
+    );
+    await apiPost(`/api/events/${ev.id}/rsvp`, {}).catch(() => {});
+  };
+
+  const messageMember = async (m: Member) => {
+    try {
+      const conv = await apiPost<{ id: string }>("/api/conversations/direct", { user_id: m.id });
+      router.push(`/chat/${conv.id}?title=${encodeURIComponent(m.name)}`);
+    } catch {
+      toast.show("Could not open chat", "error");
+    }
+  };
 
   const toggleJoin = async () => {
     if (!circle) return;
@@ -123,7 +141,7 @@ export default function CircleDetail() {
         </View>
 
         <View style={styles.tabs}>
-          {(["posts", "events", "about"] as TabKey[]).map((t) => (
+          {(["posts", "events", "about", "people"] as TabKey[]).map((t) => (
             <Pressable key={t} testID={`tab-${t}`} style={styles.tab} onPress={() => setTab(t)}>
               <Body size={14} weight="medium" color={tab === t ? colors.onSurface : colors.muted} style={{ fontFamily: fonts.textMedium }}>
                 {t[0].toUpperCase() + t.slice(1)}
@@ -144,45 +162,66 @@ export default function CircleDetail() {
         ) : null}
 
         {tab === "events" ? (
-          (events ?? []).length === 0 ? (
-            <View style={{ marginTop: spacing["2xl"] }}>
-              <EmptyState icon="calendar" title="No events scheduled" message="Events hosted in this circle will show up here." />
-            </View>
-          ) : (
-            <View style={{ padding: spacing.lg, gap: spacing.md }}>
-              {(events ?? []).map((e) => (
+          <View style={{ padding: spacing.lg, gap: spacing.md }}>
+            {circle.is_member ? (
+              <Button testID="schedule-event" label="Schedule an event" icon="calendar" variant="secondary" onPress={() => setEventModal(true)} />
+            ) : null}
+            {(events ?? []).length === 0 ? (
+              <View style={{ marginTop: spacing.xl }}>
+                <EmptyState icon="calendar" title="No events scheduled" message="Events hosted in this circle will show up here." />
+              </View>
+            ) : (
+              (events ?? []).map((e) => (
                 <View key={e.id} style={styles.eventCard} testID={`event-${e.id}`}>
                   <Overline>{formatDateTime(e.starts_at)}</Overline>
                   <Display size={18} weight="medium">{e.title}</Display>
                   {e.description ? <Body size={14} color={colors.onSurfaceSecondary}>{e.description}</Body> : null}
-                  <Body size={12} color={colors.muted}>Hosted by {e.host_name}</Body>
+                  <View style={styles.eventFooter}>
+                    <Body size={12} color={colors.muted}>{e.rsvp_count} going · {e.host_name}</Body>
+                    <Button
+                      testID={`rsvp-${e.id}`}
+                      small
+                      label={e.going ? "Going" : "RSVP"}
+                      icon={e.going ? "check" : "plus"}
+                      variant={e.going ? "secondary" : "primary"}
+                      onPress={() => rsvp(e)}
+                    />
+                  </View>
                 </View>
-              ))}
-            </View>
-          )
+              ))
+            )}
+          </View>
         ) : null}
 
         {tab === "about" ? (
-          <View style={{ padding: spacing.lg, gap: spacing.lg }}>
-            <View style={{ gap: spacing.sm }}>
-              <Overline>About</Overline>
-              <Body size={15} color={colors.onSurfaceSecondary} style={{ lineHeight: 24 }}>{circle.description}</Body>
-            </View>
-            <View style={{ gap: spacing.md }}>
-              <Overline>Members</Overline>
-              {(members ?? []).map((m) => (
-                <Pressable key={m.id} style={styles.memberRow} onPress={() => router.push(`/user/${m.id}`)} testID={`member-${m.id}`}>
-                  <Avatar uri={m.avatar_url} name={m.name} size={40} />
+          <View style={{ padding: spacing.lg, gap: spacing.sm }}>
+            <Overline>About</Overline>
+            <Body size={15} color={colors.onSurfaceSecondary} style={{ lineHeight: 24 }}>{circle.description}</Body>
+          </View>
+        ) : null}
+
+        {tab === "people" ? (
+          <View style={{ padding: spacing.lg, gap: spacing.md }}>
+            <Overline>{(members ?? []).length} members</Overline>
+            {(members ?? []).map((m) => (
+              <View key={m.id} style={styles.memberRow} testID={`member-${m.id}`}>
+                <Pressable style={styles.memberInfo} onPress={() => router.push(`/user/${m.id}`)}>
+                  <Avatar uri={m.avatar_url} name={m.name} size={44} />
                   <View style={{ flex: 1 }}>
-                    <Body size={14} weight="medium" color={colors.onSurface} style={{ fontFamily: fonts.textMedium }}>{m.name}</Body>
+                    <Body size={15} weight="medium" color={colors.onSurface} style={{ fontFamily: fonts.textMedium }}>{m.name}</Body>
                     {m.role !== "member" ? <Body size={12} color={colors.brandPrimary}>{m.role}</Body> : null}
                   </View>
                 </Pressable>
-              ))}
-            </View>
+                <Pressable testID={`message-${m.id}`} style={styles.msgBtn} onPress={() => messageMember(m)}>
+                  <Icon name="message-circle" size={18} color={colors.brandPrimary} />
+                </Pressable>
+              </View>
+            ))}
           </View>
         ) : null}
       </ScrollView>
+
+      <EventComposer circleId={id!} visible={eventModal} onClose={() => setEventModal(false)} />
     </View>
   );
 }
@@ -209,5 +248,8 @@ const useStyles = makeStyles((colors) => ({
   tab: { paddingVertical: spacing.md, marginRight: spacing.xl, alignItems: "center" },
   tabUnderline: { position: "absolute", bottom: -1, height: 2, left: 0, right: 0, backgroundColor: colors.brandPrimary },
   eventCard: { backgroundColor: colors.surfaceSecondary, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.xs },
+  eventFooter: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: spacing.sm },
   memberRow: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  memberInfo: { flexDirection: "row", alignItems: "center", gap: spacing.md, flex: 1 },
+  msgBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.brandTertiary, alignItems: "center", justifyContent: "center" },
 }));

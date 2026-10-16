@@ -48,7 +48,8 @@
         {
           "photosPermission": "Share photos in your circles and posts"
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": true

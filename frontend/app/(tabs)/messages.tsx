@@ -9,7 +9,7 @@ import { Avatar, Body, Display, EmptyState, Loading } from "@/src/components/ui"
 import { ScreenHeader } from "@/src/components/header";
 import { Icon } from "@/src/components/icon";
 import { usesNativeTabs } from "@/src/navigation";
-import { makeStyles, spacing, useTheme } from "@/src/theme";
+import { makeStyles, spacing, useTheme, fonts } from "@/src/theme";
 import { timeAgo } from "@/src/lib/time";
 
 type Conversation = {
@@ -19,6 +19,7 @@ type Conversation = {
   avatar: string | null;
   last_message: string;
   last_at: string | null;
+  unread: number;
 };
 
 export default function Messages() {
@@ -61,11 +62,20 @@ export default function Messages() {
                   <Display size={16} weight="medium" numberOfLines={1} style={{ flex: 1 }}>
                     {item.title}
                   </Display>
-                  <Body size={12} color={colors.muted}>{timeAgo(item.last_at)}</Body>
+                  <Body size={12} color={item.unread > 0 ? colors.brandPrimary : colors.muted}>{timeAgo(item.last_at)}</Body>
                 </View>
-                <Body size={13} color={colors.muted} numberOfLines={1}>
-                  {item.last_message || "No messages yet"}
-                </Body>
+                <View style={styles.snippetRow}>
+                  <Body size={13} weight={item.unread > 0 ? "medium" : "regular"} color={item.unread > 0 ? colors.onSurface : colors.muted} numberOfLines={1} style={{ flex: 1 }}>
+                    {item.last_message || "No messages yet"}
+                  </Body>
+                  {item.unread > 0 ? (
+                    <View style={styles.unreadDot} testID={`unread-${item.id}`}>
+                      <Body size={11} weight="medium" color={colors.onBrandPrimary} style={{ fontFamily: fonts.textMedium }}>
+                        {item.unread}
+                      </Body>
+                    </View>
+                  ) : null}
+                </View>
               </View>
             </Pressable>
           )}
@@ -112,4 +122,14 @@ const useStyles = makeStyles((colors) => ({
     borderColor: colors.surface,
   },
   rowTop: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginBottom: 2 },
+  snippetRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  unreadDot: {
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    backgroundColor: colors.brandPrimary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
 }));

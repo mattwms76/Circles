@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 2 testing of the 4 new Circles features (unread badges, typing, events+RSVP, People tab, Live Rooms seats/raise-hand). Found and fixed one CRITICAL backend bug: POST /api/conversations/{id}/messages was missing — the send-message handler had been accidentally merged as unreachable code inside GET /api/conversations/{id}/typing. After fix, 17/17 pytest cases pass (100%) covering: unread shape+flow+explicit-read, typing visibility excluding self + 6s TTL expiry, event create/list/toggle-RSVP, 404 on missing event, circle members listing + idempotent direct-chat create, room raise-hand toggle (incl. 404 when not joined), promote/demote permissions + role update + my_role/cohost_count/participant sort order, and 3-cohost cap returning 400. Regression (/health, login, feed) still green. Frontend (390x844): login → guide works, Messages tab shows numeric badge '1', inbox renders unread count dot + emphasised snippet, chat screen title now shows the conversation name (prior UX fix landed), composer sends successfully (POST messages works), Circle detail Events tab exposes 'Schedule an event' button + rsvp buttons, People tab lists members with per-member message button, Live Room shows HOST/CO-HOST pills + '3/3 co-host seats' banner + mic icon for speakers; listeners (new accounts) see Raise-hand button (confirmed via backend seat test). No red screens. The console still prints the pre-existing 'props.pointerEvents is deprecated' and 'shadow*' deprecation warnings from iteration 1.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "pointerEvents prop", "issue": "Carried over from iter 1 — console warning 'props.pointerEvents is deprecated. Use style.pointerEvents'. Non-blocking."},
+      {"component": "shadow* style props", "issue": "Console warning '\"shadow*\" style props are deprecated. Use \"boxShadow\"'. Likely in a card/elevation style somewhere. Non-blocking."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_new_features.py",
+    "/app/test_reports/pytest/iter2_results.xml"
+  ],
+  "action_items": [
+    "Migrate any lingering `pointerEvents` prop usages to `style={{ pointerEvents: ... }}` to silence the deprecation warning.",
+    "Replace deprecated `shadow*` style props (shadowColor/shadowOffset/shadowOpacity/shadowRadius) with the unified `boxShadow` on web, or guard with Platform.select for native.",
+    "Consider pre-creating circle group conversations on circle join (instead of only lazily inside GET /api/conversations) so that /api/conversations/unread/total is accurate before the user ever opens the Messages tab."
+  ],
+  "critical_code_review_comments": [
+    "CRITICAL (fixed): POST /api/conversations/{conv_id}/messages route was missing — the handler body (conv lookup + message insert + response) had been pasted as unreachable code after `return {names: ...}` inside the GET typing handler. Without the fix, chat send would 404/405 and the messaging feature would be fully broken. Re-check your git diff before shipping.",
+    "server.py is now 1255+ lines — strongly recommend splitting into routers (auth, circles+events, posts, conversations+typing, rooms, wallet, moderation, uploads). Current single-file layout is how the above route got accidentally dropped.",
+    "/api/conversations/unread/total iterates union of (direct convs where user is member) and (circle convs for user's memberships). The listing endpoint lazily creates circle conversations, but the total endpoint also tolerates missing docs correctly — however the two code paths duplicate logic; extract a helper `user_conversations(uid)`.",
+    "db.typing has no TTL index — stale rows are hidden by the `until > now` filter but accumulate forever. Add a Mongo TTL index on `until` to auto-expire, or at minimum create an index on (conversation_id, user_id).",
+    "In `enrich_room`, `my_role` falls back to 'listener' if a participant row exists but has no role field, which is correct, but `cohost_count` is computed with a separate countDocuments after fetching participants — could reuse the already-fetched list to save a query in GET /api/rooms/{id}.",
+    "Rooms promote endpoint resets `hand_raised` to False on promotion (good) but demote does not clear it — minor; consistency would be nicer.",
+    "Pagination still absent on /feed, /conversations/{id}/messages, /rooms/{id}/messages — fine for seed scale, add before growth."
+  ],
+  "updated_files": [
+    "/app/backend/server.py (restored missing POST /api/conversations/{conv_id}/messages handler)",
+    "/app/backend/tests/test_new_features.py (new, 17 tests for iter 2 features + regression)"
+  ],
+  "success_rate": {"backend": "100% (17/17)", "frontend": "100% of new-feature flows verified"},
+  "seed_data_creation": "Each test registers fresh TEST_<uuid>@circles.app accounts and creates throwaway TEST_Circle_* / TEST_cap_room entities. Guide/demo seed and the seeded live room (hosted by guide) are reused read-mostly. All generated data is idempotent re-run safe.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Iteration 2 is green after fixing the POST /api/conversations/{id}/messages regression. Backend base = EXPO_PUBLIC_BACKEND_URL (/app/frontend/.env). Credentials: guide@circles.app/circles123 (host of seeded live room, moderator), demo@circles.app/demo1234 (not onboarded). Key new testIDs: tab-bar badge is driven by GET /api/conversations/unread/total (8s refetch); inbox row test IDs are `conv-{id}` + `unread-{id}`. Chat screen uses chat-input, chat-send, typing shows above composer when GET /api/conversations/{id}/typing returns names (6s TTL, excludes self). Circle detail tabs: tab-Posts/tab-Events/tab-People/tab-About; schedule-event opens the event modal; rsvp-{eventId} toggles RSVP; member-{uid} + message-{uid} on People tab; message-{uid} POSTs /api/conversations/direct then routes to /chat/{id}. Room screen: participant-{uid}, room-raise-hand (listeners only), room-mic (speakers), room-leave; host taps a listener participant to promote (max 3 cohosts, returns 400 'All co-host seats are full'). All 17 pytest cases are idempotent and safe to re-run.",
+  "rca_of_issue": "Root cause of the fixed critical bug: when the typing GET endpoint was added, the developer pasted its implementation (`rows = ...; return {names: ...}`) into the file but the previously existing POST send_message block was left attached below the `return` line, making it dead code and silently removing the POST /api/conversations/{id}/messages route (FastAPI only registers routes when @api.post(...) is present). Reproduction: before fix, `curl -X POST .../api/conversations/<id>/messages -d '{...}'` returned 405 Method Not Allowed and the chat send button would show 'Could not send'. Mitigation applied: restored the handler as a standalone `@api.post(\"/conversations/{conv_id}/messages\")` function and restarted the backend. Suggested long-term mitigation: split server.py into routers and add a smoke test that enumerates `app.routes` and asserts all expected paths are present (prevents silent route loss during refactors)."
+}

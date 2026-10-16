@@ -11,7 +11,7 @@ import { Icon } from "@/src/components/icon";
 import { useToast } from "@/src/components/toast";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
-type Participant = { id: string; name: string; avatar_url: string | null; role: string };
+type Participant = { id: string; name: string; avatar_url: string | null; role: string; hand_raised: boolean };
 type Room = {
   id: string;
   title: string;
@@ -20,6 +20,9 @@ type Room = {
   is_host: boolean;
   joined: boolean;
   participant_count: number;
+  my_role: string | null;
+  my_hand_raised: boolean;
+  cohost_count: number;
   participants: Participant[];
 };
 type RoomMsg = { id: string; text: string; author_name: string; author_avatar: string | null; mine: boolean };
@@ -78,6 +81,32 @@ export default function RoomScreen() {
     }
   };
 
+  const toggleHand = async () => {
+    try {
+      const res = await apiPost<{ hand_raised: boolean }>(`/api/rooms/${id}/raise_hand`, {});
+      qc.invalidateQueries({ queryKey: ["room", id] });
+      toast.show(res.hand_raised ? "Hand raised ✋" : "Hand lowered", "info");
+    } catch {
+      toast.show("Could not raise hand", "error");
+    }
+  };
+
+  const tapParticipant = async (p: Participant) => {
+    if (!room?.is_host || p.role === "host") return;
+    try {
+      if (p.role === "listener") {
+        await apiPost(`/api/rooms/${id}/participants/${p.id}/promote`, {});
+        toast.show(`${p.name.split(" ")[0]} is now a co-host`, "success");
+      } else {
+        await apiPost(`/api/rooms/${id}/participants/${p.id}/demote`, {});
+        toast.show(`${p.name.split(" ")[0]} moved to audience`, "info");
+      }
+      qc.invalidateQueries({ queryKey: ["room", id] });
+    } catch (e: any) {
+      toast.show(e?.message ?? "Could not update seat", "error");
+    }
+  };
+
   if (isLoading || !room) return <View style={styles.root}><Loading /></View>;
 
   return (
@@ -92,23 +121,36 @@ export default function RoomScreen() {
       </View>
 
       <View style={styles.stage}>
-        <Display size={24} weight="semibold" style={{ textAlign: "center", marginBottom: spacing.lg }}>
+        <Display size={24} weight="semibold" style={{ textAlign: "center", marginBottom: spacing.xs }}>
           {room.title}
         </Display>
+        <Body size={12} color={colors.muted} style={{ textAlign: "center", marginBottom: spacing.lg }}>
+          {room.is_host ? "Tap a listener to invite them up · " : ""}{room.cohost_count}/3 co-host seats
+        </Body>
         <View style={styles.speakers}>
-          {room.participants.map((p) => (
-            <View key={p.id} style={styles.speaker}>
-              <View style={[styles.speakerRing, p.role === "host" && { borderColor: colors.brandPrimary }]}>
-                <Avatar uri={p.avatar_url} name={p.name} size={60} />
-              </View>
-              <Body size={12} color={colors.onSurfaceSecondary} numberOfLines={1} style={{ maxWidth: 72, textAlign: "center" }}>
-                {p.name.split(" ")[0]}
-              </Body>
-              {p.role === "host" ? (
-                <Body size={10} weight="medium" color={colors.brandPrimary} style={{ fontFamily: fonts.textMedium }}>HOST</Body>
-              ) : null}
-            </View>
-          ))}
+          {room.participants.map((p) => {
+            const isSpeaker = p.role === "host" || p.role === "cohost";
+            return (
+              <Pressable key={p.id} testID={`participant-${p.id}`} style={styles.speaker} onPress={() => tapParticipant(p)}>
+                <View style={[styles.speakerRing, isSpeaker && { borderColor: colors.brandPrimary }]}>
+                  <Avatar uri={p.avatar_url} name={p.name} size={60} />
+                  {p.hand_raised ? (
+                    <View style={styles.handBadge}>
+                      <Body size={12}>✋</Body>
+                    </View>
+                  ) : null}
+                </View>
+                <Body size={12} color={colors.onSurfaceSecondary} numberOfLines={1} style={{ maxWidth: 72, textAlign: "center" }}>
+                  {p.name.split(" ")[0]}
+                </Body>
+                {p.role === "host" ? (
+                  <Body size={10} weight="medium" color={colors.brandPrimary} style={{ fontFamily: fonts.textMedium }}>HOST</Body>
+                ) : p.role === "cohost" ? (
+                  <Body size={10} weight="medium" color={colors.brandPrimary} style={{ fontFamily: fonts.textMedium }}>CO-HOST</Body>
+                ) : null}
+              </Pressable>
+            );
+          })}
         </View>
       </View>
 
@@ -136,13 +178,23 @@ export default function RoomScreen() {
 
       <KeyboardStickyView offset={{ closed: 0, opened: insets.bottom }}>
         <View style={[styles.actionBar, { paddingBottom: spacing.md }]}>
-          <Pressable
-            testID="room-mic"
-            onPress={() => { setMicOn((v) => !v); toast.show(micOn ? "Mic off" : "Mic on (demo)", "info"); }}
-            style={[styles.micBtn, { backgroundColor: micOn ? colors.brandPrimary : colors.surfaceSecondary }]}
-          >
-            <Icon name={micOn ? "mic" : "mic-off"} size={20} color={micOn ? colors.onBrandPrimary : colors.onSurfaceSecondary} />
-          </Pressable>
+          {room.my_role === "listener" || room.my_role === null ? (
+            <Pressable
+              testID="room-raise-hand"
+              onPress={toggleHand}
+              style={[styles.micBtn, { backgroundColor: room.my_hand_raised ? colors.brandPrimary : colors.surfaceSecondary }]}
+            >
+              <Body size={18}>✋</Body>
+            </Pressable>
+          ) : (
+            <Pressable
+              testID="room-mic"
+              onPress={() => { setMicOn((v) => !v); toast.show(micOn ? "Mic off" : "Mic on (demo)", "info"); }}
+              style={[styles.micBtn, { backgroundColor: micOn ? colors.brandPrimary : colors.surfaceSecondary }]}
+            >
+              <Icon name={micOn ? "mic" : "mic-off"} size={20} color={micOn ? colors.onBrandPrimary : colors.onSurfaceSecondary} />
+            </Pressable>
+          )}
           <TextInput
             testID="room-chat-input"
             value={text}
@@ -168,6 +220,19 @@ const useStyles = makeStyles((colors) => ({
   speakers: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: spacing.lg },
   speaker: { alignItems: "center", gap: 4, width: 76 },
   speakerRing: { padding: 3, borderRadius: 36, borderWidth: 2, borderColor: "transparent" },
+  handBadge: {
+    position: "absolute",
+    top: -2,
+    right: -2,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: colors.warning,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: colors.surface,
+  },
   chatArea: { flex: 1, paddingHorizontal: spacing.lg },
   chatHeading: { letterSpacing: 1.2, fontFamily: fonts.textMedium, marginTop: spacing.md },
   msgRow: { flexDirection: "row", gap: spacing.sm, alignItems: "flex-start" },

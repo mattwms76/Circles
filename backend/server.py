@@ -411,10 +411,43 @@ async def circle_members(circle_id: str, user: dict = Depends(current_user)):
     return out
 
 
+async def enrich_event(e: dict, uid: str) -> dict:
+    rsvp_count = await db.event_rsvps.count_documents({"event_id": e["id"]})
+    going = await db.event_rsvps.find_one({"event_id": e["id"], "user_id": uid}) is not None
+    return {
+        "id": e["id"],
+        "circle_id": e["circle_id"],
+        "title": e["title"],
+        "description": e.get("description", ""),
+        "starts_at": e.get("starts_at"),
+        "host_id": e.get("host_id"),
+        "host_name": e.get("host_name"),
+        "rsvp_count": rsvp_count,
+        "going": going,
+        "created_at": e.get("created_at"),
+    }
+
+
 @api.get("/circles/{circle_id}/events")
 async def circle_events(circle_id: str, user: dict = Depends(current_user)):
     events = await db.events.find({"circle_id": circle_id}).sort("starts_at", 1).to_list(100)
-    return [{k: v for k, v in e.items() if k != "_id"} for e in events]
+    return [await enrich_event(e, user["id"]) for e in events]
+
+
+@api.post("/events/{event_id}/rsvp")
+async def toggle_rsvp(event_id: str, user: dict = Depends(current_user)):
+    e = await db.events.find_one({"id": event_id})
+    if not e:
+        raise HTTPException(404, "Event not found")
+    existing = await db.event_rsvps.find_one({"event_id": event_id, "user_id": user["id"]})
+    if existing:
+        await db.event_rsvps.delete_one({"event_id": event_id, "user_id": user["id"]})
+    else:
+        await db.event_rsvps.insert_one(
+            {"id": new_id(), "event_id": event_id, "user_id": user["id"], "created_at": now_iso()}
+        )
+    return await enrich_event(e, user["id"])
+
 
 
 @api.post("/circles/{circle_id}/events")
@@ -430,7 +463,7 @@ async def create_event(circle_id: str, body: EventIn, user: dict = Depends(curre
         "created_at": now_iso(),
     }
     await db.events.insert_one(doc)
-    return {k: v for k, v in doc.items() if k != "_id"}
+    return await enrich_event(doc, user["id"])
 
 
 # ------------------------------- Posts -------------------------------------
@@ -589,7 +622,16 @@ async def enrich_conversation(conv: dict, uid: str) -> dict:
         "circle_id": conv.get("circle_id"),
         "last_message": last_msg["text"] if last_msg else "",
         "last_at": last_msg["created_at"] if last_msg else conv.get("created_at"),
+        "unread": await unread_count(conv["id"], uid),
     }
+
+
+async def unread_count(conv_id: str, uid: str) -> int:
+    read = await db.conversation_reads.find_one({"conversation_id": conv_id, "user_id": uid})
+    q: dict = {"conversation_id": conv_id, "author_id": {"$ne": uid}}
+    if read and read.get("last_read_at"):
+        q["created_at"] = {"$gt": read["last_read_at"]}
+    return await db.messages.count_documents(q)
 
 
 @api.get("/conversations")
@@ -657,7 +699,60 @@ async def get_messages(conv_id: str, user: dict = Depends(current_user)):
                 "created_at": m["created_at"],
             }
         )
+    # opening the conversation marks it read
+    await db.conversation_reads.update_one(
+        {"conversation_id": conv_id, "user_id": user["id"]},
+        {"$set": {"last_read_at": now_iso()}},
+        upsert=True,
+    )
     return out
+
+
+@api.post("/conversations/{conv_id}/read")
+async def mark_read(conv_id: str, user: dict = Depends(current_user)):
+    await db.conversation_reads.update_one(
+        {"conversation_id": conv_id, "user_id": user["id"]},
+        {"$set": {"last_read_at": now_iso()}},
+        upsert=True,
+    )
+    return {"ok": True}
+
+
+@api.get("/conversations/unread/total")
+async def total_unread(user: dict = Depends(current_user)):
+    convs = await db.conversations.find({"members": user["id"]}).to_list(200)
+    ms = await db.memberships.find({"user_id": user["id"]}).to_list(500)
+    circle_convs = await db.conversations.find(
+        {"type": "circle", "circle_id": {"$in": [m["circle_id"] for m in ms]}}
+    ).to_list(500)
+    seen = set()
+    total = 0
+    for c in [*convs, *circle_convs]:
+        if c["id"] in seen:
+            continue
+        seen.add(c["id"])
+        total += await unread_count(c["id"], user["id"])
+    return {"total": total}
+
+
+@api.post("/conversations/{conv_id}/typing")
+async def set_typing(conv_id: str, user: dict = Depends(current_user)):
+    until = (datetime.now(timezone.utc) + timedelta(seconds=6)).isoformat()
+    await db.typing.update_one(
+        {"conversation_id": conv_id, "user_id": user["id"]},
+        {"$set": {"until": until, "name": user["name"]}},
+        upsert=True,
+    )
+    return {"ok": True}
+
+
+@api.get("/conversations/{conv_id}/typing")
+async def get_typing(conv_id: str, user: dict = Depends(current_user)):
+    now = datetime.now(timezone.utc).isoformat()
+    rows = await db.typing.find(
+        {"conversation_id": conv_id, "user_id": {"$ne": user["id"]}, "until": {"$gt": now}}
+    ).to_list(50)
+    return {"names": [r.get("name", "Someone") for r in rows]}
 
 
 @api.post("/conversations/{conv_id}/messages")
@@ -692,7 +787,8 @@ async def send_message(conv_id: str, body: MessageIn, user: dict = Depends(curre
 async def enrich_room(r: dict, uid: str) -> dict:
     host = await db.users.find_one({"id": r["host_id"]})
     participant_count = await db.room_participants.count_documents({"room_id": r["id"]})
-    joined = await db.room_participants.find_one({"room_id": r["id"], "user_id": uid}) is not None
+    mine = await db.room_participants.find_one({"room_id": r["id"], "user_id": uid})
+    cohost_count = await db.room_participants.count_documents({"room_id": r["id"], "role": "cohost"})
     return {
         "id": r["id"],
         "title": r["title"],
@@ -703,8 +799,11 @@ async def enrich_room(r: dict, uid: str) -> dict:
         "circle_id": r.get("circle_id"),
         "scheduled_at": r.get("scheduled_at"),
         "participant_count": participant_count,
-        "joined": joined,
+        "joined": mine is not None,
         "is_host": r["host_id"] == uid,
+        "my_role": mine.get("role", "listener") if mine else None,
+        "my_hand_raised": bool(mine.get("hand_raised")) if mine else False,
+        "cohost_count": cohost_count,
         "created_at": r.get("created_at"),
     }
 
@@ -742,13 +841,16 @@ async def get_room(room_id: str, user: dict = Depends(current_user)):
         raise HTTPException(404, "Room not found")
     data = await enrich_room(r, user["id"])
     parts = await db.room_participants.find({"room_id": room_id}).to_list(200)
+    rank = {"host": 0, "cohost": 1, "listener": 2}
     participants = []
     for p in parts:
         u = await db.users.find_one({"id": p["user_id"]})
         if u:
             pu = public_user(u)
             pu["role"] = p.get("role", "listener")
+            pu["hand_raised"] = bool(p.get("hand_raised"))
             participants.append(pu)
+    participants.sort(key=lambda x: rank.get(x["role"], 3))
     data["participants"] = participants
     return data
 
@@ -779,6 +881,53 @@ async def leave_room(room_id: str, user: dict = Depends(current_user)):
     if r["host_id"] == user["id"]:
         await db.rooms.update_one({"id": room_id}, {"$set": {"status": "ended"}})
     return {"ok": True}
+
+
+MAX_COHOSTS = 3
+
+
+@api.post("/rooms/{room_id}/raise_hand")
+async def raise_hand(room_id: str, user: dict = Depends(current_user)):
+    p = await db.room_participants.find_one({"room_id": room_id, "user_id": user["id"]})
+    if not p:
+        raise HTTPException(404, "Join the room first")
+    new_state = not bool(p.get("hand_raised"))
+    await db.room_participants.update_one(
+        {"room_id": room_id, "user_id": user["id"]}, {"$set": {"hand_raised": new_state}}
+    )
+    return {"hand_raised": new_state}
+
+
+@api.post("/rooms/{room_id}/participants/{target_id}/promote")
+async def promote_participant(room_id: str, target_id: str, user: dict = Depends(current_user)):
+    r = await db.rooms.find_one({"id": room_id})
+    if not r:
+        raise HTTPException(404, "Room not found")
+    if r["host_id"] != user["id"]:
+        raise HTTPException(403, "Only the host can invite co-hosts")
+    cohosts = await db.room_participants.count_documents({"room_id": room_id, "role": "cohost"})
+    if cohosts >= MAX_COHOSTS:
+        raise HTTPException(400, "All co-host seats are full")
+    await db.room_participants.update_one(
+        {"room_id": room_id, "user_id": target_id},
+        {"$set": {"role": "cohost", "hand_raised": False}},
+    )
+    fresh = await db.rooms.find_one({"id": room_id})
+    return await enrich_room(fresh, user["id"])
+
+
+@api.post("/rooms/{room_id}/participants/{target_id}/demote")
+async def demote_participant(room_id: str, target_id: str, user: dict = Depends(current_user)):
+    r = await db.rooms.find_one({"id": room_id})
+    if not r:
+        raise HTTPException(404, "Room not found")
+    if r["host_id"] != user["id"] and user["id"] != target_id:
+        raise HTTPException(403, "Not allowed")
+    await db.room_participants.update_one(
+        {"room_id": room_id, "user_id": target_id}, {"$set": {"role": "listener"}}
+    )
+    fresh = await db.rooms.find_one({"id": room_id})
+    return await enrich_room(fresh, user["id"])
 
 
 @api.get("/rooms/{room_id}/messages")

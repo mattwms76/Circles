@@ -1,7 +1,9 @@
 import { Platform } from "react-native";
 import { Tabs } from "expo-router";
 import { NativeTabs } from "expo-router/unstable-native-tabs";
+import { useQuery } from "@tanstack/react-query";
 
+import { apiGet } from "@/src/api/client";
 import { usesNativeTabs } from "@/src/navigation";
 import { useTheme, fonts } from "@/src/theme";
 import { Icon, IconName } from "@/src/components/icon";
@@ -15,6 +17,12 @@ const TABS: { name: string; title: string; icon: IconName; sf: string }[] = [
 
 export default function TabsLayout() {
   const { colors } = useTheme();
+  const { data: unread } = useQuery({
+    queryKey: ["unread-total"],
+    queryFn: () => apiGet<{ total: number }>("/api/conversations/unread/total"),
+    refetchInterval: 8000,
+  });
+  const badge = unread?.total ?? 0;
 
   if (usesNativeTabs) {
     return (
@@ -51,6 +59,8 @@ export default function TabsLayout() {
           name={t.name}
           options={{
             title: t.title,
+            tabBarBadge: t.name === "messages" && badge > 0 ? badge : undefined,
+            tabBarBadgeStyle: { backgroundColor: colors.brandPrimary, color: colors.onBrandPrimary, fontSize: 10 },
             tabBarIcon: ({ color, size }) => <Icon name={t.icon} size={size ?? 22} color={color} />,
           }}
         />
