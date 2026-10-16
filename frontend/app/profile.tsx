@@ -116,6 +116,7 @@ export default function Profile() {
     { icon: "flag", label: "Reports & decisions", onPress: () => router.push("/settings/my-activity"), testID: "row-activity" },
     { icon: "file-text", label: "Privacy Policy", onPress: () => router.push("/legal/privacy"), testID: "row-privacy" },
     { icon: "file-text", label: "Terms of Service", onPress: () => router.push("/legal/terms"), testID: "row-terms" },
+    { icon: "bar-chart-2", label: "Transparency report", onPress: () => router.push("/transparency"), testID: "row-transparency" },
     { icon: "download", label: "Download my data", onPress: exportData, testID: "row-export" },
   ];
   if (user?.is_moderator) {

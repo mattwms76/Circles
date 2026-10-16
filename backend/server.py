@@ -1,13 +1,19 @@
 import os
 import re
 import uuid
+import ipaddress
 import logging
+import secrets
+from html import escape
+from html.parser import HTMLParser
+from urllib.parse import urlparse
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 
 import jwt
 import bcrypt
+import httpx
 import requests
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, Query, Request
 from fastapi.responses import Response
@@ -165,6 +171,110 @@ async def log_mod_action(action: str, target_type: str, target_id: str, actor_id
     })
 
 
+# ----- Email (Emergent managed Resend) --------------------------------------
+EMAIL_BASE_URL = "https://integrations.emergentagent.com"
+EMAIL_KEY = os.environ.get("EMERGENT_EMAIL_KEY", "")
+EMAIL_FROM_NAME = os.environ.get("EMAIL_FROM_NAME", "Circles")
+
+_SHORTENERS = ("bit.ly", "tinyurl.com", "t.co", "is.gd", "cutt.ly", "goo.gl", "rebrand.ly")
+_CRED_ASK = ("reply with your password", "reply with the code", "send your password", "cvv",
+             "send us your password", "enter your password below", "confirm your card number",
+             "your full card number", "seed phrase", "recovery phrase", "verify your card",
+             "social security number", "confirm your bank details")
+_HOSTISH = re.compile(r"\b(?:https?://)?((?:[a-z0-9-]+\.)+[a-z]{2,})", re.I)
+
+
+def _host_ok(host: str) -> bool:
+    if not host or "xn--" in host:
+        return False
+    try:
+        ipaddress.ip_address(host)
+        return False
+    except ValueError:
+        pass
+    return not any(host == s or host.endswith("." + s) for s in _SHORTENERS)
+
+
+def _same_site(shown: str, real: str) -> bool:
+    return shown == real or real.endswith("." + shown) or shown.endswith("." + real)
+
+
+class _EmailScan(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.tags, self.urls, self.anchors = set(), [], []
+        self._href, self._text = None, []
+
+    def handle_starttag(self, tag, attrs):
+        self.tags.add(tag.lower())
+        self.urls += [v for k, v in attrs if k.lower() in ("href", "src") and v]
+        if tag.lower() == "a":
+            self._href = dict((k.lower(), v) for k, v in attrs).get("href")
+            self._text = []
+
+    def handle_data(self, data):
+        if self._href is not None:
+            self._text.append(data)
+
+    def handle_endtag(self, tag):
+        if tag.lower() == "a" and self._href is not None:
+            self.anchors.append((self._href, "".join(self._text)))
+            self._href, self._text = None, []
+
+
+def _assert_safe_email(subject: str, html: str) -> None:
+    scan = _EmailScan(); scan.feed(html)
+    if scan.tags & {"form", "input", "textarea", "select"}:
+        raise ValueError("No forms or input fields in email (G2)")
+    body = f"{subject}\n{html}".lower()
+    for p in _CRED_ASK:
+        if p in body:
+            raise ValueError(f"Email asks the recipient for credentials: {p!r} (G2)")
+    for url in scan.urls:
+        low = url.strip().lower()
+        if low.startswith(("mailto:", "tel:", "cid:", "#")):
+            continue
+        if not low.startswith("https://"):
+            raise ValueError(f"Email links/assets must be absolute https: {url!r} (G3)")
+        host = urlparse(low).hostname or ""
+        if not _host_ok(host) or urlparse(low).username is not None:
+            raise ValueError(f"Shortened, numeric-host or credential-bearing URL: {url!r} (G3)")
+    for href, text in scan.anchors:
+        real = urlparse(href.strip().lower()).hostname or ""
+        if not real:
+            continue
+        for m in _HOSTISH.finditer(text):
+            if not _same_site(m.group(1).lower(), real):
+                raise ValueError(f"Anchor text {m.group(1)!r} != real link host {real!r} (G3)")
+
+
+async def send_email(*, to: str, subject: str, html: str) -> Optional[str]:
+    _assert_safe_email(subject, html)
+    payload = {"to": [to], "subject": subject, "html": html, "from_name": EMAIL_FROM_NAME}
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"{EMAIL_BASE_URL}/api/v1/email/send",
+                headers={"X-Email-Key": EMAIL_KEY},
+                json=payload,
+            )
+        resp.raise_for_status()
+        return resp.json().get("id")
+    except httpx.HTTPStatusError as e:
+        try:
+            code = e.response.json().get("code", "")
+        except ValueError:
+            code = ""
+        if code in ("insufficient_credits", "integration_disabled", "daily_limit_reached"):
+            logger.warning(f"Email paused: {code} ({e.response.status_code})")
+            raise HTTPException(status_code=503, detail="Email is temporarily unavailable")
+        logger.error(f"Email send failed: {e.response.status_code} {e.response.text}")
+        raise HTTPException(status_code=502, detail="Failed to send email")
+    except Exception as e:
+        logger.error(f"Email send error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to send email")
+
+
 def hash_password(pw: str) -> str:
     return bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode()
 
@@ -246,6 +356,16 @@ class RegisterIn(BaseModel):
 class LoginIn(BaseModel):
     email: EmailStr
     password: str
+
+
+class ForgotPasswordIn(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordIn(BaseModel):
+    email: EmailStr
+    code: str = Field(min_length=4, max_length=10)
+    new_password: str = Field(min_length=6, max_length=128)
 
 
 class ProfileUpdate(BaseModel):
@@ -411,6 +531,64 @@ async def login(request: Request, body: LoginIn):
     user = await db.users.find_one({"email": body.email.lower()})
     if not user or not verify_password(body.password, user["password_hash"]):
         raise HTTPException(401, "Invalid email or password")
+    return {"access_token": create_token(user["id"]), "user": private_user(user)}
+
+
+@api.post("/auth/forgot-password")
+@limiter.limit("3/minute")
+async def forgot_password(request: Request, body: ForgotPasswordIn):
+    """Email a one-time 6-digit reset code. Always returns ok (no account enumeration)."""
+    email = body.email.lower()
+    user = await db.users.find_one({"email": email})
+    if user:
+        code = f"{secrets.randbelow(1_000_000):06d}"
+        await db.password_resets.delete_many({"user_id": user["id"]})
+        await db.password_resets.insert_one({
+            "id": new_id(),
+            "user_id": user["id"],
+            "code_hash": hash_password(code),
+            "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat(),
+            "attempts": 0,
+            "used": False,
+            "created_at": now_iso(),
+        })
+        html = (
+            f'<table role="presentation" width="100%"><tr><td style="padding:24px;'
+            f'font-family:Arial,sans-serif;color:#2A2522">'
+            f'<p>Hi {escape(user.get("name", "there"))},</p>'
+            f'<p>Use this code to reset your {escape(EMAIL_FROM_NAME)} password. '
+            f'It expires in 15 minutes.</p>'
+            f'<p style="font-size:30px;font-weight:bold;letter-spacing:6px;margin:16px 0">{code}</p>'
+            f'<p>If you did not request this, you can safely ignore this email — your password stays the same.</p>'
+            f'<p style="font-size:12px;color:#888">Sent by {escape(EMAIL_FROM_NAME)}. '
+            f'We will never ask you for your password or this code by email or phone.</p>'
+            f'</td></tr></table>'
+        )
+        try:
+            await send_email(to=email, subject=f"Your {EMAIL_FROM_NAME} reset code", html=html)
+        except Exception:
+            pass  # never leak delivery/billing state (prevents account enumeration)
+    return {"ok": True}
+
+
+@api.post("/auth/reset-password")
+@limiter.limit("10/minute")
+async def reset_password(request: Request, body: ResetPasswordIn):
+    user = await db.users.find_one({"email": body.email.lower()})
+    if not user:
+        raise HTTPException(400, "Invalid or expired code")
+    rec = await db.password_resets.find_one({"user_id": user["id"], "used": False})
+    if not rec or rec["expires_at"] < now_iso():
+        raise HTTPException(400, "Invalid or expired code")
+    if rec.get("attempts", 0) >= 5:
+        raise HTTPException(429, "Too many attempts — request a new code")
+    if not verify_password(body.code, rec["code_hash"]):
+        await db.password_resets.update_one({"id": rec["id"]}, {"$inc": {"attempts": 1}})
+        raise HTTPException(400, "Invalid or expired code")
+    await db.users.update_one(
+        {"id": user["id"]}, {"$set": {"password_hash": hash_password(body.new_password)}}
+    )
+    await db.password_resets.update_one({"id": rec["id"]}, {"$set": {"used": True}})
     return {"access_token": create_token(user["id"]), "user": private_user(user)}
 
 
@@ -1209,6 +1387,27 @@ async def enrich_room(r: dict, uid: str) -> dict:
 @api.get("/rooms")
 async def list_rooms(user: dict = Depends(current_user)):
     rooms = await db.rooms.find({"status": {"$ne": "ended"}}).sort("created_at", -1).to_list(100)
+    # Discovery only shows global rooms and rooms in public circles.
+    out = []
+    for r in rooms:
+        cid = r.get("circle_id")
+        if cid:
+            c = await db.circles.find_one({"id": cid})
+            if c and c.get("is_private") and not await is_member(cid, user["id"]):
+                continue
+        out.append(await enrich_room(r, user["id"]))
+    return out
+
+
+@api.get("/circles/{circle_id}/rooms")
+async def circle_rooms(circle_id: str, user: dict = Depends(current_user)):
+    c = await db.circles.find_one({"id": circle_id})
+    if not c:
+        raise HTTPException(404, "Circle not found")
+    await assert_can_read_circle(c, user["id"])
+    rooms = await db.rooms.find(
+        {"circle_id": circle_id, "status": {"$ne": "ended"}}
+    ).sort("created_at", -1).to_list(50)
     return [await enrich_room(r, user["id"]) for r in rooms]
 
 
@@ -1540,6 +1739,14 @@ async def create_report(body: ReportIn, user: dict = Depends(current_user)):
         if cm:
             pp = await db.posts.find_one({"id": cm.get("post_id")})
             circle_id = pp["circle_id"] if pp else None
+    elif body.target_type == "room":
+        rm = await db.rooms.find_one({"id": body.target_id})
+        circle_id = rm.get("circle_id") if rm else None
+    elif body.target_type == "message":
+        msg = await db.room_messages.find_one({"id": body.target_id})
+        if msg:
+            rm = await db.rooms.find_one({"id": msg.get("room_id")})
+            circle_id = rm.get("circle_id") if rm else None
     priority = category in PRIORITY_REPORT_CATEGORIES
     doc = {
         "id": new_id(),
@@ -1770,6 +1977,39 @@ async def serve_file(path: str):
 async def legal_versions():
     """Current Terms/Privacy versions so consent can be tracked server-side."""
     return LEGAL_VERSIONS
+
+
+@api.get("/moderation/transparency")
+async def transparency(user: dict = Depends(current_user)):
+    """Public transparency summary: reports received vs actioned, last 6 months."""
+    reports = await db.reports.find({}).to_list(5000)
+    actions = await db.moderation_actions.find({}).to_list(5000)
+    months: dict = {}
+
+    def bucket(ts: str) -> str:
+        return (ts or "")[:7] or "unknown"
+
+    for r in reports:
+        m = months.setdefault(bucket(r.get("created_at")), {"received": 0, "resolved": 0, "actions_taken": 0, "by_category": {}})
+        m["received"] += 1
+        if r.get("status") == "resolved":
+            m["resolved"] += 1
+        cat = r.get("category", "other")
+        m["by_category"][cat] = m["by_category"].get(cat, 0) + 1
+    for a in actions:
+        m = months.setdefault(bucket(a.get("created_at")), {"received": 0, "resolved": 0, "actions_taken": 0, "by_category": {}})
+        m["actions_taken"] += 1
+
+    ordered = [{"month": k, **v} for k, v in sorted(months.items(), reverse=True)][:6]
+    return {
+        "generated_at": now_iso(),
+        "totals": {
+            "reports_received": len(reports),
+            "reports_resolved": sum(1 for r in reports if r.get("status") == "resolved"),
+            "actions_taken": len(actions),
+        },
+        "months": ordered,
+    }
 
 
 @api.post("/users/{target_id}/block")

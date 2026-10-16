@@ -95,6 +95,10 @@ export default function Login() {
 
         <Button testID="login-submit" label="Sign in" onPress={submit} loading={busy} style={{ marginTop: spacing.lg }} />
 
+        <Pressable style={styles.forgot} onPress={() => router.push("/forgot-password")} testID="go-forgot">
+          <Body size={14} weight="medium" color={colors.brandPrimary}>Forgot password?</Body>
+        </Pressable>
+
         <Pressable style={styles.switch} onPress={() => router.push("/register")} testID="go-register">
           <Body size={14} color={colors.muted}>
             New here?{" "}
@@ -136,5 +140,6 @@ const useStyles = makeStyles((colors) => ({
     minHeight: 50,
   },
   switch: { marginTop: spacing.xl, alignItems: "center" },
+  forgot: { marginTop: spacing.md, alignItems: "center" },
   demo: { marginTop: spacing.xl, padding: spacing.md, backgroundColor: colors.surfaceSecondary, borderRadius: radius.md },
 }));

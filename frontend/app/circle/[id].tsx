@@ -59,6 +59,22 @@ export default function CircleDetail() {
     queryFn: () => apiGet<{ id: string; name: string; avatar_url: string | null; total: number }[]>(`/api/circles/${id}/leaderboard`),
     enabled: tab === "people",
   });
+  const { data: circleRooms } = useQuery({
+    queryKey: ["circle-rooms", id],
+    queryFn: () => apiGet<{ id: string; title: string; participant_count: number; host_name: string }[]>(`/api/circles/${id}/rooms`),
+    enabled: !!circle?.is_member,
+    refetchInterval: 15000,
+  });
+
+  const startRoom = async () => {
+    try {
+      const room = await apiPost<{ id: string }>("/api/rooms", { title: `${circle?.name} live`, circle_id: id });
+      qc.invalidateQueries({ queryKey: ["circle-rooms", id] });
+      router.push(`/room/${room.id}`);
+    } catch (e: any) {
+      toast.show(e?.message ?? "Could not start room", "error");
+    }
+  };
 
   const rsvp = async (ev: CircleEvent) => {
     qc.setQueryData<CircleEvent[]>(["circle-events", id], (old) =>
@@ -190,6 +206,34 @@ export default function CircleDetail() {
             />
           ) : null}
         </View>
+
+        {circle.is_member ? (
+          <View style={styles.roomsBlock} testID="circle-rooms">
+            <View style={styles.roomsHead}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.xs }}>
+                <Icon name="radio" size={16} color={colors.brandPrimary} />
+                <Body size={13} weight="medium" color={colors.onSurface}>
+                  {circle.is_private ? "Members-only rooms" : "Live rooms"}
+                </Body>
+              </View>
+              <Button testID="start-room" small variant="secondary" icon="plus" label="Start" onPress={startRoom} />
+            </View>
+            {(circleRooms ?? []).length === 0 ? (
+              <Body size={13} color={colors.muted}>No one is live right now. Start a room to meet up.</Body>
+            ) : (
+              (circleRooms ?? []).map((r) => (
+                <Pressable key={r.id} testID={`circle-room-${r.id}`} style={styles.roomRow} onPress={() => router.push(`/room/${r.id}`)}>
+                  <View style={styles.liveDot} />
+                  <View style={{ flex: 1 }}>
+                    <Body size={14} weight="medium" color={colors.onSurface}>{r.title}</Body>
+                    <Body size={12} color={colors.muted}>{r.participant_count} listening · {r.host_name}</Body>
+                  </View>
+                  <Icon name="chevron-right" size={18} color={colors.muted} />
+                </Pressable>
+              ))
+            )}
+          </View>
+        ) : null}
 
         <View style={styles.tabs}>
           {(["posts", "events", "about", "people"] as TabKey[]).map((t) => (
@@ -409,6 +453,10 @@ const useStyles = makeStyles((colors) => ({
   heroContent: { position: "absolute", left: spacing.lg, right: spacing.lg, bottom: spacing.lg, gap: 4 },
   metaRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs, marginTop: spacing.xs },
   actions: { flexDirection: "row", gap: spacing.sm, padding: spacing.lg },
+  roomsBlock: { marginHorizontal: spacing.lg, marginBottom: spacing.lg, padding: spacing.md, borderRadius: radius.lg, backgroundColor: colors.surfaceSecondary, gap: spacing.sm },
+  roomsHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  roomRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingVertical: spacing.sm },
+  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.error },
   tabs: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: colors.divider, paddingHorizontal: spacing.lg },
   tab: { paddingVertical: spacing.md, marginRight: spacing.xl, alignItems: "center" },
   tabUnderline: { position: "absolute", bottom: -1, height: 2, left: 0, right: 0, backgroundColor: colors.brandPrimary },

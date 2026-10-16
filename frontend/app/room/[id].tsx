@@ -9,6 +9,7 @@ import { apiGet, apiPost } from "@/src/api/client";
 import { Avatar, Body, Display, Loading } from "@/src/components/ui";
 import { Icon } from "@/src/components/icon";
 import { GiftSheet } from "@/src/components/gift-sheet";
+import { ReportSheet } from "@/src/components/report-sheet";
 import { useToast } from "@/src/components/toast";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
@@ -42,6 +43,7 @@ export default function RoomScreen() {
   const [text, setText] = useState("");
   const [micOn, setMicOn] = useState(false);
   const [gifting, setGifting] = useState(false);
+  const [report, setReport] = useState<{ type: "room" | "message"; id: string } | null>(null);
 
   const { data: room, isLoading } = useQuery({
     queryKey: ["room", id],
@@ -126,6 +128,11 @@ export default function RoomScreen() {
         </View>
         <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
           {!room.is_host ? (
+            <Pressable testID="room-report" onPress={() => setReport({ type: "room", id: room.id })} hitSlop={8}>
+              <Icon name="flag" size={20} color={colors.onSurfaceSecondary} />
+            </Pressable>
+          ) : null}
+          {!room.is_host ? (
             <Pressable testID="room-cheer" onPress={() => setGifting(true)} hitSlop={8}>
               <Icon name="gift" size={22} color={colors.brandPrimary} />
             </Pressable>
@@ -186,12 +193,17 @@ export default function RoomScreen() {
           keyExtractor={(m) => m.id}
           onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
           renderItem={({ item }) => (
-            <View style={styles.msgRow} testID={`room-msg-${item.id}`}>
+            <Pressable
+              style={styles.msgRow}
+              testID={`room-msg-${item.id}`}
+              onLongPress={() => !item.mine && setReport({ type: "message", id: item.id })}
+              delayLongPress={300}
+            >
               <Body size={13} weight="medium" color={colors.brandPrimary}>
                 {item.author_name.split(" ")[0]}
               </Body>
               <Body size={14} color={colors.onSurface} style={{ flex: 1 }}>{item.text}</Body>
-            </View>
+            </Pressable>
           )}
           contentContainerStyle={{ paddingVertical: spacing.sm, gap: spacing.sm }}
           showsVerticalScrollIndicator={false}
@@ -237,6 +249,13 @@ export default function RoomScreen() {
         recipientId={room.host_id}
         recipientName={room.host_name}
         roomId={room.id}
+      />
+
+      <ReportSheet
+        visible={!!report}
+        onClose={() => setReport(null)}
+        targetType={report?.type ?? "room"}
+        targetId={report?.id ?? ""}
       />
     </View>
   );

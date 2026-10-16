@@ -65,6 +65,12 @@ Rebuild the "Circles" app (github.com/mattwms76/Circles) as a fresh Expo + FastA
 - Backend polish: mute/ban duration capped at 7 days (MAX_MOD_MINUTES=10080, clamp_minutes); GET /circles/{id}/members now returns muted_until; event starts_at normalized to UTC on write (norm_iso).
 - Design-system fixes (8): raised light `muted` contrast to ~4.9:1; added central `type` scale in theme.ts; Chip + Button-small bumped to 44px touch targets; new `CoinIcon` (terracotta $ token) replacing empty-ring placeholder in Wallet; supporter badge 10→11px; hitSlop on post like/comment/gift; fixed Discover category-chip clipping; removed ~22 redundant fontFamily overrides across 15 files.
 
+## Features (2026-06, fork) — iter11: 31/31 tests pass
+- Private Circle Rooms: GET /api/circles/{id}/rooms (members-only); circle detail shows a members-only "Live rooms" section with Start + active room list; private-circle rooms hidden from non-members in /api/rooms.
+- Report From Rooms: ReportSheet wired into room screen (report room via flag icon; long-press a message to report it); create_report resolves circle_id for room/message targets so circle mods see them; csam/illegal → priority queue.
+- Transparency Report: GET /api/moderation/transparency (public to authed users) + app/transparency.tsx (totals + 6-month breakdown); linked from Profile.
+- Account Recovery: forgot-password emails a 6-digit code (Emergent Resend, EMAIL_FROM_NAME=Circles), reset-password verifies hashed single-use code (15-min expiry, 5-attempt cap); login "Forgot password?" → app/forgot-password.tsx (email → code+new password). No account enumeration; rate-limited 3/min & 10/min.
+
 ## Security Audit re-run on deployed/preview (2026-06, fork) — iter9 live validation 62/62 + iter10 new fixes 34/34
 - Live validation confirmed all prior fixes (IDOR, ban/membership, private-circle, wallet race, traversal, rate limits, email exposure, age gate, compliance authZ) hold on the running server.
 - NEW gaps found in older Rooms/Events features and FIXED + verified:
