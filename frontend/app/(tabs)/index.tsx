@@ -63,6 +63,9 @@ export default function HomeFeed() {
         large
         right={
           <>
+            <Pressable testID="home-calendar" onPress={() => router.push("/calendar")} hitSlop={8}>
+              <Icon name="calendar" size={22} color={colors.onSurface} />
+            </Pressable>
             <Pressable testID="home-live" onPress={() => router.push("/(tabs)/live")} hitSlop={8}>
               <Icon name="radio" size={22} color={colors.onSurface} />
             </Pressable>

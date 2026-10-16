@@ -89,6 +89,29 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# Max moderation duration (7 days) to prevent accidental permanent silences/bans.
+MAX_MOD_MINUTES = 10080
+
+
+def clamp_minutes(minutes: int) -> int:
+    return max(1, min(int(minutes), MAX_MOD_MINUTES))
+
+
+def norm_iso(value: str) -> str:
+    """Normalize any ISO-8601 timestamp to a UTC offset string so lexicographic
+    comparisons (used for event/ban ordering) stay correct across mixed tz input."""
+    if not value:
+        return value
+    try:
+        s = value.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc).isoformat()
+    except (ValueError, TypeError):
+        return value
+
+
 def new_id() -> str:
     return str(uuid.uuid4())
 
@@ -427,6 +450,9 @@ async def join_circle(circle_id: str, user: dict = Depends(current_user)):
     c = await db.circles.find_one({"id": circle_id})
     if not c:
         raise HTTPException(404, "Circle not found")
+    ban = await db.circle_bans.find_one({"circle_id": circle_id, "user_id": user["id"]})
+    if ban and ban.get("until", "") > now_iso():
+        raise HTTPException(403, "You've been removed from this circle for now")
     existing = await db.memberships.find_one({"circle_id": circle_id, "user_id": user["id"]})
     if not existing:
         await db.memberships.insert_one(
@@ -455,8 +481,59 @@ async def circle_members(circle_id: str, user: dict = Depends(current_user)):
         if u:
             data = public_user(u)
             data["role"] = m.get("role", "member")
+            mu = m.get("muted_until")
+            is_muted = bool(mu and mu > now_iso())
+            data["muted"] = is_muted
+            data["muted_until"] = mu if is_muted else None
             out.append(data)
     return out
+
+
+class MuteIn(BaseModel):
+    minutes: int = 60
+
+
+@api.post("/circles/{circle_id}/members/{target_id}/mute")
+async def mute_member(circle_id: str, target_id: str, body: MuteIn, user: dict = Depends(current_user)):
+    if not await is_circle_mod(circle_id, user["id"]):
+        raise HTTPException(403, "Not a moderator of this circle")
+    c = await db.circles.find_one({"id": circle_id})
+    if c and c.get("owner_id") == target_id:
+        raise HTTPException(400, "You can't mute the owner")
+    until = (datetime.now(timezone.utc) + timedelta(minutes=clamp_minutes(body.minutes))).isoformat()
+    res = await db.memberships.update_one(
+        {"circle_id": circle_id, "user_id": target_id}, {"$set": {"muted_until": until}}
+    )
+    if res.matched_count == 0:
+        raise HTTPException(404, "Not a member")
+    return {"ok": True, "muted_until": until}
+
+
+@api.post("/circles/{circle_id}/members/{target_id}/unmute")
+async def unmute_member(circle_id: str, target_id: str, user: dict = Depends(current_user)):
+    if not await is_circle_mod(circle_id, user["id"]):
+        raise HTTPException(403, "Not a moderator of this circle")
+    await db.memberships.update_one(
+        {"circle_id": circle_id, "user_id": target_id}, {"$set": {"muted_until": None}}
+    )
+    return {"ok": True}
+
+
+@api.post("/circles/{circle_id}/members/{target_id}/remove")
+async def remove_member(circle_id: str, target_id: str, body: MuteIn, user: dict = Depends(current_user)):
+    if not await is_circle_mod(circle_id, user["id"]):
+        raise HTTPException(403, "Not a moderator of this circle")
+    c = await db.circles.find_one({"id": circle_id})
+    if c and c.get("owner_id") == target_id:
+        raise HTTPException(400, "You can't remove the owner")
+    await db.memberships.delete_one({"circle_id": circle_id, "user_id": target_id})
+    until = (datetime.now(timezone.utc) + timedelta(minutes=clamp_minutes(body.minutes))).isoformat()
+    await db.circle_bans.update_one(
+        {"circle_id": circle_id, "user_id": target_id},
+        {"$set": {"until": until, "created_at": now_iso()}},
+        upsert=True,
+    )
+    return {"ok": True, "banned_until": until}
 
 
 async def enrich_event(e: dict, uid: str) -> dict:
@@ -482,6 +559,25 @@ async def circle_events(circle_id: str, user: dict = Depends(current_user)):
     return [await enrich_event(e, user["id"]) for e in events]
 
 
+@api.get("/events/upcoming")
+async def upcoming_events(user: dict = Depends(current_user)):
+    ms = await db.memberships.find({"user_id": user["id"]}).to_list(500)
+    circle_ids = [m["circle_id"] for m in ms]
+    if not circle_ids:
+        return []
+    start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    events = await db.events.find(
+        {"circle_id": {"$in": circle_ids}, "starts_at": {"$gte": start}}
+    ).sort("starts_at", 1).to_list(300)
+    out = []
+    for e in events:
+        data = await enrich_event(e, user["id"])
+        circle = await db.circles.find_one({"id": e["circle_id"]})
+        data["circle_name"] = circle["name"] if circle else ""
+        out.append(data)
+    return out
+
+
 @api.post("/events/{event_id}/rsvp")
 async def toggle_rsvp(event_id: str, user: dict = Depends(current_user)):
     e = await db.events.find_one({"id": event_id})
@@ -505,7 +601,7 @@ async def create_event(circle_id: str, body: EventIn, user: dict = Depends(curre
         "circle_id": circle_id,
         "title": body.title,
         "description": body.description,
-        "starts_at": body.starts_at,
+        "starts_at": norm_iso(body.starts_at),
         "host_id": user["id"],
         "host_name": user["name"],
         "created_at": now_iso(),
@@ -515,13 +611,30 @@ async def create_event(circle_id: str, body: EventIn, user: dict = Depends(curre
 
 
 # ------------------------------- Posts -------------------------------------
-async def enrich_post(p: dict, uid: str) -> dict:
+async def top_supporter_ids(circle_id: str, cache: Optional[dict] = None) -> set:
+    if cache is not None and circle_id in cache:
+        return cache[circle_id]
+    gifts = await db.gifts.find({"circle_id": circle_id}).to_list(2000)
+    totals: dict = {}
+    for g in gifts:
+        amt = g.get("cost") or GIFT_COSTS.get(g.get("gift_type"), 0)
+        totals[g["sender_id"]] = totals.get(g["sender_id"], 0) + amt
+    ranked = sorted(totals.items(), key=lambda kv: kv[1], reverse=True)[:3]
+    ids = {sid for sid, _ in ranked}
+    if cache is not None:
+        cache[circle_id] = ids
+    return ids
+
+
+async def enrich_post(p: dict, uid: str, supporters: Optional[set] = None) -> dict:
     author = await db.users.find_one({"id": p["author_id"]})
     circle = await db.circles.find_one({"id": p["circle_id"]})
     like_count = await db.likes.count_documents({"post_id": p["id"]})
     liked = await db.likes.find_one({"post_id": p["id"], "user_id": uid}) is not None
     comment_count = await db.comments.count_documents({"post_id": p["id"]})
     gift_count = await db.gifts.count_documents({"post_id": p["id"]})
+    if supporters is None:
+        supporters = await top_supporter_ids(p["circle_id"])
     return {
         "id": p["id"],
         "text": p.get("text", ""),
@@ -531,6 +644,7 @@ async def enrich_post(p: dict, uid: str) -> dict:
         "author_id": p["author_id"],
         "author_name": author["name"] if author else "Unknown",
         "author_avatar": author.get("avatar_url") if author else None,
+        "author_is_supporter": p["author_id"] in supporters,
         "like_count": like_count,
         "liked": liked,
         "comment_count": comment_count,
@@ -553,13 +667,21 @@ async def feed(user: dict = Depends(current_user)):
         posts = await db.posts.find(
             {"deleted": {"$ne": True}, "circle_id": {"$in": pub_ids}}
         ).sort("created_at", -1).to_list(50)
-    return [await enrich_post(p, user["id"]) for p in posts]
+    cache: dict = {}
+    return [await enrich_post(p, user["id"], await top_supporter_ids(p["circle_id"], cache)) for p in posts]
 
 
 @api.get("/circles/{circle_id}/posts")
 async def circle_posts(circle_id: str, user: dict = Depends(current_user)):
     posts = await db.posts.find({"circle_id": circle_id, "deleted": {"$ne": True}}).sort("created_at", -1).to_list(100)
-    return [await enrich_post(p, user["id"]) for p in posts]
+    supporters = await top_supporter_ids(circle_id)
+    return [await enrich_post(p, user["id"], supporters) for p in posts]
+
+
+async def is_muted(circle_id: str, uid: str) -> bool:
+    m = await db.memberships.find_one({"circle_id": circle_id, "user_id": uid})
+    mu = m.get("muted_until") if m else None
+    return bool(mu and mu > now_iso())
 
 
 @api.post("/posts")
@@ -569,6 +691,8 @@ async def create_post(body: PostIn, user: dict = Depends(current_user)):
     c = await db.circles.find_one({"id": body.circle_id})
     if not c:
         raise HTTPException(404, "Circle not found")
+    if await is_muted(body.circle_id, user["id"]):
+        raise HTTPException(403, "You're muted in this circle")
     doc = {
         "id": new_id(),
         "circle_id": body.circle_id,
@@ -624,6 +748,8 @@ async def delete_post(post_id: str, user: dict = Depends(current_user)):
 
 @api.get("/posts/{post_id}/comments")
 async def get_comments(post_id: str, user: dict = Depends(current_user)):
+    p = await db.posts.find_one({"id": post_id})
+    supporters = await top_supporter_ids(p["circle_id"]) if p else set()
     comments = await db.comments.find({"post_id": post_id}).sort("created_at", 1).to_list(500)
     out = []
     for c in comments:
@@ -635,6 +761,7 @@ async def get_comments(post_id: str, user: dict = Depends(current_user)):
                 "author_id": c["author_id"],
                 "author_name": author["name"] if author else "Unknown",
                 "author_avatar": author.get("avatar_url") if author else None,
+                "author_is_supporter": c["author_id"] in supporters,
                 "created_at": c["created_at"],
             }
         )
@@ -646,6 +773,8 @@ async def add_comment(post_id: str, body: CommentIn, user: dict = Depends(curren
     p = await db.posts.find_one({"id": post_id})
     if not p:
         raise HTTPException(404, "Post not found")
+    if await is_muted(p["circle_id"], user["id"]):
+        raise HTTPException(403, "You're muted in this circle")
     doc = {
         "id": new_id(),
         "post_id": post_id,
@@ -654,12 +783,14 @@ async def add_comment(post_id: str, body: CommentIn, user: dict = Depends(curren
         "created_at": now_iso(),
     }
     await db.comments.insert_one(doc)
+    supporters = await top_supporter_ids(p["circle_id"])
     return {
         "id": doc["id"],
         "text": doc["text"],
         "author_id": user["id"],
         "author_name": user["name"],
         "author_avatar": user.get("avatar_url"),
+        "author_is_supporter": user["id"] in supporters,
         "created_at": doc["created_at"],
     }
 

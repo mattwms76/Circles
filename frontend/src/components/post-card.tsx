@@ -27,6 +27,7 @@ export type Post = {
   liked: boolean;
   comment_count: number;
   gift_count: number;
+  author_is_supporter: boolean;
   created_at: string;
 };
 
@@ -81,9 +82,17 @@ function PostCardComponent({
       <View style={styles.header}>
         <Avatar uri={post.author_avatar} name={post.author_name} size={40} />
         <View style={{ flex: 1 }}>
-          <Body size={14} weight="medium" color={colors.onSurface} style={{ fontFamily: fonts.textMedium }}>
-            {post.author_name}
-          </Body>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.xs }}>
+            <Body size={14} weight="medium" color={colors.onSurface} style={{ fontFamily: fonts.textMedium }}>
+              {post.author_name}
+            </Body>
+            {post.author_is_supporter ? (
+              <View style={styles.supporterBadge} testID={`supporter-${post.id}`}>
+                <Icon name="star" size={10} color={colors.onWarning} />
+                <Body size={10} weight="medium" color={colors.onWarning} style={{ fontFamily: fonts.textMedium }}>Top supporter</Body>
+              </View>
+            ) : null}
+          </View>
           <Pressable onPress={() => router.push(`/circle/${post.circle_id}`)}>
             <Overline>
               {post.circle_name} · {timeAgo(post.created_at)}
@@ -212,6 +221,15 @@ const useStyles = makeStyles((colors) => ({
   },
   menuHandle: { alignSelf: "center", width: 40, height: 4, borderRadius: 2, backgroundColor: colors.borderStrong, marginBottom: spacing.sm },
   menuItem: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.md },
+  supporterBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 1,
+    borderRadius: radius.pill,
+    backgroundColor: colors.warning,
+  },
 }));
 
 export const PostCard = memo(PostCardComponent);

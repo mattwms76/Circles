@@ -1,0 +1,45 @@
+{
+  "summary": "Iteration 5 testing of 3 new Circles features (Supporter Perks, Mute & Ban, Event Calendar) + regression. Backend: 20/20 pytest cases pass covering (a) Supporter Perks — /api/feed and /api/circles/{id}/posts carry author_is_supporter:bool for every post, POST /posts/{id}/comments and GET /posts/{id}/comments carry author_is_supporter, flag flips to TRUE only after the author sends a circle-attributed gift (Flower 25c) and shows FALSE for authors who have not gifted; (b) Mute & Ban — POST /circles/{id}/members/{uid}/mute by owner returns 200 w/ muted_until, muted member POSTs /posts and /posts/{id}/comments both return 403, GET /circles/{id}/members returns muted:true, /unmute restores posting, non-mod gets 403, muting the owner returns 400, POST .../remove deletes membership and inserts circle_bans — subsequent POST /circles/{id}/join by that user returns 403 until expiry, removing the owner returns 400; (c) Event Calendar — GET /events/upcoming returns only joined-circle events with starts_at>=start-of-today and includes circle_name/rsvp_count/going; past events excluded; fresh user with no memberships gets []; POST /events/{id}/rsvp toggles going true<->false and updates rsvp_count; (d) Regression — login/feed/create-post/like/comment/rooms/conversations/leaderboard/reports all 200, self-gift still 400. Frontend (390x844): Logged in as guide, seeded a fresh circle + future event + registered victim member via API, then exercised the real UI: Home header shows home-calendar icon which routes to /calendar; month grid renders with cal-prev/cal-next working, cal-day-17 selected the day of the created event, days with events (17 & 21) show visual dots, cal-rsvp-{eid} toggled going -> API confirmed going:true and rsvp_count:1. Opened /circle/{id}, tab-people shows the victim with manage-{uid} button; tapping it opens the Modal sheet with all three options (manage-role, manage-mute, manage-remove); tapping manage-mute toasts 'VictimUI muted for 30 min' and People row renders 'muted' label and API /circles/{id}/members returns muted:true. After unmuting + having victim gift a Flower on guide's post + victim posts a new one, the circle posts tab shows supporter-{postId} 'Top supporter' pill on the victim's post AND does NOT render on guide's own post (guide hasn't gifted). Non-blocking console noise (pre-existing from earlier iters): props.pointerEvents deprecation, shadow* style props deprecation, Animated useNativeDriver warning on Modal.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "pointerEvents prop", "issue": "Pre-existing: 'props.pointerEvents is deprecated. Use style.pointerEvents' warning on multiple screens. Non-blocking."},
+      {"component": "shadow* style props", "issue": "Pre-existing: '\"shadow*\" style props are deprecated. Use \"boxShadow\"' warning. Non-blocking."},
+      {"component": "Animated useNativeDriver", "issue": "Modal.animationType='fade' triggers 'useNativeDriver is not supported' warning on web preview. Non-blocking on web; harmless on native."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter5_features.py",
+    "/app/test_reports/pytest/iter5_results.xml"
+  ],
+  "action_items": [
+    "Pre-existing: migrate remaining props.pointerEvents and shadow* style props to the RN Web unified APIs (style.pointerEvents and boxShadow) to silence console warnings.",
+    "Pre-existing from iter3/iter4: /api/gifts has no DB transaction between sender debit and recipient credit — a crash between the two writes could burn/leak coins. Consider wrapping in a Mongo session transaction.",
+    "Nice-to-have: /api/circles/{id}/members/{uid}/mute accepts any positive int for minutes with no upper bound — consider capping (e.g., max 10080 = 7 days) to prevent accidental permanent silences; same for remove's rejoin ban.",
+    "Supporter badge is computed per request by scanning up to 2000 gift docs per circle (top_supporter_ids in server.py:589). For scale, replace with a Mongo $group aggregation on gifts by sender_id with $limit 3, or precompute into a 'supporter_cache' doc updated on each gift write."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now 1559 lines (grew ~155 lines this iter) — splitting into routers (circles, moderation, events, gifts, posts) is overdue. Mute/ban + events + supporter helpers all live alongside posts & auth in the same file.",
+    "top_supporter_ids has no caching across requests — every feed render recomputes top-3 for each distinct circle in the feed. The cache dict parameter is used only within a single request; a short TTL in-memory LRU (e.g., 30s per circle_id) would eliminate repeat scans during a scroll.",
+    "mute_member/unmute_member/remove_member all share identical is_circle_mod + owner-guard logic — extract a `assert_can_moderate(circle_id, actor_id, target_id)` helper to DRY.",
+    "GET /circles/{id}/members returns muted:bool but does not expose muted_until — the frontend can't display 'muted until 3:14pm'. Minor UX gap; not spec-required.",
+    "/api/events/upcoming compares ISO strings for starts_at (lexicographic). This works because all stored timestamps are now_iso() / client-supplied ISO-8601 w/ timezone offsets of the same shape — but a mixed-tz dataset (e.g., '+00:00' vs 'Z') would mis-sort. Normalize to UTC-Z on write.",
+    "circle_bans.until uses ISO-string comparison in join_circle (server.py:431) — same caveat; also no index on {circle_id, user_id} documented. For scale, create a compound index."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter5_features.py (new — 20 pytest cases for iter 5)",
+    "/app/test_reports/pytest/iter5_results.xml (new — junit output)"
+  ],
+  "success_rate": {"backend": "100% (20/20)", "frontend": "100% of new-feature flows verified (home-calendar routes, cal-prev/next month shift, cal-day-{n} selects, event dot indicator, cal-rsvp-{eid} toggles going, manage-{uid} opens sheet with manage-role/mute/remove, mute toasts and API reflects muted:true, supporter-{postId} pill renders only for authors who gifted in the circle)"},
+  "seed_data_creation": "All data auto-generated per test with TEST_ prefix (circles TEST_Iter5_*, TEST_Supp_*, TEST_SuppC_*, TEST_Mute_*, TEST_MuteNM_*, TEST_MuteOwn_*, TEST_Rm_*, TEST_RmOwn_*, TEST_Ev_*, TEST_EvPast_*, TEST_Rsvp_*, TEST_UI_*). Users: TEST_<hex>@circles.app. Idempotent; safe to re-run. For UI validation one TEST_UI circle, one future event, one throwaway VictimUI user, one Flower gift, and two posts were created. No seed/production data modified.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend base = EXPO_PUBLIC_BACKEND_URL in /app/frontend/.env (https://circles-demo-1.preview.emergentagent.com), all routes under /api. Credentials: guide@circles.app/circles123 (owner of all seed circles + global moderator), demo@circles.app/demo1234 (not onboarded — direct nav to /circle/{id} works). Register throwaway users for supporter/mute/ban checks (starts with 100 coins — enough for Flower=25 or Heart=10 but NOT Crown=120 or Rocket=300 without additional funding). Auth token in web localStorage as JSON-stringified string under 'auth_token'. Iter5 testIDs: home-calendar (home header, routes to /calendar), cal-prev/cal-next (month shift), cal-day-{n} (select day — n = day-of-month number, NOT ISO date), cal-rsvp-{eventId} (toggle RSVP from calendar), supporter-{postId} (Top supporter pill on PostCard — only renders when post.author_is_supporter is true), manage-{uid} (People tab, visible when circle.is_owner || my_role==='moderator' AND target is not owner), manage-role/manage-mute/manage-remove inside the Modal sheet. Supporter requires a circle-attributed gift (gift must include post_id or room_id so backend copies circle_id onto the gift doc). Top-3 sender set is per-circle; owner never auto-becomes a supporter. Owner is immune: 400 on mute/remove/role-change for owner. Removed users get 403 on POST /circles/{id}/join until circle_bans.until expires. GET /circles/{id}/members returns {muted:bool} per member but does not return muted_until. Agora/live audio is explicitly OUT OF SCOPE.",
+  "rca_of_issue": ""
+}

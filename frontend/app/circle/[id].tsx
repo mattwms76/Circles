@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, TextInput, View } from "react-native";
+import { Modal, Pressable, ScrollView, TextInput, View } from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -18,7 +18,7 @@ import { formatDateTime } from "@/src/lib/time";
 
 type TabKey = "posts" | "events" | "about" | "people";
 type CircleEvent = { id: string; title: string; description: string; starts_at: string; host_name: string; rsvp_count: number; going: boolean };
-type Member = { id: string; name: string; avatar_url: string | null; role: string };
+type Member = { id: string; name: string; avatar_url: string | null; role: string; muted?: boolean };
 
 export default function CircleDetail() {
   const styles = useStyles();
@@ -33,6 +33,7 @@ export default function CircleDetail() {
   const [eventModal, setEventModal] = useState(false);
   const [welcome, setWelcome] = useState("");
   const [editingWelcome, setEditingWelcome] = useState(false);
+  const [manage, setManage] = useState<Member | null>(null);
 
   const { data: circle, isLoading } = useQuery({
     queryKey: ["circle", id],
@@ -98,6 +99,23 @@ export default function CircleDetail() {
       toast.show(next === "moderator" ? `${m.name.split(" ")[0]} is now a moderator` : "Moderator removed", "success");
     } catch (e: any) {
       toast.show(e?.message ?? "Could not update role", "error");
+    }
+  };
+
+  const doMemberAction = async (m: Member, action: "mute" | "unmute" | "remove") => {
+    setManage(null);
+    try {
+      if (action === "mute") await apiPost(`/api/circles/${id}/members/${m.id}/mute`, { minutes: 30 });
+      else if (action === "unmute") await apiPost(`/api/circles/${id}/members/${m.id}/unmute`, {});
+      else await apiPost(`/api/circles/${id}/members/${m.id}/remove`, { minutes: 60 });
+      qc.invalidateQueries({ queryKey: ["circle-members", id] });
+      qc.invalidateQueries({ queryKey: ["circle", id] });
+      toast.show(
+        action === "mute" ? `${m.name.split(" ")[0]} muted for 30 min` : action === "unmute" ? "Member unmuted" : `${m.name.split(" ")[0]} removed`,
+        "success",
+      );
+    } catch (e: any) {
+      toast.show(e?.message ?? "Could not update member", "error");
     }
   };
 
@@ -311,34 +329,64 @@ export default function CircleDetail() {
               </View>
             ) : null}
             <Overline>{(members ?? []).length} members</Overline>
-            {(members ?? []).map((m) => (
-              <View key={m.id} style={styles.memberRow} testID={`member-${m.id}`}>
-                <Pressable style={styles.memberInfo} onPress={() => router.push(`/user/${m.id}`)}>
-                  <Avatar uri={m.avatar_url} name={m.name} size={44} />
-                  <View style={{ flex: 1 }}>
-                    <Body size={15} weight="medium" color={colors.onSurface} style={{ fontFamily: fonts.textMedium }}>{m.name}</Body>
-                    {m.role !== "member" ? <Body size={12} color={colors.brandPrimary}>{m.role}</Body> : null}
-                  </View>
-                </Pressable>
-                {circle.is_owner && m.role !== "owner" ? (
-                  <Pressable
-                    testID={`role-${m.id}`}
-                    style={[styles.roleBtn, m.role === "moderator" && { backgroundColor: colors.brandPrimary }]}
-                    onPress={() => toggleModerator(m)}
-                  >
-                    <Icon name="shield" size={16} color={m.role === "moderator" ? colors.onBrandPrimary : colors.brandPrimary} />
+            {(members ?? []).map((m) => {
+              const canManage = (circle.is_owner || circle.my_role === "moderator") && m.role !== "owner" && m.id !== circle.owner_id;
+              return (
+                <View key={m.id} style={styles.memberRow} testID={`member-${m.id}`}>
+                  <Pressable style={styles.memberInfo} onPress={() => router.push(`/user/${m.id}`)}>
+                    <Avatar uri={m.avatar_url} name={m.name} size={44} />
+                    <View style={{ flex: 1 }}>
+                      <Body size={15} weight="medium" color={colors.onSurface} style={{ fontFamily: fonts.textMedium }}>{m.name}</Body>
+                      <View style={{ flexDirection: "row", gap: spacing.sm }}>
+                        {m.role !== "member" ? <Body size={12} color={colors.brandPrimary}>{m.role}</Body> : null}
+                        {m.muted ? <Body size={12} color={colors.warning}>muted</Body> : null}
+                      </View>
+                    </View>
                   </Pressable>
-                ) : null}
-                <Pressable testID={`message-${m.id}`} style={styles.msgBtn} onPress={() => messageMember(m)}>
-                  <Icon name="message-circle" size={18} color={colors.brandPrimary} />
-                </Pressable>
-              </View>
-            ))}
+                  {canManage ? (
+                    <Pressable testID={`manage-${m.id}`} style={styles.roleBtn} onPress={() => setManage(m)}>
+                      <Icon name="more-vertical" size={18} color={colors.onSurfaceSecondary} />
+                    </Pressable>
+                  ) : null}
+                  <Pressable testID={`message-${m.id}`} style={styles.msgBtn} onPress={() => messageMember(m)}>
+                    <Icon name="message-circle" size={18} color={colors.brandPrimary} />
+                  </Pressable>
+                </View>
+              );
+            })}
           </View>
         ) : null}
       </ScrollView>
 
       <EventComposer circleId={id!} visible={eventModal} onClose={() => setEventModal(false)} />
+
+      <Modal visible={!!manage} transparent animationType="fade" onRequestClose={() => setManage(null)}>
+        <Pressable style={styles.menuBackdrop} onPress={() => setManage(null)} />
+        <View style={styles.menuSheet}>
+          <View style={styles.menuHandle} />
+          <Body size={13} color={colors.muted} style={{ marginBottom: spacing.sm }}>
+            Manage {manage?.name}
+          </Body>
+          {circle.is_owner ? (
+            <Pressable testID="manage-role" style={styles.menuItem} onPress={() => { const m = manage!; setManage(null); toggleModerator(m); }}>
+              <Icon name="shield" size={18} color={colors.onSurface} />
+              <Body size={15} color={colors.onSurface}>{manage?.role === "moderator" ? "Remove moderator" : "Make moderator"}</Body>
+            </Pressable>
+          ) : null}
+          <Pressable testID="manage-mute" style={styles.menuItem} onPress={() => doMemberAction(manage!, manage?.muted ? "unmute" : "mute")}>
+            <Icon name={manage?.muted ? "volume-2" : "volume-x"} size={18} color={colors.onSurface} />
+            <Body size={15} color={colors.onSurface}>{manage?.muted ? "Unmute" : "Mute for 30 min"}</Body>
+          </Pressable>
+          <Pressable testID="manage-remove" style={styles.menuItem} onPress={() => doMemberAction(manage!, "remove")}>
+            <Icon name="user-x" size={18} color={colors.error} />
+            <Body size={15} color={colors.error}>Remove from circle</Body>
+          </Pressable>
+          <Pressable style={styles.menuItem} onPress={() => setManage(null)}>
+            <Icon name="x" size={18} color={colors.muted} />
+            <Body size={15} color={colors.muted}>Cancel</Body>
+          </Pressable>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -370,6 +418,21 @@ const useStyles = makeStyles((colors) => ({
   memberInfo: { flexDirection: "row", alignItems: "center", gap: spacing.md, flex: 1 },
   msgBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.brandTertiary, alignItems: "center", justifyContent: "center" },
   roleBtn: { width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
+  menuBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)" },
+  menuSheet: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing["2xl"],
+  },
+  menuHandle: { alignSelf: "center", width: 40, height: 4, borderRadius: 2, backgroundColor: colors.borderStrong, marginBottom: spacing.sm },
+  menuItem: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.md },
   leaderCard: { backgroundColor: colors.surfaceSecondary, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.md },
   leaderRow: { flexDirection: "row", justifyContent: "space-around" },
   leader: { alignItems: "center", gap: 4 },

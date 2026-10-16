@@ -20,6 +20,7 @@ type Comment = {
   author_id: string;
   author_name: string;
   author_avatar: string | null;
+  author_is_supporter?: boolean;
   created_at: string;
 };
 
@@ -74,6 +75,9 @@ export default function PostDetail() {
                   <Body size={13} weight="medium" color={colors.onSurface} style={{ fontFamily: fonts.textMedium }}>
                     {item.author_name}
                   </Body>
+                  {item.author_is_supporter ? (
+                    <Icon name="star" size={12} color={colors.warning} />
+                  ) : null}
                   <Body size={11} color={colors.muted}>{timeAgo(item.created_at)}</Body>
                 </View>
                 <Body size={14} color={colors.onSurfaceSecondary}>{item.text}</Body>

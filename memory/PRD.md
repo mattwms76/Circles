@@ -51,6 +51,11 @@ Rebuild the "Circles" app (github.com/mattwms76/Circles) as a fresh Expo + FastA
 - People tab: 4th circle tab listing members with a one-tap message (direct chat) button; About tab is description-only.
 - Live Rooms seats: raise-hand toggle, host promotes listeners to co-host (max 3 seats) / demotes, role + raised-hand badges on stage. (Real audio still needs Agora + native build.)
 
+## Implemented — Iteration 5 (2026-10-16)
+- Supporter Perks: `author_is_supporter` flag on posts & comments (top-3 circle gift senders) → "Top supporter" pill on posts, star on comments.
+- Mute & Ban: owners/moderators mute a member (30 min, blocks posting/commenting) or remove them (deletes membership + 60-min rejoin ban), via a manage sheet in the People tab; muted members show a label.
+- Event Calendar: /calendar month view (opened from Home header) listing upcoming events across joined circles with day-dots and inline RSVP. GET /api/events/upcoming.
+
 ## Implemented — Iteration 4 (2026-10-16)
 - Moderator Tools: owners/moderators remove posts in their circle; any member can report a post (⋯ menu); circle-scoped report queue (/circle-reports/{id}) with remove/dismiss; deleting a post auto-resolves its reports. (19/19 tests)
 - Reminder Nudges: NudgeWatcher toasts once when an RSVP'd event starts within the hour (dedup in storage), on top of the 24h Home banner.
