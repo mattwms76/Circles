@@ -1,17 +1,21 @@
 (() => {
-  const icon = (name) => {
-    const paths = {
-      bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/>',
-      edit: '<path d="m4 16 12-12 4 4-12 12-5 1zM13 7l4 4"/>',
-      plus: '<path d="M12 4v16M4 12h16"/>',
-      photo:
-        '<rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="8" cy="9" r="1.5"/><path d="m4 18 5-5 4 3 3-5 5 7"/>',
-      video: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="m10 8 6 4-6 4z"/>',
-      camera: '<path d="M8 5 9 3h6l1 2h4v15H4V5z"/><circle cx="12" cy="12" r="4"/>',
-      reply: '<path d="M4 4h16v12H9l-5 4z"/>',
-      share: '<path d="M12 16V3m-5 5 5-5 5 5M5 13v8h14v-8"/>',
-    };
-    return `<svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true">${paths[name] || paths.plus}</svg>`;
+  const icon = (name) => window.circlesIcon(name);
+  window.circlesPreviewError = (message) => {
+    const panel = document.querySelector('.modalPanel');
+    if (!panel) {
+      toast(message);
+      return;
+    }
+    let notice = panel.querySelector('[data-inline-error]');
+    if (!notice) {
+      notice = document.createElement('p');
+      notice.className = 'inlineNotice errorNotice';
+      notice.dataset.inlineError = '';
+      notice.setAttribute('role', 'alert');
+      panel.append(notice);
+    }
+    notice.textContent = message;
+    notice.scrollIntoView({ block: 'nearest' });
   };
   const circleCover = (interest) =>
     ({
@@ -112,13 +116,7 @@
       coins,
     };
   });
-  const navIcons = [
-    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></svg>',
-    '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m15.8 8.2-2.5 5.1-5.1 2.5 2.5-5.1z"/></svg>',
-    '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="1.8" fill="#fff" stroke="none"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7M6 6a8.5 8.5 0 0 0 0 12M18 6a8.5 8.5 0 0 1 0 12"/></svg>',
-    '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/></svg>',
-    '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>',
-  ];
+  const navIcons = ['home', 'compass', 'live', 'envelope', 'user'].map(icon);
   tabs.forEach((tab, index) => {
     const icon = tab.querySelector('.tabIcon,.bubble');
     if (icon) icon.innerHTML = navIcons[index];
@@ -239,9 +237,9 @@
   document.head.append(style);
 
   const circlesScreen = () =>
-    `<header class="screenHead exploreHeading"><h1>Explore circles</h1><p>Find a place that feels like you.</p></header><div style="padding:0 22px"><input class="demoInput" id="circleSearch" placeholder="Search interests and circles" aria-label="Search circles"></div><div class="demoFilters">${['For you', 'Film', 'Gardening', 'Art', 'Cooking', 'Music', 'Slow living'].map((x, i) => `<button class="demoChip ${i === 0 ? 'on' : ''}" data-filter="${x}">${x}</button>`).join('')}</div><div class="sectionHead" style="padding:0 22px"><div><div class="eyebrow">A FEW GOOD PLACES</div><h2 id="circleCount">${state.circles.length} circles to explore</h2></div><button class="demoButton" data-action="createCircle">＋ Create</button></div><div class="demoList" id="circleList">${state.circles.map(circleCard).join('')}</div><div class="sectionHead" style="padding:0 22px"><div><div class="eyebrow">PEOPLE TO MEET</div><h2>Follow your curiosity</h2></div></div>${peopleRows()}`;
-  const circleCard = ([name, interest, desc, count, joined, emoji]) =>
-    `<article class="demoCard demoCircle" role="button" tabindex="0" data-action="openCircle" data-name="${escapeHtml(name)}" data-circle="${escapeHtml(`${name.toLowerCase()} ${interest.toLowerCase()}`)}"><div class="demoCircleHero">${emoji}</div><div class="demoCircleInfo"><div class="demoTitle">${escapeHtml(name)}</div><p class="demoCopy">${escapeHtml(desc)}</p><div class="demoCircleFoot"><span class="demoCopy">${escapeHtml(interest)} · ${escapeHtml(count)} members</span><button class="demoButton ${joined ? 'soft' : ''}" data-action="join" data-name="${escapeHtml(name)}">${joined ? 'Joined' : 'Join'}</button></div><p class="demoCopy" style="margin-top:9px;color:#ef715b;font-weight:750">Open circle ›</p></div></article>`;
+    `<header class="screenHead exploreHeading"><h1>Explore circles</h1><p>Find a place that feels like you.</p></header><div style="padding:0 22px"><input class="demoInput" id="circleSearch" placeholder="Search interests and circles" aria-label="Search circles"></div><div class="demoFilters">${['For you', 'Film', 'Gardening', 'Art', 'Cooking', 'Music', 'Slow living'].map((x, i) => `<button class="demoChip ${i === 0 ? 'on' : ''}" data-filter="${x}" aria-pressed="${i === 0}">${x}</button>`).join('')}</div><div class="sectionHead" style="padding:0 22px"><div><div class="eyebrow">A FEW GOOD PLACES</div><h2 id="circleCount">${state.circles.length} circles to explore</h2></div><button class="demoButton" data-action="createCircle">＋ Create</button></div><div class="demoList" id="circleList">${state.circles.map(circleCard).join('')}</div><div class="sectionHead" style="padding:0 22px"><div><div class="eyebrow">PEOPLE TO MEET</div><h2>Follow your curiosity</h2></div></div>${peopleRows()}`;
+  const circleCard = ([name, interest, desc, count, joined, emoji, isPrivate]) =>
+    `<article class="demoCard demoCircle" data-name="${escapeHtml(name)}" data-circle="${escapeHtml(`${name.toLowerCase()} ${interest.toLowerCase()}`)}"><button class="circleOpen" data-action="openCircle" data-name="${escapeHtml(name)}" aria-label="Open ${escapeHtml(name)}"><img class="circleThumb" src="${coverURL(interest)}" alt=""><span class="circleInfo"><strong class="demoTitle">${escapeHtml(name)}</strong><span class="demoCopy">${escapeHtml(desc)}</span><span class="circleMeta">${escapeHtml(interest)} · ${escapeHtml(count)} members${isPrivate ? ' · Private' : ''}</span></span></button><div class="circleActions"><button class="demoButton ${joined ? 'soft' : ''}" data-action="join" data-name="${escapeHtml(name)}" ${joined ? 'disabled' : ''}>${joined ? 'Joined' : 'Join'}</button></div></article>`;
   const peopleRows = () =>
     [
       [
@@ -321,7 +319,7 @@
   const circleScreen = () => {
     const circle = state.circles.find((item) => item[0] === state.activeCircle);
     if (!circle)
-      return `<header class="screenHead"><button class="demoButton soft" data-action="backCircle">‹ Back to circles</button><h1>Circle not found</h1></header>`;
+      return `<header class="screenHead"><button class="demoButton soft" data-action="backCircle">${icon('back')} Back to circles</button><h1>Circle not found</h1></header>`;
     const [name, interest, description, count, joined, emoji, isPrivate] = circle;
     const requested = state.requestedCircles.has(name);
     const posts = (state.circlePosts[name] || [])
@@ -338,15 +336,14 @@
       : requested
         ? `<button class="demoButton soft" data-action="cancelCircleRequest" data-name="${escapeHtml(name)}">Request pending · cancel</button>`
         : `<button class="demoButton" data-action="join" data-name="${escapeHtml(name)}">${isPrivate ? 'Request to join' : 'Join this circle'}</button>`;
-    return `<header class="screenHead circleHeading ${tab === 'about' ? 'circleAbout' : 'circleCompact'}"><button class="demoButton soft" data-action="backCircle">‹ Back</button><div class="circleCover" style="background-image:linear-gradient(0deg,#15131cdd,transparent),url('${coverURL(interest)}')"><div class="circleIdentity"><img src="${coverURL(interest)}" alt=""><span>${escapeHtml(interest)} · ${isPrivate ? 'Private' : 'Public'}</span></div><h1>${escapeHtml(name)}</h1><p>${escapeHtml(count)} members ${joined ? '· Joined' : ''}</p></div><div class="circleTabs" role="tablist" aria-label="Circle sections">${['posts', 'events', 'about'].map((t) => `<button role="tab" aria-selected="${t === tab}" data-action="circleTab" data-tab="${t}" id="circle-tab-${t}" aria-controls="circle-panel">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div>${membership}</header><section class="section" id="circle-panel" role="tabpanel" aria-labelledby="circle-tab-${tab}">${tab === 'posts' ? (joined ? posts || '<div class="ex-empty"><h2>Start the conversation</h2><p>Share a thought, photo or video with your circle.</p></div>' : '<div class="ex-empty"><h2>Come on in</h2><p>Join this circle to read and share posts.</p></div>') : !joined ? '<div class="ex-empty">Join to see events and member information.</div>' : ''}</section>`;
+    return `<header class="screenHead circleHeading circleCompact"><button class="demoButton soft" data-action="backCircle">${icon('back')} Back</button><div class="circleCover" style="background-image:linear-gradient(0deg,#15131cdd,transparent),url('${coverURL(interest)}')"><div class="circleIdentity"><img src="${coverURL(interest)}" alt=""><span>${escapeHtml(interest)} · ${isPrivate ? 'Private' : 'Public'}</span></div><h1>${escapeHtml(name)}</h1><p>${escapeHtml(count)} members ${joined ? '· Joined' : ''}</p></div><div class="circleTabs" role="tablist" aria-label="Circle sections">${['posts', 'events', 'about'].map((t) => `<button role="tab" aria-selected="${t === tab}" data-action="circleTab" data-tab="${t}" id="circle-tab-${t}" aria-controls="circle-panel">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div>${membership}</header><section class="section" id="circle-panel" role="tabpanel" aria-labelledby="circle-tab-${tab}">${tab === 'posts' ? (joined ? posts || '<div class="ex-empty"><h2>Start the conversation</h2><p>Share a thought, photo or video with your circle.</p></div>' : '<div class="ex-empty"><h2>Come on in</h2><p>Join this circle to read and share posts.</p></div>') : !joined ? '<div class="ex-empty">Join to see events and member information.</div>' : ''}</section>`;
   };
   const profileScreen = () =>
-    `<header class="screenHead"><div class="eyebrow">YOUR LITTLE CORNER</div><div class="profilePhotoRow"><img class="profilePhotoDemo" data-own-avatar src="${escapeHtml(state.avatarUrl)}" alt="Your profile photo"><button class="demoButton soft" data-action="editProfilePhoto">Change photo</button></div><h1>${escapeHtml(state.displayName)}</h1><p>@julesmakes · ${escapeHtml(state.bio)}</p></header><div class="demoCard walletDemo demoRow"><div class="grow"><div class="demoCopy">YOUR WALLET</div><div style="font-size:23px;font-weight:850;margin-top:5px">◉ ${state.coins} <span style="font-size:12px;font-weight:500">coins</span></div></div><button class="demoButton" data-action="buyCoins">Add coins</button></div><div class="demoCard demoRow"><div class="grow"><div class="demoTitle">${state.following.size} following</div><p class="demoCopy">Your profile and interests</p></div><button class="demoButton soft" data-action="editProfile">Edit profile</button></div><section class="section"><details class="communityDetails"><summary>Following · ${state.following.size}</summary><div class="demoList" style="padding:0">${profilePeople(state.following)}</div></details></section><section class="section"><details class="communityDetails"><summary>Followers · ${state.followers.size}</summary><div class="demoList" style="padding:0">${profilePeople(state.followers)}</div></details></section><div class="sectionHead" style="padding:8px 20px"><div><div class="eyebrow">YOUR CIRCLES</div><h2>Places you belong</h2></div></div><div class="demoList">${state.circles
+    `<header class="screenHead profileIdentity"><div class="profilePhotoRow"><img class="profilePhotoDemo" data-own-avatar src="${escapeHtml(state.avatarUrl)}" alt="Your profile photo"><button class="demoButton soft" data-action="editProfilePhoto">Change photo</button></div><h1>${escapeHtml(state.displayName)}</h1><p>@julesmakes</p><p>${escapeHtml(state.bio)}</p><button class="demoButton" data-action="editProfile">Edit profile</button><div class="profileStats"><span>${state.circles.filter((c) => c[4]).length} circles</span><button class="quietButton" data-action="profilePeople" data-kind="following">Following · ${state.following.size}</button><button class="quietButton" data-action="profilePeople" data-kind="followers">Followers · ${state.followers.size}</button></div></header><div class="sectionHead" style="padding:8px 20px"><h2>Circles you’re in</h2></div><div class="demoList">${state.circles
       .filter((c) => c[4])
       .map(circleCard)
       .join('')}</div>`;
-
-  // Preview-only post interactions mirror native ownership controls without contacting services.
+  // Preview-only persistence; the native app uses account-owned bookmarks.
   let savedPreviewPosts = {};
   try {
     savedPreviewPosts = JSON.parse(localStorage.getItem('circles-preview-saved-posts') || '{}');
@@ -365,7 +362,7 @@
           .querySelector('.postMeta')
           ?.insertAdjacentHTML(
             'beforeend',
-            `<button class="iconButton" data-enhance="options" data-id="${escapeHtml(article.dataset.postId)}" aria-label="Post options">···</button>`,
+            `<button class="iconButton" data-enhance="options" data-id="${escapeHtml(article.dataset.postId)}" aria-label="Post options">${icon('more')}</button>`,
           );
       const old = article.querySelector('.more');
       if (old) old.remove();
@@ -384,17 +381,30 @@
           'afterend',
           '<button class="demoButton soft" data-enhance="shareCircle">Share circle</button>',
         );
-      if (
-        state.circleTab === 'posts' &&
-        state.circles.find((c) => c[0] === state.activeCircle)?.[4]
-      )
-        page
-          .querySelector('#circle-panel')
-          ?.insertAdjacentHTML(
-            'afterbegin',
-            '<details class="postFilters"><summary>Search and filters</summary><div class="ex-stack"><input class="demoInput" id="postSearch" aria-label="Search posts in this circle" placeholder="Search this circle’s posts"><select class="demoInput" id="postMediaFilter" aria-label="Filter posts by media"><option value="all">All posts</option><option value="image">Photos</option><option value="video">Videos</option></select><p id="postSearchCount" class="demoCopy" aria-live="polite"></p></div></details>',
-          );
     }
+    page.querySelectorAll('.postActions > span').forEach((span) => {
+      const button = document.createElement('button');
+      button.className = 'demoChip';
+      button.textContent = span.textContent;
+      span.replaceWith(button);
+    });
+    page.querySelectorAll('.postActions button').forEach((button) => {
+      const label = button.textContent.trim();
+      const name = label.includes('Reply') ? 'reply' : label.includes('Share') ? 'share' : 'heart';
+      button.dataset.postAction = name;
+      if (name === 'heart') {
+        button.setAttribute('aria-pressed', String(state.likes));
+        button.setAttribute(
+          'aria-label',
+          (state.likes ? 'Unlike post' : 'Like post') +
+            ', ' +
+            label.replace(/[^0-9]/g, '') +
+            ' likes',
+        );
+      }
+      button.innerHTML =
+        icon(name) + '<span>' + escapeHtml(label.replace(/^[♥♡◯↗]\s*/, '')) + '</span>';
+    });
     const mediaFilter = page.querySelector('#postMediaFilter');
     if (mediaFilter) {
       const group = document.createElement('div');
@@ -444,9 +454,24 @@
     const content = article.querySelector('.body')?.textContent || '';
     modal(
       'Post options',
-      `<div class="ex-stack"><button class="demoButton" data-enhance="save" data-id="${escapeHtml(id)}">${savedPreviewPosts[id] ? 'Remove from saved posts' : 'Save post'}</button>${own ? `<p class="demoCopy">You can edit or remove your timeline posts at any time while you are a member.</p><textarea class="demoArea" id="editPostBody" aria-label="Edit post text" maxlength="5000">${escapeHtml(content)}</textarea><button class="demoButton soft" data-enhance="edit" data-id="${escapeHtml(id)}">Save changes</button><button class="demoButton soft" data-enhance="delete" data-id="${escapeHtml(id)}">Delete post</button>` : '<button class="demoButton soft" data-action="report">Report post (preview)</button>'}</div>`,
+      `<div class="ex-stack"><p class="demoCopy">Saving</p><button class="demoButton" data-enhance="save" data-id="${escapeHtml(id)}">${savedPreviewPosts[id] ? 'Remove from saved posts' : 'Save post'}</button>${own ? `<p class="demoCopy">You can edit or remove your timeline posts at any time while you are a member.</p><textarea class="demoArea" id="editPostBody" aria-label="Edit post text" maxlength="5000">${escapeHtml(content)}</textarea><button class="demoButton soft" data-enhance="edit" data-id="${escapeHtml(id)}">Save changes</button><button class="demoButton soft" data-enhance="delete" data-id="${escapeHtml(id)}">Delete post</button>` : '<button class="demoButton soft" data-action="report">Report post (preview)</button>'}</div>`,
     );
     depth?.options(id);
+    const body = document.querySelector('.modalPanel .ex-stack');
+    const safety = body?.querySelector('[data-action="report"], #editPostBody');
+    if (safety) {
+      const group = document.createElement('section');
+      group.className = 'postOptionGroup';
+      group.innerHTML = '<h3>Safety and post management</h3>';
+      safety.before(group);
+      let item = group.nextElementSibling;
+      while (item && !item.matches('hr, [data-depth]')) {
+        const next = item.nextElementSibling;
+        group.append(item);
+        item = next;
+      }
+      body.append(group);
+    }
   }
   document.addEventListener(
     'click',
@@ -566,6 +591,7 @@
       post.hidden = !match;
       if (match) count++;
     });
+    if (!document.querySelector('#postSearchCount')) return;
     document.querySelector('#postSearchCount').textContent = `${count} matching posts`;
   }
   document.addEventListener('input', (event) => {
@@ -600,6 +626,10 @@
               : screen === 'circle'
                 ? circleScreen()
                 : profileScreen();
+    if (['circles', 'live', 'inbox'].includes(screen)) {
+      const top = homeMarkup().match(/<header class="top">[\s\S]*?<\/header>/);
+      if (top) page.insertAdjacentHTML('afterbegin', top[0]);
+    }
     const greeting = page.querySelector('.intro .sub');
     if (greeting) greeting.textContent = 'A little closer to your people.';
     if (screen === 'home' && state.posts.length) {
@@ -613,6 +643,7 @@
     page.querySelectorAll('[data-own-author]').forEach((label) => {
       label.textContent = state.displayName;
     });
+    if (screen === 'home') page.querySelector('.quick.tint')?.remove();
     experience?.decorate(screen);
     stories?.decorate();
     depth?.decorate(screen);
@@ -641,7 +672,12 @@
     document.querySelector('.modalDemo')?.remove();
     const el = document.createElement('div');
     el.className = 'modalDemo';
-    el.innerHTML = `<section class="modalPanel" role="dialog" aria-modal="true" aria-label="${title.replace(/<[^>]*>/g, '')}"><header class="modalHead"><h2>${title}</h2><button data-action="closeModal" aria-label="Close">×</button></header>${content}</section>`;
+    const sheetSize = /^(Create a post|Share a story|Edit profile|Create a circle|Schedule)/.test(
+      title,
+    )
+      ? 'form'
+      : 'content';
+    el.innerHTML = `<section class="modalPanel sheet-${sheetSize}" role="dialog" aria-modal="true" aria-label="${title.replace(/<[^>]*>/g, '')}"><header class="modalHead"><h2>${title}</h2><button data-action="closeModal" aria-label="Close">${icon('close')}</button></header>${content}</section>`;
     document.querySelector('.device').append(el);
     el.querySelectorAll('form').forEach((form) => {
       form.classList.add('standardForm');
@@ -784,10 +820,6 @@
         if (child !== head && child !== search && child !== grid) child.remove();
       });
       panel.insertBefore(back, search);
-      const balance = document.createElement('p');
-      balance.className = 'ex-hint';
-      balance.textContent = `Balance · ◉ ${state.coins} coins`;
-      panel.insertBefore(balance, search);
       panel.classList.add('giftPanel');
     }
     experience?.gifts();
@@ -809,11 +841,21 @@
     }),
   );
   document.addEventListener('click', (event) => {
-    const target = event.target.closest(
+    let target = event.target.closest(
       '[data-action], [data-filter], .link, .quick, .postActions span, .live, .play, .circle, .avatar, .more, .postActions button',
     );
     if (!target) return;
+    if (target.closest('.postActions')) target = target.closest('.postActions button') || target;
     const action = target.dataset.action;
+    if (action === 'profilePeople') {
+      const kind = target.dataset.kind;
+      modal(
+        kind === 'followers' ? 'Followers' : 'Following',
+        profilePeople(state[kind]) ||
+          '<p class="ex-empty">Find people who share your interests in Explore.</p>',
+      );
+      return;
+    }
     if (action === 'circleTab') {
       state.circleTab = target.dataset.tab;
       render('circle');
@@ -842,9 +884,10 @@
     }
 
     if (target.dataset.filter) {
-      document
-        .querySelectorAll('[data-filter]')
-        .forEach((x) => x.classList.toggle('on', x === target));
+      document.querySelectorAll('[data-filter]').forEach((x) => {
+        x.classList.toggle('on', x === target);
+        x.setAttribute('aria-pressed', String(x === target));
+      });
       filterCircles();
       return;
     }
@@ -885,9 +928,14 @@
     }
     if (target.closest('.postActions')) {
       const label = target.textContent;
-      if (label.includes('♥')) {
+      if (target.dataset.postAction === 'heart' || label.includes('♥')) {
         state.likes = !state.likes;
-        target.textContent = state.likes ? '♥　285' : '♥　284';
+        target.innerHTML = icon('heart') + '<span>' + (state.likes ? '285' : '284') + '</span>';
+        target.setAttribute('aria-pressed', String(state.likes));
+        target.setAttribute(
+          'aria-label',
+          (state.likes ? 'Unlike post, 285' : 'Like post, 284') + ' likes',
+        );
         toast(state.likes ? 'You liked this post.' : 'Like removed.');
       } else if (label.includes('Reply'))
         openReplies(target.closest('[data-post-id]')?.dataset.postId || 'seed-0');
@@ -947,6 +995,11 @@
       toast('Your request was cancelled.');
     } else if (action === 'leaveCircle') {
       const c = state.circles.find((c) => c[0] === target.dataset.name);
+      if (c?.[7]) {
+        window.circlesPreviewError('Transfer ownership before leaving this circle.');
+        return;
+      }
+      if (!window.confirm(`Leave ${target.dataset.name}?`)) return;
       if (c) c[4] = false;
       render('circle');
       toast(`You left ${target.dataset.name}.`);
@@ -1029,10 +1082,17 @@
       state.liveSession.giftsOpen = !state.liveSession.giftsOpen;
       if (!state.liveSession.giftsOpen) state.giftSearch = '';
       renderLive(state.liveSession.hostMode);
+    } else if (action === 'selectGift') {
+      state.selectedGiftId = target.dataset.id;
+      renderLive(state.liveSession.hostMode);
     } else if (action === 'gift') {
       const cost = Number(target.dataset.cost);
       if (state.coins < cost) {
-        toast('Add coins in your profile to send this gift.');
+        const feedback = document.querySelector('#giftFeedback');
+        if (feedback) {
+          feedback.hidden = false;
+          feedback.textContent = 'Add coins in your wallet to send this gift.';
+        }
         return;
       }
       state.coins -= cost;
@@ -1122,8 +1182,10 @@
       render(state.screen === 'circle' ? 'circle' : 'home');
       toast(`Added to ${circle} in this local preview.`);
     } else if (action === 'report') {
-      document.querySelector('.modalDemo')?.remove();
-      toast('Preview only: no report was submitted.');
+      modal(
+        'Report · simulated',
+        `<form data-simulated="report" class="ex-stack"><p class="inlineNotice">Design preview only. No report will be sent.</p><label>Reason<select class="demoInput" required><option>Harassment or bullying</option><option>Spam</option><option>Unsafe content</option></select></label><label>Additional details<textarea class="demoArea" maxlength="2000"></textarea></label><button class="demoButton">Simulate report</button><p role="status"></p></form>`,
+      );
     } else if (action === 'closeModal') {
       clearMedia();
       document.querySelector('.modalDemo')?.remove();
@@ -1264,10 +1326,10 @@
     if (event.target.id === 'giftSearch') {
       state.giftSearch = event.target.value.toLowerCase();
       document
-        .querySelectorAll('.giftGridPreview [data-action=gift]')
+        .querySelectorAll('.giftGridPreview [data-action=selectGift]')
         .forEach(
           (el) =>
-            (el.style.display = el.dataset.gift.toLowerCase().includes(state.giftSearch)
+            (el.style.display = el.textContent.toLowerCase().includes(state.giftSearch)
               ? ''
               : 'none'),
         );
@@ -1367,6 +1429,7 @@
         true,
         '🫶',
         isPrivate,
+        true,
       ]);
       document.querySelector('.modalDemo')?.remove();
       render('circles');
@@ -1407,6 +1470,7 @@
     '[data-action],.quick,.link,.postActions span,.live,.play,.circle,.avatar,.more,.postActions button';
   function makePreviewControlsAccessible() {
     document.querySelectorAll(previewControlSelector).forEach((element) => {
+      if (element.tagName !== 'BUTTON' && element.closest('button')) return;
       if (!element.hasAttribute('role')) element.setAttribute('role', 'button');
       element.setAttribute('tabindex', '0');
     });
@@ -1455,9 +1519,12 @@
   const previewMeta = document.createElement('aside');
   previewMeta.className = 'previewMeta';
   previewMeta.innerHTML =
-    '<strong>Circles · interactive preview</strong><span>Demo data · native mobile services are not connected here.</span><label>Appearance <select id="previewTheme" aria-label="Appearance"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>';
+    '<strong>Circles · interactive preview</strong><span>Demo data · native mobile services are not connected here.</span><label>Appearance <select id="previewTheme" aria-label="Appearance"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label><label>Text size <select id="previewTextSize" aria-label="Text size"><option value="normal">100%</option><option value="large">140%</option><option value="largest">200%</option></select></label>';
   document.querySelector('.device').before(previewMeta);
   const appearance = document.querySelector('#previewTheme');
+  document.querySelector('#previewTextSize').addEventListener('change', (event) => {
+    document.querySelector('.device').dataset.textSize = event.target.value;
+  });
   try {
     appearance.value = localStorage.getItem('circles-preview-theme') || 'system';
   } catch {}

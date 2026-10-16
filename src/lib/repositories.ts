@@ -25,6 +25,7 @@ import {
   posts as demoPosts,
 } from '../data/demo';
 import { backendReady, requireSupabase, supabase } from './supabase';
+import { messageCursorFilter, type MessageCursor } from './messagePagination';
 
 const postMediaBucket = 'post-media';
 
@@ -768,7 +769,7 @@ export async function loadConversations(): Promise<Conversation[]> {
 
 export async function loadConversationMessages(
   peerId: UUID,
-  before?: string,
+  before?: MessageCursor,
   pageSize = 40,
 ): Promise<DirectMessage[]> {
   if (!supabase)
@@ -784,8 +785,9 @@ export async function loadConversationMessages(
       `and(sender_id.eq.${auth.user.id},recipient_id.eq.${peerId}),and(sender_id.eq.${peerId},recipient_id.eq.${auth.user.id})`,
     )
     .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
     .limit(pageSize);
-  if (before) query = query.lt('created_at', before);
+  if (before) query = query.or(messageCursorFilter(before));
   const { data, error } = await query;
   if (error) throw error;
   return (data ?? []).reverse().map((row) => ({

@@ -33,12 +33,64 @@ export function loadSource(file, mocks = {}) {
       module,
       exports: module.exports,
       require: (name) => {
+        if (name.endsWith('.ttf')) return 'bundled-font';
+        if (name === 'expo-font') return { useFonts: () => [true, null] };
+        if (name.endsWith('/Design'))
+          return loadSource('src/components/Design.tsx', {
+            'react-native': native,
+            '../theme': {
+              colors: {},
+              typography: { body: {}, secondary: {} },
+              radii: { small: 12 },
+            },
+          });
+        if (name.endsWith('/Icon'))
+          return loadSource('src/components/Icon.tsx', {
+            'react-native-svg': { __esModule: true, default: 'Svg', Path: 'Path' },
+            '../theme': { colors: {} },
+          });
+        if (name.endsWith('/icon-paths.json'))
+          return JSON.parse(
+            readFileSync(new URL('../src/icon-paths.json', import.meta.url), 'utf8'),
+          );
+        if (name.endsWith('/design-metrics.json'))
+          return JSON.parse(
+            readFileSync(new URL('../src/design-metrics.json', import.meta.url), 'utf8'),
+          );
+        if (name.endsWith('/messagePagination')) return loadSource('src/lib/messagePagination.ts');
+        if (name.endsWith('/LayoutControls'))
+          return loadSource('src/components/LayoutControls.tsx', {
+            'react-native': native,
+            '../theme': { colors: {} },
+            './Primitives': {
+              Icon: 'Icon',
+              ...(mocks['../components/Primitives'] ?? mocks['./Primitives'] ?? {}),
+            },
+          });
+        if (name.endsWith('/Primitives') && name in mocks && !mocks[name].IconButton)
+          return {
+            IconButton: loadSource('src/components/Primitives.tsx', {
+              'react-native': native,
+              '../theme': { colors: {}, radii: { small: 14, medium: 22, large: 30, pill: 999 } },
+            }).IconButton,
+            ...mocks[name],
+          };
         if (name in mocks)
           return name.endsWith('/theme')
             ? {
                 createThemedStyles: (factory) => factory(),
                 useThemeMode: () => 'light',
                 useReducedMotion: () => true,
+                configureEditorialFont: () => {},
+                typography: {
+                  title: {},
+                  section: {},
+                  dialog: {},
+                  member: {},
+                  body: {},
+                  secondary: {},
+                  caption: {},
+                },
                 ...mocks[name],
               }
             : mocks[name];
@@ -205,6 +257,7 @@ export const native = new Proxy(
     Platform: { OS: 'android' },
     AccessibilityInfo: { announceForAccessibility() {} },
     AppState: { addEventListener: () => ({ remove() {} }) },
+    useWindowDimensions: () => ({ width: 390, height: 844, fontScale: 1 }),
     Alert: { alert() {} },
     Linking: {
       getInitialURL: async () => null,

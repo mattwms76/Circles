@@ -235,7 +235,12 @@ test('Circle tabs show posts first and expose separate event/about tools without
       .props.onPress(),
   );
   await renderHeader();
-  assert.equal(header.root.findByType('CircleTools').props.section, 'about');
+  assert.equal(
+    header.root.findAllByType('CircleTools').length,
+    0,
+    'Management stays behind Circle tools',
+  );
+  assert.equal(header.root.findByType('CircleFeatures').props.details.props.section, 'about');
   await act(async () =>
     renderer.update(
       React.createElement(CircleDetailScreen, {
@@ -288,7 +293,7 @@ test('Composer keeps its publish action outside scrolling content and rejects em
   assert.equal(
     renderer.root
       .findAllByType('Pressable')
-      .filter((b) => /^Add (photo|gif|upload video|record video)$/.test(b.props.accessibilityLabel))
+      .filter((b) => /^(Photo|GIF|Upload video|Record video)$/.test(b.props.accessibilityLabel))
       .length,
     4,
   );

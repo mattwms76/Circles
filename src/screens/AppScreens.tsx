@@ -1,3 +1,5 @@
+import { NavigationRow, useCompactLayout, type SettingsDestination } from '../components/Design';
+import { MediaChoices } from '../components/LayoutControls';
 import { PublishingTools } from '../components/PublishingTools';
 import {
   CircleFeatures,
@@ -13,6 +15,7 @@ export { LoadingCards } from '../components/LoadingCards';
 import { CirclePostSearch, useCirclePostSearch } from '../components/CirclePostSearch';
 import { contentLink } from '../lib/contentLinks';
 import { createTextDraftStore } from '../lib/textDraftStore';
+import type { MessageCursor } from '../lib/messagePagination';
 import {
   ScheduledRooms,
   ReactionBar,
@@ -54,7 +57,6 @@ import { AgoraVideoTile, agoraUidFor } from '../lib/streaming';
 import {
   ActionButton,
   Icon,
-  type IconName,
   Avatar,
   EmptyState,
   Disclosure,
@@ -64,7 +66,7 @@ import {
   TopBar,
   formatCount,
 } from '../components/Primitives';
-import { colors } from '../theme';
+import { colors, typography } from '../theme';
 import { styles } from '../appStyles';
 import type {
   Circle,
@@ -196,6 +198,7 @@ export function InboxScreen({
   onConversation: (conversation: Conversation) => void;
 }) {
   const [onlyUnread, setOnlyUnread] = useState(false);
+  const { largeText } = useCompactLayout();
   const [query, setQuery] = useState('');
   const visible = conversations.filter(
     (c) =>
@@ -252,10 +255,13 @@ export function InboxScreen({
           >
             <Avatar profile={conversation.peer} size={52} />
             <View style={styles.conversationMain}>
-              <View style={styles.conversationHead}>
-                <Text numberOfLines={1} style={styles.conversationName}>
-                  {conversation.peer.displayName}
-                </Text>
+              <View
+                style={[
+                  styles.conversationHead,
+                  largeText && { flexDirection: 'column', alignItems: 'flex-start', gap: 4 },
+                ]}
+              >
+                <Text style={styles.conversationName}>{conversation.peer.displayName}</Text>
                 <Text style={styles.conversationTime}>
                   {conversation.messages.at(-1)?.createdAt ?? ''}
                 </Text>
@@ -293,6 +299,7 @@ export function InboxScreen({
 
 export function ProfileScreen({
   onSettings,
+  onActivity,
   onForgotPassword,
   onOnboarding,
   profile,
@@ -319,7 +326,8 @@ export function ProfileScreen({
   onOpenProfile,
   onSignOut,
 }: {
-  onSettings: () => void;
+  onSettings: (destination?: SettingsDestination) => void;
+  onActivity: () => void;
   onForgotPassword: () => void;
   onOnboarding: () => void;
   profile: Profile;
@@ -350,6 +358,8 @@ export function ProfileScreen({
   onSignOut: () => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const [peopleList, setPeopleList] = useState<'followers' | 'following' | null>(null);
+  const [profileSettings, setProfileSettings] = useState(false);
   const [displayName, setDisplayName] = useState(profile.displayName);
   const [bio, setBio] = useState(profile.bio);
   const [interests, setInterests] = useState(profile.interests.join(', '));
@@ -408,29 +418,34 @@ export function ProfileScreen({
     <ScrollView contentContainerStyle={styles.pageContent} showsVerticalScrollIndicator={false}>
       <TopBar profile={profile} />
       <View style={styles.profileHero}>
-        <Avatar profile={photo ? { ...profile, avatarUrl: photo.uri } : profile} size={88} ring />
-        {signedIn ? (
-          <>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Change profile photo"
-              accessibilityState={{ disabled: photoBusy || profileSaving, busy: photoBusy }}
-              disabled={photoBusy || profileSaving}
-              onPress={() => void choosePhoto()}
-              style={styles.profileEditButton}
-            >
-              <Text style={styles.profileEditText}>
-                {photoBusy ? 'Opening photos…' : 'Change photo'}
-              </Text>
-            </Pressable>
-            {photoError ? (
-              <Text accessibilityRole="alert" style={styles.authError}>
-                {photoError}
-              </Text>
-            ) : null}
-          </>
-        ) : null}
-
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
+          <Avatar
+            profile={photo ? { ...profile, avatarUrl: photo.uri } : profile}
+            size={88}
+            frame="neutral"
+          />
+          {signedIn ? (
+            <>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Change profile photo"
+                accessibilityState={{ disabled: photoBusy || profileSaving, busy: photoBusy }}
+                disabled={photoBusy || profileSaving}
+                onPress={() => void choosePhoto()}
+                style={[styles.profileEditButton, { marginTop: 0 }]}
+              >
+                <Text style={styles.profileEditText}>
+                  {photoBusy ? 'Opening photos…' : 'Change photo'}
+                </Text>
+              </Pressable>
+              {photoError ? (
+                <Text accessibilityRole="alert" style={styles.authError}>
+                  {photoError}
+                </Text>
+              ) : null}
+            </>
+          ) : null}
+        </View>
         <Text style={styles.profileName}>{profile.displayName}</Text>
         <Text style={styles.profileHandle}>@{profile.handle}</Text>
         <Text style={styles.profileBio}>
@@ -440,9 +455,12 @@ export function ProfileScreen({
           <Pressable
             accessibilityRole="button"
             onPress={() => setEditing(true)}
-            style={styles.profileEditButton}
+            style={[
+              styles.profileEditButton,
+              { backgroundColor: colors.primary, borderColor: colors.primary },
+            ]}
           >
-            <Text style={styles.profileEditText}>Edit profile</Text>
+            <Text style={[styles.profileEditText, { color: colors.onPrimary }]}>Edit profile</Text>
           </Pressable>
         ) : null}
         {editing ? (
@@ -569,99 +587,176 @@ export function ProfileScreen({
             <Text style={styles.statLabel}>circles</Text>
           </View>
           <View style={styles.statLine} />
-          <View style={styles.stat}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Following · ${followingCount.toLocaleString()}`}
+            onPress={() => setPeopleList('following')}
+            style={styles.stat}
+          >
             <Text style={styles.statValue}>{followingCount.toLocaleString()}</Text>
             <Text style={styles.statLabel}>following</Text>
-          </View>
+          </Pressable>
           <View style={styles.statLine} />
-          <View style={styles.stat}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Followers · ${followerCount.toLocaleString()}`}
+            onPress={() => setPeopleList('followers')}
+            style={styles.stat}
+          >
             <Text style={styles.statValue}>{followerCount.toLocaleString()}</Text>
             <Text style={styles.statLabel}>followers</Text>
-          </View>
+          </Pressable>
         </View>
       </View>
-      {signedIn ? (
-        <View style={styles.sectionPad}>
-          <Disclosure title={`Followers · ${followerCount.toLocaleString()}`}>
-            {followers.map((follower) => (
-              <View key={follower.id} style={styles.followerRow}>
-                <Pressable
-                  onPress={() => onOpenProfile(follower)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Open ${follower.displayName}'s profile`}
-                  style={styles.publicProfileRow}
-                >
-                  <Avatar profile={follower} size={42} />
-                  <View style={styles.followerInfo}>
-                    <Text numberOfLines={1} style={styles.followerName}>
-                      {follower.displayName}
-                    </Text>
-                    <Text numberOfLines={1} style={styles.followerHandle}>
-                      @{follower.handle}
-                    </Text>
-                  </View>
-                </Pressable>
-                <Pressable
-                  onPress={() => onBlockFollower(follower)}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Block follower ${follower.displayName}`}
-                  style={styles.blockFollowerButton}
-                >
-                  <Text style={styles.blockFollowerText}>Block</Text>
-                </Pressable>
-              </View>
-            ))}
-            {followers.length === 0 ? (
-              <EmptyState
-                emoji="👋"
-                title="No followers yet"
-                detail="When someone follows you, you can manage them here."
-              />
-            ) : null}
-          </Disclosure>
-        </View>
-      ) : null}
-      {signedIn ? (
-        <View style={styles.sectionPad}>
-          <Disclosure title={`Following · ${followingCount.toLocaleString()}`}>
-            {following.map((person) => (
-              <Pressable
-                key={person.id}
-                onPress={() => onOpenProfile(person)}
-                accessibilityRole="button"
-                accessibilityLabel={`Open ${person.displayName}'s profile`}
-                style={styles.followerRow}
+      <View style={[styles.sectionPad, { flexDirection: 'row', flexWrap: 'wrap' }]}>
+        {signedIn ? (
+          <>
+            <ActionButton compact variant="quiet" label="Activity" onPress={onActivity} />
+            <ActionButton
+              compact
+              variant="quiet"
+              label="Settings and privacy"
+              onPress={() => setProfileSettings(true)}
+            />
+            {profileSettings ? (
+              <Sheet
+                title="Settings and privacy"
+                eyebrow="YOUR ACCOUNT"
+                onClose={() => setProfileSettings(false)}
               >
-                <Avatar profile={person} size={42} />
+                <NavigationRow
+                  icon="bell"
+                  label="Notifications"
+                  detail="Messages, replies and device alerts"
+                  onPress={() => {
+                    setProfileSettings(false);
+                    onSettings('notifications');
+                  }}
+                />
+                <NavigationRow
+                  icon="settings"
+                  label="Safety and account"
+                  detail="Blocked members, support and account deletion"
+                  onPress={() => {
+                    setProfileSettings(false);
+                    onSettings('safety');
+                  }}
+                />
+                <NavigationRow
+                  icon="envelope"
+                  label="Catch-up preferences"
+                  detail="Choose whether to receive a weekly reminder"
+                  onPress={() => {
+                    setProfileSettings(false);
+                    onSettings('catchup');
+                  }}
+                />
+                <NavigationRow
+                  icon="compass"
+                  label="Find circles for my interests"
+                  onPress={() => {
+                    setProfileSettings(false);
+                    onOnboarding();
+                  }}
+                />
+                <NavigationRow
+                  icon="gift"
+                  label={`Wallet · ${walletBalance.toLocaleString()} coins`}
+                  detail="Add coins"
+                  onPress={() => {
+                    setProfileSettings(false);
+                    onStore();
+                  }}
+                />
+              </Sheet>
+            ) : null}
+          </>
+        ) : configured ? (
+          <ActionButton
+            compact
+            variant="quiet"
+            label="Forgot password?"
+            onPress={onForgotPassword}
+          />
+        ) : null}
+      </View>
+      {signedIn && peopleList === 'followers' ? (
+        <Sheet
+          title={`Followers · ${followerCount.toLocaleString()}`}
+          eyebrow="YOUR PEOPLE"
+          onClose={() => setPeopleList(null)}
+        >
+          {followers.map((follower) => (
+            <View key={follower.id} style={styles.followerRow}>
+              <Pressable
+                onPress={() => onOpenProfile(follower)}
+                accessibilityRole="button"
+                accessibilityLabel={`Open ${follower.displayName}'s profile`}
+                style={styles.publicProfileRow}
+              >
+                <Avatar profile={follower} size={42} />
                 <View style={styles.followerInfo}>
                   <Text numberOfLines={1} style={styles.followerName}>
-                    {person.displayName}
+                    {follower.displayName}
                   </Text>
                   <Text numberOfLines={1} style={styles.followerHandle}>
-                    @{person.handle}
+                    @{follower.handle}
                   </Text>
                 </View>
               </Pressable>
-            ))}
-            {following.length === 0 ? (
-              <EmptyState
-                emoji="🌱"
-                title="You’re not following anyone yet"
-                detail="Find people whose interests feel like yours in Explore."
-              />
-            ) : null}
-          </Disclosure>
-        </View>
+              <Pressable
+                onPress={() => onBlockFollower(follower)}
+                accessibilityRole="button"
+                accessibilityLabel={`Block follower ${follower.displayName}`}
+                style={styles.blockFollowerButton}
+              >
+                <Text style={styles.blockFollowerText}>Block</Text>
+              </Pressable>
+            </View>
+          ))}
+          {followers.length === 0 ? (
+            <EmptyState
+              emoji="👋"
+              title="No followers yet"
+              detail="When someone follows you, you can manage them here."
+            />
+          ) : null}
+        </Sheet>
       ) : null}
-      <View style={styles.walletCard}>
-        <View>
-          <Text style={styles.walletEyebrow}>YOUR WALLET</Text>
-          <Text style={styles.walletAmount}>
-            ◉ {walletBalance.toLocaleString()} <Text style={styles.walletCoins}>coins</Text>
-          </Text>
-        </View>
-        <ActionButton compact variant="outline" label="Add coins" onPress={onStore} />
-      </View>
+      {signedIn && peopleList === 'following' ? (
+        <Sheet
+          title={`Following · ${followingCount.toLocaleString()}`}
+          eyebrow="YOUR PEOPLE"
+          onClose={() => setPeopleList(null)}
+        >
+          {following.map((person) => (
+            <Pressable
+              key={person.id}
+              onPress={() => onOpenProfile(person)}
+              accessibilityRole="button"
+              accessibilityLabel={`Open ${person.displayName}'s profile`}
+              style={styles.followerRow}
+            >
+              <Avatar profile={person} size={42} />
+              <View style={styles.followerInfo}>
+                <Text numberOfLines={1} style={styles.followerName}>
+                  {person.displayName}
+                </Text>
+                <Text numberOfLines={1} style={styles.followerHandle}>
+                  @{person.handle}
+                </Text>
+              </View>
+            </Pressable>
+          ))}
+          {following.length === 0 ? (
+            <EmptyState
+              emoji="🌱"
+              title="You’re not following anyone yet"
+              detail="Find people whose interests feel like yours in Explore."
+            />
+          ) : null}
+        </Sheet>
+      ) : null}
       <View style={styles.sectionPad}>
         <SectionTitle eyebrow="YOUR LITTLE CORNERS" title="Circles you’re in" />
         {circles.map((circle) => (
@@ -681,7 +776,7 @@ export function ProfileScreen({
                 {formatCount(circle.members)} members · {circle.interest}
               </Text>
             </View>
-            <Text style={{ color: colors.muted, fontSize: 20 }}>›</Text>
+            <Icon name="forward" color={colors.muted} />
           </Pressable>
         ))}
         {!signedIn && configured ? (
@@ -729,25 +824,6 @@ export function ProfileScreen({
                 <Text style={styles.signInText}>I have an account</Text>
               </Pressable>
             </View>
-          </View>
-        ) : null}
-        {signedIn ? (
-          <View style={{ gap: 12 }}>
-            <ActionButton label="Settings and privacy" variant="outline" onPress={onSettings} />
-            <ActionButton
-              label="Find circles for my interests"
-              variant="secondary"
-              onPress={onOnboarding}
-            />
-          </View>
-        ) : configured ? (
-          <View style={{ gap: 12 }}>
-            <ActionButton
-              compact
-              variant="outline"
-              label="Forgot password?"
-              onPress={onForgotPassword}
-            />
           </View>
         ) : null}
         {signedIn && configured ? (
@@ -815,7 +891,7 @@ export function PublicProfileScreen({
                 @{person.handle}
               </Text>
             </View>
-            <Text style={styles.publicProfileChevron}>›</Text>
+            <Icon name="forward" color={colors.muted} />
           </Pressable>
         ))}
         {!loading && users.length === 0 ? (
@@ -835,13 +911,13 @@ export function PublicProfileScreen({
         <>
           <View style={styles.publicProfileHeader}>
             <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="Back">
-              <Text style={styles.publicProfileBack}>‹</Text>
+              <Icon name="back" />
             </Pressable>
             <Text style={styles.publicProfileHeaderLabel}>MEMBER PROFILE</Text>
             <View style={{ width: 36 }} />
           </View>
           <View style={styles.profileHero}>
-            <Avatar profile={profile} size={88} ring />
+            <Avatar profile={profile} size={88} frame="neutral" />
             <Text style={styles.profileName}>{profile.displayName}</Text>
             <Text style={styles.profileHandle}>@{profile.handle}</Text>
             <Text style={styles.profileBio}>
@@ -976,6 +1052,7 @@ export function CircleDetailScreen({
   onCreatePost: () => void;
   onLoadMore: () => void;
 }) {
+  const { largeText } = useCompactLayout();
   const search = useCirclePostSearch(circle.id);
   const [section, setSection] = useState<'posts' | 'events' | 'about'>('posts');
   useEffect(() => setSection('posts'), [circle.id]);
@@ -994,9 +1071,10 @@ export function CircleDetailScreen({
             <Pressable
               onPress={onBack}
               accessibilityRole="button"
+              style={{ minHeight: 48, minWidth: 48, justifyContent: 'center' }}
               accessibilityLabel="Back to circles"
             >
-              <Text style={styles.publicProfileBack}>‹</Text>
+              <Icon name="back" />
             </Pressable>
             <Text style={styles.publicProfileHeaderLabel}>{circle.interest}</Text>
             <ActionButton
@@ -1011,54 +1089,32 @@ export function CircleDetailScreen({
             />
           </View>
           <View style={styles.circlePageHero}>
-            {section === 'about' ? (
-              <ImageBackground
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <Image
                 source={{ uri: circle.imageUrl }}
-                style={styles.circlePageCover}
-                imageStyle={styles.circlePageCoverImage}
-              >
-                <View style={styles.circlePageShade} />
-                {circle.isPrivate ? <Text style={styles.circlePagePrivate}>🔒 PRIVATE</Text> : null}
-                <View style={styles.circlePageCoverCopy}>
-                  <View style={styles.circleIdentity}>
-                    <Image source={{ uri: circle.imageUrl }} style={styles.circleIdentityImage} />
-                    <Text style={styles.circlePageInterest}>{circle.interest}</Text>
-                  </View>
-                  <Text style={styles.circlePageTitle}>{circle.name}</Text>
-                  <Text style={styles.circlePageMembers}>
-                    {formatCount(circle.members)} members
-                  </Text>
-                </View>
-              </ImageBackground>
-            ) : (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                <Image
-                  source={{ uri: circle.imageUrl }}
-                  style={{ width: 56, height: 56, borderRadius: 16 }}
-                />
-                <View style={{ flex: 1 }}>
-                  <Text
-                    style={{ color: colors.ink, fontSize: 22, lineHeight: 28, fontWeight: '700' }}
-                  >
-                    {circle.name}
-                  </Text>
-                  <Text style={{ color: colors.muted, fontSize: 14, lineHeight: 20 }}>
-                    {formatCount(circle.members)} members ·{' '}
-                    {circle.isPrivate ? 'Private' : 'Public'}
-                  </Text>
-                </View>
+                style={{ width: 56, height: 56, borderRadius: 16 }}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={{ ...typography.section, color: colors.ink }}>{circle.name}</Text>
+                <Text style={{ color: colors.muted, fontSize: 14, lineHeight: 20 }}>
+                  {formatCount(circle.members)} members · {circle.isPrivate ? 'Private' : 'Public'}
+                </Text>
               </View>
-            )}
+            </View>
           </View>
           <View style={styles.sectionPad}>
-            <View accessibilityRole="tablist" style={styles.circleTabs}>
+            <View accessibilityRole="tablist" style={[styles.circleTabs, { flexWrap: 'wrap' }]}>
               {(['posts', 'events', 'about'] as const).map((value) => (
                 <Pressable
                   key={value}
                   accessibilityRole="tab"
                   accessibilityState={{ selected: section === value }}
                   onPress={() => setSection(value)}
-                  style={[styles.circleTab, section === value && styles.circleTabSelected]}
+                  style={[
+                    styles.circleTab,
+                    largeText && { flex: 0, flexBasis: '100%' },
+                    section === value && styles.circleTabSelected,
+                  ]}
                 >
                   <Text
                     style={{
@@ -1074,6 +1130,26 @@ export function CircleDetailScreen({
             </View>
             {section === 'about' ? (
               <>
+                <ImageBackground
+                  source={{ uri: circle.imageUrl }}
+                  style={styles.circlePageCover}
+                  imageStyle={styles.circlePageCoverImage}
+                >
+                  <View style={styles.circlePageShade} />
+                  {circle.isPrivate ? (
+                    <Text style={styles.circlePagePrivate}>🔒 PRIVATE</Text>
+                  ) : null}
+                  <View style={styles.circlePageCoverCopy}>
+                    <View style={styles.circleIdentity}>
+                      <Image source={{ uri: circle.imageUrl }} style={styles.circleIdentityImage} />
+                      <Text style={styles.circlePageInterest}>{circle.interest}</Text>
+                    </View>
+                    <Text style={styles.circlePageTitle}>{circle.name}</Text>
+                    <Text style={styles.circlePageMembers}>
+                      {formatCount(circle.members)} members
+                    </Text>
+                  </View>
+                </ImageBackground>
                 <Text style={styles.circleDetailDescription}>{circle.description}</Text>
                 <Text style={styles.circleDetailPrivacy}>
                   {circle.isPrivate ? 'Private circle · members only' : 'Public circle'} ·{' '}
@@ -1081,9 +1157,15 @@ export function CircleDetailScreen({
                 </Text>
               </>
             ) : null}
-            {circle.isMember ? <CircleFeatures circle={circle} /> : null}
-            {section === 'posts' && circle.isMember ? <CirclePostSearch search={search} /> : null}
+
             <View style={styles.circlePageActions}>
+              {circle.isMember && section === 'posts' ? (
+                <CircleFeatures
+                  circle={circle}
+                  search={<CirclePostSearch search={search} />}
+                  details={React.cloneElement(tools, { section: 'about' })}
+                />
+              ) : null}
               {!circle.isMember && !requested ? (
                 <ActionButton
                   label={
@@ -1126,11 +1208,11 @@ export function CircleDetailScreen({
               ) : null}
             </View>
             {section === 'posts' && circle.isMember && stories ? (
-              <Disclosure title="Circle stories">
-                <View style={{ marginHorizontal: -20 }}>{stories}</View>
-              </Disclosure>
+              <View style={{ marginHorizontal: -20 }}>{stories}</View>
             ) : null}
-            {section !== 'posts' && circle.isMember ? React.cloneElement(tools, { section }) : null}
+            {section === 'events' && circle.isMember
+              ? React.cloneElement(tools, { section })
+              : null}
             {section !== 'posts' && !circle.isMember ? (
               <EmptyState
                 emoji="◌"
@@ -1139,6 +1221,15 @@ export function CircleDetailScreen({
               />
             ) : null}
           </View>
+          {circle.isMember && section !== 'posts' ? (
+            <View style={styles.sectionPad}>
+              <CircleFeatures
+                circle={circle}
+                search={<CirclePostSearch search={search} />}
+                details={React.cloneElement(tools, { section: 'about' })}
+              />
+            </View>
+          ) : null}
         </>
       }
       renderItem={({ item }) => (
@@ -1412,6 +1503,7 @@ export function PostRepliesSheet({
   return (
     <Sheet
       onClose={onClose}
+      size={comments.length ? 'conversation' : 'content'}
       title="Replies"
       eyebrow={`${post.circleName.toUpperCase()} · ${comments.length}${hasMore ? '+' : ''} REPLIES`}
       footer={
@@ -1557,6 +1649,7 @@ export function PostRepliesSheet({
 }
 
 export function TabBar({ selected, onChange }: { selected: Tab; onChange: (tab: Tab) => void }) {
+  const { largeText } = useCompactLayout();
   const items: { tab: Tab; label: string }[] = [
     { tab: 'home', label: 'Home' },
     { tab: 'circles', label: 'Explore' },
@@ -1565,7 +1658,7 @@ export function TabBar({ selected, onChange }: { selected: Tab; onChange: (tab: 
     { tab: 'profile', label: 'You' },
   ];
   return (
-    <View style={styles.tabBar}>
+    <View style={[styles.tabBar, largeText && { flexWrap: 'wrap' }]}>
       {items.map((item) => (
         <Pressable
           key={item.tab}
@@ -1573,7 +1666,7 @@ export function TabBar({ selected, onChange }: { selected: Tab; onChange: (tab: 
           accessibilityLabel={`${item.label} tab`}
           accessibilityState={{ selected: selected === item.tab }}
           onPress={() => onChange(item.tab)}
-          style={styles.tabItem}
+          style={[styles.tabItem, largeText && { flex: 0, width: '33.3%', paddingVertical: 8 }]}
         >
           <TabGlyph tab={item.tab} selected={selected === item.tab} />
           <Text style={[styles.tabLabel, selected === item.tab && styles.tabLabelActive]}>
@@ -1586,65 +1679,14 @@ export function TabBar({ selected, onChange }: { selected: Tab; onChange: (tab: 
 }
 
 export function TabGlyph({ tab, selected }: { tab: Tab; selected: boolean }) {
-  const color = selected ? colors.coral : colors.muted;
-  if (tab === 'live')
-    return (
-      <View style={[styles.navLiveIcon, selected && styles.navLiveIconSelected]}>
-        <View style={styles.navLiveSignalOuter}>
-          <View style={styles.navLiveSignalInner}>
-            <View style={styles.navLiveSignalDot} />
-          </View>
-        </View>
-      </View>
-    );
-  if (tab === 'home')
-    return (
-      <View
-        style={styles.navGlyph}
-        accessibilityElementsHidden
-        importantForAccessibility="no-hide-descendants"
-      >
-        <View style={[styles.navHomeRoof, { borderColor: color }]} />
-        <View style={[styles.navHomeBody, { borderColor: color }]}>
-          <View style={[styles.navHomeDoor, { backgroundColor: color }]} />
-        </View>
-      </View>
-    );
-  if (tab === 'circles')
-    return (
-      <View
-        style={styles.navGlyph}
-        accessibilityElementsHidden
-        importantForAccessibility="no-hide-descendants"
-      >
-        <View style={[styles.navCompass, { borderColor: color }]}>
-          <View style={[styles.navCompassNeedle, { borderColor: color }]} />
-        </View>
-      </View>
-    );
-  if (tab === 'inbox')
-    return (
-      <View
-        style={styles.navGlyph}
-        accessibilityElementsHidden
-        importantForAccessibility="no-hide-descendants"
-      >
-        <View style={[styles.navEnvelope, { borderColor: color }]}>
-          <View style={[styles.navEnvelopeLeft, { backgroundColor: color }]} />
-          <View style={[styles.navEnvelopeRight, { backgroundColor: color }]} />
-        </View>
-      </View>
-    );
-  return (
-    <View
-      style={styles.navGlyph}
-      accessibilityElementsHidden
-      importantForAccessibility="no-hide-descendants"
-    >
-      <View style={[styles.navPersonHead, { borderColor: color }]} />
-      <View style={[styles.navPersonShoulders, { borderColor: color }]} />
-    </View>
-  );
+  const names = {
+    home: 'home',
+    circles: 'compass',
+    live: 'live',
+    inbox: 'envelope',
+    profile: 'user',
+  } as const;
+  return <Icon name={names[tab]} color={selected ? colors.coral : colors.muted} />;
 }
 
 export function CreatePostSheet({
@@ -1700,6 +1742,7 @@ export function CreatePostSheet({
       onClose={() => {
         if (!processing.current) onClose();
       }}
+      size="form"
       title="Create a post"
       eyebrow=""
       footer={
@@ -1791,7 +1834,7 @@ export function CreatePostSheet({
             accessibilityRole="button"
             accessibilityLabel="Remove attachment"
           >
-            <Text style={styles.removeAttachment}>×</Text>
+            <Icon name="close" color={colors.ink} />
           </Pressable>
         </View>
       ) : null}
@@ -1807,27 +1850,20 @@ export function CreatePostSheet({
           }}
         />
       ) : null}
-      <View style={styles.mediaButtons}>
-        <MediaButton
-          icon="photo"
-          label="Photo"
-          disabled={busy}
-          onPress={() => void onPick('image')}
-        />
-        <MediaButton icon="gif" label="GIF" disabled={busy} onPress={() => void onPick('gif')} />
-        <MediaButton
-          icon="video"
-          label="Upload video"
-          disabled={busy}
-          onPress={() => void onPick('video')}
-        />
-        <MediaButton
-          icon="camera"
-          label="Record video"
-          disabled={busy || !circles.length}
-          onPress={onRecordVideo}
-        />
-      </View>
+      <MediaChoices
+        disabled={busy}
+        choices={[
+          { label: 'Photo', icon: 'photo', onPress: () => void onPick('image') },
+          { label: 'GIF', icon: 'gif', onPress: () => void onPick('gif') },
+          { label: 'Upload video', icon: 'video', onPress: () => void onPick('video') },
+          {
+            label: 'Record video',
+            icon: 'camera',
+            onPress: onRecordVideo,
+            disabled: !circles.length,
+          },
+        ]}
+      />
       <Text style={styles.sheetCopy}>Videos up to 2 minutes · 25 MB maximum.</Text>
       <Text style={styles.sheetCopy}>
         Draft saved on this device. You can close this and come back.
@@ -2042,32 +2078,6 @@ export function StartLiveSheet({
   );
 }
 
-export function MediaButton({
-  icon,
-  label,
-  onPress,
-  disabled,
-}: {
-  icon: IconName;
-  label: string;
-  onPress: () => void;
-  disabled?: boolean;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled}
-      accessibilityRole="button"
-      accessibilityLabel={`Add ${label.toLowerCase()}`}
-      accessibilityState={{ disabled: Boolean(disabled) }}
-      style={[styles.mediaButton, disabled && { opacity: 0.45 }]}
-    >
-      <Icon name={icon} color={colors.coral} />
-      <Text style={styles.mediaLabel}>{label}</Text>
-    </Pressable>
-  );
-}
-
 export function LiveRoom({
   connectionState,
   onReconnect,
@@ -2133,6 +2143,7 @@ export function LiveRoom({
   const canRequest = !onStage && liveRequestStatus === 'none' && session.seats.length < 4;
   const [giftSearch, setGiftSearch] = useState('');
   const [giftTier, setGiftTier] = useState('all');
+  const { compact: compactGifts } = useCompactLayout();
   const [favourites, setFavourites] = useState<string[]>([]);
   const [giftError, setGiftError] = useState('');
   const [favouriteBusy, setFavouriteBusy] = useState(false);
@@ -2240,7 +2251,7 @@ export function LiveRoom({
                     ) : remoteVideo ? (
                       <AgoraVideoTile uid={remoteUid} style={styles.stageAvatarImage} />
                     ) : (
-                      <Avatar profile={seat.user} size={index > 1 ? 58 : 78} ring />
+                      <Avatar profile={seat.user} size={index > 1 ? 58 : 78} frame="neutral" />
                     )}
                     <View style={styles.speakingHalo} />
                     <Text style={styles.stagePersonName}>
@@ -2282,7 +2293,7 @@ export function LiveRoom({
                   accessibilityLabel="Decline co-host request"
                   style={styles.requestDecline}
                 >
-                  <Text style={styles.requestDeclineText}>×</Text>
+                  <Icon name="close" color={colors.ink} />
                 </Pressable>
                 <Pressable
                   onPress={() => onDecision(liveRequests[0].id, liveRequests[0].requester, true)}
@@ -2325,8 +2336,8 @@ export function LiveRoom({
                       accessibilityRole="button"
                       accessibilityLabel={micEnabled ? 'Mute microphone' : 'Unmute microphone'}
                     >
-                      <Text style={styles.roomControlIcon}>{micEnabled ? '🎙' : '🔇'}</Text>
-                      <Text style={{ fontSize: 12, color: 'white' }}>
+                      <Icon name={micEnabled ? 'mic' : 'mic-off'} color="#FFFFFF" />
+                      <Text style={{ fontSize: 14, color: 'white' }}>
                         {micEnabled ? 'Mic on' : 'Muted'}
                       </Text>
                     </Pressable>
@@ -2336,8 +2347,8 @@ export function LiveRoom({
                       accessibilityRole="button"
                       accessibilityLabel={cameraEnabled ? 'Turn camera off' : 'Turn camera on'}
                     >
-                      <Text style={styles.roomControlIcon}>{cameraEnabled ? '◉' : '⊘'}</Text>
-                      <Text style={{ fontSize: 12, color: 'white' }}>
+                      <Icon name={cameraEnabled ? 'camera' : 'camera-off'} color="#FFFFFF" />
+                      <Text style={{ fontSize: 14, color: 'white' }}>
                         {cameraEnabled ? 'Camera on' : 'Camera off'}
                       </Text>
                     </Pressable>
@@ -2347,8 +2358,8 @@ export function LiveRoom({
                       accessibilityRole="button"
                       accessibilityLabel="Switch camera"
                     >
-                      <Text style={styles.roomControlIcon}>↻</Text>
-                      <Text style={{ fontSize: 12, color: 'white' }}>Switch</Text>
+                      <Icon name="switch-camera" color="#FFFFFF" />
+                      <Text style={{ fontSize: 14, color: 'white' }}>Switch</Text>
                     </Pressable>
                   </View>
                 ) : canRequest ? (
@@ -2363,7 +2374,7 @@ export function LiveRoom({
                   accessibilityRole="button"
                   accessibilityLabel="Open gift catalog"
                 >
-                  <Text style={styles.giftOpenText}>🎁</Text>
+                  <Icon name="gift" color="#FFFFFF" />
                 </Pressable>
               </View>
             </View>
@@ -2401,7 +2412,7 @@ export function LiveRoom({
                 onPress={onBuyCoins}
                 disabled={giftSending}
               >
-                <Text style={styles.addCoinText}>＋</Text>
+                <Icon name="plus" />
               </Pressable>
             </View>
             <Pressable
@@ -2411,32 +2422,42 @@ export function LiveRoom({
               accessibilityRole="button"
               accessibilityLabel="Close gift catalog"
             >
-              <Text style={styles.giftClose}>×</Text>
+              <Icon name="close" />
             </Pressable>
           </View>
-          <Text style={ex.label}>Find a gift</Text>
-          <TextInput
-            accessibilityLabel="Find a gift"
-            value={giftSearch}
-            onChangeText={setGiftSearch}
-            placeholder="Find a gift"
-            placeholderTextColor={colors.muted}
-            style={styles.giftSearch}
-          />
-          <ScrollView
-            horizontal
-            style={{ flexGrow: 0, marginBottom: 12 }}
-            contentContainerStyle={{ gap: 8 }}
+          <Disclosure
+            key={compactGifts ? 'compact' : 'regular'}
+            title="Search and filters"
+            initiallyOpen={!compactGifts}
           >
-            {['all', 'favourites', 'tiny', 'small', 'medium', 'large', 'legendary'].map((tier) => (
-              <Pill
-                key={tier}
-                label={tier === 'all' ? 'All gifts' : tier === 'favourites' ? 'Favourites' : tier}
-                selected={giftTier === tier}
-                onPress={() => setGiftTier(tier)}
-              />
-            ))}
-          </ScrollView>
+            <Text style={ex.label}>Find a gift</Text>
+            <TextInput
+              accessibilityLabel="Find a gift"
+              value={giftSearch}
+              onChangeText={setGiftSearch}
+              placeholder="Find a gift"
+              placeholderTextColor={colors.muted}
+              style={styles.giftSearch}
+            />
+            <ScrollView
+              horizontal
+              style={{ flexGrow: 0, marginBottom: 12 }}
+              contentContainerStyle={{ gap: 8 }}
+            >
+              {['all', 'favourites', 'tiny', 'small', 'medium', 'large', 'legendary'].map(
+                (tier) => (
+                  <Pill
+                    key={tier}
+                    label={
+                      tier === 'all' ? 'All gifts' : tier === 'favourites' ? 'Favourites' : tier
+                    }
+                    selected={giftTier === tier}
+                    onPress={() => setGiftTier(tier)}
+                  />
+                ),
+              )}
+            </ScrollView>
+          </Disclosure>
           {giftError ? <Text style={ex.error}>{giftError}</Text> : null}
           <ScrollView
             keyboardShouldPersistTaps="handled"
@@ -2447,51 +2468,67 @@ export function LiveRoom({
               <Text style={ex.body}>No matching gifts. Try All gifts or clear the search.</Text>
             ) : null}
             {displayGifts.map((gift) => (
-              <Pressable
+              <View
                 key={gift.id}
-                accessibilityRole="button"
-                accessibilityLabel={`${gift.name}, ${gift.coins} coins`}
-                accessibilityState={{
-                  selected: selectedGift.id === gift.id,
-                  disabled: giftSending,
-                }}
-                disabled={giftSending}
-                onPress={() => onGiftSelect(gift)}
-                style={[
-                  styles.giftTile,
-                  selectedGift.id === gift.id && styles.giftTileSelected,
-                  giftSending && { opacity: 0.55 },
-                ]}
+                style={{ width: compactGifts ? '48%' : '31.6%', marginBottom: 8 }}
               >
-                <Text style={styles.giftEmoji}>{gift.emoji}</Text>
-                <Text style={styles.giftName}>{gift.name}</Text>
-                <Text style={styles.giftPrice}>◉ {gift.coins.toLocaleString()}</Text>
-              </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`${gift.name}, ${gift.coins} coins`}
+                  accessibilityState={{
+                    selected: selectedGift.id === gift.id,
+                    disabled: giftSending,
+                  }}
+                  disabled={giftSending}
+                  onPress={() => onGiftSelect(gift)}
+                  style={[
+                    styles.giftTile,
+                    { width: '100%' },
+                    selectedGift.id === gift.id && styles.giftTileSelected,
+                    giftSending && { opacity: 0.55 },
+                  ]}
+                >
+                  <Text style={styles.giftEmoji}>{gift.emoji}</Text>
+                  <Text style={styles.giftName}>
+                    {selectedGift.id === gift.id ? '✓ ' : ''}
+                    {gift.name}
+                  </Text>
+                  <Text style={styles.giftPrice}>{gift.coins.toLocaleString()} coins</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`${favourites.includes(gift.id) ? 'Remove' : 'Add'} ${gift.name} ${favourites.includes(gift.id) ? 'from' : 'to'} favourites`}
+                  accessibilityState={{
+                    selected: favourites.includes(gift.id),
+                    disabled: favouriteBusy,
+                  }}
+                  disabled={favouriteBusy}
+                  style={{ minHeight: 48, alignItems: 'center', justifyContent: 'center', gap: 4 }}
+                  onPress={() => {
+                    setFavouriteBusy(true);
+                    const next = favourites.includes(gift.id)
+                      ? favourites.filter((id) => id !== gift.id)
+                      : [...favourites, gift.id];
+                    void saveGiftFavourites(next)
+                      .then(() => setFavourites(next))
+                      .catch((e) => setGiftError(e.message))
+                      .finally(() => setFavouriteBusy(false));
+                  }}
+                >
+                  <Icon
+                    name="star"
+                    color={favourites.includes(gift.id) ? colors.coral : colors.muted}
+                    filled={favourites.includes(gift.id)}
+                  />
+                  <Text style={ex.hint}>Favourite</Text>
+                </Pressable>
+              </View>
             ))}
           </ScrollView>
-          <ActionButton
-            compact
-            variant="outline"
-            disabled={favouriteBusy}
-            label={
-              favourites.includes(selectedGift.id)
-                ? 'Remove selected from favourites'
-                : 'Favourite selected gift'
-            }
-            onPress={() => {
-              setFavouriteBusy(true);
-              const next = favourites.includes(selectedGift.id)
-                ? favourites.filter((id) => id !== selectedGift.id)
-                : [...favourites, selectedGift.id];
-              void saveGiftFavourites(next)
-                .then(() => setFavourites(next))
-                .catch((e) => setGiftError(e.message))
-                .finally(() => setFavouriteBusy(false));
-            }}
-          />
           <View style={styles.giftDrawerFooter}>
             <Text style={styles.giftSelectedText}>
-              {selectedGift.emoji} {selectedGift.name} · {selectedGift.coins} coins
+              {selectedGift.emoji} {selectedGift.name} · {selectedGift.coins} coins · Balance{' '}
+              {walletBalance}
             </Text>
             <ActionButton
               compact
@@ -2520,13 +2557,14 @@ export function ChatScreen({
   conversation: Conversation;
   profile: Profile;
   hasOlder: boolean;
-  onLoadOlder: (before: string) => Promise<DirectMessage[]>;
+  onLoadOlder: (before: MessageCursor) => Promise<DirectMessage[]>;
   onClose: () => void;
   onSend: (body: string, replyToId?: string) => Promise<void>;
   onDelete: (message: DirectMessage) => Promise<void>;
   onReport: () => void;
   onMediaSent?: () => void;
 }) {
+  const { height: chatHeight } = useCompactLayout();
   const [replyTo, setReplyTo] = useState<DirectMessage | null>(null);
   const [query, setQuery] = useState('');
   const [matches, setMatches] = useState<DirectMessage[]>([]);
@@ -2684,9 +2722,7 @@ export function ChatScreen({
       if (draftCurrent()) setSending(false);
     }
   };
-  const firstMessageTimestamp = conversation.messages.find(
-    (message) => message.createdAtIso,
-  )?.createdAtIso;
+  const firstMessage = conversation.messages.find((message) => message.createdAtIso);
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -2699,7 +2735,7 @@ export function ChatScreen({
           accessibilityRole="button"
           accessibilityLabel="Close conversation"
         >
-          <Text style={styles.backArrow}>‹</Text>
+          <Icon name="back" />
         </Pressable>
         <Avatar profile={conversation.peer} size={40} />
         <View style={{ flex: 1 }}>
@@ -2720,7 +2756,7 @@ export function ChatScreen({
       </View>
       {toolsOpen ? (
         <ScrollView
-          style={{ maxHeight: 240 }}
+          style={{ maxHeight: Math.min(240, chatHeight * 0.3), flexShrink: 1 }}
           contentContainerStyle={styles.chatTools}
           keyboardShouldPersistTaps="handled"
         >
@@ -2817,7 +2853,7 @@ export function ChatScreen({
           }}
         />
       ) : null}
-      {!query && hasOlder && firstMessageTimestamp ? (
+      {!query && hasOlder && firstMessage?.createdAtIso ? (
         <ActionButton
           compact
           variant="outline"
@@ -2825,7 +2861,7 @@ export function ChatScreen({
           label={loadingOlder ? 'Loading…' : 'Load earlier messages'}
           onPress={() => {
             setLoadingOlder(true);
-            void onLoadOlder(firstMessageTimestamp)
+            void onLoadOlder({ createdAt: firstMessage.createdAtIso!, id: firstMessage.id })
               .catch(() => {})
               .finally(() => setLoadingOlder(false));
           }}
@@ -2952,29 +2988,29 @@ export function ChatScreen({
         target={conversation.peer.id}
         disabled={sending || !draftLoaded}
         onSent={() => onMediaSent?.()}
-      />
-      <Text style={styles.messageOptionsHint}>Tap a message for replies and reactions</Text>
-      <View style={styles.messageComposer}>
-        <TextInput
-          value={draft}
-          onChangeText={updateDraft}
-          editable={!sending && draftLoaded}
-          maxLength={4000}
-          placeholder="Write a message…"
-          placeholderTextColor={colors.muted}
-          style={styles.messageInput}
-          multiline
-          submitBehavior="newline"
-          textAlignVertical="top"
-          accessibilityLabel="Message"
-        />
-        <ActionButton
-          compact
-          label={sending ? 'Sending…' : 'Send'}
-          disabled={!draftLoaded || sending || !draft.trim()}
-          onPress={() => void send()}
-        />
-      </View>
+      >
+        <View style={[styles.messageComposer, { flex: 1, borderTopWidth: 0, paddingTop: 0 }]}>
+          <TextInput
+            value={draft}
+            onChangeText={updateDraft}
+            editable={!sending && draftLoaded}
+            maxLength={4000}
+            placeholder="Write a message…"
+            placeholderTextColor={colors.muted}
+            style={styles.messageInput}
+            multiline
+            submitBehavior="newline"
+            textAlignVertical="top"
+            accessibilityLabel="Message"
+          />
+          <ActionButton
+            compact
+            label={sending ? 'Sending…' : 'Send'}
+            disabled={!draftLoaded || sending || !draft.trim()}
+            onPress={() => void send()}
+          />
+        </View>
+      </MessageMediaComposer>
     </KeyboardAvoidingView>
   );
 }

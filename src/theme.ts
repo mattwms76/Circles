@@ -1,19 +1,34 @@
 import tokens from './design-tokens.json';
+import metrics from './design-metrics.json';
 import { AccessibilityInfo, Appearance, StyleSheet } from 'react-native';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 
 export const lightColors = tokens.light;
 
-export const radii = { small: 14, medium: 22, large: 30, pill: 999 };
-
-export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, page: 20, section: 24, xl: 32 };
+export const radii = metrics.radii;
+export const spacing = metrics.spacing;
 export const typography = {
-  title: { fontSize: 32, lineHeight: 38, fontWeight: '700' as const },
-  section: { fontSize: 22, lineHeight: 28, fontWeight: '700' as const },
-  body: { fontSize: 16, lineHeight: 24 },
-  secondary: { fontSize: 14, lineHeight: 20 },
-  caption: { fontSize: 12, lineHeight: 16 },
+  ...metrics.typography,
+  title: {
+    ...metrics.typography.title,
+    fontFamily: 'Lora-SemiBold' as string | undefined,
+    fontWeight: '600' as const,
+  },
+  section: {
+    ...metrics.typography.section,
+    fontFamily: 'Lora-SemiBold' as string | undefined,
+    fontWeight: '600' as const,
+  },
+  dialog: { ...metrics.typography.dialog, fontWeight: '700' as const },
+  member: { ...metrics.typography.member, fontWeight: '600' as const },
 };
+let editorialFontAvailable = true;
+export function configureEditorialFont(available: boolean) {
+  editorialFontAvailable = available;
+  typography.title.fontFamily = typography.section.fontFamily = available
+    ? 'Lora-SemiBold'
+    : undefined;
+}
 
 export const darkColors: typeof lightColors = tokens.dark;
 export const themeMode = () => (Appearance.getColorScheme() === 'dark' ? 'dark' : 'light');
@@ -30,11 +45,12 @@ export const colors = new Proxy(lightColors, {
 });
 // Evaluate module-level styles per palette; changing appearance does not remount screens or drafts.
 export function createThemedStyles<T extends StyleSheet.NamedStyles<T>>(factory: () => T): T {
-  const cache: Partial<Record<'light' | 'dark', T>> = {};
+  const cache: Record<string, T> = {};
   return new Proxy({} as T, {
     get: (_target, key: string) => {
       const mode = themeMode();
-      const sheet = cache[mode] ?? (cache[mode] = StyleSheet.create(factory()));
+      const cacheKey = `${mode}:${editorialFontAvailable}`;
+      const sheet = cache[cacheKey] ?? (cache[cacheKey] = StyleSheet.create(factory()));
       return sheet[key as keyof T];
     },
   });

@@ -41,10 +41,6 @@ window.createCirclesExperience = ({
     });
   state.messages = saved.messages || state.messages;
   state.replies = saved.replies || state.replies;
-  const css = document.createElement('link');
-  css.rel = 'stylesheet';
-  css.href = './preview-design.css';
-  document.head.append(css);
   const save = () => {
     document.querySelectorAll('[data-ex=activity]').forEach((el) => {
       if (el.textContent.startsWith('Activity ·'))
@@ -105,13 +101,23 @@ window.createCirclesExperience = ({
     editingRoom = null,
     giftTier = 'all';
   const count = (n) => parseFloat(n) * (n.endsWith('k') ? 1000 : 1);
+  const composerWidths = new WeakMap();
+  const composerObserver = new ResizeObserver((entries) => {
+    for (const { target, contentRect } of entries) {
+      if (composerWidths.get(target) === contentRect.width) continue;
+      composerWidths.set(target, contentRect.width);
+      target.style.height = 'auto';
+      target.style.height = Math.min(128, Math.max(52, target.scrollHeight)) + 'px';
+    }
+  });
   const decorate = (screen) => {
-    if (screen === 'home') {
+    if (page.querySelector('#activitySlot')) {
       const unread = model.activity.filter((a) => !a.read).length;
       page.querySelector('#activitySlot').innerHTML =
         `<button class="iconButton" data-ex="activity" aria-label="Activity, ${unread} unread">${icon('bell')}${unread ? `<span class="unreadBadge">${unread}</span>` : ''}</button>`;
       page.querySelector('.timeline .eyebrow')?.remove();
-      page.querySelector('.timeline h2').textContent = 'Your timeline';
+      const timelineTitle = page.querySelector('.timeline h2');
+      if (timelineTitle) timelineTitle.textContent = 'Your timeline';
       page.querySelector('.timeline .link')?.remove();
     }
     if (screen === 'circles') {
@@ -125,11 +131,8 @@ window.createCirclesExperience = ({
         .querySelector('.demoFilters')
         ?.insertAdjacentHTML(
           'afterend',
-          `<details class="discoveryDetails"><summary>Filters · ${Number(discovery.privacy !== 'all') + Number(discovery.sort !== 'recommended') + Number(discovery.active)} active</summary><div class="ex-section ex-stack"><label class="ex-label">Membership<select id="exPrivacy" class="demoInput"><option value="all">Any circle</option><option value="public">Public</option><option value="private">Private</option></select></label><label class="ex-label">Sort circles<select id="exSort" class="demoInput"><option value="recommended">For you</option><option value="active">Recently active</option><option value="popular">Popular</option><option value="newest">New</option></select></label><label class="ex-row"><input type="checkbox" id="exActive"> Active in the last 7 days</label>${button('Clear search and filters', 'clearDiscovery')}</div></details>`,
+          `<div class="discoveryDetails">${button('Filters · ' + (Number(discovery.privacy !== 'all') + Number(discovery.sort !== 'recommended') + Number(discovery.active)) + ' active', 'discoveryFilters')}</div>`,
         );
-      document.querySelector('#exPrivacy').value = discovery.privacy;
-      document.querySelector('#exSort').value = discovery.sort;
-      document.querySelector('#exActive').checked = discovery.active;
       page.querySelectorAll('.demoCircle').forEach((card) => {
         const c = state.circles.find((c) => c[0] === card.dataset.name);
         if (c)
@@ -144,7 +147,7 @@ window.createCirclesExperience = ({
       const c = state.circles.find((c) => c[0] === state.activeCircle),
         panel = page.querySelector('#circle-panel');
       if (c?.[4] && state.circleTab === 'about')
-        panel.innerHTML = `<div class="ex-stack"><h2 class="ex-title">A little about us</h2><p class="ex-body">${e(c[2])}</p><div class="ex-card"><h3>Circle rules</h3><p>${e(model.rules[c[0]] || 'Be kind, respect privacy, and keep conversations relevant.')}</p>${button('Rules, members and host tools', 'circleTools')}</div>${button(model.circleNotifications[c[0]] === false ? 'Turn on circle notifications' : 'Turn off circle notifications', 'circleMute')}<button class="demoChip" data-action="leaveCircle" data-name="${e(c[0])}">Leave circle</button></div>`;
+        panel.innerHTML = `<img class="editorialCover" src="${page.querySelector('.circleCover .circleIdentity img')?.src || ''}" alt="${e(c[0])} cover"><div class="ex-stack"><h2 class="ex-title">A little about us</h2><p class="ex-body">${e(c[2])}</p><div class="ex-card"><h3>Circle rules</h3><p>${e(model.rules[c[0]] || 'Be kind, respect privacy, and keep conversations relevant.')}</p></div>${button(model.circleNotifications[c[0]] === false ? 'Turn on circle notifications' : 'Turn off circle notifications', 'circleMute')}<button class="demoChip" data-action="leaveCircle" data-name="${e(c[0])}">Leave circle</button></div>`;
       if (c?.[4] && state.circleTab === 'events')
         panel.innerHTML = `<div class="ex-stack"><h2 class="ex-title">Upcoming events</h2>${
           (model.events[c[0]] || [])
@@ -155,7 +158,7 @@ window.createCirclesExperience = ({
             )
             .join('') ||
           '<div class="ex-empty"><h3>Time for something together</h3><p>Plan a get-together for your circle.</p></div>'
-        }${button('Schedule an event', 'circleTools', '', false)}</div>`;
+        }${c[7] ? button('Schedule an event', 'circleTools', '', false) : '<p class="ex-hint">Your host can plan the first event.</p>'}</div>`;
     }
     if (screen === 'live') {
       page.insertAdjacentHTML(
@@ -182,7 +185,7 @@ window.createCirclesExperience = ({
         .querySelector('.screenHead')
         ?.insertAdjacentHTML(
           'afterend',
-          `<div class="ex-section profileToolbar">${button('Activity', 'activity')}<details><summary>Settings</summary><div class="ex-stack">${button('Notification preferences', 'preferences')}${button('Find circles for my interests', 'onboarding')}</div></details></div>`,
+          `<div class="ex-section profileToolbar">${button('Activity', 'activity')}${button('Settings and privacy', 'settings')}</div>`,
         );
     }
     if (screen === 'profile') {
@@ -190,7 +193,9 @@ window.createCirclesExperience = ({
       const oldCard = edit?.closest('.demoCard');
       if (edit) {
         edit.classList.remove('soft');
-        page.querySelector('.screenHead').append(edit);
+        const stats = page.querySelector('.profileStats');
+        if (stats) stats.before(edit);
+        else page.querySelector('.screenHead').append(edit);
       }
       oldCard?.remove();
       const wallet = page.querySelector('.walletDemo');
@@ -212,8 +217,17 @@ window.createCirclesExperience = ({
         label.append(input);
       });
   }
+  function discoveryFilters() {
+    modal(
+      'Circle filters',
+      `<div class="ex-section ex-stack"><label class="ex-label">Membership<select id="exPrivacy" class="demoInput"><option value="all">Any circle</option><option value="public">Public</option><option value="private">Private</option></select></label><label class="ex-label">Sort circles<select id="exSort" class="demoInput"><option value="recommended">For you</option><option value="active">Recently active</option><option value="popular">Popular</option><option value="newest">New</option></select></label><label class="ex-row"><input type="checkbox" id="exActive"> Active in the last 7 days</label>${button('Clear search and filters', 'clearDiscovery')}</div>`,
+    );
+    document.querySelector('#exPrivacy').value = discovery.privacy;
+    document.querySelector('#exSort').value = discovery.sort;
+    document.querySelector('#exActive').checked = discovery.active;
+  }
   function filter() {
-    const summary = page.querySelector('.discoveryDetails summary');
+    const summary = page.querySelector('.discoveryDetails button');
     if (summary)
       summary.textContent = `Filters · ${Number(discovery.privacy !== 'all') + Number(discovery.sort !== 'recommended') + Number(discovery.active)} active`;
     const query = (document.querySelector('#circleSearch')?.value || '').toLowerCase();
@@ -293,9 +307,10 @@ window.createCirclesExperience = ({
     const selected = item.reactions || [];
     if (kind === 'message')
       return `<div class="message ${item.own ? 'mine' : ''}" data-entry="${item.id}" ${!item.body.toLowerCase().includes(chatSearch.toLowerCase()) ? 'hidden' : ''}>
-      ${item.replyToId ? `<div class="ex-quote"><small>Replying to ${parent?.own ? 'yourself' : e(key)}</small><p>${e(parent?.body || 'Original message unavailable')}</p></div>` : ''}
-      <p>${e(item.body)}</p>${item.media ? (item.kind === 'voice' ? `<audio controls preload="metadata" data-depth-media="${e(item.id)}"></audio>` : `<img class="postMedia" alt="Shared photo" data-depth-media="${e(item.id)}">`) : ''}<div class="messageMeta"><small class="messageTime">${e(new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))}</small>
-      <details class="messageMenu"><summary aria-label="Message options">•••</summary><div class="messageMenuBody"><div class="ex-row">${button('Reply', 'replyTo', `data-id="${item.id}"`)}${deleteControl(item, kind)}</div><div class="ex-row" aria-label="Reactions">${['❤️', '👍', '😂', '🎉', '😮'].map((emoji) => button(emoji, 'react', `data-id="${item.id}" data-emoji="${emoji}" aria-label="${selected.includes(emoji) ? 'Remove' : 'Add'} ${emoji} reaction" aria-pressed="${selected.includes(emoji)}"`)).join('')}</div></div></details></div>
+      <button class="messageOpen" data-ex="messageOptions" data-id="${item.id}" aria-label="Message options: ${e(item.body || 'Attachment')}">
+      ${item.replyToId ? `<span class="ex-quote">Replying to ${e(parent?.body || 'Original message unavailable')}</span>` : ''}
+      <span class="messageBody">${e(item.body)}</span><small class="messageTime">${e(new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))}</small></button>
+      ${item.media ? (item.kind === 'voice' ? `<audio controls preload="metadata" data-depth-media="${e(item.id)}"></audio>` : `<img class="postMedia" alt="Shared photo" data-depth-media="${e(item.id)}">`) : ''}
       ${selected.length ? `<div class="messageSelectedReactions">${selected.map((emoji) => button(`${emoji} 1`, 'react', `data-id="${item.id}" data-emoji="${emoji}" aria-pressed="true"`)).join('')}</div>` : ''}</div>`;
 
     return `<div class="message ${item.own ? 'mine' : ''} ${item.replyToId ? 'isReply' : ''}" data-entry="${item.id}" ${kind === 'message' && !item.body.toLowerCase().includes(chatSearch.toLowerCase()) ? 'hidden' : ''}>${item.replyToId ? `<div class="ex-quote"><small>Replying to ${parent?.own ? 'yourself' : e(key)}</small><p>${e(parent?.body || 'Original message unavailable')}</p></div>` : ''}<p>${e(item.body)}</p><small class="messageTime">${e(new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))}</small><div class="entryControls"><div class="ex-reactions">${selected.map((emoji) => button(`${emoji} 1`, 'react', `data-id="${item.id}" data-emoji="${emoji}" aria-pressed="true"`)).join('')}<details class="reactionPicker"><summary aria-label="Add reaction">${icon('plus')}</summary><div class="reactionChoices">${['❤️', '👍', '😂', '🎉', '😮'].map((emoji) => button(emoji, 'react', `data-id="${item.id}" data-emoji="${emoji}" aria-label="${selected.includes(emoji) ? 'Remove' : 'Add'} ${emoji} reaction" aria-pressed="${selected.includes(emoji)}"`)).join('')}</div></details></div><details class="entryMenu"><summary aria-label="Message actions">•••</summary><div class="ex-row">${button('Reply', 'replyTo', `data-id="${item.id}"`)}${deleteControl(item, kind)}</div></details></div></div>`;
@@ -342,6 +357,7 @@ window.createCirclesExperience = ({
     const panel = document.querySelector('.modalPanel');
     panel.classList.add('threadPanel');
     panel.classList.toggle('commentThread', kind === 'comment');
+    panel.classList.toggle('emptyThread', !items.length);
     panel.classList.toggle('messageThread', kind === 'message');
     if (kind === 'message') {
       panel.querySelector('.modalHead h2').textContent = key;
@@ -373,7 +389,11 @@ window.createCirclesExperience = ({
       [...options.children]
         .filter((child) => child !== summary)
         .forEach((child) => body.append(child));
-      options.append(body);
+      body.hidden = !options.open;
+      stack.prepend(body);
+      options.addEventListener('toggle', () => {
+        body.hidden = !options.open;
+      });
       panel
         .querySelector('.modalHead')
         .insertBefore(options, panel.querySelector('[data-action="closeModal"]'));
@@ -381,11 +401,13 @@ window.createCirclesExperience = ({
       textarea.setAttribute('aria-label', 'Message');
       textarea.placeholder = 'Write a message…';
       textarea.rows = 1;
+      composerObserver.disconnect();
+      composerObserver.observe(textarea);
       const label = textarea.closest('label');
       [...label.childNodes]
         .filter((child) => child.nodeType === Node.TEXT_NODE)
         .forEach((child) => child.remove());
-      textarea.style.height = Math.min(128, Math.max(48, textarea.scrollHeight)) + 'px';
+      textarea.style.height = Math.min(128, Math.max(52, textarea.scrollHeight)) + 'px';
     }
     if (kind === 'message' && chatSearch) options.open = true;
     if (kind === 'message' && !chatSearch) messages.scrollTop = messages.scrollHeight;
@@ -423,7 +445,7 @@ window.createCirclesExperience = ({
     }
     modal(
       'Your activity',
-      `<div class="ex-stack">${button(activityUnread ? 'Show all activity' : 'Show unread activity', 'activityFilter')}${[...groups.values()].map((items) => `<div class="ex-card"><span class="${items.some((a) => !a.read) ? 'ex-unread' : 'ex-hint'}">${items.some((a) => !a.read) ? '● Unread' : 'Read'}</span><strong>${e(items[0].title)}${items.length > 1 ? ` · ${items.length} updates` : ''}</strong><p>${e(items[0].body)}</p>${button('Open ' + (items[0].kind === 'messages' ? 'conversation' : items[0].kind === 'live' ? 'room' : 'circle'), 'openActivity', `data-id="${items[0].id}"`)}</div>`).join('') || '<p class="ex-empty">You’re all caught up.</p>'}</div>`,
+      `<div class="ex-stack">${button(activityUnread ? 'Show all activity' : 'Show unread activity', 'activityFilter', `aria-pressed="${activityUnread}"`)}${[...groups.values()].map((items) => `<div class="ex-card"><span class="${items.some((a) => !a.read) ? 'ex-unread' : 'ex-hint'}">${items.some((a) => !a.read) ? '● Unread' : 'Read'}</span><strong>${e(items[0].title)}${items.length > 1 ? ` · ${items.length} updates` : ''}</strong><p>${e(items[0].body)}</p>${button('Open ' + (items[0].kind === 'messages' ? 'conversation' : items[0].kind === 'live' ? 'room' : 'circle'), 'openActivity', `data-id="${items[0].id}"`)}</div>`).join('') || '<p class="ex-empty">You’re all caught up.</p>'}</div>`,
     );
   }
   function onboarding() {
@@ -444,13 +466,30 @@ window.createCirclesExperience = ({
       }${onboardStep ? button('Back', 'onboardBack') : ''}</div>`,
     );
   }
-  function circleTools() {
+  function circleTools(membersOnly = false) {
     const name = state.activeCircle;
+    const canManage = !!state.circles.find((c) => c[0] === name)?.[7];
     model.roles[name] ||= {
-      'Jules Parker': 'owner',
+      [state.displayName]: canManage ? 'owner' : 'member',
       'Mara Ellis': 'moderator',
       'Noah Kim': 'member',
     };
+    if (!canManage || membersOnly) {
+      modal(
+        'Rules and members',
+        `<div class="ex-stack"><h3>Circle rules</h3><p>${e(model.rules[name] || 'Be kind, respect privacy, and keep conversations relevant.')}</p><h3>Members</h3>${Object.entries(
+          model.roles[name],
+        )
+          .map(
+            ([member, role]) =>
+              `<div class="ex-card"><strong>${e(member)}</strong><p>${e(role)}</p></div>`,
+          )
+          .join(
+            '',
+          )}${canManage ? button('Open permitted host tools', 'circleTools') : '<p class="ex-hint">Only hosts can edit rules, manage roles or schedule events.</p>'}</div>`,
+      );
+      return;
+    }
     modal(
       state.circleTab === 'events' ? 'Plan an event' : 'Circle tools',
       `<div class="ex-stack">${
@@ -490,13 +529,33 @@ window.createCirclesExperience = ({
         innerHTML: `<label class="ex-label">Gift category<select class="demoInput" id="exGiftTier"><option value="all">All gifts</option><option value="favourites">Favourites</option><option value="tiny">Tiny · under 25 coins</option><option value="small">Small · 25–99 coins</option><option value="medium">Medium · 100–499 coins</option><option value="large">Large · 500+ coins</option></select></label>`,
       }),
     );
+    const filters = document.createElement('details');
+    filters.className = 'giftFilters';
+    filters.innerHTML = '<summary>Search and filters</summary>';
+    const compact =
+      (document.querySelector('.device').dataset.textSize !== 'normal' &&
+        !!document.querySelector('.device').dataset.textSize) ||
+      document.querySelector('.device').clientWidth < 360;
+    filters.open = state.giftFiltersOpen ?? !compact;
+    filters.addEventListener('toggle', () => {
+      state.giftFiltersOpen = filters.open;
+    });
+    const search = document.querySelector('#giftSearch');
+    const toolbar = grid.previousElementSibling;
+    filters.append(search.closest('label') || search, toolbar);
+    grid.before(filters);
     document.querySelector('#exGiftTier').value = giftTier;
     grid.innerHTML = giftCatalog
       .map(
         (g) =>
-          `<div class="ex-card" data-gift-card="${g.id}" style="padding:8px;margin:0"><button class="demoButton soft" data-action="gift" data-cost="${g.coins}" data-gift="${e(g.emoji + ' ' + g.name)}">${g.emoji} ${e(g.name)}<br>◉ ${g.coins.toLocaleString()}</button>${button(model.favourites.includes(g.id) ? '★ Favourite' : '☆ Favourite', 'favourite', `data-id="${g.id}" aria-pressed="${model.favourites.includes(g.id)}"`)}</div>`,
+          `<div class="giftChoice" data-gift-card="${g.id}"><button class="selectGift" data-action="selectGift" data-id="${g.id}" aria-pressed="${state.selectedGiftId === g.id}"><span class="giftArt">${g.emoji}</span><strong>${e(g.name)}</strong><span>${g.coins.toLocaleString()} coins</span></button><button class="giftFavourite" data-ex="favourite" data-id="${g.id}" aria-label="${model.favourites.includes(g.id) ? 'Remove' : 'Add'} ${e(g.name)} ${model.favourites.includes(g.id) ? 'from' : 'to'} favourites" aria-pressed="${model.favourites.includes(g.id)}">${window.circlesIcon('star')}<span>Favourite</span></button></div>`,
       )
       .join('');
+    const selected = giftCatalog.find((g) => g.id === state.selectedGiftId);
+    grid.insertAdjacentHTML(
+      'afterend',
+      `<footer class="giftFooter"><div><strong>${selected ? e(selected.name) + ' · ' + selected.coins + ' coins' : 'Choose a gift'}</strong><p class="demoCopy">Balance · ${state.coins} coins</p><p class="inlineNotice" id="giftFeedback" hidden></p></div><button class="demoButton" data-action="gift" ${selected ? `data-cost="${selected.coins}" data-gift="${e(selected.emoji + ' ' + selected.name)}"` : 'disabled'}>Send</button></footer>`,
+    );
     filterGifts();
   }
   function filterGifts() {
@@ -548,6 +607,56 @@ window.createCirclesExperience = ({
         link.download = 'circles-event.ics';
         link.click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } else if (action === 'messageOptions') {
+        const item = state.messages[state.activeChat]?.find((x) => x.id === id);
+        if (!item) return;
+        modal(
+          'Message options',
+          `<p class="demoCopy">${e(item.body || 'Attachment')}</p><div class="settingsRows">${button('Reply', 'replyTo', `data-id="${id}"`)}${deleteControl(item, 'message')}</div><div class="ex-row">${['❤️', '👍', '😂', '🎉', '😮'].map((emoji) => button(emoji, 'react', `data-id="${id}" data-emoji="${emoji}" aria-label="${item.reactions?.includes(emoji) ? 'Remove' : 'Add'} ${emoji} reaction"`)).join('')}</div>`,
+        );
+        const panel = document.querySelector('.modalPanel'),
+          close = panel.querySelector('[data-action="closeModal"]');
+        close.removeAttribute('data-action');
+        close.dataset.ex = 'backToThread';
+        panel.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            event.stopPropagation();
+            thread(activeKind, activeKey);
+          }
+        });
+      } else if (action === 'backToThread') {
+        thread(activeKind, activeKey);
+      } else if (action === 'settings') {
+        modal(
+          'Settings and privacy',
+          `<div class="settingsRows">${button('Notifications', 'preferences')}${button('Safety and account', 'safetyPreview')}${button('Find circles for my interests', 'onboarding')}<button class="demoButton soft" data-depth="digestPrefs">Catch-up preferences</button><button class="demoButton soft" data-action="buyCoins">Add coins · ${state.coins} coins</button></div>`,
+        );
+      } else if (action === 'safetyPreview') {
+        modal(
+          'Safety and account',
+          `<div class="ex-stack"><p class="inlineNotice">Simulated preview · no account or moderation changes are sent.</p><h3>Blocked members</h3><p>No blocked members. Blocking controls appear on member profiles.</p>${button('Review sign-in screen', 'authPreview')}${button('Review moderation workspace', 'moderationPreview')}</div>`,
+        );
+      } else if (action === 'authPreview') {
+        modal(
+          'Sign in · simulated',
+          `<form data-simulated="auth" class="ex-stack"><p class="inlineNotice">Design preview only. Do not enter real credentials.</p><label>Email<input class="demoInput" type="email" autocomplete="off" placeholder="you@example.com" required></label><label>Password<input class="demoInput" type="password" autocomplete="off" required></label><button class="demoButton">Preview sign in</button><p role="status"></p></form>`,
+        );
+      } else if (action === 'moderationPreview') {
+        modal(
+          'Moderation · simulated',
+          `<div class="ex-stack"><p class="inlineNotice">Sample report · no production data.</p><h3>Reported conversation</h3><p>Reason: Unkind language</p><p>Review the conversation and community rules before deciding.</p>${button('Review removal confirmation', 'moderationConfirm')}${button('Dismiss sample report', 'moderationDone')}</div>`,
+        );
+      } else if (action === 'moderationConfirm') {
+        modal(
+          'Remove content? · simulated',
+          `<p>This preview shows the confirmation step available to permitted moderators.</p><div class="ex-stack">${button('Cancel', 'moderationPreview')}${button('Simulate removal', 'moderationDone')}</div>`,
+        );
+      } else if (action === 'moderationDone') {
+        modal(
+          'Moderation · simulated',
+          '<p role="status">Sample report resolved. No production changes were made.</p>',
+        );
       } else if (action === 'activity') activity();
       else if (action === 'activityFilter') {
         activityUnread = !activityUnread;
@@ -569,7 +678,8 @@ window.createCirclesExperience = ({
           document.querySelector('.modalDemo')?.remove();
           openCircle(a.target);
         }
-      } else if (action === 'clearDiscovery') {
+      } else if (action === 'discoveryFilters') discoveryFilters();
+      else if (action === 'clearDiscovery') {
         discovery = { privacy: 'all', sort: 'recommended', active: false };
         render('circles');
       } else if (action === 'unreadInbox') {
@@ -659,8 +769,10 @@ window.createCirclesExperience = ({
         document.querySelector('.modalDemo')?.remove();
         if (action === 'introduce') openComposer(state.circles.find((c) => c[4])?.[0]);
         else render('circles');
-      } else if (action === 'circleTools') circleTools();
+      } else if (action === 'circleMembers') circleTools(true);
+      else if (action === 'circleTools') circleTools();
       else if (action === 'role') {
+        if (!state.circles.find((c) => c[0] === state.activeCircle)?.[7]) return;
         const roles = model.roles[state.activeCircle];
         roles[name] = roles[name] === 'moderator' ? 'member' : 'moderator';
         save();
@@ -677,6 +789,7 @@ window.createCirclesExperience = ({
         if (document.querySelector('.modalDemo')) circleTools();
         else render('circle');
       } else if (action === 'cancelEvent') {
+        if (!state.circles.find((c) => c[0] === state.activeCircle)?.[7]) return;
         if (!confirm('Cancel this circle event?')) return;
         model.events[state.activeCircle] = model.events[state.activeCircle].filter(
           (x) => x.id !== id,
@@ -689,7 +802,10 @@ window.createCirclesExperience = ({
           ? model.favourites.filter((x) => x !== id)
           : [...model.favourites, id];
         save();
-        el.textContent = model.favourites.includes(id) ? '★ Favourite' : '☆ Favourite';
+        el.setAttribute(
+          'aria-label',
+          `${model.favourites.includes(id) ? 'Remove' : 'Add'} ${giftCatalog.find((g) => g.id === id)?.name} ${model.favourites.includes(id) ? 'from' : 'to'} favourites`,
+        );
         el.setAttribute('aria-pressed', String(model.favourites.includes(id)));
         filterGifts();
       }
@@ -721,10 +837,15 @@ window.createCirclesExperience = ({
         save();
         thread(activeKind, activeKey);
       } else if (form.dataset.form === 'ex-room' || form.dataset.form === 'ex-event') {
+        if (
+          form.dataset.form === 'ex-event' &&
+          !state.circles.find((c) => c[0] === state.activeCircle)?.[7]
+        )
+          return;
         const title = String(data.get('title') || '').trim(),
           at = Date.parse(String(data.get('date') || ''));
         if (title.length < 2 || title.length > 120 || !Number.isFinite(at) || at <= Date.now()) {
-          toast('Use a title of 2–120 characters and a future date.');
+          window.circlesPreviewError('Use a title of 2–120 characters and a future date.');
           return;
         }
         if (form.dataset.form === 'ex-room') {
@@ -764,8 +885,8 @@ window.createCirclesExperience = ({
   document.addEventListener('input', (event) => {
     if (event.target.closest('[data-form=ex-thread]')) {
       if (event.target.tagName === 'TEXTAREA') {
-        event.target.style.height = '48px';
-        event.target.style.height = Math.min(128, Math.max(48, event.target.scrollHeight)) + 'px';
+        event.target.style.height = 'auto';
+        event.target.style.height = Math.min(128, Math.max(52, event.target.scrollHeight)) + 'px';
       }
       model.drafts[`${activeKind}:${activeKey}`] = event.target.value;
       event.target.closest('form').querySelector('[type=submit]').disabled =
@@ -837,3 +958,13 @@ window.createCirclesExperience = ({
   }, 1000);
   return { decorate, chat, replies, gifts, labelFields, filter };
 };
+
+document.addEventListener('submit', (event) => {
+  const form = event.target.closest('[data-simulated]');
+  if (!form) return;
+  event.preventDefault();
+  form.querySelector('[role="status"]').textContent =
+    form.dataset.simulated === 'auth'
+      ? 'Simulated sign-in complete. No credentials were sent or saved.'
+      : 'Simulated report received. No report was sent.';
+});

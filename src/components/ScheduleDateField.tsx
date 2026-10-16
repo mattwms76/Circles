@@ -31,7 +31,7 @@ export function ScheduleDateField({
               minHeight: 48,
               borderWidth: 1,
               borderColor: colors.line,
-              borderRadius: 14,
+              borderRadius: 12,
             }}
           >
             <Text style={{ ...typography.body, color: colors.ink }}>

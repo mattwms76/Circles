@@ -94,7 +94,8 @@ export function ParticipationCard({ postId }: { postId: string }) {
               minHeight: 48,
               borderRadius: 12,
               borderWidth: 1,
-              borderColor: mine === i ? colors.coral : colors.line,
+              borderColor: mine === i ? colors.coral : colors.controlBorder,
+              backgroundColor: mine === i ? colors.selected : colors.surface,
               overflow: 'hidden',
               padding: 12,
             }}
@@ -106,7 +107,7 @@ export function ParticipationCard({ postId }: { postId: string }) {
                 left: 0,
                 bottom: 0,
                 width: `${percent}%`,
-                backgroundColor: colors.surface,
+                backgroundColor: mine === i ? colors.selected : colors.paper,
               }}
             />
             <Text style={{ color: colors.ink, fontSize: 16, lineHeight: 24 }}>

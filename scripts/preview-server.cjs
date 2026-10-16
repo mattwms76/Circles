@@ -9,6 +9,9 @@ const files = {
   '/preview.js': 'text/javascript',
   '/preview-experience.js': 'text/javascript',
   '/preview-design.css': 'text/css',
+  '/preview-layout.css': 'text/css',
+  '/preview-icons.js': 'text/javascript',
+  '/assets/fonts/Lora-SemiBold.ttf': 'font/ttf',
 };
 http
   .createServer((req, res) => {

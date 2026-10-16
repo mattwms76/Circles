@@ -24,7 +24,7 @@ for (const theme of ['light', 'dark'])
       page.on('pageerror', (error) => errors.push(error.message));
       await page.setViewportSize({ width, height: 844 });
       await page.emulateMedia({ reducedMotion: 'reduce' });
-      await page.goto('/preview.html');
+      await page.goto('/preview.html', { waitUntil: 'domcontentloaded' });
       await page.locator('#previewTheme').selectOption(theme);
       await expect(page.locator('.storyTray')).toBeVisible();
       for (const name of ['Home', 'Explore', 'Live', 'Inbox', 'You']) {
@@ -32,22 +32,25 @@ for (const theme of ['light', 'dark'])
         await capture(page, info, name.toLowerCase());
       }
       await expect(page.locator('.communityDetails[open]')).toHaveCount(0);
-      await page.locator('.communityDetails summary').first().click();
+      await page.getByRole('button', { name: /^Following ·/ }).click();
       await capture(page, info, 'profile-community');
+      await close(page);
       await page.locator('[data-action="editProfile"]').click();
       await expect(page.getByRole('dialog')).toBeVisible();
       await capture(page, info, 'edit-profile');
       await close(page);
+      await page.getByRole('button', { name: 'Settings and privacy', exact: true }).click();
       await page.locator('[data-action="buyCoins"]').click();
       await capture(page, info, 'wallet');
       await close(page);
       await page.locator('[data-ex="activity"]').click();
       await capture(page, info, 'activity');
       await close(page);
-      await page.locator('.profileToolbar summary').filter({hasText:/^Settings$/}).click();
+      await page.getByRole('button', { name: 'Settings and privacy', exact: true }).click();
       await page.locator('[data-ex="preferences"]').click();
       await capture(page, info, 'preferences');
       await close(page);
+      await page.getByRole('button', { name: 'Settings and privacy', exact: true }).click();
       await page.locator('[data-ex="onboarding"]').click();
       await capture(page, info, 'onboarding');
       await close(page);
@@ -90,12 +93,8 @@ for (const theme of ['light', 'dark'])
 
 test('Large text, empty search and composing preserve usable controls', async ({ page }, info) => {
   await page.setViewportSize({ width: 320, height: 700 });
-  await page.goto('/preview.html');
-  // Exercise text growth independently of OS settings; native dynamic type remains a device check.
-  await page.addStyleTag({
-    content:
-      '.device p,.device label,.device button,.device summary,.device input,.device textarea { font-size: 22px !important; line-height: 1.4 !important }',
-  });
+  await page.goto('/preview.html', { waitUntil: 'domcontentloaded' });
+  await page.locator('#previewTextSize').selectOption('largest');
   await tab(page, 'Explore');
   await page.locator('#circleSearch').fill('no-such-circle-938421');
   await expect(page.locator('#circleCount')).toHaveText('0 circles to explore');
@@ -110,7 +109,7 @@ test('Large text, empty search and composing preserve usable controls', async ({
 
 test('Story viewer keeps compact controls and expiry removes the story', async ({ page }, info) => {
   await page.clock.install();
-  await page.goto('/preview.html');
+  await page.goto('/preview.html', { waitUntil: 'domcontentloaded' });
   await page.locator('[data-story="create"]').click();
   await page.locator('#storyFile').setInputFiles('tests/fixtures/story.png');
   await page.locator('#storyPublish').click();

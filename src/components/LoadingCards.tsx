@@ -10,7 +10,7 @@ export function LoadingCards() {
     >
       <Text style={{ color: colors.muted, fontSize: 14 }}>Gathering your conversations…</Text>
       {[0, 1, 2].map((i) => (
-        <View key={i} style={{ height: 110, borderRadius: 18, backgroundColor: colors.line }} />
+        <View key={i} style={{ height: 110, borderRadius: 20, backgroundColor: colors.line }} />
       ))}
     </View>
   );

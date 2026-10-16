@@ -213,11 +213,13 @@ test('Voice recording recovers from denied permission, previews automatic comple
     );
   });
   t.after(() => act(async () => renderer.unmount()));
-  const press = (label) =>
-    renderer.root
-      .findAllByType('ActionButton')
-      .find((n) => n.props.label === label)
-      .props.onPress();
+  const press = (label) => {
+    const control =
+      renderer.root.findAllByType('ActionButton').find((n) => n.props.label === label) ??
+      renderer.root.findAllByType('Pressable').find((n) => n.props.accessibilityLabel === label);
+    assert.ok(control, `Missing ${label}`);
+    control.props.onPress();
+  };
   await act(async () => press('Photo or voice note'));
   await act(async () => press('Record voice note'));
   assert.equal(recorder.isRecording, false);

@@ -1,5 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { supabase } from './supabase';
+import { messageCursorFilter, type MessageCursor } from './messagePagination';
 import { assertAccount, localValue, storeValue, type GroupMessage } from './communityDepth';
 export interface MessageMedia {
   id: string;
@@ -99,7 +100,7 @@ export async function sendMessageMedia(
 export async function groupMessages(
   user: string,
   circle: string,
-  before?: string,
+  before?: MessageCursor,
 ): Promise<GroupMessage[]> {
   if (!supabase) return localValue(user, `chat:${circle}`, []);
   let q = supabase
@@ -109,7 +110,7 @@ export async function groupMessages(
     .order('created_at', { ascending: false })
     .order('id', { ascending: false })
     .limit(40);
-  if (before) q = q.lt('created_at', before);
+  if (before) q = q.or(messageCursorFilter(before));
   return checked(await q) as unknown as GroupMessage[];
 }
 export async function sendGroupMessage(

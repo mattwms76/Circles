@@ -1,3 +1,4 @@
+import { InlineNotice, type SettingsDestination } from '../components/Design';
 import { ScheduleDateField, AddToCalendar } from '../components/ScheduleDateField';
 import {
   CircleOverview,
@@ -30,7 +31,7 @@ import {
   Pill,
 } from '../components/Primitives';
 import { Sheet } from './AppScreens';
-import { createThemedStyles, useReducedMotion, colors } from '../theme';
+import { createThemedStyles, useReducedMotion, colors, typography } from '../theme';
 import { backendReady } from '../lib/supabase';
 import { joinCircle } from '../lib/repositories';
 import {
@@ -301,14 +302,28 @@ export function Field({
   label,
   ...props
 }: { label: string } & React.ComponentProps<typeof TextInput>) {
+  const [focused, setFocused] = useState(false);
   return (
-    <View style={{ gap: 6, marginBottom: 14 }}>
+    <View style={{ gap: 8, marginBottom: 12 }}>
       <Text style={ui.label}>{label}</Text>
       <TextInput
         accessibilityLabel={label}
         placeholderTextColor={colors.muted}
         {...props}
-        style={[ui.field, props.style]}
+        onFocus={(event) => {
+          setFocused(true);
+          props.onFocus?.(event);
+        }}
+        onBlur={(event) => {
+          setFocused(false);
+          props.onBlur?.(event);
+        }}
+        style={[
+          ui.field,
+          props.style,
+          focused && { borderColor: colors.focus, borderWidth: 2 },
+          props.editable === false && { backgroundColor: colors.paper, color: colors.disabled },
+        ]}
       />
     </View>
   );
@@ -335,11 +350,13 @@ function Toggle({
   );
 }
 export function SettingsSheet({
+  initialSection = 'notifications',
   onClose,
   onBlocksChanged,
   onDeleted,
   onModerator,
 }: {
+  initialSection?: SettingsDestination;
   onClose: () => void;
   onBlocksChanged: () => void;
   onDeleted: () => void;
@@ -351,6 +368,7 @@ export function SettingsSheet({
   const [moderator, setModerator] = useState(false);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState('');
+  const [feedbackTone, setFeedbackTone] = useState<'info' | 'error' | 'success'>('info');
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
   const [deleting, setDeleting] = useState(false);
@@ -368,6 +386,7 @@ export function SettingsSheet({
       setModerator(m);
       setLoaded(true);
     } catch (e) {
+      setFeedbackTone('error');
       setFeedback(message(e));
     } finally {
       setBusy(false);
@@ -385,8 +404,10 @@ export function SettingsSheet({
       )
         throw new Error('Use 24-hour times, for example 22:00.');
       if (backendReady) await saveNotificationSettings(settings);
+      setFeedbackTone('success');
       setFeedback('Preferences saved.');
     } catch (e) {
+      setFeedbackTone('error');
       setFeedback(message(e));
     } finally {
       setBusy(false);
@@ -401,8 +422,10 @@ export function SettingsSheet({
     try {
       await enableDevicePush();
       setSettings((s) => ({ ...s, push_enabled: true }));
+      setFeedbackTone('success');
       setFeedback('Notifications enabled on this device. Save your preferences below.');
     } catch (e) {
+      setFeedbackTone('error');
       setFeedback(message(e));
     } finally {
       setBusy(false);
@@ -414,6 +437,7 @@ export function SettingsSheet({
       await deleteAccount(password);
       onDeleted();
     } catch (e) {
+      setFeedbackTone('error');
       setFeedback(message(e));
     } finally {
       setBusy(false);
@@ -422,167 +446,211 @@ export function SettingsSheet({
   const support = process.env.EXPO_PUBLIC_SUPPORT_EMAIL;
   if (!loaded)
     return (
-      <Sheet title="Your settings" eyebrow="MAKE CIRCLES YOURS" onClose={onClose}>
+      <Sheet
+        title={
+          initialSection === 'safety'
+            ? 'Safety and account'
+            : initialSection === 'catchup'
+              ? 'Catch-up preferences'
+              : 'Notifications'
+        }
+        eyebrow="YOUR SETTINGS"
+        onClose={onClose}
+      >
         <Text style={ui.copy}>{busy ? 'Loading preferences…' : feedback}</Text>
         {!busy ? <ActionButton label="Try again" onPress={() => void load()} /> : null}
       </Sheet>
     );
   return (
-    <Sheet title="Your settings" eyebrow="MAKE CIRCLES YOURS" onClose={onClose}>
-      <Disclosure title="Notifications">
-        <Text style={ui.copy}>Activity stays in your inbox. Device alerts are optional.</Text>
-        <Toggle
-          label="Device notifications"
-          value={settings.push_enabled}
-          onChange={(v) => {
-            if (!busy) void enable(v);
-          }}
-        />
-        {(['messages', 'replies', 'memberships', 'live', 'events', 'digests'] as const).map(
-          (key) => (
-            <Toggle
-              key={key}
-              label={
-                {
-                  messages: 'Messages',
-                  replies: 'Replies to my posts',
-                  memberships: 'Membership approvals',
-                  live: 'Followed hosts going live',
-                  events: 'Circle events and reminders',
-                  digests: 'Optional weekly catch-up',
-                }[key]
-              }
-              value={settings[key]}
-              onChange={(value) => setSettings((s) => ({ ...s, [key]: value }))}
-            />
-          ),
-        )}
-        <Toggle
-          label="Quiet hours"
-          value={settings.quiet_enabled}
-          onChange={(quiet_enabled) => setSettings((s) => ({ ...s, quiet_enabled }))}
-        />
-        {settings.quiet_enabled ? (
-          <>
-            <Field
-              label="Quiet hours start (24-hour)"
-              value={settings.quiet_start.slice(0, 5)}
-              onChangeText={(quiet_start) => setSettings((s) => ({ ...s, quiet_start }))}
-            />
-            <Field
-              label="Quiet hours end (24-hour)"
-              value={settings.quiet_end.slice(0, 5)}
-              onChangeText={(quiet_end) => setSettings((s) => ({ ...s, quiet_end }))}
-            />
-            <Field
-              label="Time zone"
-              value={settings.timezone}
-              onChangeText={(timezone) => setSettings((s) => ({ ...s, timezone }))}
-            />
-          </>
-        ) : null}
-        <Toggle
-          label="Share technical error reports"
-          value={settings.diagnostics_enabled}
-          onChange={(diagnostics_enabled) => setSettings((s) => ({ ...s, diagnostics_enabled }))}
-        />
-        <Text style={ui.hint}>
-          Error codes and technical traces only. No message or post text. Reports are linked to your
-          account so deletion also removes them.
-        </Text>
-        <ActionButton
-          label={busy ? 'Saving…' : 'Save preferences'}
-          disabled={busy}
-          onPress={() => void save()}
-        />
-      </Disclosure>
-      <Disclosure title={`Blocked members · ${blocked.length}`}>
-        {blocked.length ? (
-          blocked.map((p) => (
-            <View key={p.id} style={ui.row}>
-              <Avatar profile={p} />
-              <Text style={[ui.copy, { flex: 1 }]}>{p.displayName}</Text>
+    <Sheet
+      title={
+        initialSection === 'safety'
+          ? 'Safety and account'
+          : initialSection === 'catchup'
+            ? 'Catch-up preferences'
+            : 'Notifications'
+      }
+      eyebrow="YOUR SETTINGS"
+      onClose={onClose}
+    >
+      {initialSection !== 'safety' ? (
+        <View style={{ gap: 12 }}>
+          {initialSection === 'catchup' ? (
+            <>
+              <Toggle
+                label="Optional weekly catch-up"
+                value={settings.digests}
+                onChange={(digests) => setSettings((s) => ({ ...s, digests }))}
+              />
+              <Text style={ui.hint}>
+                A weekly reminder is optional. Your catch-up remains available in Timeline options.
+              </Text>
               <ActionButton
-                compact
-                variant="outline"
-                label="Unblock"
-                onPress={() => {
-                  void unblockPerson(p.id)
-                    .then(() => {
-                      setBlocked((old) => old.filter((x) => x.id !== p.id));
-                      onBlocksChanged();
-                    })
-                    .catch((e) => setFeedback(message(e)));
+                label={busy ? 'Saving…' : 'Save preferences'}
+                disabled={busy}
+                onPress={() => void save()}
+              />
+            </>
+          ) : (
+            <Disclosure title="Notification preferences" initiallyOpen>
+              <Text style={ui.copy}>Activity stays in your inbox. Device alerts are optional.</Text>
+              <Toggle
+                label="Device notifications"
+                value={settings.push_enabled}
+                onChange={(v) => {
+                  if (!busy) void enable(v);
                 }}
               />
-            </View>
-          ))
-        ) : (
-          <Text style={ui.copy}>No blocked members.</Text>
-        )}
-      </Disclosure>
-      {moderator ? (
-        <ActionButton label="Open moderator tools" variant="secondary" onPress={onModerator} />
-      ) : null}
-      {support ? (
-        <ActionButton
-          label="Contact support"
-          variant="outline"
-          onPress={() =>
-            void Linking.openURL(`mailto:${support}`).catch(() =>
-              setFeedback('Could not open your email app.'),
-            )
-          }
-        />
-      ) : null}
-      <Text style={ui.heading}>Your account</Text>
-      <ActionButton
-        label="Delete account"
-        variant="outline"
-        disabled={!backendReady || busy}
-        onPress={() => setDeleting(!deleting)}
-      />
-      {deleting ? (
-        <>
-          <Text style={ui.copy}>
-            This permanently deletes your profile, posts, messages, media, and wallet. Circles with
-            other members transfer to the longest-standing member; empty circles are deleted.
-          </Text>
-          <Field
-            label="Current password"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-            autoCapitalize="none"
-          />
-          <Field
-            label="Type DELETE to confirm"
-            value={confirmation}
-            onChangeText={setConfirmation}
-            autoCapitalize="characters"
-          />
+              {(['messages', 'replies', 'memberships', 'live', 'events', 'digests'] as const).map(
+                (key) => (
+                  <Toggle
+                    key={key}
+                    label={
+                      {
+                        messages: 'Messages',
+                        replies: 'Replies to my posts',
+                        memberships: 'Membership approvals',
+                        live: 'Followed hosts going live',
+                        events: 'Circle events and reminders',
+                        digests: 'Optional weekly catch-up',
+                      }[key]
+                    }
+                    value={settings[key]}
+                    onChange={(value) => setSettings((s) => ({ ...s, [key]: value }))}
+                  />
+                ),
+              )}
+              <Toggle
+                label="Quiet hours"
+                value={settings.quiet_enabled}
+                onChange={(quiet_enabled) => setSettings((s) => ({ ...s, quiet_enabled }))}
+              />
+              {settings.quiet_enabled ? (
+                <>
+                  <Field
+                    label="Quiet hours start (24-hour)"
+                    value={settings.quiet_start.slice(0, 5)}
+                    onChangeText={(quiet_start) => setSettings((s) => ({ ...s, quiet_start }))}
+                  />
+                  <Field
+                    label="Quiet hours end (24-hour)"
+                    value={settings.quiet_end.slice(0, 5)}
+                    onChangeText={(quiet_end) => setSettings((s) => ({ ...s, quiet_end }))}
+                  />
+                  <Field
+                    label="Time zone"
+                    value={settings.timezone}
+                    onChangeText={(timezone) => setSettings((s) => ({ ...s, timezone }))}
+                  />
+                </>
+              ) : null}
+              <Toggle
+                label="Share technical error reports"
+                value={settings.diagnostics_enabled}
+                onChange={(diagnostics_enabled) =>
+                  setSettings((s) => ({ ...s, diagnostics_enabled }))
+                }
+              />
+              <Text style={ui.hint}>
+                Error codes and technical traces only. No message or post text. Reports are linked
+                to your account so deletion also removes them.
+              </Text>
+              <ActionButton
+                label={busy ? 'Saving…' : 'Save preferences'}
+                disabled={busy}
+                onPress={() => void save()}
+              />
+            </Disclosure>
+          )}
+        </View>
+      ) : (
+        <View style={{ gap: 12 }}>
+          <Disclosure initiallyOpen title={`Blocked members · ${blocked.length}`}>
+            {blocked.length ? (
+              blocked.map((p) => (
+                <View key={p.id} style={ui.row}>
+                  <Avatar profile={p} />
+                  <Text style={[ui.copy, { flex: 1 }]}>{p.displayName}</Text>
+                  <ActionButton
+                    compact
+                    variant="outline"
+                    label="Unblock"
+                    onPress={() => {
+                      void unblockPerson(p.id)
+                        .then(() => {
+                          setBlocked((old) => old.filter((x) => x.id !== p.id));
+                          onBlocksChanged();
+                        })
+                        .catch((e) => setFeedback(message(e)));
+                    }}
+                  />
+                </View>
+              ))
+            ) : (
+              <Text style={ui.copy}>No blocked members.</Text>
+            )}
+          </Disclosure>
+          {moderator ? (
+            <ActionButton label="Open moderator tools" variant="secondary" onPress={onModerator} />
+          ) : null}
+          {support ? (
+            <ActionButton
+              label="Contact support"
+              variant="outline"
+              onPress={() =>
+                void Linking.openURL(`mailto:${support}`).catch(() =>
+                  setFeedback('Could not open your email app.'),
+                )
+              }
+            />
+          ) : null}
+          <Text style={ui.heading}>Your account</Text>
           <ActionButton
-            label={busy ? 'Deleting account…' : 'Permanently delete my account'}
-            variant="destructive"
-            disabled={busy || confirmation !== 'DELETE' || !password}
-            onPress={() =>
-              Alert.alert('Permanently delete account?', 'This cannot be undone.', [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                  text: 'Delete account',
-                  style: 'destructive',
-                  onPress: () => void remove(),
-                },
-              ])
-            }
+            label="Delete account"
+            variant="outline"
+            disabled={!backendReady || busy}
+            onPress={() => setDeleting(!deleting)}
           />
-        </>
-      ) : null}
-      {feedback ? (
-        <Text accessibilityLiveRegion="polite" style={ui.feedback}>
-          {feedback}
-        </Text>
-      ) : null}
+          {deleting ? (
+            <>
+              <Text style={ui.copy}>
+                This permanently deletes your profile, posts, messages, media, and wallet. Circles
+                with other members transfer to the longest-standing member; empty circles are
+                deleted.
+              </Text>
+              <Field
+                label="Current password"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+                autoCapitalize="none"
+              />
+              <Field
+                label="Type DELETE to confirm"
+                value={confirmation}
+                onChangeText={setConfirmation}
+                autoCapitalize="characters"
+              />
+              <ActionButton
+                label={busy ? 'Deleting account…' : 'Permanently delete my account'}
+                variant="destructive"
+                disabled={busy || confirmation !== 'DELETE' || !password}
+                onPress={() =>
+                  Alert.alert('Permanently delete account?', 'This cannot be undone.', [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Delete account',
+                      style: 'destructive',
+                      onPress: () => void remove(),
+                    },
+                  ])
+                }
+              />
+            </>
+          ) : null}
+        </View>
+      )}
+      {feedback ? <InlineNotice tone={feedbackTone}>{feedback}</InlineNotice> : null}
     </Sheet>
   );
 }
@@ -648,9 +716,7 @@ export function RecoverySheet({
       />
 
       {feedback ? (
-        <Text accessibilityLiveRegion="polite" style={ui.feedback}>
-          {feedback}
-        </Text>
+        <InlineNotice tone={complete ? 'success' : 'error'}>{feedback}</InlineNotice>
       ) : null}
     </Sheet>
   );
@@ -1076,7 +1142,6 @@ export function ModeratorSheet({ onClose }: { onClose: () => void }) {
           </View>
         </View>
       ))}
-      {!reports.length && !busy ? <Text style={ui.copy}>No open reports.</Text> : null}
       {error ? <Text style={ui.error}>{error}</Text> : null}
     </Sheet>
   );
@@ -1146,19 +1211,17 @@ const ui = createThemedStyles(() => ({
   },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
   heading: {
-    fontSize: 22,
-    lineHeight: 28,
-    fontWeight: '700',
+    ...typography.section,
     color: colors.ink,
-    marginTop: 20,
+    marginTop: 24,
     marginBottom: 12,
   },
-  label: { fontSize: 15, fontWeight: '700', color: colors.ink },
+  label: { ...typography.secondary, fontWeight: '600', color: colors.ink },
   copy: { fontSize: 16, lineHeight: 24, color: colors.ink, marginBottom: 10 },
   hint: { fontSize: 14, lineHeight: 20, color: colors.muted, marginBottom: 12 },
   field: {
     borderWidth: 1,
-    borderColor: colors.line,
+    borderColor: colors.controlBorder,
     borderRadius: 12,
     padding: 13,
     minHeight: 48,
@@ -1168,7 +1231,7 @@ const ui = createThemedStyles(() => ({
   },
   card: {
     padding: 16,
-    borderRadius: 16,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: colors.line,
     backgroundColor: colors.surface,

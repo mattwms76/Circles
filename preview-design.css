@@ -16,14 +16,14 @@ body {
   font-family: inherit;
   font-weight: 800;
   letter-spacing: -0.6px;
-  font-size: 32px;
+  font-size: calc(32px * var(--text-scale, 1));
   line-height: 1.2;
 }
 .device .eyebrow,
 .device .screenHead .eyebrow {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale, 1));
   color: var(--coral);
-  line-height: 18px;
+  line-height: calc(18px * var(--text-scale, 1));
   letter-spacing: 1px;
 }
 .device .demoCopy,
@@ -31,8 +31,8 @@ body {
 .device .meta,
 .device .hostCircle,
 .device .circleCount {
-  font-size: 14px;
-  line-height: 20px;
+  font-size: calc(14px * var(--text-scale, 1));
+  line-height: calc(20px * var(--text-scale, 1));
   color: var(--muted);
 }
 .device .body,
@@ -40,15 +40,15 @@ body {
 .device .demoInput,
 .device .demoArea,
 .device .ex-body {
-  font-size: 16px;
-  line-height: 24px;
+  font-size: calc(16px * var(--text-scale, 1));
+  line-height: calc(24px * var(--text-scale, 1));
 }
 .device .demoTitle,
 .device .author,
 .device .circleName,
 .device .hostName {
-  font-size: 16px;
-  line-height: 22px;
+  font-size: calc(16px * var(--text-scale, 1));
+  line-height: calc(22px * var(--text-scale, 1));
 }
 .device .demoButton,
 .device .demoChip,
@@ -59,8 +59,8 @@ body {
 .device .more {
   min-height: 48px;
   min-width: 48px;
-  font-size: 14px;
-  line-height: 20px;
+  font-size: calc(14px * var(--text-scale, 1));
+  line-height: calc(20px * var(--text-scale, 1));
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -103,10 +103,10 @@ body {
 }
 .device .badge {
   background: #b73543;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale, 1));
 }
 .device .viewers {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale, 1));
 }
 .device .top,
 .device .intro,
@@ -150,8 +150,8 @@ body {
   min-width: 160px;
 }
 .device .sectionHead h2 {
-  font-size: 22px;
-  line-height: 28px;
+  font-size: calc(22px * var(--text-scale, 1));
+  line-height: calc(28px * var(--text-scale, 1));
 }
 .device .demoRow .grow {
   min-width: 100px;
@@ -171,7 +171,7 @@ body {
   gap: 8px;
 }
 .device .tab {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale, 1));
   min-width: 48px;
   min-height: 56px;
   flex: 1;
@@ -213,8 +213,8 @@ body {
   align-items: flex-start;
 }
 .device .modalHead h2 {
-  font-size: 22px;
-  line-height: 28px;
+  font-size: calc(22px * var(--text-scale, 1));
+  line-height: calc(28px * var(--text-scale, 1));
   flex: 1;
 }
 .device .modalHead button {
@@ -249,8 +249,8 @@ body {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 .device .giftGridPreview button {
-  font-size: 14px;
-  line-height: 20px;
+  font-size: calc(14px * var(--text-scale, 1));
+  line-height: calc(20px * var(--text-scale, 1));
   min-height: 88px;
   border-radius: 14px;
 }
@@ -263,7 +263,7 @@ body {
   color: white;
 }
 .device .liveDemo h2 {
-  font-size: 24px;
+  font-size: calc(24px * var(--text-scale, 1));
 }
 .device .ex-stack {
   display: grid;
@@ -288,14 +288,14 @@ body {
   padding: 0 20px 24px;
 }
 .device .ex-label {
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale, 1));
   font-weight: 700;
   display: block;
   margin-bottom: 4px;
 }
 .device .ex-hint {
-  font-size: 12px;
-  line-height: 18px;
+  font-size: calc(12px * var(--text-scale, 1));
+  line-height: calc(18px * var(--text-scale, 1));
   color: var(--muted);
   margin: 0;
 }
@@ -325,8 +325,8 @@ body {
   background: #b73543;
 }
 .device .ex-title {
-  font-size: 22px;
-  line-height: 28px;
+  font-size: calc(22px * var(--text-scale, 1));
+  line-height: calc(28px * var(--text-scale, 1));
   margin: 0;
 }
 .device .ex-spaced {
@@ -348,13 +348,13 @@ body {
   flex-wrap: wrap;
 }
 .device .previewNotice {
-  font-size: 12px;
-  line-height: 18px;
+  font-size: calc(12px * var(--text-scale, 1));
+  line-height: calc(18px * var(--text-scale, 1));
 }
 @media (max-width: 360px) {
   .device .headline,
   .device .screenHead h1 {
-    font-size: 28px;
+    font-size: calc(28px * var(--text-scale, 1));
   }
   .device .demoRow > button {
     max-width: 100%;
@@ -373,12 +373,10 @@ body {
     flex: 1;
   }
 }
-
 .device [hidden],
 .modalDemo [hidden] {
   display: none !important;
 }
-
 .device .ex-card p,
 .device .ex-stack > p {
   margin: 0;
@@ -386,8 +384,6 @@ body {
 .device .demoButton {
   font-weight: 700;
 }
-
-/* Keep category labels inside their pills; overflow belongs to the scroll row. */
 .device .demoFilters .demoChip {
   flex: 0 0 auto;
   white-space: nowrap;
@@ -397,12 +393,10 @@ body {
   border-color: var(--ink);
   color: white;
 }
-
 .device .message > p,
 .device .ex-quote p {
   white-space: pre-wrap;
 }
-/* Shared visual system: warm surfaces, quiet controls and content-first layouts. */
 :root {
   --paper: #faf7f2;
   --surface: #fff;
@@ -442,8 +436,8 @@ body {
   gap: 8px 20px;
   max-width: 760px;
   text-align: center;
-  font-size: 13px;
-  line-height: 20px;
+  font-size: calc(13px * var(--text-scale, 1));
+  line-height: calc(20px * var(--text-scale, 1));
 }
 .previewMeta span {
   color: var(--muted);
@@ -516,27 +510,27 @@ body {
   border-radius: 20px;
   color: white;
   background: var(--primary);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale, 1));
 }
 .device .intro {
   padding: 8px 20px 16px;
 }
 .device .headline {
-  font-size: 28px;
+  font-size: calc(28px * var(--text-scale, 1));
   font-weight: 700;
   letter-spacing: -0.6px;
   line-height: 1.2;
   margin-bottom: 6px;
 }
 .device .screenHead h1 {
-  font-size: 28px;
+  font-size: calc(28px * var(--text-scale, 1));
   font-weight: 700;
 }
 .device .sectionHead h2,
 .device .ex-title {
-  font-size: 21px;
+  font-size: calc(21px * var(--text-scale, 1));
   font-weight: 650;
-  line-height: 28px;
+  line-height: calc(28px * var(--text-scale, 1));
 }
 .device .eyebrow {
   font-weight: 600;
@@ -553,7 +547,7 @@ body {
   border-radius: 14px;
   gap: 8px;
   font-weight: 600;
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale, 1));
   padding: 12px;
   min-width: 135px;
 }
@@ -582,14 +576,14 @@ body {
 }
 .compactLiveCard small {
   display: block;
-  font-size: 12px;
-  line-height: 18px;
+  font-size: calc(12px * var(--text-scale, 1));
+  line-height: calc(18px * var(--text-scale, 1));
   color: var(--coral);
 }
 .compactLiveCard strong {
   display: block;
-  font-size: 14px;
-  line-height: 20px;
+  font-size: calc(14px * var(--text-scale, 1));
+  line-height: calc(20px * var(--text-scale, 1));
   font-weight: 600;
 }
 .liveIndicator {
@@ -616,7 +610,7 @@ body {
   border: 1px solid var(--line);
   border-radius: 14px;
   color: var(--ink);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale, 1));
   cursor: pointer;
 }
 .circleShortcut img {
@@ -732,19 +726,19 @@ body {
   color: white;
 }
 .device .circleCover h1 {
-  font-size: 26px;
+  font-size: calc(26px * var(--text-scale, 1));
   color: white;
   margin: 8px 0 4px;
 }
 .device .circleCover p {
   color: #fff;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale, 1));
 }
 .circleIdentity {
   display: flex;
   gap: 8px;
   align-items: center;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale, 1));
 }
 .circleIdentity img {
   width: 34px;
@@ -766,7 +760,7 @@ body {
   border: 0;
   border-bottom: 2px solid transparent;
   color: var(--muted);
-  font-size: 15px;
+  font-size: calc(15px * var(--text-scale, 1));
   cursor: pointer;
 }
 .circleTabs button[aria-selected='true'] {
@@ -789,7 +783,7 @@ body {
 }
 .device .modalHead h2 {
   font-weight: 650;
-  font-size: 22px;
+  font-size: calc(22px * var(--text-scale, 1));
 }
 .device .modalHead button {
   color: var(--muted);
@@ -871,7 +865,7 @@ body {
   margin-bottom: 8px;
 }
 .messageTime {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale, 1));
   color: var(--muted);
   display: block;
   margin-top: 4px;
@@ -943,13 +937,13 @@ body {
   border-radius: 16px;
   padding: 20px;
   color: var(--muted);
-  font-size: 14px;
-  line-height: 21px;
+  font-size: calc(14px * var(--text-scale, 1));
+  line-height: calc(21px * var(--text-scale, 1));
 }
 .device .ex-empty h2,
 .device .ex-empty h3 {
   color: var(--ink);
-  font-size: 18px;
+  font-size: calc(18px * var(--text-scale, 1));
   margin: 0 0 8px;
 }
 .device .toastDemo {
@@ -958,8 +952,8 @@ body {
   border-radius: 14px;
   padding: 14px 18px;
   box-shadow: 0 4px 18px #0002;
-  font-size: 14px;
-  line-height: 20px;
+  font-size: calc(14px * var(--text-scale, 1));
+  line-height: calc(20px * var(--text-scale, 1));
 }
 .device button,
 .device summary {
@@ -1004,7 +998,7 @@ body {
   }
   .previewMeta {
     padding: 8px 12px;
-    font-size: 12px;
+    font-size: calc(12px * var(--text-scale, 1));
     gap: 4px 12px;
   }
   .previewMeta > span {
@@ -1021,12 +1015,10 @@ body {
     display: none;
   }
 }
-
 .device .demoInput,
 .device .demoArea {
   font-weight: 400;
 }
-
 .device .attachmentToolbar .demoChip {
   white-space: normal;
 }
@@ -1036,11 +1028,9 @@ body {
     padding: 8px;
     gap: 4px;
     min-height: 72px;
-    font-size: 13px;
+    font-size: calc(13px * var(--text-scale, 1));
   }
 }
-
-/* Selected filters use paired theme colours in both appearances. */
 .device .demoFilters .demoChip.on {
   color: var(--paper);
   background: var(--ink);
@@ -1057,46 +1047,42 @@ body {
 .discoveryDetails .ex-section {
   padding: 8px 0;
 }
-
-/* generated-tokens:start */
 :root {
   --ink: #242326;
-  --muted: #625E67;
-  --paper: #FAF7F2;
-  --surface: #FFFFFF;
-  --line: #EAE5DF;
-  --coral: #B94735;
-  --primary: #B94735;
-  --onPrimary: #FFFFFF;
-  --coralSoft: #FCE6DF;
-  --lilac: #E7E2F4;
-  --sage: #E4EBDD;
-  --butter: #F7EBC9;
-  --night: #24212C;
-  --live: #B73543;
-  --error: #A32B22;
+  --muted: #625e67;
+  --paper: #faf7f2;
+  --surface: #ffffff;
+  --line: #eae5df;
+  --coral: #b94735;
+  --primary: #b94735;
+  --onPrimary: #ffffff;
+  --coralSoft: #fce6df;
+  --lilac: #e7e2f4;
+  --sage: #e4ebdd;
+  --butter: #f7ebc9;
+  --night: #24212c;
+  --live: #b73543;
+  --error: #a32b22;
   --green: #376750;
 }
 :root[data-theme='dark'] {
-  --ink: #F4EFE9;
-  --muted: #BCB5C0;
-  --paper: #18171B;
+  --ink: #f4efe9;
+  --muted: #bcb5c0;
+  --paper: #18171b;
   --surface: #242229;
-  --line: #413B46;
-  --coral: #F29C87;
-  --primary: #B94735;
-  --onPrimary: #FFFFFF;
-  --coralSoft: #462C29;
+  --line: #413b46;
+  --coral: #f29c87;
+  --primary: #b94735;
+  --onPrimary: #ffffff;
+  --coralSoft: #462c29;
   --lilac: #393047;
-  --sage: #2D392D;
-  --butter: #433C26;
-  --night: #24212C;
-  --live: #B73543;
-  --error: #FF9EAB;
-  --green: #9AC7A9;
+  --sage: #2d392d;
+  --butter: #433c26;
+  --night: #24212c;
+  --live: #b73543;
+  --error: #ff9eab;
+  --green: #9ac7a9;
 }
-/* generated-tokens:end */
-
 .device .exploreHeading {
   padding-top: 16px;
   padding-bottom: 12px;
@@ -1107,8 +1093,6 @@ body {
 .device #circleList + .demoButton {
   margin: 0 22px 16px;
 }
-/* Consistent screen density, fixed composers and accessible secondary controls. */
-.device .threadPanel,
 .device .giftPanel {
   height: 90%;
   max-height: 94%;
@@ -1117,110 +1101,19 @@ body {
   overflow: hidden;
   gap: 12px;
 }
-.threadPanel .modalHead,
 .giftPanel .modalHead {
   flex-shrink: 0;
   margin-bottom: 0;
 }
-.threadLayout {
-  display: flex !important;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
-  gap: 8px !important;
-}
-.threadOptions {
-  flex-shrink: 0;
-  max-height: 35%;
-  overflow: auto;
-}
-.threadOptions summary,
 .hostActions summary,
-.postFilters summary,
-.profileToolbar summary {
+.postFilters summary {
   min-height: 48px;
   display: flex;
   align-items: center;
   cursor: pointer;
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale, 1));
   font-weight: 600;
   color: var(--ink);
-}
-.threadMessages {
-  flex: 1;
-  min-height: 80px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 8px 0;
-}
-.threadComposer {
-  flex-shrink: 0;
-  border-top: 1px solid var(--line);
-  padding-top: 8px;
-  display: grid !important;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-  gap: 8px !important;
-}
-.threadComposer .demoArea {
-  min-height: 48px;
-  height: 64px;
-  max-height: 100px;
-  margin: 0;
-  resize: vertical;
-}
-.threadComposer button {
-  margin-bottom: 0;
-}
-.threadPanel .message {
-  position: relative;
-  padding: 10px 12px;
-  max-width: 88%;
-}
-.threadPanel .message p {
-  margin: 0 0 4px;
-}
-.threadPanel .entryControls {
-  margin: 0;
-  gap: 4px;
-  justify-content: flex-end;
-}
-.threadPanel .entryControls summary {
-  width: 44px;
-  min-width: 44px;
-  height: 44px;
-  min-height: 44px;
-  padding: 8px;
-}
-.threadPanel .messageTime {
-  display: inline;
-  font-size: 12px;
-}
-.commentThread .message,
-.commentThread .message.mine {
-  align-self: stretch;
-  max-width: 100%;
-  margin-left: 0;
-  background: var(--surface);
-  color: var(--ink);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-}
-.commentThread .message.isReply {
-  margin-left: 16px;
-  border-left: 3px solid var(--coral);
-}
-.commentThread .commentAuthor {
-  display: block;
-  font-size: 14px;
-  margin-bottom: 4px;
-}
-.commentThread .message .messageTime {
-  color: var(--muted);
-}
-.commentThread .message.mine .entryControls summary {
-  color: var(--ink);
-  background: transparent;
 }
 .device .circleHeading {
   padding-top: 8px;
@@ -1235,8 +1128,8 @@ body {
   margin-top: 8px;
 }
 .device .circleCover h1 {
-  font-size: 24px;
-  line-height: 30px;
+  font-size: calc(24px * var(--text-scale, 1));
+  line-height: calc(30px * var(--text-scale, 1));
 }
 .circleCover .circleIdentity img {
   display: none;
@@ -1250,15 +1143,6 @@ body {
 }
 .postFilters[open] .ex-stack {
   padding-bottom: 12px;
-}
-.profileToolbar {
-  display: flex;
-  align-items: start;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.profileToolbar details {
-  flex: 1;
 }
 .device .walletDemo {
   background: var(--surface);
@@ -1343,15 +1227,14 @@ input[role='switch']:focus-visible {
   align-content: start;
 }
 .device .giftGridPreview button {
-  font-size: 14px;
-  line-height: 20px;
+  font-size: calc(14px * var(--text-scale, 1));
+  line-height: calc(20px * var(--text-scale, 1));
 }
 @media (prefers-reduced-motion: reduce) {
   input[role='switch']::after {
     transition: none;
   }
 }
-
 .device .postFilters .demoChip[aria-pressed='true'] {
   background: var(--lilac);
   color: var(--ink);
@@ -1363,30 +1246,6 @@ input[role='switch']:focus-visible {
   border-color: currentColor;
   background: transparent;
   margin-top: 12px;
-}
-.threadPanel .message:not(.isReply) > p {
-  padding-right: 4px;
-}
-.threadMessages .message {
-  flex-shrink: 0;
-}
-.threadMessages .message {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  column-gap: 8px;
-  align-items: center;
-}
-.threadMessages .message > p,
-.threadMessages .message > .ex-quote,
-.threadMessages .commentAuthor {
-  grid-column: 1/-1;
-}
-.threadMessages .messageTime {
-  align-self: center;
-}
-.threadMessages .entryControls {
-  grid-column: 2;
-  flex-wrap: wrap;
 }
 .storyTray {
   padding: 0 20px 16px;
@@ -1425,16 +1284,16 @@ input[role='switch']:focus-visible {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 16px;
-  line-height: 22px;
+  font-size: calc(16px * var(--text-scale, 1));
+  line-height: calc(22px * var(--text-scale, 1));
 }
 .inboxConversation .grow .demoCopy {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  font-size: 14px;
-  line-height: 20px;
+  font-size: calc(14px * var(--text-scale, 1));
+  line-height: calc(20px * var(--text-scale, 1));
 }
 .device .inboxConversation.hasUnread {
   background: var(--coralSoft);
@@ -1456,61 +1315,19 @@ input[role='switch']:focus-visible {
   border-radius: 20px;
   background: var(--primary);
   color: var(--onPrimary);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale, 1));
   font-weight: 700;
   text-align: center;
 }
 .inboxUnread[hidden] {
   display: none;
 }
-.device .messageThread {
-  height: 94%;
-  max-height: 94%;
-  padding: 16px;
-}
-.messageThread .modalHead h2 {
-  font-size: 20px;
-  line-height: 26px;
-}
 .chatPeerStatus {
-  font-size: 12px;
-  line-height: 18px;
+  font-size: calc(12px * var(--text-scale, 1));
+  line-height: calc(18px * var(--text-scale, 1));
   color: var(--muted);
   margin: 0 0 8px;
 }
-.messageThread .threadOptions {
-  border-bottom: 1px solid var(--line);
-}
-.messageThread .threadMessages {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 16px 0;
-}
-.messageThread .message {
-  align-self: flex-start;
-  width: fit-content;
-  border-radius: 18px 18px 18px 5px;
-}
-.messageThread .message.mine {
-  align-self: flex-end;
-  border-radius: 18px 18px 5px 18px;
-}
-.messageThread .message > p {
-  font-size: 16px;
-  line-height: 24px;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
-}
-.messageThread .threadComposer {
-  padding-top: 12px;
-}
-.messageThread .threadComposer textarea {
-  border-radius: 18px;
-  font-size: 16px;
-  line-height: 22px;
-}
-/* Conversation: one header, a reading area, and a compact composer. */
 .device .inboxConversation,
 .device .inboxConversation.hasUnread {
   background: transparent;
@@ -1525,90 +1342,7 @@ input[role='switch']:focus-visible {
   gap: 0;
 }
 .device .inboxToolbar input {
-  font-size: 16px;
-}
-.device .messageThread {
-  position: relative;
-}
-.messageThread .modalHead h2 {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.messageThread .threadOptions {
-  flex: 0 0 auto;
-  border: 0;
-  overflow: visible;
-  max-height: none;
-}
-.messageThread .threadOptions > summary {
-  width: 44px;
-  height: 44px;
-  justify-content: center;
-}
-.conversationToolsBody {
-  position: absolute;
-  z-index: 5;
-  top: 68px;
-  left: 16px;
-  right: 16px;
-  max-height: 50%;
-  overflow: auto;
-  padding: 16px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  box-shadow: 0 8px 24px #0002;
-}
-.messageThread .message {
-  display: block;
-  padding: 10px 14px 6px;
-}
-.messageMeta {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-}
-.messageThread .messageTime {
-  margin: 0;
-  font-size: 11px;
-}
-.messageMenu > summary {
-  min-height: 36px;
-  min-width: 44px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-}
-.messageMenuBody {
-  padding: 8px;
-  background: var(--surface);
-  color: var(--ink);
-  border-radius: 12px;
-  border: 1px solid var(--line);
-}
-.messageMeta:has(.messageMenu[open]) {
-  flex-wrap: wrap;
-}
-.messageMenu[open] {
-  flex-basis: 100%;
-}
-.messageSelectedReactions {
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-  padding-bottom: 4px;
-}
-.messageThread .threadComposer textarea {
-  height: 48px;
-  min-height: 48px;
-  max-height: 128px;
-  resize: none;
+  font-size: calc(16px * var(--text-scale, 1));
 }
 .storyTitle {
   display: flex;
@@ -1617,11 +1351,11 @@ input[role='switch']:focus-visible {
   gap: 12px;
 }
 .storyTitle h2 {
-  font-size: 20px;
+  font-size: calc(20px * var(--text-scale, 1));
   margin: 4px 0 12px;
 }
 .storyTitle span {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale, 1));
   color: var(--muted);
 }
 .storyRail {
@@ -1648,7 +1382,7 @@ input[role='switch']:focus-visible {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale, 1));
 }
 .storyTile small {
   color: var(--muted);
@@ -1703,7 +1437,7 @@ input[role='switch']:focus-visible {
 }
 .storyAdd {
   background: var(--lilac);
-  font-size: 28px;
+  font-size: calc(28px * var(--text-scale, 1));
   border-color: transparent;
 }
 .device .storyViewerPanel {
@@ -1741,8 +1475,8 @@ input[role='switch']:focus-visible {
   accent-color: var(--coral);
 }
 .storyCaption {
-  font-size: 16px;
-  line-height: 24px;
+  font-size: calc(16px * var(--text-scale, 1));
+  line-height: calc(24px * var(--text-scale, 1));
   margin: 0;
   max-height: 96px;
   overflow: auto;
@@ -1775,13 +1509,9 @@ input[role='switch']:focus-visible {
   background: var(--paper);
   z-index: 1;
 }
-
-.messageThread .message[hidden],
 .inboxConversation[hidden] {
   display: none !important;
 }
-
-/* Shared disclosure, form and story controls. */
 .communityDetails > summary {
   min-height: 48px;
   display: flex;
@@ -1790,8 +1520,8 @@ input[role='switch']:focus-visible {
   gap: 12px;
   padding: 12px 0;
   border-bottom: 1px solid var(--line);
-  font-size: 16px;
-  line-height: 24px;
+  font-size: calc(16px * var(--text-scale, 1));
+  line-height: calc(24px * var(--text-scale, 1));
   font-weight: 600;
   cursor: pointer;
   list-style: none;
@@ -1841,7 +1571,7 @@ input[role='switch']:focus-visible {
   color: var(--ink);
   cursor: pointer;
   list-style: none;
-  font-size: 22px;
+  font-size: calc(22px * var(--text-scale, 1));
 }
 .storyOptions > button {
   position: absolute;
@@ -1850,8 +1580,7 @@ input[role='switch']:focus-visible {
   width: 140px;
   z-index: 2;
 }
-.device .walletDemo,
-.device .profileToolbar {
+.device .walletDemo {
   flex-wrap: wrap;
   gap: 12px;
 }
@@ -1864,8 +1593,8 @@ input[role='switch']:focus-visible {
 }
 .device .circleCompact .circleCover h1 {
   color: var(--ink);
-  font-size: 22px;
-  line-height: 28px;
+  font-size: calc(22px * var(--text-scale, 1));
+  line-height: calc(28px * var(--text-scale, 1));
 }
 .device .circleCompact .circleCover p,
 .device .circleCompact .circleIdentity {
@@ -1889,8 +1618,6 @@ input[role='switch']:focus-visible {
     flex: 1 1 120px;
   }
 }
-
-/* Community controls stay secondary and wrap at mobile widths. */
 .depthControls {
   margin: 12px 0 16px;
 }
@@ -1901,7 +1628,7 @@ input[role='switch']:focus-visible {
 .depthBadge {
   display: block;
   color: var(--coral);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale, 1));
 }
 .depthPoll .demoChip {
   text-align: left;
@@ -1933,3 +1660,81 @@ input[role='switch']:focus-visible {
   max-width: 100%;
   width: 100%;
 }
+
+/* generated-tokens:start */
+:root {
+  --ink: #292524;
+  --muted: #655D57;
+  --paper: #FAF7F2;
+  --surface: #FFFFFF;
+  --line: #E5DDD4;
+  --coral: #A64232;
+  --primary: #A64232;
+  --onPrimary: #FFFFFF;
+  --coralSoft: #F6E6DF;
+  --lilac: #E7E2F4;
+  --sage: #E4EBDD;
+  --butter: #F7EBC9;
+  --night: #24212C;
+  --live: #B73543;
+  --error: #A32B22;
+  --green: #376750;
+  --controlBorder: #82756D;
+  --focus: #A64232;
+  --selected: #F6E6DF;
+  --success: #376750;
+  --warning: #73521B;
+  --disabled: #655D57;
+}
+:root[data-theme='dark'] {
+  --ink: #F7F2EC;
+  --muted: #C5B8AE;
+  --paper: #1C1917;
+  --surface: #282320;
+  --line: #443A34;
+  --coral: #F0A18D;
+  --primary: #A64232;
+  --onPrimary: #FFFFFF;
+  --coralSoft: #4B302A;
+  --lilac: #393047;
+  --sage: #2D392D;
+  --butter: #433C26;
+  --night: #282320;
+  --live: #B73543;
+  --error: #FF9EAB;
+  --green: #9AC7A9;
+  --controlBorder: #99877B;
+  --focus: #F0A18D;
+  --selected: #4B302A;
+  --success: #9AC7A9;
+  --warning: #E8C786;
+  --disabled: #C5B8AE;
+}
+:root {
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-page: 20px;
+  --space-section: 24px;
+  --space-xl: 32px;
+  --radius-small: 12px;
+  --radius-medium: 20px;
+  --radius-large: 24px;
+  --radius-pill: 999px;
+  --type-title-size: 32px;
+  --type-title-line: 40px;
+  --type-section-size: 22px;
+  --type-section-line: 28px;
+  --type-dialog-size: 22px;
+  --type-dialog-line: 28px;
+  --type-member-size: 17px;
+  --type-member-line: 24px;
+  --type-body-size: 16px;
+  --type-body-line: 24px;
+  --type-secondary-size: 14px;
+  --type-secondary-line: 20px;
+  --type-caption-size: 12px;
+  --type-caption-line: 16px;
+}
+/* generated-tokens:end */

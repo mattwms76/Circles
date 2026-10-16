@@ -3,144 +3,35 @@ import { PostGallery } from './PostGallery';
 import { MemberRecognition } from './CommunityDepth';
 import { contentLink } from '../lib/contentLinks';
 import { usePostActions } from './PostActions';
-import React from 'react';
+import React, { useState } from 'react';
 import { Image, Pressable, Share, StyleSheet, Text, View } from 'react-native';
-import { createThemedStyles, colors, radii } from '../theme';
+import { createThemedStyles, colors, radii, typography } from '../theme';
+import { useCompactLayout } from './Design';
 import type { Circle, CirclePost, Profile } from '../types';
 
-export type IconName = 'bell' | 'photo' | 'video' | 'camera' | 'edit' | 'plus' | 'more' | 'gif';
-export function Icon({ name, color = colors.ink }: { name: IconName; color?: string }) {
-  const stroke = { borderColor: color, borderWidth: 1.7 };
-  return (
-    <View
-      accessibilityElementsHidden
-      importantForAccessibility="no-hide-descendants"
-      style={{ width: 24, height: 24, alignItems: 'center', justifyContent: 'center' }}
-    >
-      {name === 'bell' ? (
-        <>
-          <View
-            style={[
-              stroke,
-              {
-                width: 15,
-                height: 16,
-                borderTopLeftRadius: 9,
-                borderTopRightRadius: 9,
-                borderBottomLeftRadius: 3,
-                borderBottomRightRadius: 3,
-              },
-            ]}
-          />
-          <View
-            style={{ width: 5, height: 2, backgroundColor: color, marginTop: 2, borderRadius: 2 }}
-          />
-        </>
-      ) : name === 'photo' ? (
-        <View style={[stroke, { width: 21, height: 18, borderRadius: 4, overflow: 'hidden' }]}>
-          <View
-            style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: color, margin: 3 }}
-          />
-          <View
-            style={[
-              stroke,
-              { width: 13, height: 13, transform: [{ rotate: '45deg' }], marginLeft: 6 },
-            ]}
-          />
-        </View>
-      ) : name === 'camera' ? (
-        <View
-          style={[
-            stroke,
-            {
-              width: 22,
-              height: 17,
-              borderRadius: 4,
-              alignItems: 'center',
-              justifyContent: 'center',
-            },
-          ]}
-        >
-          <View style={[stroke, { width: 8, height: 8, borderRadius: 4 }]} />
-          <View
-            style={{
-              position: 'absolute',
-              top: -5,
-              width: 9,
-              height: 3,
-              backgroundColor: color,
-              borderRadius: 2,
-            }}
-          />
-        </View>
-      ) : name === 'video' ? (
-        <View
-          style={[
-            stroke,
-            {
-              width: 21,
-              height: 17,
-              borderRadius: 4,
-              alignItems: 'center',
-              justifyContent: 'center',
-            },
-          ]}
-        >
-          <View
-            style={{
-              borderLeftWidth: 6,
-              borderLeftColor: color,
-              borderTopWidth: 4,
-              borderBottomWidth: 4,
-              borderTopColor: 'transparent',
-              borderBottomColor: 'transparent',
-              marginLeft: 2,
-            }}
-          />
-        </View>
-      ) : name === 'edit' ? (
-        <View
-          style={[
-            stroke,
-            { width: 7, height: 21, borderRadius: 2, transform: [{ rotate: '40deg' }] },
-          ]}
-        />
-      ) : name === 'plus' ? (
-        <>
-          <View style={{ width: 18, height: 2, backgroundColor: color }} />
-          <View style={{ position: 'absolute', width: 2, height: 18, backgroundColor: color }} />
-        </>
-      ) : name === 'more' ? (
-        <View style={{ flexDirection: 'row', gap: 3 }}>
-          {[0, 1, 2].map((i) => (
-            <View
-              key={i}
-              style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: color }}
-            />
-          ))}
-        </View>
-      ) : (
-        <Text style={{ color, fontSize: 10, fontWeight: '700' }}>GIF</Text>
-      )}
-    </View>
-  );
-}
+export { Icon } from './Icon';
+export type { IconName } from './Icon';
+import { Icon, type IconName } from './Icon';
 
 export function Avatar({
   profile,
   size = 44,
-  ring = false,
+  frame = 'none',
 }: {
   profile: Profile;
   size?: number;
-  ring?: boolean;
+  frame?: 'none' | 'neutral';
 }) {
   return (
     <View
       style={[
         styles.avatarFrame,
-        ring && styles.avatarRing,
-        { width: size + (ring ? 6 : 0), height: size + (ring ? 6 : 0), borderRadius: size / 2 + 3 },
+        frame === 'neutral' && styles.avatarFrameNeutral,
+        {
+          width: size + (frame === 'neutral' ? 6 : 0),
+          height: size + (frame === 'neutral' ? 6 : 0),
+          borderRadius: size / 2 + 3,
+        },
       ]}
     >
       <Image
@@ -272,40 +163,44 @@ export function CircleTile({
   requested?: boolean;
   joining?: boolean;
 }) {
+  const { compact } = useCompactLayout();
   return (
-    <View style={styles.circleTile}>
+    <View
+      style={[
+        styles.circleTile,
+        { flexDirection: compact ? 'column' : 'row', alignItems: 'stretch', padding: 16, gap: 12 },
+      ]}
+    >
       <Pressable
         disabled={!onPress}
         accessibilityRole={onPress ? 'button' : undefined}
-        accessibilityLabel={onPress ? `Enter ${circle.name}` : undefined}
+        accessibilityLabel={`Enter ${circle.name}`}
         onPress={onPress}
-        style={styles.circleImageWrap}
+        style={{ flex: 1, flexDirection: 'row', gap: 12, alignItems: 'flex-start' }}
       >
-        <Image source={{ uri: circle.imageUrl }} style={styles.circleImage} />
-        <View style={styles.circlePhotoOverlay} />
-        {circle.isPrivate ? (
-          <View style={styles.privateBadge}>
-            <Text style={styles.privateBadgeText}>PRIVATE</Text>
-          </View>
-        ) : null}
-        <View style={styles.circleImageText}>
-          <Text style={styles.circleNameOnImage}>{circle.name}</Text>
-          <Text style={styles.circleMemberOnImage}>{formatCount(circle.members)} members</Text>
-        </View>
-      </Pressable>
-      <View style={styles.circleTileFooter}>
-        <Pressable
-          disabled={!onPress}
-          accessibilityRole={onPress ? 'button' : undefined}
-          accessibilityLabel={onPress ? `Enter ${circle.name}` : undefined}
-          onPress={onPress}
-          style={{ flex: 1 }}
-        >
-          <Text style={styles.circleInterest}>{circle.interest}</Text>
+        <Image
+          source={{ uri: circle.imageUrl }}
+          style={{ width: 56, height: 56, borderRadius: 14, backgroundColor: colors.sage }}
+        />
+        <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
+          <Text style={{ color: colors.ink, ...typography.member }}>{circle.name}</Text>
           <Text numberOfLines={2} style={styles.circleDescription}>
             {circle.description}
           </Text>
-        </Pressable>
+          <Text style={{ color: colors.muted, fontSize: 12, lineHeight: 18 }}>
+            {circle.interest} · {formatCount(circle.members)} members
+            {circle.isPrivate ? ' · Private' : ''}
+          </Text>
+        </View>
+      </Pressable>
+      <View
+        style={{
+          alignItems: 'center',
+          flexDirection: compact ? 'row' : 'column',
+          justifyContent: 'flex-end',
+          gap: 8,
+        }}
+      >
         {onMore ? (
           <Pressable
             onPress={onMore}
@@ -313,7 +208,7 @@ export function CircleTile({
             accessibilityLabel={`Report ${circle.name}`}
             style={styles.circleMore}
           >
-            <Text style={styles.moreIcon}>···</Text>
+            <Icon name="more" color={colors.muted} />
           </Pressable>
         ) : null}
         {onJoin ? (
@@ -388,11 +283,11 @@ export function PostCard({
         {actions || onMore ? (
           <Pressable
             onPress={() => (actions ? actions.open(post, onMore) : onMore?.())}
-            hitSlop={12}
+            style={{ minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center' }}
             accessibilityRole="button"
             accessibilityLabel="Post options"
           >
-            <Text style={styles.moreIcon}>···</Text>
+            <Icon name="more" color={colors.muted} />
           </Pressable>
         ) : null}
       </View>
@@ -410,8 +305,9 @@ export function PostCard({
           style={styles.postAction}
           accessibilityRole="button"
           accessibilityLabel={post.liked ? 'Unlike post' : 'Like post'}
+          accessibilityState={{ selected: post.liked }}
         >
-          <Text style={{ fontSize: 17 }}>{post.liked ? '♥' : '♡'}</Text>
+          <Icon name="heart" color={post.liked ? colors.coral : colors.muted} filled={post.liked} />
           <Text style={styles.postActionLabel}>{post.likes}</Text>
         </Pressable>
         <Pressable
@@ -420,7 +316,7 @@ export function PostCard({
           accessibilityRole="button"
           accessibilityLabel="Reply to post"
         >
-          <Text style={{ fontSize: 16 }}>◯</Text>
+          <Icon name="reply" color={colors.muted} />
           <Text style={styles.postActionLabel}>Reply</Text>
         </Pressable>
         <Pressable
@@ -433,7 +329,7 @@ export function PostCard({
           accessibilityRole="button"
           accessibilityLabel="Share post"
         >
-          <Text style={{ fontSize: 16 }}>↗</Text>
+          <Icon name="share" color={colors.muted} />
           <Text style={styles.postActionLabel}>Share</Text>
         </Pressable>
       </View>
@@ -450,15 +346,17 @@ export function ActionButton({
 }: {
   label: string;
   onPress: () => void;
-  variant?: 'primary' | 'secondary' | 'dark' | 'outline' | 'destructive';
+  variant?: 'primary' | 'secondary' | 'dark' | 'outline' | 'destructive' | 'quiet';
   compact?: boolean;
   disabled?: boolean;
 }) {
+  const [focused, setFocused] = useState(false);
   const variantStyle = {
     primary: styles.button_primary,
     secondary: styles.button_secondary,
     dark: styles.button_dark,
     outline: styles.button_outline,
+    quiet: { backgroundColor: 'transparent', borderWidth: 0, alignItems: 'flex-start' as const },
     destructive: { backgroundColor: colors.live },
   }[variant];
   return (
@@ -467,10 +365,13 @@ export function ActionButton({
       accessibilityLabel={label}
       accessibilityState={{ disabled }}
       disabled={disabled}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
       onPress={onPress}
       style={({ pressed }) => [
         styles.actionButton,
         variantStyle,
+        focused && { outlineWidth: 2, outlineColor: colors.focus, outlineOffset: 2 },
         compact && styles.actionButtonCompact,
         { opacity: disabled ? 0.45 : pressed ? 0.75 : 1 },
       ]}
@@ -479,6 +380,7 @@ export function ActionButton({
         style={[
           styles.actionButtonText,
           (variant === 'secondary' || variant === 'outline') && { color: colors.ink },
+          variant === 'quiet' && { color: colors.coral, textAlign: 'left' },
           compact && { fontSize: 14 },
         ]}
       >
@@ -490,12 +392,12 @@ export function ActionButton({
 
 export function IconButton({
   label,
-  symbol,
+  icon,
   onPress,
   disabled = false,
 }: {
   label: string;
-  symbol: string;
+  icon: IconName;
   onPress: () => void;
   disabled?: boolean;
 }) {
@@ -517,9 +419,7 @@ export function IconButton({
         opacity: disabled ? 0.45 : pressed ? 0.75 : 1,
       })}
     >
-      <Text accessible={false} style={{ fontSize: 22, lineHeight: 24, color: colors.ink }}>
-        {symbol}
-      </Text>
+      <Icon name={icon} />
     </Pressable>
   );
 }
@@ -541,7 +441,10 @@ export function Pill({
       onPress={onPress}
       style={[styles.pill, selected && styles.pillSelected]}
     >
-      <Text style={[styles.pillText, selected && styles.pillTextSelected]}>{label}</Text>
+      <Text style={[styles.pillText, selected && styles.pillTextSelected]}>
+        {selected ? '✓ ' : ''}
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -616,7 +519,7 @@ export function Disclosure({
 
 const styles = createThemedStyles(() => ({
   avatarFrame: { alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
-  avatarRing: { borderWidth: 2, borderColor: colors.coral, padding: 2 },
+  avatarFrameNeutral: { borderWidth: 1, borderColor: colors.controlBorder, padding: 2 },
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: 9 },
   brandGlyph: {
     width: 27,
@@ -660,13 +563,7 @@ const styles = createThemedStyles(() => ({
     letterSpacing: 1.4,
     marginBottom: 5,
   },
-  sectionTitle: {
-    color: colors.ink,
-    fontSize: 22,
-    lineHeight: 28,
-    fontWeight: '700',
-    letterSpacing: -0.4,
-  },
+  sectionTitle: { ...typography.section, color: colors.ink, letterSpacing: -0.4 },
   actionText: {
     color: colors.coral,
     fontWeight: '600',
@@ -748,8 +645,8 @@ const styles = createThemedStyles(() => ({
     borderColor: colors.line,
   },
   postMeta: { flexDirection: 'row', alignItems: 'center', gap: 11, marginBottom: 12 },
-  postAuthor: { color: colors.ink, fontWeight: '700', fontSize: 14 },
-  postCircle: { color: colors.muted, fontSize: 12, marginTop: 3 },
+  postAuthor: { color: colors.ink, ...typography.member },
+  postCircle: { color: colors.muted, ...typography.secondary, marginTop: 3 },
   moreIcon: { fontSize: 25, lineHeight: 20, color: colors.muted, letterSpacing: 1 },
   postBody: { color: colors.ink, fontSize: 16, lineHeight: 24, marginBottom: 12 },
   postImage: {
@@ -775,12 +672,23 @@ const styles = createThemedStyles(() => ({
   button_primary: { backgroundColor: colors.primary },
   button_secondary: { backgroundColor: colors.coralSoft },
   button_dark: { backgroundColor: colors.night },
-  button_outline: { backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.line },
-  actionButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
-  pill: {
-    borderRadius: radii.pill,
+  button_outline: {
+    backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: colors.line,
+    borderColor: colors.controlBorder,
+  },
+  actionButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '700',
+    flexShrink: 1,
+    textAlign: 'center',
+  },
+  pill: {
+    borderRadius: radii.small,
+    borderWidth: 1,
+    borderColor: colors.controlBorder,
     paddingHorizontal: 13,
     minHeight: 48,
     justifyContent: 'center',
@@ -788,9 +696,9 @@ const styles = createThemedStyles(() => ({
     marginRight: 0,
     backgroundColor: colors.surface,
   },
-  pillSelected: { backgroundColor: colors.night, borderColor: colors.night },
+  pillSelected: { backgroundColor: colors.selected, borderColor: colors.coral, borderWidth: 2 },
   pillText: { color: colors.muted, fontSize: 14, lineHeight: 20, fontWeight: '600' },
-  pillTextSelected: { color: '#FFFFFF' },
+  pillTextSelected: { color: colors.coral },
   emptyState: {
     alignItems: 'center',
     gap: 9,

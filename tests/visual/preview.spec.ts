@@ -3,7 +3,7 @@ for (const mode of ['light', 'dark'])
   test(`Explore layout and contrast stay usable in ${mode}`, async ({ page }, info) => {
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
-    await page.goto('/preview.html');
+    await page.goto('/preview.html', { waitUntil: 'domcontentloaded' });
     await page.locator('#previewTheme').selectOption(mode);
     await page.getByRole('button', { name: 'Explore', exact: true }).click();
     await expect(page.locator('.discoveryDetails')).not.toHaveAttribute('open', '');
@@ -33,14 +33,14 @@ for (const mode of ['light', 'dark'])
     expect(geometry.cardTop + 100).toBeLessThan(geometry.navTop);
     expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.width);
     await page.screenshot({ path: info.outputPath(`explore-${mode}.png`) });
-    await page.locator('.discoveryDetails summary').click();
+    await page.locator('.discoveryDetails button').click();
     await page.locator('#exPrivacy').selectOption('private');
-    await expect(page.locator('.discoveryDetails summary')).toHaveText('Filters · 1 active');
+    await expect(page.locator('.discoveryDetails button')).toHaveText('Filters · 1 active');
     await expect(page.locator('#circleCount')).toHaveText('1 circles to explore');
     expect(errors).toEqual([]);
   });
 test('Post saving and author editing stay functional', async ({ page }) => {
-  await page.goto('/preview.html');
+  await page.goto('/preview.html', { waitUntil: 'domcontentloaded' });
   await page.getByRole('button', { name: 'Post options', exact: true }).click();
   await page.getByRole('button', { name: 'Save post', exact: true }).click();
   await page.getByRole('button', { name: 'Saved posts', exact: true }).click();

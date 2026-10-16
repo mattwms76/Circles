@@ -1,3 +1,4 @@
+import { Icon } from './Icon';
 import React from 'react';
 import {
   Modal,
@@ -11,7 +12,7 @@ import {
   type ScrollViewProps,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useReducedMotion } from '../theme';
+import { colors, useReducedMotion } from '../theme';
 import { styles } from '../appStyles';
 export function Sheet({
   title,
@@ -22,7 +23,9 @@ export function Sheet({
   scrollRef,
   onContentSizeChange,
   onScroll,
+  size = 'content',
 }: {
+  size?: 'content' | 'form' | 'conversation';
   footer?: React.ReactNode;
   title: string;
   eyebrow: string;
@@ -41,7 +44,14 @@ export function Sheet({
         style={[styles.modalShade, { paddingTop: insets.top }]}
       >
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <View style={[styles.sheetPanel, { paddingBottom: Math.max(16, insets.bottom) }]}>
+        <View
+          style={[
+            styles.sheetPanel,
+            size === 'conversation' && { height: '92%' },
+            size === 'form' && { maxHeight: '92%' },
+            { paddingBottom: Math.max(16, insets.bottom) },
+          ]}
+        >
           <View style={styles.grabber} />
           <View style={styles.sheetHeader}>
             <View style={{ flex: 1 }}>
@@ -54,7 +64,7 @@ export function Sheet({
               onPress={onClose}
               style={styles.closeButton}
             >
-              <Text style={styles.closeButtonText}>×</Text>
+              <Icon name="close" color={colors.ink} />
             </Pressable>
           </View>
           <ScrollView
@@ -63,7 +73,7 @@ export function Sheet({
             onScroll={onScroll}
             scrollEventThrottle={16}
             keyboardShouldPersistTaps="handled"
-            style={{ flexShrink: 1 }}
+            style={{ flexShrink: 1, ...(size === 'conversation' ? { flex: 1 } : {}) }}
             contentContainerStyle={{ gap: 12, paddingBottom: 16 }}
             showsVerticalScrollIndicator={false}
           >

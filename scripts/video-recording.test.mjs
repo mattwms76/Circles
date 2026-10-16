@@ -218,8 +218,8 @@ test('Story recording uses the 60-second limit, publishes the chosen circle, and
     act(async () => renderer.root.findAllByType('Pressable')[0].props.onPress());
   const record = () =>
     renderer.root
-      .findAllByType('ActionButton')
-      .find((n) => n.props.label === 'Record video')
+      .findAllByType('Pressable')
+      .find((n) => n.props.accessibilityLabel === 'Record video')
       .props.onPress();
   await open();
   await act(async () => record());

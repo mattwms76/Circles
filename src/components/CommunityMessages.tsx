@@ -13,7 +13,7 @@ import {
   useAudioPlayerStatus,
 } from 'expo-audio';
 import { Sheet } from './Sheet';
-import { ActionButton, Disclosure } from './Primitives';
+import { ActionButton, Disclosure, IconButton } from './Primitives';
 import { styles } from '../appStyles';
 import { colors, createThemedStyles } from '../theme';
 import { supabase } from '../lib/supabase';
@@ -30,12 +30,15 @@ export function VoicePlayer({ uri }: { uri: string }) {
     status = useAudioPlayerStatus(player);
   const [error, setError] = useState('');
   const alive = useRef(true),
+    generation = useRef(0),
     pending = useRef(false),
     foreground = useRef(
       AppState.currentState !== 'background' && AppState.currentState !== 'inactive',
     );
   useEffect(() => {
     alive.current = true;
+    generation.current++;
+    pending.current = false;
     setError('');
     const a = AppState.addEventListener('change', (state) => {
       foreground.current = state === 'active';
@@ -43,9 +46,10 @@ export function VoicePlayer({ uri }: { uri: string }) {
     });
     return () => {
       alive.current = false;
+      generation.current++;
       a.remove();
     };
-  }, [player]);
+  }, [player, uri]);
   return (
     <View style={{ gap: 6 }}>
       <ActionButton
@@ -56,6 +60,7 @@ export function VoicePlayer({ uri }: { uri: string }) {
           if (status.playing) player.pause();
           else {
             if (pending.current) return;
+            const requestGeneration = generation.current;
             pending.current = true;
             setError('');
             void (async () => {
@@ -64,14 +69,15 @@ export function VoicePlayer({ uri }: { uri: string }) {
                 (status.duration > 0 && status.currentTime >= status.duration)
               )
                 await player.seekTo(0);
-              if (alive.current && foreground.current) player.play();
+              if (alive.current && foreground.current && requestGeneration === generation.current)
+                player.play();
             })()
               .catch(() => {
-                if (alive.current)
+                if (alive.current && requestGeneration === generation.current)
                   setError('Voice note could not play. Refresh the attachment and try again.');
               })
               .finally(() => {
-                pending.current = false;
+                if (requestGeneration === generation.current) pending.current = false;
               });
           }
         }}
@@ -148,19 +154,34 @@ export function MessageAttachment({
     <ActionButton compact variant="outline" label="Retry attachment" onPress={() => void load()} />
   ) : null;
 }
-export function MessageMediaComposer({
-  user,
-  target,
-  group = false,
-  onSent,
-  disabled = false,
-}: {
+type MessageMediaComposerProps = {
   user: string;
   target: string;
   group?: boolean;
   onSent: () => void;
   disabled?: boolean;
-}) {
+  children?: React.ReactNode;
+};
+
+export function MessageMediaComposer(props: MessageMediaComposerProps) {
+  // Async picker, upload and recorder callbacks must belong to a single destination.
+  // Remounting also runs microphone cleanup when a conversation or account changes.
+  return (
+    <ConversationMediaComposer
+      key={JSON.stringify([props.user, props.target, !!props.group])}
+      {...props}
+    />
+  );
+}
+
+function ConversationMediaComposer({
+  user,
+  target,
+  group = false,
+  onSent,
+  disabled = false,
+  children,
+}: MessageMediaComposerProps) {
   const [open, setOpen] = useState(false),
     [draft, setDraft] = useState<api.MessageMedia | null>(null),
     [busy, setBusy] = useState(false),
@@ -235,132 +256,148 @@ export function MessageMediaComposer({
   }, [state.isRecording, state.durationMillis]);
   return (
     <View>
-      {!open ? (
-        <ActionButton
-          compact
-          variant="outline"
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', gap: 8 }}>
+        <IconButton
           label="Photo or voice note"
+          icon="plus"
           disabled={disabled}
           onPress={() => setOpen(true)}
         />
-      ) : (
-        <View style={{ gap: 8, padding: 12, backgroundColor: colors.surface, borderRadius: 16 }}>
-          {error ? (
-            <Text accessibilityRole="alert" style={{ color: colors.error }}>
-              {error}
-            </Text>
-          ) : null}
-          {draft ? (
-            <>
-              {draft.kind === 'photo' ? (
-                <Image
-                  source={{ uri: draft.uri }}
-                  style={{ width: 120, height: 120, borderRadius: 12 }}
-                />
-              ) : (
-                <VoicePlayer uri={draft.uri} />
-              )}
-              <ActionButton
-                label={busy ? 'Sending…' : 'Send attachment'}
-                disabled={busy || disabled}
-                onPress={() =>
-                  void run(async () => {
-                    await api.sendMessageMedia(user, target, draft, group);
-                    if (alive.current) {
-                      setDraft(null);
-                      setOpen(false);
-                      onSent();
-                    }
-                  })
-                }
-              />
-              <ActionButton
-                compact
-                variant="outline"
-                label="Discard attachment"
-                disabled={busy}
-                onPress={() => setDraft(null)}
-              />
-            </>
-          ) : (
-            <>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+        {children}
+      </View>
+      {open ? (
+        <Sheet
+          title="Attachments"
+          eyebrow="PHOTOS AND VOICE"
+          onClose={() => {
+            if (!busy && !state.isRecording) {
+              setOpen(false);
+              setDraft(null);
+            }
+          }}
+        >
+          <View style={{ gap: 12 }}>
+            {error ? (
+              <Text accessibilityRole="alert" style={{ color: colors.error }}>
+                {error}
+              </Text>
+            ) : null}
+            {draft ? (
+              <>
+                {draft.kind === 'photo' ? (
+                  <Image
+                    source={{ uri: draft.uri }}
+                    style={{ width: 120, height: 120, borderRadius: 12 }}
+                  />
+                ) : (
+                  <VoicePlayer uri={draft.uri} />
+                )}
                 <ActionButton
-                  compact
-                  variant="outline"
-                  label="Choose photo"
-                  disabled={busy || state.isRecording || disabled}
-                  onPress={() =>
-                    void run(async () => {
-                      const result = await ImagePicker.launchImageLibraryAsync({
-                        mediaTypes: ['images'],
-                        quality: 0.8,
-                        allowsEditing: false,
-                      });
-                      if (!alive.current || result.canceled || !result.assets[0]) return;
-                      const a = result.assets[0],
-                        mime = a.mimeType ?? (a.uri.endsWith('.png') ? 'image/png' : 'image/jpeg');
-                      if (!['image/jpeg', 'image/png', 'image/webp'].includes(mime))
-                        throw Error('Choose a JPG, PNG, or WebP photo.');
-                      setDraft({ id: randomUUID(), uri: a.uri, kind: 'photo', mime });
-                    })
-                  }
-                />
-                <ActionButton
-                  compact
-                  variant="outline"
-                  label={state.isRecording ? 'Stop recording' : 'Record voice note'}
+                  label={busy ? 'Sending…' : 'Send attachment'}
                   disabled={busy || disabled}
                   onPress={() =>
                     void run(async () => {
-                      if (recorder.isRecording) {
-                        await stop();
-                        return;
-                      }
-                      const p = await requestRecordingPermissionsAsync();
-                      if (!alive.current || !foreground.current) return;
-                      if (!p.granted)
-                        throw Error(
-                          'Allow microphone access in device settings to record a voice note.',
-                        );
-                      let recording = false;
-                      try {
-                        await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
-                        if (!alive.current || !foreground.current) return;
-                        await recorder.prepareToRecordAsync();
-                        if (!alive.current || !foreground.current) return;
-                        started.current = Date.now();
-                        recorder.record({ forDuration: 60 });
-                        recording = true;
-                      } finally {
-                        if (!recording) {
-                          started.current = 0;
-                          await setAudioModeAsync({ allowsRecording: false }).catch(() => {});
-                        }
+                      await api.sendMessageMedia(user, target, draft, group);
+                      if (alive.current) {
+                        setDraft(null);
+                        setOpen(false);
+                        onSent();
                       }
                     })
                   }
                 />
-              </View>
-              <Text style={chatStyles.hint}>
-                {state.isRecording
-                  ? `Recording · ${Math.ceil(state.durationMillis / 1000)} / 60 seconds`
-                  : 'Photos up to 10 MB · Voice notes up to 60 seconds. Preview before sending.'}
-              </Text>
-            </>
-          )}
-          <ActionButton
-            compact
-            variant="outline"
-            label="Close attachments"
-            disabled={busy || state.isRecording}
-            onPress={() => {
-              setOpen(false);
-              setDraft(null);
-            }}
-          />
-        </View>
-      )}
+                <ActionButton
+                  compact
+                  variant="outline"
+                  label="Discard attachment"
+                  disabled={busy}
+                  onPress={() => setDraft(null)}
+                />
+              </>
+            ) : (
+              <>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                  <ActionButton
+                    compact
+                    variant="outline"
+                    label="Choose photo"
+                    disabled={busy || state.isRecording || disabled}
+                    onPress={() =>
+                      void run(async () => {
+                        const result = await ImagePicker.launchImageLibraryAsync({
+                          mediaTypes: ['images'],
+                          quality: 0.8,
+                          allowsEditing: false,
+                        });
+                        if (!alive.current || result.canceled || !result.assets[0]) return;
+                        const a = result.assets[0],
+                          mime =
+                            a.mimeType ?? (a.uri.endsWith('.png') ? 'image/png' : 'image/jpeg');
+                        if (!['image/jpeg', 'image/png', 'image/webp'].includes(mime))
+                          throw Error('Choose a JPG, PNG, or WebP photo.');
+                        setDraft({ id: randomUUID(), uri: a.uri, kind: 'photo', mime });
+                      })
+                    }
+                  />
+                  <ActionButton
+                    compact
+                    variant="outline"
+                    label={state.isRecording ? 'Stop recording' : 'Record voice note'}
+                    disabled={busy || disabled}
+                    onPress={() =>
+                      void run(async () => {
+                        if (recorder.isRecording) {
+                          await stop();
+                          return;
+                        }
+                        const p = await requestRecordingPermissionsAsync();
+                        if (!alive.current || !foreground.current) return;
+                        if (!p.granted)
+                          throw Error(
+                            'Allow microphone access in device settings to record a voice note.',
+                          );
+                        let recording = false;
+                        try {
+                          await setAudioModeAsync({
+                            allowsRecording: true,
+                            playsInSilentMode: true,
+                          });
+                          if (!alive.current || !foreground.current) return;
+                          await recorder.prepareToRecordAsync();
+                          if (!alive.current || !foreground.current) return;
+                          started.current = Date.now();
+                          recorder.record({ forDuration: 60 });
+                          recording = true;
+                        } finally {
+                          if (!recording) {
+                            started.current = 0;
+                            await setAudioModeAsync({ allowsRecording: false }).catch(() => {});
+                          }
+                        }
+                      })
+                    }
+                  />
+                </View>
+                <Text style={chatStyles.hint}>
+                  {state.isRecording
+                    ? `Recording · ${Math.ceil(state.durationMillis / 1000)} / 60 seconds`
+                    : 'Photos up to 10 MB · Voice notes up to 60 seconds. Preview before sending.'}
+                </Text>
+              </>
+            )}
+            <ActionButton
+              compact
+              variant="outline"
+              label="Close attachments"
+              disabled={busy || state.isRecording}
+              onPress={() => {
+                setOpen(false);
+                setDraft(null);
+              }}
+            />
+          </View>
+        </Sheet>
+      ) : null}
     </View>
   );
 }
@@ -482,9 +519,15 @@ export function CircleChat({
     setError('');
     setRows((old) => [
       ...m,
-      ...old.filter(
-        (x) => !m.some((y) => y.id === x.id) && x.created_at < (m.at(-1)?.created_at ?? ''),
-      ),
+      ...old.filter((x) => {
+        const boundary = m.at(-1);
+        return (
+          !m.some((y) => y.id === x.id) &&
+          boundary &&
+          (x.created_at < boundary.created_at ||
+            (x.created_at === boundary.created_at && x.id < boundary.id))
+        );
+      }),
     ]);
     setMore(m.length === 40);
     setEnabled(d.chat.enabled);
@@ -576,42 +619,46 @@ export function CircleChat({
                 group
                 disabled={busy || !ready}
                 onSent={() => void run(load)}
-              />
-              <TextInput
-                accessibilityLabel="Circle chat message"
-                placeholder="Message your circle…"
-                placeholderTextColor={colors.muted}
-                style={styles.messageInput}
-                value={body}
-                editable={!busy && ready}
-                multiline
-                maxLength={2000}
-                onChangeText={(s) => {
-                  setBody(s);
-                  version.current++;
-                  request.current = randomUUID();
-                  void storeValue(user, `chat-draft:${circle.id}`, s).catch(() => {
-                    if (alive.current)
-                      setError('Your draft could not be saved. Keep this chat open and try again.');
-                  });
-                }}
-              />
-              <ActionButton
-                label={busy ? 'Sending…' : 'Send message'}
-                disabled={busy || !ready || !body.trim()}
-                onPress={() =>
-                  void run(async () => {
-                    const v = version.current;
-                    await api.sendGroupMessage(user, circle.id, body, request.current);
-                    if (version.current === v) {
-                      setBody('');
-                      await storeValue(user, `chat-draft:${circle.id}`, '');
-                      request.current = randomUUID();
-                    }
-                    await load();
-                  })
-                }
-              />
+              >
+                <TextInput
+                  accessibilityLabel="Circle chat message"
+                  placeholder="Message your circle…"
+                  placeholderTextColor={colors.muted}
+                  style={styles.messageInput}
+                  value={body}
+                  editable={!busy && ready}
+                  multiline
+                  maxLength={2000}
+                  onChangeText={(s) => {
+                    setBody(s);
+                    version.current++;
+                    request.current = randomUUID();
+                    void storeValue(user, `chat-draft:${circle.id}`, s).catch(() => {
+                      if (alive.current)
+                        setError(
+                          'Your draft could not be saved. Keep this chat open and try again.',
+                        );
+                    });
+                  }}
+                />
+                <ActionButton
+                  compact
+                  label={busy ? 'Sending…' : 'Send message'}
+                  disabled={busy || !ready || !body.trim()}
+                  onPress={() =>
+                    void run(async () => {
+                      const v = version.current;
+                      await api.sendGroupMessage(user, circle.id, body, request.current);
+                      if (version.current === v) {
+                        setBody('');
+                        await storeValue(user, `chat-draft:${circle.id}`, '');
+                        request.current = randomUUID();
+                      }
+                      await load();
+                    })
+                  }
+                />
+              </MessageMediaComposer>
             </>
           ) : (
             <Text style={chatStyles.hint}>The host has paused this chat.</Text>
@@ -643,7 +690,12 @@ export function CircleChat({
           onPress={() =>
             void run(async () => {
               atBottom.current = false;
-              const earlier = await api.groupMessages(user, circle.id, rows.at(-1)?.created_at);
+              const oldest = rows.at(-1);
+              if (!oldest) return;
+              const earlier = await api.groupMessages(user, circle.id, {
+                createdAt: oldest.created_at,
+                id: oldest.id,
+              });
               setRows((old) => [...old, ...earlier.filter((x) => !old.some((m) => m.id === x.id))]);
               setMore(earlier.length === 40);
             })

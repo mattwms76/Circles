@@ -328,7 +328,12 @@ test('A failed voice recorder preparation releases audio recording mode', async 
     );
   });
   t.after(() => act(async () => renderer.unmount()));
-  await act(async () => button(renderer, 'Photo or voice note').props.onPress());
+  await act(async () =>
+    renderer.root
+      .findAllByType('Pressable')
+      .find((n) => n.props.accessibilityLabel === 'Photo or voice note')
+      .props.onPress(),
+  );
   await act(async () => button(renderer, 'Record voice note').props.onPress());
   assert.equal(modes.at(-1), false);
 });

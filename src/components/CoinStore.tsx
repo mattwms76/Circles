@@ -288,7 +288,7 @@ const styles = createThemedStyles(() => ({
   coinIcon: {
     width: 40,
     height: 40,
-    borderRadius: 14,
+    borderRadius: 12,
     backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',

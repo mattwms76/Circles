@@ -23,16 +23,15 @@ appId: com.circles.social
 - hideKeyboard
 - tapOn: 'Close dialog'
 - scrollUntilVisible:
-    element: 'Add coins'
+    element: 'Wallet · .* coins'
     direction: DOWN
-- tapOn: 'Add coins'
+- tapOn: 'Wallet · .* coins'
 - assertVisible: 'A little appreciation.'
 - takeScreenshot: artifacts/wallet
 - tapOn: 'Close dialog'
 - scrollUntilVisible:
-    element: 'Settings and privacy'
+    element: 'Notifications'
     direction: DOWN
-- tapOn: 'Settings and privacy'
 - tapOn: 'Notifications'
 - assertVisible: 'Device notifications'
 - takeScreenshot: artifacts/settings

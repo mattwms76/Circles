@@ -1,5 +1,7 @@
 # Circles
 
+Layout improvements (16 October 2026): all ten findings from the current design audit are implemented in the native screens and browser prototype. See the [layout implementation record](docs/design-layout-fixes.html) for screen changes, verification and device-testing limits. The preview's Appearance and Text size controls affect demo presentation only.
+
 Security remediation (15 October 2026): see [the security fix record](docs/security-fixes.html) for S01–S11, deployment status and remaining native/admin acceptance checks. The canonical bootstrap manifest now includes `20261015135615_security_hardening.sql`. Deploy that migration before the updated purchase, account-deletion and retention functions. Existing Circles data is preserved.
 
 `pnpm security:check` queries the advisory feed and verifies the actual Expo/Metro files against reviewed local patches for node-forge and braces; those advisories remain in registry metadata until upstream releases fixes. New/unmitigated advisories, absent patches and registry failures fail the gate. Xcode's UUID dependency is overridden to 11.1.1. Patch settings use pnpm 11's `pnpm-workspace.yaml`; package-age safeguards remain unchanged. Run `pnpm check`, `pnpm security:check`, Deno checks and native exports after dependency changes.

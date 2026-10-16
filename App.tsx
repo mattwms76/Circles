@@ -1,3 +1,4 @@
+import type { SettingsDestination } from './src/components/Design';
 import { CommunityProvider } from './src/components/CommunityDepth';
 import { redeemInvite } from './src/lib/communityDepth';
 import { inspectPickedMedia } from './src/lib/pickedMedia';
@@ -14,6 +15,7 @@ import {
   markActivitiesRead,
 } from './src/lib/experience';
 import { canDeleteOwnContent } from './src/lib/contentDeletion';
+import type { MessageCursor } from './src/lib/messagePagination';
 import { applyPostReaction, mergeUniquePage } from './src/lib/feedState';
 import * as Notifications from 'expo-notifications';
 import {
@@ -45,13 +47,14 @@ import {
 import { clearMediaCache } from './src/lib/media';
 import { AppErrorBoundary, reportDiagnostic } from './src/lib/diagnostics';
 import React, { useEffect, useRef, useState } from 'react';
+import { useFonts } from 'expo-font';
 import { secureStorage as AsyncStorage } from './src/lib/secureStorage';
 import { AccessibilityInfo, AppState, Alert, Linking, StatusBar, Text, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { streamProvider } from './src/lib/streaming';
 import { CoinStore } from './src/components/CoinStore';
-import { colors, useThemeMode } from './src/theme';
+import { colors, configureEditorialFont, useThemeMode } from './src/theme';
 import { styles } from './src/appStyles';
 import {
   Attachment,
@@ -147,6 +150,28 @@ const FEED_PAGE_SIZE = 20;
 const MESSAGE_PAGE_SIZE = 40;
 
 export default function App() {
+  const [fontsLoaded, fontError] = useFonts({
+    'Lora-SemiBold': require('./assets/fonts/Lora-SemiBold.ttf'),
+  });
+  configureEditorialFont(fontsLoaded);
+  if (!fontsLoaded && !fontError)
+    return (
+      <View
+        style={{
+          flex: 1,
+          justifyContent: 'center',
+          alignItems: 'center',
+          backgroundColor: colors.paper,
+        }}
+      >
+        <Text accessibilityRole="header" style={{ color: colors.ink, fontSize: 24 }}>
+          Circles
+        </Text>
+        <Text accessibilityLiveRegion="polite" style={{ color: colors.muted }}>
+          Loading…
+        </Text>
+      </View>
+    );
   return (
     <SafeAreaProvider>
       <AppErrorBoundary>
@@ -161,6 +186,8 @@ function CirclesApp() {
   const [tab, setTab] = useState<Tab>('home');
   const [discovery, setDiscovery] = useState(defaultDiscovery);
   const [showSettings, setShowSettings] = useState(false);
+  const [settingsDestination, setSettingsDestination] =
+    useState<SettingsDestination>('notifications');
   const [showActivity, setShowActivity] = useState(false);
   const [catchupRequest, setCatchupRequest] = useState(0);
   const [showModerator, setShowModerator] = useState(false);
@@ -2535,9 +2562,11 @@ function CirclesApp() {
       throw new Error('Follow each other before messaging.');
     }
     if (!ensureSignedIn('send a direct message')) throw new Error('Sign in before sending.');
+    const current = captureAccount();
     if (backendReady) {
       try {
         await sendDirectMessage(selectedConversation.peer.id, body, replyToId);
+        if (!current()) return;
         const messages = visibleMessages(
           await loadConversationMessages(
             selectedConversation.peer.id,
@@ -2545,6 +2574,7 @@ function CirclesApp() {
             MESSAGE_PAGE_SIZE,
           ),
         );
+        if (!current()) return;
         setChatHasOlder(messages.length === MESSAGE_PAGE_SIZE);
         setSelectedConversation((old) =>
           old?.peer.id === selectedConversation.peer.id ? { ...old, messages } : old,
@@ -2557,7 +2587,8 @@ function CirclesApp() {
           ),
         );
       } catch (error) {
-        showMessage(error instanceof Error ? error.message : 'Could not send your message.');
+        if (current())
+          showMessage(error instanceof Error ? error.message : 'Could not send your message.');
         throw error;
       }
       return;
@@ -2583,20 +2614,24 @@ function CirclesApp() {
   }
 
   async function openConversation(conversation: Conversation) {
+    const current = captureAccount();
     setSelectedConversation(conversation);
     setChatHasOlder(false);
     if (!backendReady || !mutualIds.has(conversation.peer.id)) return;
     try {
       await markConversationRead(conversation.peer.id);
+      if (!current()) return;
       const messages = visibleMessages(
         await loadConversationMessages(conversation.peer.id, undefined, MESSAGE_PAGE_SIZE),
       );
+      if (!current()) return;
       setChatHasOlder(messages.length === MESSAGE_PAGE_SIZE);
       setSelectedConversation((old) =>
         old?.peer.id === conversation.peer.id ? { ...old, messages, unread: 0 } : old,
       );
     } catch (error) {
-      showMessage(error instanceof Error ? error.message : 'Could not open this conversation.');
+      if (current())
+        showMessage(error instanceof Error ? error.message : 'Could not open this conversation.');
     }
   }
 
@@ -2656,12 +2691,14 @@ function CirclesApp() {
     void openConversation(conversation);
   }
 
-  async function loadOlderMessages(before: string): Promise<DirectMessage[]> {
+  async function loadOlderMessages(before: MessageCursor): Promise<DirectMessage[]> {
     if (!selectedConversation) return [];
+    const current = captureAccount();
     try {
       const older = visibleMessages(
         await loadConversationMessages(selectedConversation.peer.id, before, MESSAGE_PAGE_SIZE),
       );
+      if (!current()) return [];
       setChatHasOlder(older.length === MESSAGE_PAGE_SIZE);
       setSelectedConversation((old) =>
         old?.peer.id === selectedConversation.peer.id
@@ -2676,7 +2713,8 @@ function CirclesApp() {
       );
       return older;
     } catch (error) {
-      showMessage(error instanceof Error ? error.message : 'Could not load earlier messages.');
+      if (current())
+        showMessage(error instanceof Error ? error.message : 'Could not load earlier messages.');
       throw error;
     }
   }
@@ -3069,7 +3107,11 @@ function CirclesApp() {
       );
     return (
       <ProfileScreen
-        onSettings={() => setShowSettings(true)}
+        onActivity={() => setShowActivity(true)}
+        onSettings={(destination = 'notifications') => {
+          setSettingsDestination(destination);
+          setShowSettings(true);
+        }}
         onForgotPassword={() => setRecoveryMode('request')}
         onOnboarding={() => setShowOnboarding(true)}
         key={profile.id}
@@ -3453,6 +3495,7 @@ function CirclesApp() {
             ) : null}
             {showSettings ? (
               <SettingsSheet
+                initialSection={settingsDestination}
                 onClose={() => setShowSettings(false)}
                 onBlocksChanged={() => {
                   clearMediaCache();

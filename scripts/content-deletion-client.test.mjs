@@ -20,11 +20,14 @@ test('Deletion eligibility checks ownership, timestamps, and the exact 15-minute
 });
 
 test('Native delete control expires while open and asks before removing content', async (t) => {
-  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() });
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: Date.now() });
+  // The VM captures Date when loaded; load after mocking so eligibility and UI
+  // use the same clock even when parallel test workers slow down rendering.
+  const timedDeletion = loadSource('src/lib/contentDeletion.ts');
   let confirmation,
     deletes = 0;
   const screens = loadSource('src/screens/AppScreens.tsx', {
-    '../lib/contentDeletion': deletion,
+    '../lib/contentDeletion': timedDeletion,
     'expo-image-picker': {},
     '@react-native-async-storage/async-storage': {},
     'react-native': new Proxy(
@@ -64,6 +67,8 @@ test('Native delete control expires while open and asks before removing content'
   assert.equal(deletes, 1);
   await act(async () => t.mock.timers.tick(1002));
   assert.equal(renderer.root.findAllByType('Pressable').length, 0);
+  await act(async () => confirmation.find((button) => button.text === 'Delete').onPress());
+  assert.equal(deletes, 1, 'An old confirmation cannot delete after the deadline');
 });
 
 test('Demo messages and comments delete from open views and stay deleted on reopen', async (t) => {

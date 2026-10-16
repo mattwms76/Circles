@@ -107,7 +107,7 @@ window.createCirclesDepth = ({
       .querySelector('.body')
       ?.insertAdjacentHTML(
         'afterend',
-        `<div class="depthPoll ex-stack">${p.options.map((o, i) => button(`${p.myVote === i ? '✓ ' : ''}${o} · ${total ? Math.round((p.votes[i] / total) * 100) : 0}%`, 'vote', `data-id="${p.id}" data-option="${i}" ${p.expires <= Date.now() ? 'disabled' : ''}`)).join('')}<p class="ex-hint">${total} votes · ${p.expires > Date.now() ? 'Closes in 7 days' : 'Poll closed'}</p>${p.myVote !== undefined && p.expires > Date.now() ? button('Remove my vote', 'unvote', `data-id="${p.id}"`) : ''}</div>`,
+        `<div class="depthPoll ex-stack">${p.options.map((o, i) => button(`${p.myVote === i ? '✓ ' : ''}${o} · ${total ? Math.round((p.votes[i] / total) * 100) : 0}%`, 'vote', `data-id="${p.id}" data-option="${i}" aria-pressed="${p.myVote === i}" ${p.expires <= Date.now() ? 'disabled' : ''}`)).join('')}<p class="ex-hint">${total} votes · ${p.expires > Date.now() ? 'Closes in 7 days' : 'Poll closed'}</p>${p.myVote !== undefined && p.expires > Date.now() ? button('Remove my vote', 'unvote', `data-id="${p.id}"`) : ''}</div>`,
       );
   }
   function decorate(screen) {
@@ -118,8 +118,12 @@ window.createCirclesDepth = ({
           .querySelector('.sectionHead')
           ?.insertAdjacentHTML(
             'afterend',
-            `<div class="depthControls ex-stack"><div class="ex-row">${button('Recommended', 'mode', 'data-mode="recommended" aria-pressed="' + (model.mode === 'recommended') + '"')}${button('Latest', 'mode', 'data-mode="latest" aria-pressed="' + (model.mode === 'latest') + '"')}${button('Catch up', 'catchup')}</div><p class="ex-hint">${model.mode === 'recommended' ? 'Favourites, interests, and recent conversations. Only circles you joined.' : 'Newest in your joined circles.'}</p>${button('Manage timeline preferences', 'feed')}</div>`,
+            `<div class="depthControls feedToolbar"><div class="feedSegments" role="tablist" aria-label="Timeline order">${button('Recommended', 'mode', 'role="tab" data-mode="recommended" aria-selected="' + (model.mode === 'recommended') + '"')}${button('Latest', 'mode', 'role="tab" data-mode="latest" aria-selected="' + (model.mode === 'latest') + '"')}</div>${button('Timeline options', 'feed')}</div>`,
           );
+        const timelineOptions = section.querySelector('[data-depth=feed]');
+        timelineOptions.setAttribute('aria-label', 'Timeline options');
+        timelineOptions.classList.add('iconButton');
+        timelineOptions.innerHTML = window.circlesIcon('more');
         model.posts
           .filter((p) => joined(p.circle))
           .forEach((p) => section.insertAdjacentHTML('beforeend', postMarkup(p)));
@@ -155,10 +159,11 @@ window.createCirclesDepth = ({
     if (screen === 'circle' && joined(state.activeCircle)) {
       const c = state.activeCircle,
         panel = page.querySelector('#circle-panel');
-      panel?.insertAdjacentHTML(
-        'afterbegin',
-        `<div class="ex-stack depthControls"><div class="ex-row">${button('Ask or poll', 'participate')}${button('Circle library', 'library')}${button('Circle chat', 'chat')}</div><details><summary>Community tools</summary><div class="ex-stack">${button('Host settings and recognition', 'host')}${button('Invite members', 'invite')}</div></details></div>`,
-      );
+      circleSearch = page.querySelector('.postFilters');
+      circleSearch?.remove();
+      const tools = `<div class="depthControls circleToolsRoute">${button('Circle tools', 'tools')}</div>`;
+      if (state.circleTab === 'posts') panel?.insertAdjacentHTML('afterbegin', tools);
+      else panel?.insertAdjacentHTML('beforeend', tools);
       if (state.circleTab === 'posts') {
         const markup = model.posts
           .filter((p) => p.circle === c)
@@ -185,13 +190,6 @@ window.createCirclesDepth = ({
             .join('') || '<p class="ex-hint">Chats appear when a host enables them.</p>'
         }</div></details></section>`,
       );
-    if (screen === 'profile')
-      page
-        .querySelector('.profileToolbar')
-        ?.insertAdjacentHTML(
-          'beforeend',
-          `<details><summary>Catch-up preferences</summary><label class="ex-check"><input type="checkbox" data-depth-setting="digest" ${model.digest ? 'checked' : ''}>Optional weekly catch-up reminder</label><p class="ex-hint">Local demo preference. Device notifications are configured in the mobile app.</p></details>`,
-        );
     page.querySelectorAll('.post[data-post-id]').forEach((article) => {
       const p = model.posts.find((p) => p.id === article.dataset.postId);
       if (p) {
@@ -216,7 +214,7 @@ window.createCirclesDepth = ({
   function feed() {
     modal(
       'Timeline preferences',
-      `<div class="ex-stack">${state.circles
+      `<div class="ex-stack"><p class="ex-hint">${model.mode === 'recommended' ? 'Prioritises favourite circles, your interests, and recent conversations. Only circles you joined.' : 'Newest posts from your joined circles.'}</p>${button('Catch up', 'catchup')}<p>Manage timeline preferences</p>${state.circles
         .filter((c) => c[4])
         .map(
           (c) =>
@@ -241,17 +239,29 @@ window.createCirclesDepth = ({
     if (body && !body.querySelector('[data-depth]'))
       body.insertAdjacentHTML(
         'beforeend',
-        `<hr>${button('Add to circle collection', 'collect', `data-id="${e(id)}" data-circle="${e(circle)}"`)}${button('Favourite this circle', 'pref', `data-circle="${e(circle)}" data-pref="favourite"`)}${button('See less from this circle', 'pref', `data-circle="${e(circle)}" data-pref="less"`)}${button('Snooze circle for 7 days', 'pref', `data-circle="${e(circle)}" data-pref="snooze"`)}${button('Hide this post', 'hide', `data-id="${e(id)}"`)}<p class="ex-hint">Why this post? ${model.feed[circle]?.favourite ? 'From a favourite circle.' : 'A conversation in a circle you joined.'}</p>`,
+        `<h3>Timeline preferences</h3>${button('Add to circle collection', 'collect', `data-id="${e(id)}" data-circle="${e(circle)}"`)}${button('Favourite this circle', 'pref', `data-circle="${e(circle)}" data-pref="favourite"`)}${button('See less from this circle', 'pref', `data-circle="${e(circle)}" data-pref="less"`)}${button('Snooze circle for 7 days', 'pref', `data-circle="${e(circle)}" data-pref="snooze"`)}${button('Hide this post', 'hide', `data-id="${e(id)}"`)}<p class="ex-hint">Why this post? ${model.feed[circle]?.favourite ? 'From a favourite circle.' : 'A conversation in a circle you joined.'}</p>`,
       );
   }
+  let circleSearch = null;
   function participate() {
     const c = state.activeCircle;
     if (!joined(c)) return;
     modal(
       'Ask your circle',
-      `<form data-depth-form="participation" class="ex-stack"><label class="ex-label">Post type<select class="demoInput" name="kind"><option value="question">Question</option><option value="poll">Poll</option></select></label><label class="ex-label">Your question<textarea class="demoArea" name="body" maxlength="5000" required></textarea></label><label class="ex-label">Poll options (2–6, one per line)<textarea class="demoArea" name="options" maxlength="726"></textarea></label><label class="ex-label">Topic<select class="demoInput" name="topic"><option value="">No topic</option>${(model.topics[c] || []).map((t) => `<option>${e(t)}</option>`).join('')}</select></label><button class="demoButton" type="submit">Post to ${e(c)}</button></form>`,
+      `<form data-depth-form="participation" class="ex-stack"><label class="ex-label">Post type<select class="demoInput" name="kind"><option value="question">Question</option><option value="poll">Poll</option></select></label><label class="ex-label">Your question<textarea class="demoArea" name="body" maxlength="5000" required></textarea></label><label class="ex-label" data-poll-options hidden>Poll options (2–6, one per line)<textarea class="demoArea" name="options" maxlength="726"></textarea></label><label class="ex-label">Topic<select class="demoInput" name="topic"><option value="">No topic</option>${(model.topics[c] || []).map((t) => `<option>${e(t)}</option>`).join('')}</select></label><button class="demoButton" type="submit">Post to ${e(c)}</button></form>`,
     );
+    if (!(model.topics[c] || []).length)
+      document
+        .querySelector('[data-depth-form="participation"] [name="topic"]')
+        ?.closest('label')
+        ?.remove();
   }
+  document.addEventListener('change', (event) => {
+    if (!event.target.matches('[data-depth-form="participation"] [name="kind"]')) return;
+    const field = event.target.form.querySelector('[data-poll-options]');
+    field.hidden = event.target.value !== 'poll';
+    field.querySelector('textarea').required = !field.hidden;
+  });
   function library(circle = state.activeCircle, postId) {
     if (!joined(circle)) return;
     modal(
@@ -267,7 +277,7 @@ window.createCirclesDepth = ({
           )
           .join('') ||
         '<p class="ex-hint">Create a shared collection, then add posts using their options.</p>'
-      }<form data-depth-form="collection" data-circle="${e(circle)}">${field('name', 'New collection name')}<button class="demoButton">Create collection</button></form><h3>Topics</h3>${(model.topics[circle] || []).map((t) => button(t, 'topic', `data-circle="${e(circle)}" data-topic="${e(t)}"`)).join('')}</div>`,
+      }<form data-depth-form="collection" data-circle="${e(circle)}">${field('name', 'New collection name')}<button class="demoButton">Create collection</button></form><h3>Topics</h3>${(model.topics[circle] || []).map((t) => button(t, 'topic', `data-circle="${e(circle)}" data-topic="${e(t)}"`)).join('') || '<p class="ex-hint">No topics yet. Ask a host to add topics for this circle.</p>'}</div>`,
     );
   }
   function host() {
@@ -333,8 +343,23 @@ window.createCirclesDepth = ({
         : model.messages[key] || [];
     modal(
       direct ? circle : circle + ' · chat',
-      `<div class="ex-stack"><p class="ex-hint">Local demo messages · 15-minute own deletion. Voice notes up to 60 seconds.</p>${!direct ? button(model.muted[circle] ? 'Unmute chat' : 'Mute chat', 'muteChat') : ''}${rows.map((m) => `<div class="ex-card"><strong>${e(m.author || state.displayName)}</strong><p>${e(m.body || '')}</p>${m.media ? (m.kind === 'voice' ? `<audio controls preload="metadata" data-depth-media="${m.id}"></audio>` : `<img class="postMedia" alt="Shared photo" data-depth-media="${m.id}">`) : ''}${Date.now() - m.at < 900000 ? button('Delete message', 'deleteChatMessage', `data-id="${m.id}"`) : ''}</div>`).join('')}${direct || config.enabled ? `<form data-depth-form="chat"><label class="ex-label">Message<textarea class="demoArea" name="body" maxlength="2000"></textarea></label><button class="demoButton">Send message</button></form><div class="ex-row"><label class="demoChip">Choose photo<input type="file" accept="image/jpeg,image/png,image/webp" id="depthChatPhoto" hidden></label>${button('Record voice note', 'recordVoice')}</div><div id="depthVoicePreview"></div>` : '<p class="ex-hint">Chat is off. Enable it in Community tools → Host settings.</p>'}</div>`,
+      `<div class="ex-stack"><p class="ex-hint">Local demo messages · 15-minute own deletion. Voice notes up to 60 seconds.</p>${!direct ? button(model.muted[circle] ? 'Unmute chat' : 'Mute chat', 'muteChat') : ''}${rows.map((m) => `<div class="ex-card"><strong>${e(m.author || state.displayName)}</strong><p>${e(m.body || '')}</p>${m.media ? (m.kind === 'voice' ? `<audio controls preload="metadata" data-depth-media="${m.id}"></audio>` : `<img class="postMedia" alt="Shared photo" data-depth-media="${m.id}">`) : ''}${Date.now() - m.at < 900000 ? button('Delete message', 'deleteChatMessage', `data-id="${m.id}"`) : ''}</div>`).join('')}${direct || config.enabled ? `<form data-depth-form="chat"><label class="ex-label">Message<textarea class="demoArea" name="body" maxlength="2000"></textarea></label><button class="demoButton">Send message</button></form><div class="ex-row"><label class="demoChip">Choose photo<input type="file" accept="image/jpeg,image/png,image/webp" id="depthChatPhoto" hidden></label>${button('Record voice note', 'recordVoice')}</div><div id="depthVoicePreview"></div>` : `<p class="ex-hint">The host has paused this chat. Earlier messages remain available.${state.circles.find((c) => c[0] === circle)?.[7] ? ' You can resume it in Circle tools → Host settings.' : ' Ask a host about reopening the chat.'}</p>`}</div>`,
     );
+    const panel = document.querySelector('.modalPanel');
+    panel?.classList.add('threadPanel');
+    const stack = panel?.querySelector('.ex-stack');
+    if (stack) {
+      stack.classList.add('threadLayout');
+      const messages = document.createElement('div');
+      messages.className = 'threadMessages';
+      stack.querySelectorAll(':scope > .ex-card').forEach((row) => messages.append(row));
+      if (!messages.children.length) messages.innerHTML = '<p class="ex-hint">No messages yet.</p>';
+      const form = stack.querySelector('form');
+      if (form) {
+        form.classList.add('threadComposer');
+        stack.insertBefore(messages, form);
+      } else stack.append(messages);
+    }
     void hydrate();
   }
   async function attachBlob(file, kind) {
@@ -475,6 +500,25 @@ window.createCirclesDepth = ({
         circle = el.dataset.circle || state.activeCircle,
         id = el.dataset.id;
       try {
+        if (action === 'tools') {
+          modal(
+            'Circle tools',
+            `<div class="settingsRows">${button('Ask or poll', 'participate')}${button('Circle library', 'library')}${button('Circle chat', 'chat')}<button class="demoButton soft" data-ex="circleMembers">Rules, members and host tools</button>${button('Invite members', 'invite')}${state.circles.find((c) => c[0] === circle)?.[7] ? button('Host settings and recognition', 'host') : ''}</div>`,
+          );
+          if (!circleSearch) {
+            circleSearch = document.createElement('details');
+            circleSearch.className = 'postFilters';
+            circleSearch.innerHTML =
+              '<summary>Search posts</summary><div class="ex-stack"><input class="demoInput" id="postSearch" aria-label="Search posts in this circle" placeholder="Search this circle"><select class="demoInput" id="postMediaFilter" aria-label="Filter posts by media"><option value="all">All posts</option><option value="image">Photos</option><option value="video">Videos</option></select><p id="postSearchCount" class="demoCopy" aria-live="polite"></p></div>';
+          }
+          if (circleSearch)
+            document.querySelector('.modalPanel .settingsRows')?.prepend(circleSearch);
+        }
+        if (action === 'digestPrefs')
+          modal(
+            'Catch-up preferences',
+            `<label class="ex-check"><input type="checkbox" data-depth-setting="digest" ${model.digest ? 'checked' : ''}>Optional weekly catch-up reminder</label><p class="ex-hint">Local demo preference. Device notifications are configured in the mobile app.</p>`,
+          );
         if (action === 'mode') {
           model.mode = el.dataset.mode;
           save();
@@ -599,7 +643,25 @@ window.createCirclesDepth = ({
           toast('Reply marked helpful in this preview.');
         }
         if (action === 'chat') chat(circle);
-        if (action === 'directMedia') chat(state.activeChat, true);
+        if (action === 'directMedia') {
+          chatTarget = { circle: state.activeChat, direct: true };
+          modal(
+            'Attachments',
+            `<div class="attachmentToolbar"><label class="demoChip">Choose photo<input type="file" accept="image/jpeg,image/png,image/webp" id="depthChatPhoto" hidden></label>${button('Record voice note', 'recordVoice')}</div><p class="ex-hint">Photos up to 10 MB · Voice notes up to 60 seconds.</p><div id="depthVoicePreview"></div>`,
+          );
+          const panel = document.querySelector('.modalPanel'),
+            close = panel.querySelector('[data-action="closeModal"]');
+          close.removeAttribute('data-action');
+          close.dataset.depth = 'backToDirect';
+          panel.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              event.stopPropagation();
+              openChat(state.activeChat);
+            }
+          });
+        }
+        if (action === 'backToDirect') openChat(state.activeChat);
         if (action === 'muteChat') {
           model.muted[chatTarget.circle] = !model.muted[chatTarget.circle];
           save();
@@ -742,7 +804,7 @@ window.createCirclesDepth = ({
           toast('Subtitles saved.');
         }
       } catch (error) {
-        toast(error.message || 'Please try again.');
+        window.circlesPreviewError(error.message || 'Please try again.');
       }
     },
     true,
@@ -787,7 +849,7 @@ window.createCirclesDepth = ({
         photoOrder();
       }
     } catch (error) {
-      toast(error.message);
+      window.circlesPreviewError(error.message);
     }
   });
   document.addEventListener(
@@ -905,7 +967,7 @@ window.createCirclesDepth = ({
           chat(chatTarget.circle, chatTarget.direct);
         }
       } catch (error) {
-        toast(error.message);
+        window.circlesPreviewError(error.message);
       }
     },
     true,
@@ -914,8 +976,14 @@ window.createCirclesDepth = ({
     if (!document.querySelector('#depthVoicePreview') && recorder?.state === 'recording')
       stopRecording();
     const panel = document.querySelector('.messageThread');
-    if (panel && !panel.querySelector('[data-depth="directMedia"]'))
-      panel.insertAdjacentHTML('beforeend', button('Photo or voice note', 'directMedia'));
+    if (panel && !panel.querySelector('[data-depth="directMedia"]')) {
+      const composer = panel.querySelector('.threadComposer');
+      if (composer)
+        composer.insertAdjacentHTML(
+          'afterbegin',
+          '<button type="button" class="attachmentTrigger" aria-label="Photo or voice note" data-depth="directMedia">＋</button>',
+        );
+    }
     if (document.querySelector('[data-depth-media]:not([src])')) void hydrate();
   }).observe(document.querySelector('.device'), { subtree: true, childList: true });
   document.addEventListener('visibilitychange', () => {

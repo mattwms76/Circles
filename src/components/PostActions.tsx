@@ -30,7 +30,7 @@ function Button({
       style={{
         padding: 14,
         minHeight: 48,
-        borderRadius: 14,
+        borderRadius: 12,
         backgroundColor: label === 'Save changes' ? colors.primary : 'transparent',
         opacity: disabled ? 0.5 : 1,
       }}
@@ -190,13 +190,14 @@ export function PostActionsProvider({
                       padding: 12,
                       color: colors.ink,
                       borderWidth: 1,
-                      borderColor: colors.line,
+                      borderColor: colors.controlBorder,
                       borderRadius: 12,
                     }}
                   />
                 </>
               ) : (
                 <>
+                  <Text style={{ color: colors.muted, fontSize: 14, marginTop: 8 }}>Saving</Text>
                   <Button
                     disabled={busy}
                     label={saved.includes(post.id) ? 'Remove from saved posts' : 'Save post'}
@@ -222,6 +223,9 @@ export function PostActionsProvider({
                           community.collect(selected);
                         }}
                       />
+                      <Text style={{ color: colors.muted, fontSize: 14, marginTop: 24 }}>
+                        Timeline preferences
+                      </Text>
                       <Button
                         label="Favourite this circle"
                         disabled={busy}
@@ -278,6 +282,9 @@ export function PostActionsProvider({
                       </Text>
                     </>
                   ) : null}
+                  <Text style={{ color: colors.muted, fontSize: 14, marginTop: 24 }}>
+                    Safety and post management
+                  </Text>
                   {post.author.id === userId ? (
                     <>
                       <Text style={{ color: colors.muted }}>

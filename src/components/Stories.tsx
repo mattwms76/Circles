@@ -1,3 +1,4 @@
+import { MediaChoices } from './LayoutControls';
 import { inspectPickedMedia } from '../lib/pickedMedia';
 import { readStringList } from '../lib/localData';
 import React, { useEffect, useRef, useState } from 'react';
@@ -408,10 +409,12 @@ export function Stories({
   }
   return (
     <View style={s.tray}>
-      <View style={s.row}>
-        <Text style={s.title}>Circle stories</Text>
-        <Text style={s.hint}>24 hours</Text>
-      </View>
+      {visible.length ? (
+        <View style={s.row}>
+          <Text style={s.title}>Circle stories</Text>
+          <Text style={s.hint}>24 hours</Text>
+        </View>
+      ) : null}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -420,7 +423,11 @@ export function Stories({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Add story"
-          style={s.tile}
+          style={
+            visible.length
+              ? s.tile
+              : { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 48 }
+          }
           onPress={() => {
             if (!enabled) {
               Alert.alert('Sign in to share stories');
@@ -435,10 +442,11 @@ export function Stories({
             setError('');
           }}
         >
-          <View style={s.add}>
+          <View style={[s.add, !visible.length && { width: 32, height: 32, borderRadius: 16 }]}>
             <Text style={{ fontSize: 28, color: colors.coral }}>＋</Text>
           </View>
-          <Text style={s.label}>Your story</Text>
+          <Text style={s.label}>{visible.length ? 'Your story' : 'Add a story'}</Text>
+          {!visible.length ? <Text style={s.hint}>· 24 hours</Text> : null}
         </Pressable>
         {visible.map((st) => (
           <Pressable
@@ -473,13 +481,7 @@ export function Stories({
           />
         ) : null}
       </ScrollView>
-      {!visible.length ? (
-        <Text style={s.hint}>
-          {loading
-            ? 'Loading stories…'
-            : 'Share a moment with your circle. Photos and videos disappear after 24 hours.'}
-        </Text>
-      ) : null}
+      {loading && !visible.length ? <Text style={s.hint}>Loading stories…</Text> : null}
       {error && !compose ? (
         <View>
           <Text accessibilityRole="alert" style={s.error}>
@@ -495,6 +497,7 @@ export function Stories({
       ) : null}
       {compose ? (
         <Sheet
+          size="form"
           title="Share a story"
           eyebrow="YOUR CIRCLE · 24 HOURS"
           onClose={() => {
@@ -551,32 +554,15 @@ export function Stories({
               )}
             </View>
           ) : null}
-          <View style={s.wrap}>
-            {(['image', 'video'] as const).map((kind) => (
-              <ActionButton
-                key={kind}
-                compact
-                variant="outline"
-                label={kind === 'image' ? 'Choose photo' : 'Choose video'}
-                disabled={busy}
-                onPress={() => void pick(kind)}
-              />
-            ))}
-            <ActionButton
-              compact
-              variant="outline"
-              label="Take photo"
-              disabled={busy}
-              onPress={() => void pick('image', true)}
-            />
-            <ActionButton
-              compact
-              variant="outline"
-              label="Record video"
-              disabled={busy}
-              onPress={() => void pick('video', true)}
-            />
-          </View>
+          <MediaChoices
+            disabled={busy}
+            choices={[
+              { label: 'Choose photo', icon: 'photo', onPress: () => void pick('image') },
+              { label: 'Choose video', icon: 'video', onPress: () => void pick('video') },
+              { label: 'Take photo', icon: 'camera', onPress: () => void pick('image', true) },
+              { label: 'Record video', icon: 'camera', onPress: () => void pick('video', true) },
+            ]}
+          />
           <Text style={s.label}>Caption (optional)</Text>
           <TextInput
             accessibilityLabel="Story caption"
@@ -610,7 +596,7 @@ export function Stories({
               {current.authorId === profile.id ? (
                 <IconButton
                   label="Story options"
-                  symbol="⋯"
+                  icon="more"
                   onPress={() => {
                     setPaused(true);
                     Alert.alert(
@@ -629,7 +615,7 @@ export function Stories({
                   }}
                 />
               ) : null}
-              <IconButton label="Close story" symbol="×" onPress={() => setSelected(null)} />
+              <IconButton label="Close story" icon="close" onPress={() => setSelected(null)} />
             </View>
             <View style={s.track}>
               <View
@@ -681,18 +667,18 @@ export function Stories({
             <View style={[s.row, { justifyContent: 'center' }]}>
               <IconButton
                 label="Previous story"
-                symbol="‹"
+                icon="back"
                 disabled={index <= 0}
                 onPress={() => advance(-1)}
               />
               <IconButton
                 label={paused ? 'Play story' : 'Pause story'}
-                symbol={paused ? '▶' : 'Ⅱ'}
+                icon={paused ? 'play' : 'pause'}
                 onPress={() => setPaused(!paused)}
               />
               <IconButton
                 label={index === visible.length - 1 ? 'Finish stories' : 'Next story'}
-                symbol={index === visible.length - 1 ? '✓' : '›'}
+                icon={index === visible.length - 1 ? 'check' : 'forward'}
                 onPress={() => advance(1)}
               />
             </View>
@@ -708,7 +694,7 @@ const s = createThemedStyles(() => ({
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   title: { ...typography.section, color: colors.ink },
   label: { ...typography.secondary, fontWeight: '600', color: colors.ink },
-  hint: { ...typography.caption, color: colors.muted },
+  hint: { ...typography.secondary, color: colors.muted },
   tile: { width: 82, alignItems: 'center', gap: 4 },
   ring: {
     height: 64,
@@ -744,7 +730,7 @@ const s = createThemedStyles(() => ({
     color: colors.ink,
     backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: colors.line,
+    borderColor: colors.controlBorder,
     borderRadius: 14,
     padding: 12,
     minHeight: 80,

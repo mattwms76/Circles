@@ -1,8 +1,10 @@
+import { InlineNotice } from './Design';
+import { SegmentedControl } from './LayoutControls';
 import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, Share, Switch, Text, TextInput, View } from 'react-native';
 import { CommunityContext, useCommunity } from './CommunityContext';
 import { Sheet } from './Sheet';
-import { ActionButton, Disclosure, Pill } from './Primitives';
+import { ActionButton, Disclosure, Pill, IconButton } from './Primitives';
 import { colors, createThemedStyles } from '../theme';
 import { styles } from '../appStyles';
 import { supabase } from '../lib/supabase';
@@ -216,7 +218,8 @@ export function CommunityProvider({
 export function FeedControls() {
   const ctx = useCommunity(),
     [mode, setMode] = useState<api.FeedMode>('recommended'),
-    [choices, setChoices] = useState<api.FeedChoice[]>([]);
+    [choices, setChoices] = useState<api.FeedChoice[]>([]),
+    [preferencesOpen, setPreferencesOpen] = useState(false);
   const task = useTask();
   useEffect(() => {
     let active = true;
@@ -236,84 +239,102 @@ export function FeedControls() {
   if (!ctx) return null;
   return (
     <View style={{ gap: 8, marginVertical: 8 }}>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-        {(['recommended', 'latest'] as const).map((m) => (
-          <Pill
-            key={m}
-            label={m === 'latest' ? 'Latest' : 'Recommended'}
-            selected={mode === m}
-            onPress={() => {
-              void task.run(async () => {
-                await api.setFeedMode(ctx.profile.id, m);
-                setMode(m);
-                ctx.refresh();
-              });
-            }}
-          />
-        ))}
-        <ActionButton compact variant="outline" label="Catch up" onPress={ctx.catchup} />
-      </View>
-      <Text style={depthStyles.hint}>
-        {mode === 'recommended'
-          ? 'Prioritises favourite circles, your interests, and recent conversations. Only circles you joined.'
-          : 'Newest posts from your joined circles. Hidden posts and snoozed circles stay out of your timeline.'}
-      </Text>
-      <Disclosure title="Manage timeline preferences">
-        {ctx.circles
-          .filter((c) => c.isMember)
-          .map((c) => {
-            const pref = choices.find((p) => p.circle_id === c.id);
-            return (
-              <View key={c.id} style={{ gap: 8, paddingVertical: 8 }}>
-                <Text style={depthStyles.body}>{c.name}</Text>
-                <Toggle
-                  label={`Favourite ${c.name}`}
-                  value={pref?.favourite ?? false}
-                  onChange={(favourite) =>
-                    void task.run(async () => {
-                      await api.updateFeedChoice(ctx.profile.id, c.id, { favourite });
-                      ctx.refresh();
-                    })
-                  }
-                />
-                {pref?.see_less || pref?.snoozed_until ? (
-                  <ActionButton
-                    compact
-                    variant="outline"
-                    label="Restore normal visibility"
-                    onPress={() =>
-                      void task.run(async () => {
-                        await api.updateFeedChoice(ctx.profile.id, c.id, {
-                          see_less: false,
-                          snoozed_until: null,
-                        });
-                        ctx.refresh();
-                      })
-                    }
-                  />
-                ) : null}
-              </View>
-            );
-          })}
-        <ActionButton
-          compact
-          variant="outline"
-          label="Restore hidden posts"
-          onPress={() =>
+      <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 4 }}>
+        <SegmentedControl
+          label="Timeline order"
+          value={mode}
+          options={[
+            { value: 'recommended', label: 'Recommended' },
+            { value: 'latest', label: 'Latest' },
+          ]}
+          onChange={(m) =>
             void task.run(async () => {
-              if (supabase) {
-                const r = await supabase
-                  .from('hidden_posts')
-                  .delete()
-                  .eq('user_id', ctx.profile.id);
-                if (r.error) throw r.error;
-              } else await api.storeValue(ctx.profile.id, 'hidden', []);
+              await api.setFeedMode(ctx.profile.id, m);
+              setMode(m);
               ctx.refresh();
             })
           }
         />
-      </Disclosure>
-      {task.error ? (
+        <IconButton label="Timeline options" icon="more" onPress={() => setPreferencesOpen(true)} />
+      </View>
+      {preferencesOpen ? (
+        <Sheet
+          title="Timeline options"
+          eyebrow="YOUR TIMELINE"
+          onClose={() => setPreferencesOpen(false)}
+        >
+          {task.error ? <InlineNotice tone="error">{task.error}</InlineNotice> : null}
+          <Text style={depthStyles.hint}>
+            {mode === 'recommended'
+              ? 'Prioritises favourite circles, your interests, and recent conversations. Only circles you joined.'
+              : 'Newest posts from your joined circles. Hidden posts and snoozed circles stay out of your timeline.'}
+          </Text>
+          <ActionButton
+            compact
+            variant="quiet"
+            label="Catch up"
+            onPress={() => {
+              setPreferencesOpen(false);
+              ctx.catchup();
+            }}
+          />
+          <Text style={depthStyles.body}>Manage timeline preferences</Text>
+          {ctx.circles
+            .filter((c) => c.isMember)
+            .map((c) => {
+              const pref = choices.find((p) => p.circle_id === c.id);
+              return (
+                <View key={c.id} style={{ gap: 8, paddingVertical: 8 }}>
+                  <Text style={depthStyles.body}>{c.name}</Text>
+                  <Toggle
+                    label={`Favourite ${c.name}`}
+                    value={pref?.favourite ?? false}
+                    onChange={(favourite) =>
+                      void task.run(async () => {
+                        await api.updateFeedChoice(ctx.profile.id, c.id, { favourite });
+                        ctx.refresh();
+                      })
+                    }
+                  />
+                  {pref?.see_less || pref?.snoozed_until ? (
+                    <ActionButton
+                      compact
+                      variant="outline"
+                      label="Restore normal visibility"
+                      onPress={() =>
+                        void task.run(async () => {
+                          await api.updateFeedChoice(ctx.profile.id, c.id, {
+                            see_less: false,
+                            snoozed_until: null,
+                          });
+                          ctx.refresh();
+                        })
+                      }
+                    />
+                  ) : null}
+                </View>
+              );
+            })}
+          <ActionButton
+            compact
+            variant="outline"
+            label="Restore hidden posts"
+            onPress={() =>
+              void task.run(async () => {
+                if (supabase) {
+                  const r = await supabase
+                    .from('hidden_posts')
+                    .delete()
+                    .eq('user_id', ctx.profile.id);
+                  if (r.error) throw r.error;
+                } else await api.storeValue(ctx.profile.id, 'hidden', []);
+                ctx.refresh();
+              })
+            }
+          />
+        </Sheet>
+      ) : null}
+      {task.error && !preferencesOpen ? (
         <Text accessibilityRole="alert" style={{ color: colors.error }}>
           {task.error}
         </Text>
@@ -321,66 +342,124 @@ export function FeedControls() {
     </View>
   );
 }
-export function CircleFeatures({ circle }: { circle: Circle }) {
+export function CircleFeatures({
+  circle,
+  search,
+  details,
+}: {
+  circle: Circle;
+  search?: React.ReactNode;
+  details?: React.ReactNode;
+}) {
   const ctx = useCommunity();
   const task = useTask();
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   return ctx && circle.isMember ? (
-    <View style={{ gap: 8, marginBottom: 12 }}>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-        <ActionButton
-          compact
-          variant="outline"
-          label="Ask or poll"
-          onPress={() => ctx.open('participate', circle)}
-        />
-        <ActionButton
-          compact
-          variant="outline"
-          label="Circle library"
-          onPress={() => ctx.open('library', circle)}
-        />
-        <ActionButton
-          compact
-          variant="outline"
-          label="Circle chat"
-          onPress={() => ctx.open('chat', circle)}
-        />
-      </View>
-      <Disclosure title="Community tools">
-        {ctx.recognition[`${circle.id}:${ctx.profile.id}`] ? (
-          <ActionButton
-            compact
-            variant="outline"
-            label="Remove my recognition"
-            disabled={task.busy}
-            onPress={() =>
-              void task.run(async () => {
-                await api.changeCircleDepth(
-                  ctx.profile.id,
-                  circle.id,
-                  'circle_recognition',
-                  { user_id: ctx.profile.id },
-                  true,
-                );
-                ctx.refresh();
-              })
-            }
-          />
-        ) : null}
-        {task.error ? <Text style={{ color: colors.error }}>{task.error}</Text> : null}
-        <ActionButton
-          compact
-          variant="outline"
-          label="Host settings and recognition"
-          onPress={() => ctx.open('host', circle)}
-        />
-        <ActionButton
-          compact
-          variant="outline"
-          label="Invite members"
-          onPress={() => ctx.open('invite', circle)}
-        />
-      </Disclosure>
+    <View>
+      <ActionButton
+        compact
+        variant="quiet"
+        label="Circle tools"
+        onPress={() => setToolsOpen(true)}
+      />
+      {toolsOpen ? (
+        <Sheet title="Circle tools" eyebrow={circle.name} onClose={() => setToolsOpen(false)}>
+          <View style={{ gap: 8 }}>
+            <ActionButton
+              compact
+              variant="quiet"
+              label="Ask or poll"
+              onPress={() => {
+                setToolsOpen(false);
+                ctx.open('participate', circle);
+              }}
+            />
+            <ActionButton
+              compact
+              variant="quiet"
+              label="Circle library"
+              onPress={() => {
+                setToolsOpen(false);
+                ctx.open('library', circle);
+              }}
+            />
+            <ActionButton
+              compact
+              variant="quiet"
+              label="Circle chat"
+              onPress={() => {
+                setToolsOpen(false);
+                ctx.open('chat', circle);
+              }}
+            />
+          </View>
+          {search}
+          {details ? (
+            <ActionButton
+              compact
+              variant="quiet"
+              label="Rules, members and host tools"
+              onPress={() => {
+                setToolsOpen(false);
+                setDetailsOpen(true);
+              }}
+            />
+          ) : null}
+          <View style={{ gap: 8 }}>
+            {ctx.recognition[`${circle.id}:${ctx.profile.id}`] ? (
+              <ActionButton
+                compact
+                variant="quiet"
+                label="Remove my recognition"
+                disabled={task.busy}
+                onPress={() =>
+                  void task.run(async () => {
+                    await api.changeCircleDepth(
+                      ctx.profile.id,
+                      circle.id,
+                      'circle_recognition',
+                      { user_id: ctx.profile.id },
+                      true,
+                    );
+                    ctx.refresh();
+                  })
+                }
+              />
+            ) : null}
+            {task.error ? <Text style={{ color: colors.error }}>{task.error}</Text> : null}
+            {circle.isOwner || ctx.hostCircles.has(circle.id) ? (
+              <ActionButton
+                compact
+                variant="quiet"
+                label="Host settings and recognition"
+                onPress={() => {
+                  setToolsOpen(false);
+                  ctx.open('host', circle);
+                }}
+              />
+            ) : null}
+            <ActionButton
+              compact
+              variant="quiet"
+              label="Invite members"
+              onPress={() => {
+                setToolsOpen(false);
+                ctx.open('invite', circle);
+              }}
+            />
+          </View>
+        </Sheet>
+      ) : null}
+      {detailsOpen ? (
+        <Sheet
+          title="Rules, members and host tools"
+          eyebrow={circle.name}
+          onClose={() => setDetailsOpen(false)}
+        >
+          {details}
+        </Sheet>
+      ) : null}
     </View>
   ) : null;
 }
@@ -753,6 +832,11 @@ function CirclePanel({
                 </>
               ) : (
                 <>
+                  {!data.collections.length ? (
+                    <InlineNotice>
+                      Create the first collection to save useful posts together.
+                    </InlineNotice>
+                  ) : null}
                   {data.collections.map((c) => (
                     <View key={c.id} style={{ gap: 6 }}>
                       <ActionButton
@@ -803,6 +887,11 @@ function CirclePanel({
                 </>
               )}
               <Disclosure title="Topics">
+                {!data.topics.length ? (
+                  <Text style={depthStyles.hint}>
+                    No topics yet. A host can add topics in Community settings.
+                  </Text>
+                ) : null}
                 {data.topics.map((t) => (
                   <ActionButton
                     key={t.id}

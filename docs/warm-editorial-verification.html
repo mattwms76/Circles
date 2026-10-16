@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Circles · warm editorial implementation verification</title>
+    <style>
+      @font-face {
+        font-family: Lora;
+        src: url('../assets/fonts/Lora-SemiBold.ttf') format('truetype');
+        font-weight: 600;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: #faf7f2;
+        color: #292524;
+        font:
+          16px/1.6 system-ui,
+          sans-serif;
+      }
+      main {
+        max-width: 1180px;
+        margin: auto;
+        padding: 32px 24px 64px;
+      }
+      h1,
+      h2 {
+        font-family: Lora, Georgia, serif;
+        font-weight: 600;
+        line-height: 1.25;
+      }
+      h1 {
+        font-size: 36px;
+      }
+      h2 {
+        font-size: 24px;
+        margin-top: 32px;
+      }
+      a {
+        color: #a64232;
+      }
+      .notice {
+        border-left: 4px solid #a64232;
+        padding: 16px 20px;
+        background: #fff;
+        border-radius: 12px;
+        margin: 24px 0;
+      }
+      .table {
+        overflow: auto;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        background: white;
+      }
+      td,
+      th {
+        padding: 14px;
+        text-align: left;
+        vertical-align: top;
+        border-bottom: 1px solid #e5ddd4;
+      }
+      th {
+        background: #f6e6df;
+      }
+      td:first-child {
+        min-width: 140px;
+      }
+      .gallery {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+        gap: 24px;
+      }
+      figure {
+        margin: 0;
+      }
+      img {
+        display: block;
+        width: 100%;
+        height: auto;
+        border: 1px solid #e5ddd4;
+        border-radius: 20px;
+      }
+      figcaption {
+        font-size: 14px;
+        color: #655d57;
+        margin-top: 8px;
+      }
+      code {
+        overflow-wrap: anywhere;
+      }
+      .muted {
+        color: #655d57;
+      }
+      @media (max-width: 600px) {
+        main {
+          padding: 24px 16px;
+        }
+        h1 {
+          font-size: 30px;
+        }
+        td {
+          min-width: 230px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="muted">Circles · implementation record · 16 October 2026</p>
+        <h1>Warm editorial redesign: all ten fixes implemented.</h1>
+        <p>
+          Native React Native screens and the browser preview share the warm palette, role metrics
+          and SVG icon catalogue. Lora is bundled locally with its licence. Existing navigation,
+          membership, drafts, media, deletion windows and story expiry are preserved.
+        </p>
+      </header>
+      <div class="notice">
+        <strong>Verified locally:</strong> 205 regression tests, TypeScript and token checks; 33
+        browser tests; Android and iOS Hermes exports. Native exports validate bundling, not device
+        behavior. Native device QA remains outstanding.
+      </div>
+      <p>
+        <a href="http://127.0.0.1:4174/preview.html">Open updated local preview</a> ·
+        <a href="screen-design-audit.html">Original audit</a> ·
+        <a href="warm-editorial-verification.json">Machine-readable matrix</a>
+      </p>
+      <h2>Ten findings and evidence</h2>
+      <div class="table">
+        <table>
+          <thead>
+            <tr>
+              <th>Finding</th>
+              <th>Implemented change</th>
+              <th>Verification and limits</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>D01</strong><br />Conversation tools</td>
+              <td>
+                Tools render in normal flow beneath the header, with a viewport-based maximum of 240
+                points. The message list and composer remain separate.
+              </td>
+              <td>
+                Pre-fix regression failed on the clipped menu; fixed geometry test, attachment/reply
+                draft test, and 200% tools test pass.<br /><a
+                  href="../tests/visual/editorial.spec.ts"
+                  >Implementation or regression evidence</a
+                >
+              </td>
+            </tr>
+            <tr>
+              <td><strong>D02</strong><br />Enlarged-text reflow</td>
+              <td>
+                Proportional 100%, 140% and 200% preview scaling. Compact groups, navigation, people
+                cards, circle tabs, media choices and gift filters reflow; native groups respond to
+                width and fontScale.
+              </td>
+              <td>
+                All 12 palette/width/scale combinations pass. Long-name, complete-control labels and
+                catalogue-height assertions pass. Native Dynamic Type inspection is pending.<br /><a
+                  href="../tests/visual/editorial-matrix.spec.ts"
+                  >Implementation or regression evidence</a
+                >
+              </td>
+            </tr>
+            <tr>
+              <td><strong>D03</strong><br />Selected states</td>
+              <td>
+                Terracotta borders, selected fills, checkmarks or tab underlines and accessible
+                selected/pressed states. Applies to Inbox, interests, activity, polls, topics and
+                gift categories.
+              </td>
+              <td>
+                Pre-fix Inbox regression failed because styles were identical. Both palettes now
+                differ visibly; shared selected-text contrast passes.<br /><a
+                  href="../tests/visual/editorial.spec.ts"
+                  >Implementation or regression evidence</a
+                >
+              </td>
+            </tr>
+            <tr>
+              <td><strong>D04</strong><br />Control contrast</td>
+              <td>
+                Decorative dividers and essential control borders use separate tokens. Inputs,
+                outlined controls and media choices use the stronger boundary. Focus, error, success
+                and disabled treatments are explicit.
+              </td>
+              <td>
+                Automated checks require 4.5:1 for text and 3:1 for essential control indicators
+                against paper and surfaces, in both palettes.<br /><a
+                  href="../scripts/editorial-design.test.mjs"
+                  >Implementation or regression evidence</a
+                >
+              </td>
+            </tr>
+            <tr>
+              <td><strong>D05</strong><br />Icon consistency</td>
+              <td>
+                One locally generated 24-point SVG catalogue serves native and preview. IconButton
+                uses a typed icon property; navigation, post actions, media controls and sheet
+                controls share paths and theme colours. The Circles logo and gift artwork remain.
+              </td>
+              <td>
+                TypeScript passes all migrated callers. Browser tests confirm like toggling,
+                accessible names and absence of nested button roles.<br /><a
+                  href="../src/icon-paths.json"
+                  >Implementation or regression evidence</a
+                >
+              </td>
+            </tr>
+            <tr>
+              <td><strong>D06</strong><br />Typography</td>
+              <td>
+                Local Lora SemiBold titles; system body text and controls. Shared role metrics,
+                20-point page gutters, card/control/sheet radii and spacing are generated for both
+                renderers.
+              </td>
+              <td>
+                Font binary, OFL licence, system fallback and token checks pass. Both exported
+                native bundles contain the 134 KB font asset.<br /><a
+                  href="../src/design-metrics.json"
+                  >Implementation or regression evidence</a
+                >
+              </td>
+            </tr>
+            <tr>
+              <td><strong>D07</strong><br />Screen structure</td>
+              <td>
+                Compact circle identity stays above stable Posts/Events/About tabs; cover moves
+                inside About. Search, library, chat, rules, members and permitted host controls are
+                reached through Circle tools.
+              </td>
+              <td>
+                Circle screens are captured in all 12 combinations. Native regression verifies Posts
+                default, Events content, management behind tools and non-member restrictions.<br /><a
+                  href="../scripts/design-system.test.mjs"
+                  >Implementation or regression evidence</a
+                >
+              </td>
+            </tr>
+            <tr>
+              <td><strong>D08</strong><br />Action hierarchy</td>
+              <td>
+                One Home creation action; quiet secondary routes and grouped post actions. Settings
+                has direct Notifications, Safety and account, Catch-up, Interests and Wallet rows.
+                Gift selection and sending are separate, with labelled favourites and a reachable
+                balance/Send footer.
+              </td>
+              <td>
+                Gift tests prove selecting/favouriting does not spend coins and Send deducts once.
+                Catalogue retains at least 140 pixels in every matrix combination.<br /><a
+                  href="../tests/visual/editorial-matrix.spec.ts"
+                  >Implementation or regression evidence</a
+                >
+              </td>
+            </tr>
+            <tr>
+              <td><strong>D09</strong><br />State clarity</td>
+              <td>
+                Timeline preference errors live inside their sheet; moderation has one empty state;
+                libraries and topics explain next steps. Paused chat copy respects role
+                restrictions. Decorative avatar frames are neutral; active stories retain expiry and
+                reduced-motion rules.
+              </td>
+              <td>
+                Existing mocked native error/retry, permission, draft, deletion-window and story
+                tests pass. Browser expiry and reduced-motion review pass. Physical screen-reader
+                and interruption checks remain pending.<br /><a
+                  href="../src/components/CommunityDepth.tsx"
+                  >Implementation or regression evidence</a
+                >
+              </td>
+            </tr>
+            <tr>
+              <td><strong>D10</strong><br />Preview parity</td>
+              <td>
+                Discovery filters use a sheet, poll options appear only in Poll mode, advanced media
+                editing stays collapsed, circle tools obey local member/owner roles, and
+                leave/report/moderation flows expose confirmation steps. Auth, reporting and
+                moderation simulations are explicitly labelled.
+              </td>
+              <td>
+                Browser tests cover conditional poll fields, permission-limited tools, simulated
+                reports without writes, attachment navigation and preserved drafts. Simulations do
+                not validate production services.<br /><a
+                  href="../tests/visual/editorial-matrix.spec.ts"
+                  >Implementation or regression evidence</a
+                >
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <h2>Browser screen matrix</h2>
+      <p>
+        Each combination covers Home, Explore, Live, Inbox, You, simulated authentication, Circle
+        Posts/Events/About, poll composition and gifts. Additional standard-size runs cover profile
+        editing, community lists, wallet, activity, notification preferences, interests,
+        conversations and tools, circle creation, scheduling, story creation/viewing and post
+        composition. Long-name, empty search, permission-limited, draft and expiry scenarios have
+        dedicated regressions.
+      </p>
+      <div class="table">
+        <table>
+          <thead>
+            <tr>
+              <th>Palette</th>
+              <th>Width</th>
+              <th>Standard</th>
+              <th>Enlarged</th>
+              <th>Largest</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Light</td>
+              <td>320</td>
+              <td>100% · passed</td>
+              <td>140% · passed</td>
+              <td>200% · passed</td>
+            </tr>
+            <tr>
+              <td>Light</td>
+              <td>390</td>
+              <td>100% · passed</td>
+              <td>140% · passed</td>
+              <td>200% · passed</td>
+            </tr>
+            <tr>
+              <td>Dark</td>
+              <td>320</td>
+              <td>100% · passed</td>
+              <td>140% · passed</td>
+              <td>200% · passed</td>
+            </tr>
+            <tr>
+              <td>Dark</td>
+              <td>390</td>
+              <td>100% · passed</td>
+              <td>140% · passed</td>
+              <td>200% · passed</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <h2>Updated screens</h2>
+      <div class="gallery">
+        <figure>
+          <img loading="lazy" src="warm-editorial-assets/home-light.png" alt="Home · light" />
+          <figcaption>Home · light</figcaption>
+        </figure>
+        <figure>
+          <img loading="lazy" src="warm-editorial-assets/home-dark.png" alt="Home · dark" />
+          <figcaption>Home · dark</figcaption>
+        </figure>
+        <figure>
+          <img
+            loading="lazy"
+            src="warm-editorial-assets/explore.png"
+            alt="Explore · compact discovery"
+          />
+          <figcaption>Explore · compact discovery</figcaption>
+        </figure>
+        <figure>
+          <img
+            loading="lazy"
+            src="warm-editorial-assets/inbox.png"
+            alt="Inbox · clear selected filter"
+          />
+          <figcaption>Inbox · clear selected filter</figcaption>
+        </figure>
+        <figure>
+          <img
+            loading="lazy"
+            src="warm-editorial-assets/profile.png"
+            alt="You · identity and community"
+          />
+          <figcaption>You · identity and community</figcaption>
+        </figure>
+        <figure>
+          <img
+            loading="lazy"
+            src="warm-editorial-assets/circle-about.png"
+            alt="Circle · About cover below stable tabs"
+          />
+          <figcaption>Circle · About cover below stable tabs</figcaption>
+        </figure>
+        <figure>
+          <img
+            loading="lazy"
+            src="warm-editorial-assets/gifts.png"
+            alt="Gifts · explicit selection and Send"
+          />
+          <figcaption>Gifts · explicit selection and Send</figcaption>
+        </figure>
+        <figure>
+          <img
+            loading="lazy"
+            src="warm-editorial-assets/gifts-200.png"
+            alt="Gifts · 320-point width, 200% text"
+          />
+          <figcaption>Gifts · 320-point width, 200% text</figcaption>
+        </figure>
+        <figure>
+          <img
+            loading="lazy"
+            src="warm-editorial-assets/poll-200.png"
+            alt="Poll composition · 200% text"
+          />
+          <figcaption>Poll composition · 200% text</figcaption>
+        </figure>
+        <figure>
+          <img
+            loading="lazy"
+            src="warm-editorial-assets/authentication.png"
+            alt="Sign-in design · labelled simulation"
+          />
+          <figcaption>Sign-in design · labelled simulation</figcaption>
+        </figure>
+      </div>
+      <h2>Native device checks still outstanding</h2>
+      <p>
+        ADB reports no connected test devices. An Android emulator definition exists, but no rebuilt
+        development client was available for this review; iOS device tooling is unavailable on this
+        Windows host. Rebuild the development client to include expo-font 57.0.4 and
+        react-native-svg 15.15.4 before device QA.
+      </p>
+      <ul>
+        <li>Check keyboard appearance, dismissal and composer visibility on iOS and Android.</li>
+        <li>
+          Verify safe areas, rotation, 320/390-point layouts and native 100%/140%/200% font scales.
+        </li>
+        <li>
+          Review VoiceOver and TalkBack names, order, selected states, focus and modal dismissal.
+        </li>
+        <li>
+          Review populated, empty, loading, error and permission-limited native screens in both
+          themes.
+        </li>
+        <li>
+          Verify camera/media interruption and connected service behavior separately; the browser
+          uses local simulations.
+        </li>
+      </ul>
+      <p>
+        The updated <a href="../.maestro/screens.yaml">native smoke flow</a> is ready for an
+        installed development build and a disposable test account.
+      </p>
+      <h2>Reproduce the local checks</h2>
+      <p>
+        <code>pnpm check</code> runs tokens, TypeScript and regressions.
+        <code>pnpm test:visual</code> runs the browser suite on its isolated preview server; stop
+        the handoff preview first or use a separate port/config. Android and iOS exports use
+        <code>pnpm export:android</code> and <code>pnpm export:ios</code>.
+      </p>
+      <p class="muted">
+        This implementation did not deploy backend changes, publish, commit or push. Screenshots use
+        demo data. Physical-device checks and production service certification are not marked
+        passed.
+      </p>
+    </main>
+  </body>
+</html>

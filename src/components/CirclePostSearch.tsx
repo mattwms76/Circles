@@ -102,7 +102,7 @@ export function CirclePostSearch({ search }: { search: ReturnType<typeof useCirc
               color: colors.ink,
               borderWidth: 1,
               borderColor: colors.line,
-              borderRadius: 14,
+              borderRadius: 12,
             }}
           />
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>

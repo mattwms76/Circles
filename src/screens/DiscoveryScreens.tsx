@@ -1,3 +1,4 @@
+import { useCompactLayout } from '../components/Design';
 import { FeedControls } from '../components/CommunityDepth';
 import React from 'react';
 import { FlatList, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
@@ -29,13 +30,11 @@ export function HomeScreen({
   unreadActivity,
   profile,
   circles,
-  lives,
   feed,
   feedHasMore,
   feedLoadingMore,
   onLoadMore,
   onProfile,
-  onLiveList,
   onCreatePost,
   onExplore,
   onLike,
@@ -71,6 +70,7 @@ export function HomeScreen({
   ) => void;
   onCircle: (circle: Circle) => void;
 }) {
+  const { compact } = useCompactLayout();
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
   return (
@@ -107,18 +107,13 @@ export function HomeScreen({
               <Icon name="edit" color={colors.coral} />
               <Text style={styles.quickText}>Share a thought</Text>
             </Pressable>
-            <ActionButton
-              compact
-              variant="outline"
-              label={lives.length ? `Live rooms · ${lives.length}` : 'Find circles'}
-              onPress={lives.length ? onLiveList : onExplore}
-            />
           </View>
           <View style={styles.sectionPad}>
             <View
               style={{
-                flexDirection: 'row',
-                alignItems: 'center',
+                flexDirection: compact ? 'column' : 'row',
+                alignItems: compact ? 'stretch' : 'center',
+                gap: 12,
                 justifyContent: 'space-between',
               }}
             >
@@ -253,6 +248,7 @@ export function ExploreScreen({
   onCircle: (circle: Circle) => void;
   onRequestDecision: (request: CircleJoinRequest, accepted: boolean) => void;
 }) {
+  const { compact } = useCompactLayout();
   const interests = [
     'For you',
     'All',
@@ -288,7 +284,6 @@ export function ExploreScreen({
           <TopBar profile={profile} onProfile={onProfile} />
           <View style={styles.screenHeading}>
             <Text style={styles.screenTitle}>Explore circles</Text>
-            <Text style={styles.screenCopy}>Search communities and people across Circles.</Text>
           </View>
           <View style={styles.searchBox}>
             <TextInput
@@ -373,12 +368,12 @@ export function ExploreScreen({
               />
             </>
           ) : (
-            <View style={styles.conversationRow}>
+            <View style={[styles.conversationRow, { flexWrap: 'wrap' }]}>
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={`Open ${item.value.displayName}'s profile`}
                 onPress={() => onOpenProfile(item.value as Profile)}
-                style={styles.publicProfileRow}
+                style={[styles.publicProfileRow, compact && { flexBasis: '100%' }]}
               >
                 <Avatar profile={item.value} />
                 <View style={styles.conversationMain}>
