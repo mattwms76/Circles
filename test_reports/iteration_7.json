@@ -1,0 +1,41 @@
+{
+  "summary": "Iter7 SECURITY HARDENING round verified end-to-end — 31/31 pytest cases pass against the preview backend. Coverage: (SEC-002 Conversation IDOR) Direct conv — user A opens direct conv with guide, user B (non-member) gets 403 on GET/POST messages, POST read, POST+GET typing, while A (member) gets 200 on all five; circle conv — guide's auto-created circle conv for the first seed circle serves 200 to guide but 403 to non-member B on GET+POST messages. (SEC-003 Membership/ban/private) Non-member B → 403 posting + 403 commenting on a seed-circle post; D joins, posts 200, is removed via /remove, then 403 posting AND 403 commenting (banned_until check kicks in even though membership row is gone); C joined→muted(60m)→403 posting, unmute→200 posting (muted-mute cycle restored). Private circle created with is_private=true as guide; non-member B gets 403 on GET /circles/{id}, /circles/{id}/posts, /circles/{id}/members, /circles/{id}/events, and /posts/{postId}/comments for a post inside, while guide (owner) gets 200 on all five; discovery list for B does NOT include the private circle, mine=true for guide does. (SEC-004 Wallet atomicity) Fresh user drained from 100→25 via three Flower(25) gifts, then two rapid Flower attempts → exactly one 200 and one 400 'Not enough coins', final balance == 0, never negative; self-gift still 400; /wallet/buy with amount=100001 and 0 and -5 all 400, amount=50 credits exactly +50; normal gift to post correctly debits sender (-10), credits recipient (+10), and bumps post.gift_count by 1. (SEC-005 File traversal) GET /api/files/../something, /files/etc/passwd, /files/notcircles/x.jpg all 404; POST /api/upload returns /api/files/circles/... url, that url serves 200 with image/* content-type. (P3 Rate limiting) /auth/login hits 429 within <=30 bad attempts (10/min cap), /auth/register hits 429 within <=8 attempts (5/min cap). (P3 Email exposure) GET /users/{id} no email, GET /circles/{id}/members no email on any entry, GET /auth/me returns own email, register/login responses return own email. (P3 Input bounds) POST /posts text>5000 → 422, POST /conversations/{id}/messages text>2000 → 422, POST /circles with empty name → 422. (Regression) guide+demo login 200 with own email in response, /feed returns author_is_supporter:bool on items, create-post→like→comment chain all 200 with author_is_supporter:bool on both post and comment, /circles?search=( and search=[.* return 200 (regex escape confirmed), rooms list+create+join, events upcoming+rsvp, leaderboard, moderation reports queue, mute cap at 999999 min clamps muted_until to <=7d from now. Backend hardening is effective and no regression detected.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter7_security.py",
+    "/app/test_reports/pytest/iter7_results.xml"
+  ],
+  "action_items": [
+    "Nice-to-have (not blocking): slowapi uses in-memory per-worker state and get_remote_address which, behind the K8s ingress, may collapse to a single IP for all callers. The limits still enforce (429 observed in tests), but under multi-pod scale the effective window could vary. Consider a Redis storage backend for slowapi in prod.",
+    "Pre-existing from iter6: server.py is now ~1687 lines — overdue to split into routers (auth, circles, moderation, events, posts, gifts, wallet, rooms, messages, uploads).",
+    "Pre-existing: norm_iso() silently falls back on parse errors. SEC audit didn't touch this; consider raising 422 for malformed starts_at via a Pydantic field_validator so bad data never persists.",
+    "Pre-existing: GET /circles/{id}/members leaves a stale muted_until on expired mutes — hidden by response filter, but DB bloat remains. Minor; schedule a periodic cleanup if operational concern arises."
+  ],
+  "critical_code_review_comments": [
+    "serve_file guard checks startswith(APP_NAME + '/'), i.e. 'circles/'. Good — but note that path params in FastAPI's {path:path} already resolve URL '%2E%2E' and multiple slashes. Current guard handles '..' substring anywhere in path and absolute paths — robust for the common cases. If additional defence-in-depth is desired, consider pathlib.PurePosixPath normalisation + startswith check.",
+    "send_gift (SEC-004) uses update_one({id, coins:{$gte:cost}}, {$inc:{coins:-cost}}) which is atomic on single-doc level — correct for standalone mongo. However, the recipient credit, transaction inserts, and gift insert that follow are still non-transactional; a crash between debit and credit would silently burn the sender's coins. The audit fix prevents overdraft but doesn't give full all-or-nothing. Fine on single-node, but note it in a future doc.",
+    "slowapi limiter decorators (`@limiter.limit('10/minute')`) require the Request object to be the first non-dependency parameter — register() and login() correctly include `request: Request`. Verified at runtime by the 429 tests. Good.",
+    "list_circles discovery filter uses $or=[{is_private:{$ne:true}}, {id:{$in:my_ids}}]. Correct — unsets `is_private` on legacy docs (where field absent) are included because {$ne:true}. Good backward compat.",
+    "assert_can_read_circle is called from get_circle, circle_posts, circle_members, circle_events, and (indirectly via post lookup) get_comments. All five verified by TestSecMembership.test_private_circle_gated. Coverage is complete.",
+    "get_conv_or_403 handles both direct ('members' list) and circle ('circle_id' membership) paths. All five conversation endpoints (GET+POST messages, POST read, POST+GET typing) call it. Verified end-to-end."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter7_security.py (new — 31 pytest cases covering SEC-002/003/004/005 + rate limit + email exposure + input bounds + regression, with 429-tolerant register retry and run-last ordering for rate-limit tests)",
+    "/app/test_reports/pytest/iter7_results.xml (new — junit output: 31 passed)"
+  ],
+  "success_rate": {"backend": "100% (31/31)", "frontend": "not tested — testing_type was backend-only"},
+  "seed_data_creation": "All throwaway users prefixed TEST_<role>_<hex>@circles.app (A, B, C, D, WAL, GFT, MC, RL). Private circle, event, and chain post all named 'TEST ...'. Idempotent — safe to re-run after a cooldown of >60s for rate-limit windows.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend base = EXPO_PUBLIC_BACKEND_URL in /app/frontend/.env, all routes under /api. Credentials: guide@circles.app/circles123 (owner of all seed circles + global moderator), demo@circles.app/demo1234 (not onboarded). Iter7 added: (a) public_user()/private_user() split — only register/login/me/update_me return own email, everyone else is public; (b) assert_can_write() on /posts and /posts/{id}/comments — requires membership, not banned, not muted; (c) assert_can_read_circle() on get_circle/circle_posts/circle_members/circle_events/get_comments — private circles 403 to non-members; (d) list_circles() uses re.escape() on search and hides private non-member circles via $or; (e) get_conv_or_403() on all 5 conversation endpoints — direct checks members list, circle checks circle membership; (f) atomic conditional $inc in send_gift — update_one({id, coins:{$gte:cost}}) prevents negative balance; (g) /wallet/buy caps amount at 1<=x<=100000; (h) /api/files guard — rejects '..', leading '/', and anything not starting with 'circles/'; (i) slowapi limits — login 10/min, register 5/min; (j) JWT_SECRET length guard >=32 chars; (k) pydantic max_length on PostIn.text (5000), MessageIn.text (2000), CircleIn.name (1-80). Testing caveats: slowapi uses in-memory storage so limits reset on backend restart and vary slightly per worker — if 429 flakes, bump attempt count. Rate-limit tests MUST run last; the iter7 test file enforces this via class-ordering within the module. Register fixtures use retry-with-sleep(13s) on 429 so parallel pytest-xdist works. Mongo is standalone (no replica set) — do NOT rely on multi-doc transactions. Agora/live-audio out of scope.",
+  "rca_of_issue": ""
+}

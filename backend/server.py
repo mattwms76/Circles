@@ -1,4 +1,5 @@
 import os
+import re
 import uuid
 import logging
 from pathlib import Path
@@ -8,10 +9,13 @@ from typing import Optional, List
 import jwt
 import bcrypt
 import requests
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, Query
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, Query, Request
 from fastapi.responses import Response
 from fastapi.concurrency import run_in_threadpool
 from starlette.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, EmailStr, Field
 from dotenv import load_dotenv
@@ -32,6 +36,9 @@ db = client[os.environ["DB_NAME"]]
 JWT_SECRET = os.environ["JWT_SECRET"]
 JWT_ALGO = "HS256"
 JWT_EXPIRE_DAYS = 30
+
+if len(JWT_SECRET) < 32 or JWT_SECRET.lower().startswith("replace"):
+    raise RuntimeError("JWT_SECRET must be a strong random value of at least 32 characters")
 
 # ---------------------------------------------------------------------------
 # Object storage (Emergent managed)
@@ -142,7 +149,6 @@ def public_user(doc: dict) -> dict:
     return {
         "id": doc["id"],
         "name": doc.get("name", ""),
-        "email": doc.get("email", ""),
         "bio": doc.get("bio", ""),
         "avatar_url": doc.get("avatar_url"),
         "interests": doc.get("interests", []),
@@ -151,6 +157,14 @@ def public_user(doc: dict) -> dict:
         "is_moderator": doc.get("is_moderator", False),
         "created_at": doc.get("created_at"),
     }
+
+
+def private_user(doc: dict) -> dict:
+    """Self-view — includes the account's own email. Never use for other users."""
+    data = public_user(doc)
+    if doc:
+        data["email"] = doc.get("email", "")
+    return data
 
 
 # ---------------------------------------------------------------------------
@@ -198,8 +212,8 @@ class ProfileUpdate(BaseModel):
 
 
 class CircleIn(BaseModel):
-    name: str
-    description: str = ""
+    name: str = Field(min_length=1, max_length=80)
+    description: str = Field(default="", max_length=2000)
     category: str = "General"
     cover_url: Optional[str] = None
     is_private: bool = False
@@ -219,7 +233,7 @@ class RoleUpdate(BaseModel):
 
 class PostIn(BaseModel):
     circle_id: str
-    text: str = ""
+    text: str = Field(default="", max_length=5000)
     image_url: Optional[str] = None
 
 
@@ -228,7 +242,7 @@ class CommentIn(BaseModel):
 
 
 class MessageIn(BaseModel):
-    text: str = ""
+    text: str = Field(default="", max_length=2000)
     image_url: Optional[str] = None
 
 
@@ -237,7 +251,7 @@ class DirectIn(BaseModel):
 
 
 class RoomIn(BaseModel):
-    title: str
+    title: str = Field(min_length=1, max_length=120)
     circle_id: Optional[str] = None
     scheduled_at: Optional[str] = None
 
@@ -247,8 +261,8 @@ class RoomMessageIn(BaseModel):
 
 
 class EventIn(BaseModel):
-    title: str
-    description: str = ""
+    title: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=2000)
     starts_at: str
 
 
@@ -272,7 +286,11 @@ class ReportIn(BaseModel):
 # ---------------------------------------------------------------------------
 # App + router
 # ---------------------------------------------------------------------------
+limiter = Limiter(key_func=get_remote_address, default_limits=[])
+
 app = FastAPI(title="Circles API")
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 @app.get("/health", include_in_schema=False)
@@ -288,7 +306,8 @@ GIFT_COSTS = {"Heart": 10, "Flower": 25, "Star": 50, "Crown": 120, "Rocket": 300
 
 # ------------------------------- Auth --------------------------------------
 @api.post("/auth/register")
-async def register(body: RegisterIn):
+@limiter.limit("5/minute")
+async def register(request: Request, body: RegisterIn):
     email = body.email.lower()
     if await db.users.find_one({"email": email}):
         raise HTTPException(409, "Email already registered")
@@ -306,20 +325,21 @@ async def register(body: RegisterIn):
         "created_at": now_iso(),
     }
     await db.users.insert_one(doc)
-    return {"access_token": create_token(doc["id"]), "user": public_user(doc)}
+    return {"access_token": create_token(doc["id"]), "user": private_user(doc)}
 
 
 @api.post("/auth/login")
-async def login(body: LoginIn):
+@limiter.limit("10/minute")
+async def login(request: Request, body: LoginIn):
     user = await db.users.find_one({"email": body.email.lower()})
     if not user or not verify_password(body.password, user["password_hash"]):
         raise HTTPException(401, "Invalid email or password")
-    return {"access_token": create_token(user["id"]), "user": public_user(user)}
+    return {"access_token": create_token(user["id"]), "user": private_user(user)}
 
 
 @api.get("/auth/me")
 async def me(user: dict = Depends(current_user)):
-    return public_user(user)
+    return private_user(user)
 
 
 @api.put("/users/me")
@@ -328,7 +348,7 @@ async def update_me(body: ProfileUpdate, user: dict = Depends(current_user)):
     if updates:
         await db.users.update_one({"id": user["id"]}, {"$set": updates})
     fresh = await db.users.find_one({"id": user["id"]})
-    return public_user(fresh)
+    return private_user(fresh)
 
 
 @api.get("/users/{user_id}")
@@ -374,12 +394,17 @@ async def list_circles(
 ):
     q: dict = {}
     if search:
-        q["name"] = {"$regex": search, "$options": "i"}
+        q["name"] = {"$regex": re.escape(search), "$options": "i"}
     if category and category.lower() != "all":
         q["category"] = category
     if mine:
         ms = await db.memberships.find({"user_id": user["id"]}).to_list(500)
         q["id"] = {"$in": [m["circle_id"] for m in ms]}
+    else:
+        # Hide private circles the user is not a member of from discovery.
+        my_ms = await db.memberships.find({"user_id": user["id"]}).to_list(500)
+        my_ids = [m["circle_id"] for m in my_ms]
+        q["$or"] = [{"is_private": {"$ne": True}}, {"id": {"$in": my_ids}}]
     circles = await db.circles.find(q).sort("created_at", -1).to_list(200)
     return [await enrich_circle(c, user["id"]) for c in circles]
 
@@ -408,6 +433,7 @@ async def get_circle(circle_id: str, user: dict = Depends(current_user)):
     c = await db.circles.find_one({"id": circle_id})
     if not c:
         raise HTTPException(404, "Circle not found")
+    await assert_can_read_circle(c, user["id"])
     return await enrich_circle(c, user["id"])
 
 
@@ -474,6 +500,10 @@ async def leave_circle(circle_id: str, user: dict = Depends(current_user)):
 
 @api.get("/circles/{circle_id}/members")
 async def circle_members(circle_id: str, user: dict = Depends(current_user)):
+    c = await db.circles.find_one({"id": circle_id})
+    if not c:
+        raise HTTPException(404, "Circle not found")
+    await assert_can_read_circle(c, user["id"])
     ms = await db.memberships.find({"circle_id": circle_id}).to_list(500)
     out = []
     for m in ms:
@@ -555,6 +585,10 @@ async def enrich_event(e: dict, uid: str) -> dict:
 
 @api.get("/circles/{circle_id}/events")
 async def circle_events(circle_id: str, user: dict = Depends(current_user)):
+    c = await db.circles.find_one({"id": circle_id})
+    if not c:
+        raise HTTPException(404, "Circle not found")
+    await assert_can_read_circle(c, user["id"])
     events = await db.events.find({"circle_id": circle_id}).sort("starts_at", 1).to_list(100)
     return [await enrich_event(e, user["id"]) for e in events]
 
@@ -673,6 +707,10 @@ async def feed(user: dict = Depends(current_user)):
 
 @api.get("/circles/{circle_id}/posts")
 async def circle_posts(circle_id: str, user: dict = Depends(current_user)):
+    c = await db.circles.find_one({"id": circle_id})
+    if not c:
+        raise HTTPException(404, "Circle not found")
+    await assert_can_read_circle(c, user["id"])
     posts = await db.posts.find({"circle_id": circle_id, "deleted": {"$ne": True}}).sort("created_at", -1).to_list(100)
     supporters = await top_supporter_ids(circle_id)
     return [await enrich_post(p, user["id"], supporters) for p in posts]
@@ -684,6 +722,31 @@ async def is_muted(circle_id: str, uid: str) -> bool:
     return bool(mu and mu > now_iso())
 
 
+async def is_member(circle_id: str, uid: str) -> bool:
+    return await db.memberships.find_one({"circle_id": circle_id, "user_id": uid}) is not None
+
+
+async def is_banned(circle_id: str, uid: str) -> bool:
+    ban = await db.circle_bans.find_one({"circle_id": circle_id, "user_id": uid})
+    return bool(ban and ban.get("until") and ban["until"] > now_iso())
+
+
+async def assert_can_write(circle_id: str, uid: str) -> None:
+    """Guard for posting/commenting: must be a member, not banned, not muted."""
+    if await is_banned(circle_id, uid):
+        raise HTTPException(403, "You've been removed from this circle")
+    if not await is_member(circle_id, uid):
+        raise HTTPException(403, "Join this circle to take part")
+    if await is_muted(circle_id, uid):
+        raise HTTPException(403, "You're muted in this circle")
+
+
+async def assert_can_read_circle(c: dict, uid: str) -> None:
+    """Private circles are only readable by their members."""
+    if c.get("is_private") and not await is_member(c["id"], uid):
+        raise HTTPException(403, "This circle is private")
+
+
 @api.post("/posts")
 async def create_post(body: PostIn, user: dict = Depends(current_user)):
     if not body.text.strip() and not body.image_url:
@@ -691,8 +754,7 @@ async def create_post(body: PostIn, user: dict = Depends(current_user)):
     c = await db.circles.find_one({"id": body.circle_id})
     if not c:
         raise HTTPException(404, "Circle not found")
-    if await is_muted(body.circle_id, user["id"]):
-        raise HTTPException(403, "You're muted in this circle")
+    await assert_can_write(body.circle_id, user["id"])
     doc = {
         "id": new_id(),
         "circle_id": body.circle_id,
@@ -749,6 +811,10 @@ async def delete_post(post_id: str, user: dict = Depends(current_user)):
 @api.get("/posts/{post_id}/comments")
 async def get_comments(post_id: str, user: dict = Depends(current_user)):
     p = await db.posts.find_one({"id": post_id})
+    if p:
+        pc = await db.circles.find_one({"id": p["circle_id"]})
+        if pc:
+            await assert_can_read_circle(pc, user["id"])
     supporters = await top_supporter_ids(p["circle_id"]) if p else set()
     comments = await db.comments.find({"post_id": post_id}).sort("created_at", 1).to_list(500)
     out = []
@@ -773,8 +839,7 @@ async def add_comment(post_id: str, body: CommentIn, user: dict = Depends(curren
     p = await db.posts.find_one({"id": post_id})
     if not p:
         raise HTTPException(404, "Post not found")
-    if await is_muted(p["circle_id"], user["id"]):
-        raise HTTPException(403, "You're muted in this circle")
+    await assert_can_write(p["circle_id"], user["id"])
     doc = {
         "id": new_id(),
         "post_id": post_id,
@@ -831,6 +896,20 @@ async def unread_count(conv_id: str, uid: str) -> int:
     return await db.messages.count_documents(q)
 
 
+async def get_conv_or_403(conv_id: str, uid: str) -> dict:
+    """Load a conversation and ensure the caller is a participant.
+    Direct → must be in members; circle → must be a member of the circle."""
+    conv = await db.conversations.find_one({"id": conv_id})
+    if not conv:
+        raise HTTPException(404, "Conversation not found")
+    if conv.get("type") == "circle":
+        if not await is_member(conv.get("circle_id"), uid):
+            raise HTTPException(403, "You're not in this conversation")
+    elif uid not in conv.get("members", []):
+        raise HTTPException(403, "You're not in this conversation")
+    return conv
+
+
 @api.get("/conversations")
 async def list_conversations(user: dict = Depends(current_user)):
     convs = await db.conversations.find({"members": user["id"]}).to_list(200)
@@ -880,6 +959,7 @@ async def start_direct(body: DirectIn, user: dict = Depends(current_user)):
 
 @api.get("/conversations/{conv_id}/messages")
 async def get_messages(conv_id: str, user: dict = Depends(current_user)):
+    await get_conv_or_403(conv_id, user["id"])
     msgs = await db.messages.find({"conversation_id": conv_id}).sort("created_at", 1).to_list(500)
     out = []
     for m in msgs:
@@ -907,6 +987,7 @@ async def get_messages(conv_id: str, user: dict = Depends(current_user)):
 
 @api.post("/conversations/{conv_id}/read")
 async def mark_read(conv_id: str, user: dict = Depends(current_user)):
+    await get_conv_or_403(conv_id, user["id"])
     await db.conversation_reads.update_one(
         {"conversation_id": conv_id, "user_id": user["id"]},
         {"$set": {"last_read_at": now_iso()}},
@@ -934,6 +1015,7 @@ async def total_unread(user: dict = Depends(current_user)):
 
 @api.post("/conversations/{conv_id}/typing")
 async def set_typing(conv_id: str, user: dict = Depends(current_user)):
+    await get_conv_or_403(conv_id, user["id"])
     until = (datetime.now(timezone.utc) + timedelta(seconds=6)).isoformat()
     await db.typing.update_one(
         {"conversation_id": conv_id, "user_id": user["id"]},
@@ -945,6 +1027,7 @@ async def set_typing(conv_id: str, user: dict = Depends(current_user)):
 
 @api.get("/conversations/{conv_id}/typing")
 async def get_typing(conv_id: str, user: dict = Depends(current_user)):
+    await get_conv_or_403(conv_id, user["id"])
     now = datetime.now(timezone.utc).isoformat()
     rows = await db.typing.find(
         {"conversation_id": conv_id, "user_id": {"$ne": user["id"]}, "until": {"$gt": now}}
@@ -954,9 +1037,7 @@ async def get_typing(conv_id: str, user: dict = Depends(current_user)):
 
 @api.post("/conversations/{conv_id}/messages")
 async def send_message(conv_id: str, body: MessageIn, user: dict = Depends(current_user)):
-    conv = await db.conversations.find_one({"id": conv_id})
-    if not conv:
-        raise HTTPException(404, "Conversation not found")
+    await get_conv_or_403(conv_id, user["id"])
     if not body.text.strip() and not body.image_url:
         raise HTTPException(400, "Message cannot be empty")
     doc = {
@@ -1182,7 +1263,7 @@ async def wallet(user: dict = Depends(current_user)):
 
 @api.post("/wallet/buy")
 async def buy_coins(body: BuyCoinsIn, user: dict = Depends(current_user)):
-    if body.amount <= 0:
+    if body.amount <= 0 or body.amount > 100000:
         raise HTTPException(400, "Invalid amount")
     await db.users.update_one({"id": user["id"]}, {"$inc": {"coins": body.amount}})
     txn = {
@@ -1205,9 +1286,6 @@ async def send_gift(body: GiftIn, user: dict = Depends(current_user)):
         raise HTTPException(400, "Unknown gift")
     if body.recipient_id == user["id"]:
         raise HTTPException(400, "You cannot gift yourself")
-    fresh = await db.users.find_one({"id": user["id"]})
-    if fresh.get("coins", 0) < cost:
-        raise HTTPException(400, "Not enough coins")
     recipient = await db.users.find_one({"id": body.recipient_id})
     if not recipient:
         raise HTTPException(404, "Recipient not found")
@@ -1219,7 +1297,13 @@ async def send_gift(body: GiftIn, user: dict = Depends(current_user)):
     elif body.room_id:
         gr = await db.rooms.find_one({"id": body.room_id})
         gift_circle_id = gr.get("circle_id") if gr else None
-    await db.users.update_one({"id": user["id"]}, {"$inc": {"coins": -cost}})
+    # Atomic debit: only succeeds if the sender still has enough coins. This
+    # prevents a race between concurrent gifts from driving the balance negative.
+    debit = await db.users.update_one(
+        {"id": user["id"], "coins": {"$gte": cost}}, {"$inc": {"coins": -cost}}
+    )
+    if debit.modified_count == 0:
+        raise HTTPException(400, "Not enough coins")
     await db.users.update_one({"id": body.recipient_id}, {"$inc": {"coins": cost}})
     txn = {
         "id": new_id(),
@@ -1435,6 +1519,9 @@ async def upload(file: UploadFile = File(...), user: dict = Depends(current_user
 
 @api.get("/files/{path:path}")
 async def serve_file(path: str):
+    # Confine access to this app's upload namespace and block traversal.
+    if ".." in path or path.startswith("/") or not path.startswith(f"{APP_NAME}/"):
+        raise HTTPException(404, "File not found")
     try:
         content, ctype = await run_in_threadpool(get_object, path)
     except Exception as e:
@@ -1447,7 +1534,7 @@ app.include_router(api)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
+    allow_credentials=False,
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
@@ -1486,6 +1573,7 @@ async def startup():
         await db.circles.create_index("id")
         await db.posts.create_index("circle_id")
         await db.memberships.create_index([("circle_id", 1), ("user_id", 1)])
+        await db.circle_bans.create_index([("circle_id", 1), ("user_id", 1)])
     except Exception as e:
         logger.warning(f"index setup: {e}")
 
@@ -1495,14 +1583,29 @@ async def startup():
     except Exception as e:
         logger.warning(f"storage init deferred: {e}")
 
-    existing = await db.users.find_one({"email": "guide@circles.app"})
+    # Demo/seed accounts are opt-in and sourced from the environment so that
+    # no publicly-known credentials are shipped in source. Production leaves
+    # ENABLE_DEMO_SEED unset (disabled) and provisions admins out-of-band.
+    if os.environ.get("ENABLE_DEMO_SEED", "false").lower() not in ("1", "true", "yes"):
+        logger.info("demo seed disabled")
+        return
+
+    guide_email = os.environ.get("GUIDE_EMAIL", "guide@circles.app").lower()
+    guide_password = os.environ.get("GUIDE_PASSWORD")
+    demo_email = os.environ.get("DEMO_EMAIL", "demo@circles.app").lower()
+    demo_password = os.environ.get("DEMO_PASSWORD")
+    if not guide_password or not demo_password:
+        logger.warning("demo seed enabled but GUIDE_PASSWORD/DEMO_PASSWORD not set — skipping")
+        return
+
+    existing = await db.users.find_one({"email": guide_email})
     if existing:
         return
     guide = {
         "id": new_id(),
-        "email": "guide@circles.app",
+        "email": guide_email,
         "name": "Mara Ellison",
-        "password_hash": hash_password("circles123"),
+        "password_hash": hash_password(guide_password),
         "bio": "Community guide. Here to help you find your people.",
         "avatar_url": "https://images.pexels.com/photos/774909/pexels-photo-774909.jpeg",
         "interests": ["Writing", "Wellness"],
@@ -1513,12 +1616,12 @@ async def startup():
     }
     await db.users.insert_one(guide)
 
-    if not await db.users.find_one({"email": "demo@circles.app"}):
+    if not await db.users.find_one({"email": demo_email}):
         demo = {
             "id": new_id(),
-            "email": "demo@circles.app",
+            "email": demo_email,
             "name": "Demo Explorer",
-            "password_hash": hash_password("demo1234"),
+            "password_hash": hash_password(demo_password),
             "bio": "Just exploring Circles.",
             "avatar_url": None,
             "interests": [],

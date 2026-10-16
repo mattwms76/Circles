@@ -65,13 +65,14 @@ Rebuild the "Circles" app (github.com/mattwms76/Circles) as a fresh Expo + FastA
 - Backend polish: mute/ban duration capped at 7 days (MAX_MOD_MINUTES=10080, clamp_minutes); GET /circles/{id}/members now returns muted_until; event starts_at normalized to UTC on write (norm_iso).
 - Design-system fixes (8): raised light `muted` contrast to ~4.9:1; added central `type` scale in theme.ts; Chip + Button-small bumped to 44px touch targets; new `CoinIcon` (terracotta $ token) replacing empty-ring placeholder in Wallet; supporter badge 10→11px; hitSlop on post like/comment/gift; fixed Discover category-chip clipping; removed ~22 redundant fontFamily overrides across 15 files.
 
-## Security Audit (2026-06, fork) — findings open, NOT yet fixed
-- SEC-001 CRITICAL: seeded guide/demo login credentials (guide is platform moderator) — remove before launch.
-- SEC-002 HIGH: conversation message read/write missing membership check (DM IDOR).
-- SEC-003 HIGH: create_post/add_comment don't enforce membership or circle_bans; private circles readable by non-members.
-- SEC-004 MEDIUM: non-atomic coin debit/credit in /gifts (race to negative); /wallet/buy mints coins (intentionally mocked, no payment).
-- SEC-005 MEDIUM: /api/files/{path} served without auth; possible path traversal.
-- Hardening (P3): email exposed in public_user; static JWT secret + .env not gitignored; CORS '*' with credentials; no login/register rate limiting; unescaped $regex in list_circles search.
+## Security Audit (2026-06, fork) — ALL ITEMS FIXED & VERIFIED (iter7: 31/31 backend tests pass)
+- SEC-001 CRITICAL ✅ Seed accounts gated behind ENABLE_DEMO_SEED env; passwords sourced from GUIDE_PASSWORD/DEMO_PASSWORD env (no credentials in source); production leaves seeding disabled.
+- SEC-002 HIGH ✅ Conversation messages/read/typing gated by get_conv_or_403 (direct→members, circle→circle membership); non-members 403.
+- SEC-003 HIGH ✅ create_post/add_comment require membership + not banned + not muted (assert_can_write); private circles gated for reads (assert_can_read_circle); discovery hides private non-member circles.
+- SEC-004 MEDIUM ✅ Atomic conditional $inc debit in /gifts (no negative balance); /wallet/buy capped at 100000 (still simulated top-up, no real payment by design).
+- SEC-005 MEDIUM ✅ /api/files/{path} rejects '..' and non-'circles/' prefixes (traversal blocked). Residual: uploaded images remain public-by-unguessable-UUID-URL (no per-user auth — would need signed URLs).
+- P3 ✅ email removed from public_user (self keeps it via private_user); JWT secret length guard; .env gitignored; CORS allow_credentials=False; slowapi rate limits (login 10/min, register 5/min); regex-escaped circle search; max_length bounds on post/message/circle/event/room inputs.
+- Backlog (non-blocking): Redis-backed rate limiting for multi-worker scale; signed URLs for private media; split server.py into routers.
 
 ## Pending — Real Live Audio (Agora) [AWAITING KEYS + NATIVE BUILD]
 - Playbook obtained (react-native-agora 4.x native + agora-rtc-sdk-ng web; FastAPI RTC token endpoint with agora-token-builder).
