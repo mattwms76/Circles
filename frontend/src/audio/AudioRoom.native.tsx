@@ -36,7 +36,7 @@ export function AudioRoom({
   const [joined, setJoined] = useState(false);
 
   const getToken = async () =>
-    apiPost<{ token: string; channel: string; canSpeak: boolean }>(`/api/rooms/${roomId}/rtc-token`, { uid });
+    apiPost<{ token: string; channel: string; canSpeak: boolean; uid: number }>(`/api/rooms/${roomId}/rtc-token`, {});
 
   useEffect(() => {
     let handler: any;
@@ -54,7 +54,7 @@ export function AudioRoom({
       e.initialize({ appId: APP_ID });
       e.setChannelProfile(ChannelProfileType.ChannelProfileLiveBroadcasting);
       const x = await getToken();
-      await e.joinChannel(x.token, x.channel, uid, {
+      await e.joinChannel(x.token, x.channel, x.uid, {
         channelProfile: ChannelProfileType.ChannelProfileLiveBroadcasting,
         clientRoleType: x.canSpeak ? ClientRoleType.ClientRoleBroadcaster : ClientRoleType.ClientRoleAudience,
         publishMicrophoneTrack: x.canSpeak,

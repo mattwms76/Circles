@@ -1,0 +1,36 @@
+{
+  "summary": "SEC-001 Rooms, SEC-002 Event creation, and SEC-003 like/RSVP/leaderboard authorization fixes VERIFIED against the live preview (https://circles-demo-1.preview.emergentagent.com) — 34/34 pytest cases green. Specifically closed: (SEC-002) POST /circles/{id}/events — owner/member 200, non-member 403, non-existent circle 404; (SEC-001) rooms tied to a PRIVATE circle — guide owner 200 on GET /rooms/{id}, GET /rooms/{id}/messages and POST /rooms/{id}/messages; non-member 403 on GET /rooms/{id}, POST /rooms/{id}/join, GET /rooms/{id}/messages, POST /rooms/{id}/messages; create_room with circle_id user isn't a member of → 403; create_room with unknown circle_id → 404; global rooms (no circle_id) remain OPEN — non-member can GET/join/post/read. (SEC-003) POST /posts/{postId}/like — non-member of private circle 403, member 200, non-existent post 404; POST /events/{eventId}/rsvp — non-member 403, member 200, non-existent event 404; GET /circles/{id}/leaderboard — non-member 403 for private, member 200, non-existent 404. Regression confirmed: PUBLIC-circle member can create event/RSVP/like/leaderboard (all 200), public leaderboard also readable by non-member (public circles stay open for reads), GET /rooms list works for non-members, guide can create+join+message its own global rooms. Prior-fix regression also holds: non-member posting into private circle 403, DM IDOR (non-participant → GET /conversations/{id}/messages) 403, self-gift POST /gifts 400, under-13 /auth/register 403.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter10_authz_fixes.py",
+    "/app/test_reports/pytest/iter10_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now 2017 lines — strongly recommend splitting into routers (auth, circles, posts, rooms, events, conv, wallet, moderation, compliance). Carried over from iter9.",
+    "assert_can_access_room() silently no-ops if room.circle_id is set but the circle no longer exists (orphan room). Low risk — only reachable if admin deletes a circle but not its rooms — but worth either 404'ing the orphan room or deleting rooms on circle delete.",
+    "toggle_like() and toggle_rsvp() both wrap assert_can_read_circle() in `if pc:` / `if ec:` branches, meaning a like/rsvp on content whose parent circle was deleted bypasses the guard. Same orphan-safety nit as rooms. Consider 404 on missing parent circle.",
+    "create_event correctly 404s on unknown circle_id and relies on assert_can_write (which chains is_member + ban/mute checks). create_room matches the pattern with its own in-line is_member call — minor code-duplication, could reuse a single helper.",
+    "No new bugs found — SEC-001/002/003 fixes are correctly implemented on live preview."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter10_authz_fixes.py (new — 34 cases covering SEC-001/002/003 + regression + prior-fix sanity)",
+    "/app/test_reports/pytest/iter10_results.xml (new — junit, 34 passed)",
+    "/app/test_reports/iteration_10.json (new — this report)"
+  ],
+  "success_rate": {"backend": "100% (34/34)", "frontend": "not tested — testing_type was backend only"},
+  "seed_data_creation": "Throwaway users prefixed TEST_<role>_<hex>@circles.app with DOB 1995-05-20 + accepted_terms:true. Fresh PRIVATE and PUBLIC circles 'TEST priv <hex>' / 'TEST pub <hex>' owned by guide; test rooms and events titled 'TEST ...'. No seed data mutated; guide still owns all seed circles. Idempotent — safe to re-run (register retries on 429 with 13s backoff; login retries similarly).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Base URL from EXPO_PUBLIC_BACKEND_URL in /app/frontend/.env, all routes /api. Credentials guide@circles.app/circles123 (owner of all seed circles + global moderator) and demo@circles.app/demo1234. Register MUST include date_of_birth (YYYY-MM-DD) + accepted_terms:true. Rate limits (slowapi in-memory): login 10/min, register 5/min per IP — ALL tests in test_iter10_authz_fixes.py run serially (-n 0) and share one session-scoped guide_tok to keep auth hits minimal. Run with: `pytest /app/backend/tests/test_iter10_authz_fixes.py -n 0 -v`. The pytest.ini addopts default to `-n 2 --dist loadscope` and MUST be overridden with `-n 0` for this file (two xdist workers = two source IPs effectively — fine — but keep deterministic). Fixtures use session scope for the two throwaway users and the two throwaway circles (one private, one public) to avoid blowing register rate-limit. SEC-002 non-existent circle returns 404 BEFORE assert_can_write runs (route-order correct). assert_can_access_room() returns silently if the room's parent circle was deleted (orphan) — pre-existing nit, documented in critical_code_review_comments. Agora/live-audio out of scope (/rtc-token returns 503).",
+  "rca_of_issue": "N/A — all fixes applied by main agent in server.py (assert_can_access_room helper applied to get_room/join_room/room_messages/send_room_message; create_room gates on is_member when circle_id set; create_event requires circle existence + assert_can_write; toggle_like and toggle_rsvp chain assert_can_read_circle via parent circle; circle_leaderboard requires circle existence + assert_can_read_circle) are functioning as designed. 34/34 tests passed on first run against the live preview backend. Zero backend bugs."
+}

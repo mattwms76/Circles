@@ -65,6 +65,14 @@ Rebuild the "Circles" app (github.com/mattwms76/Circles) as a fresh Expo + FastA
 - Backend polish: mute/ban duration capped at 7 days (MAX_MOD_MINUTES=10080, clamp_minutes); GET /circles/{id}/members now returns muted_until; event starts_at normalized to UTC on write (norm_iso).
 - Design-system fixes (8): raised light `muted` contrast to ~4.9:1; added central `type` scale in theme.ts; Chip + Button-small bumped to 44px touch targets; new `CoinIcon` (terracotta $ token) replacing empty-ring placeholder in Wallet; supporter badge 10→11px; hitSlop on post like/comment/gift; fixed Discover category-chip clipping; removed ~22 redundant fontFamily overrides across 15 files.
 
+## Security Audit re-run on deployed/preview (2026-06, fork) — iter9 live validation 62/62 + iter10 new fixes 34/34
+- Live validation confirmed all prior fixes (IDOR, ban/membership, private-circle, wallet race, traversal, rate limits, email exposure, age gate, compliance authZ) hold on the running server.
+- NEW gaps found in older Rooms/Events features and FIXED + verified:
+  - SEC-001 Rooms: rooms in a PRIVATE circle now require membership (assert_can_access_room) on get_room/join_room/room_messages/send_room_message; create_room requires membership when circle_id set. Global (no-circle) rooms stay open by design.
+  - SEC-002 Events: create_event now requires circle existence + membership (assert_can_write).
+  - SEC-003: toggle_like/toggle_rsvp/circle_leaderboard now gate private-circle reads + check target existence.
+  - P3 Agora: rtc_token derives the Agora uid server-side (ignores client uid); AudioRoom.native uses the returned uid.
+
 ## Compliance X1–X7 (2026-06, fork) — IMPLEMENTED & VERIFIED (iter8: 31/31 tests pass)
 Against global social-media legislation (EU DSA/GDPR, UK OSA, US COPPA/state, AU under-16, India DPDP, Brazil ECA Digital):
 - X1/X7 Legal + consent: in-app Privacy Policy & Terms screens (app/legal/[doc].tsx), consent checkbox at register, server-tracked consent (consents collection) + GET /api/legal versions.

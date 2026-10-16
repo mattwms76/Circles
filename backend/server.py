@@ -698,6 +698,9 @@ async def toggle_rsvp(event_id: str, user: dict = Depends(current_user)):
     e = await db.events.find_one({"id": event_id})
     if not e:
         raise HTTPException(404, "Event not found")
+    ec = await db.circles.find_one({"id": e["circle_id"]})
+    if ec:
+        await assert_can_read_circle(ec, user["id"])
     existing = await db.event_rsvps.find_one({"event_id": event_id, "user_id": user["id"]})
     if existing:
         await db.event_rsvps.delete_one({"event_id": event_id, "user_id": user["id"]})
@@ -711,6 +714,10 @@ async def toggle_rsvp(event_id: str, user: dict = Depends(current_user)):
 
 @api.post("/circles/{circle_id}/events")
 async def create_event(circle_id: str, body: EventIn, user: dict = Depends(current_user)):
+    c = await db.circles.find_one({"id": circle_id})
+    if not c:
+        raise HTTPException(404, "Circle not found")
+    await assert_can_write(circle_id, user["id"])
     doc = {
         "id": new_id(),
         "circle_id": circle_id,
@@ -836,6 +843,15 @@ async def assert_can_read_circle(c: dict, uid: str) -> None:
         raise HTTPException(403, "This circle is private")
 
 
+async def assert_can_access_room(room: dict, uid: str) -> None:
+    """A room tied to a private circle is only accessible to that circle's members."""
+    cid = room.get("circle_id")
+    if cid:
+        c = await db.circles.find_one({"id": cid})
+        if c:
+            await assert_can_read_circle(c, uid)
+
+
 @api.post("/posts")
 async def create_post(body: PostIn, user: dict = Depends(current_user)):
     if not body.text.strip() and not body.image_url:
@@ -859,6 +875,12 @@ async def create_post(body: PostIn, user: dict = Depends(current_user)):
 
 @api.post("/posts/{post_id}/like")
 async def toggle_like(post_id: str, user: dict = Depends(current_user)):
+    p = await db.posts.find_one({"id": post_id})
+    if not p:
+        raise HTTPException(404, "Post not found")
+    pc = await db.circles.find_one({"id": p["circle_id"]})
+    if pc:
+        await assert_can_read_circle(pc, user["id"])
     existing = await db.likes.find_one({"post_id": post_id, "user_id": user["id"]})
     if existing:
         await db.likes.delete_one({"post_id": post_id, "user_id": user["id"]})
@@ -1192,6 +1214,12 @@ async def list_rooms(user: dict = Depends(current_user)):
 
 @api.post("/rooms")
 async def create_room(body: RoomIn, user: dict = Depends(current_user)):
+    if body.circle_id:
+        c = await db.circles.find_one({"id": body.circle_id})
+        if not c:
+            raise HTTPException(404, "Circle not found")
+        if not await is_member(body.circle_id, user["id"]):
+            raise HTTPException(403, "Join this circle to host a room in it")
     status = "live" if not body.scheduled_at else "scheduled"
     doc = {
         "id": new_id(),
@@ -1215,6 +1243,7 @@ async def get_room(room_id: str, user: dict = Depends(current_user)):
     r = await db.rooms.find_one({"id": room_id})
     if not r:
         raise HTTPException(404, "Room not found")
+    await assert_can_access_room(r, user["id"])
     data = await enrich_room(r, user["id"])
     parts = await db.room_participants.find({"room_id": room_id}).to_list(200)
     rank = {"host": 0, "cohost": 1, "listener": 2}
@@ -1236,6 +1265,7 @@ async def join_room(room_id: str, user: dict = Depends(current_user)):
     r = await db.rooms.find_one({"id": room_id})
     if not r:
         raise HTTPException(404, "Room not found")
+    await assert_can_access_room(r, user["id"])
     if r.get("status") == "scheduled" and r["host_id"] == user["id"]:
         await db.rooms.update_one({"id": room_id}, {"$set": {"status": "live"}})
     existing = await db.room_participants.find_one({"room_id": room_id, "user_id": user["id"]})
@@ -1308,6 +1338,10 @@ async def demote_participant(room_id: str, target_id: str, user: dict = Depends(
 
 @api.get("/rooms/{room_id}/messages")
 async def room_messages(room_id: str, user: dict = Depends(current_user)):
+    r = await db.rooms.find_one({"id": room_id})
+    if not r:
+        raise HTTPException(404, "Room not found")
+    await assert_can_access_room(r, user["id"])
     msgs = await db.room_messages.find({"room_id": room_id}).sort("created_at", 1).to_list(500)
     out = []
     for m in msgs:
@@ -1328,6 +1362,10 @@ async def room_messages(room_id: str, user: dict = Depends(current_user)):
 
 @api.post("/rooms/{room_id}/messages")
 async def send_room_message(room_id: str, body: RoomMessageIn, user: dict = Depends(current_user)):
+    r = await db.rooms.find_one({"id": room_id})
+    if not r:
+        raise HTTPException(404, "Room not found")
+    await assert_can_access_room(r, user["id"])
     doc = {
         "id": new_id(),
         "room_id": room_id,
@@ -1441,6 +1479,10 @@ async def send_gift(body: GiftIn, user: dict = Depends(current_user)):
 
 @api.get("/circles/{circle_id}/leaderboard")
 async def circle_leaderboard(circle_id: str, user: dict = Depends(current_user)):
+    c = await db.circles.find_one({"id": circle_id})
+    if not c:
+        raise HTTPException(404, "Circle not found")
+    await assert_can_read_circle(c, user["id"])
     gifts = await db.gifts.find({"circle_id": circle_id}).to_list(2000)
     totals: dict = {}
     for g in gifts:
@@ -1648,7 +1690,8 @@ RTC_TTL = 3600
 
 
 class RtcTokenReq(BaseModel):
-    uid: int = Field(gt=0, lt=2_000_000_000)
+    # uid is derived server-side and ignored if sent (kept for backwards-compat).
+    uid: Optional[int] = None
 
 
 @api.get("/live/config")
@@ -1671,14 +1714,17 @@ async def rtc_token(room_id: str, body: RtcTokenReq, user: dict = Depends(curren
     can_speak = part.get("role") in ("host", "cohost")
     agora_role = AGORA_ROLE_PUBLISHER if can_speak else AGORA_ROLE_SUBSCRIBER
     channel = f"room_{room_id}"
+    # Bind the Agora uid to the user server-side so a client can't impersonate
+    # another participant's audio uid. Deterministic, stable, within Agora's range.
+    rtc_uid = (int(user["id"].replace("-", "")[:8], 16) % 1_999_999_998) + 1
     expire_ts = int(_time.time()) + RTC_TTL
     token = RtcTokenBuilder.buildTokenWithUid(
-        AGORA_APP_ID, AGORA_APP_CERTIFICATE, channel, body.uid, agora_role, expire_ts
+        AGORA_APP_ID, AGORA_APP_CERTIFICATE, channel, rtc_uid, agora_role, expire_ts
     )
     return {
         "appId": AGORA_APP_ID,
         "channel": channel,
-        "uid": body.uid,
+        "uid": rtc_uid,
         "token": token,
         "canSpeak": can_speak,
         "expiresIn": RTC_TTL,

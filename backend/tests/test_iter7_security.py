@@ -47,7 +47,8 @@ def _register(name_prefix: str) -> dict:
     pw = "pass1234"
     for attempt in range(8):
         r = requests.post(f"{BASE}/auth/register", json={
-            "email": email, "password": pw, "name": f"TEST {name_prefix}"
+            "email": email, "password": pw, "name": f"TEST {name_prefix}",
+            "date_of_birth": "1995-05-20", "accepted_terms": True
         }, timeout=20)
         if r.status_code == 429:
             time.sleep(13)
@@ -99,11 +100,19 @@ def user_d() -> dict:
 
 @pytest.fixture(scope="session")
 def seed_circle_id(guide_tok) -> str:
-    """Pick first public seed circle guide owns."""
-    r = requests.get(f"{BASE}/circles", headers=_auth(guide_tok), timeout=20)
+    """Pick first public (non-private, non-TEST leftover) seed circle guide owns."""
+    r = requests.get(f"{BASE}/circles", headers=_auth(guide_tok), params={"mine": "true"}, timeout=20)
     assert r.status_code == 200
     circles = r.json()
     assert len(circles) > 0
+    # Prefer non-private circles that are NOT leftover TEST circles
+    for c in circles:
+        if not c.get("is_private") and not (c.get("name") or "").startswith("TEST"):
+            return c["id"]
+    # Fallback: any non-private circle
+    for c in circles:
+        if not c.get("is_private"):
+            return c["id"]
     return circles[0]["id"]
 
 
@@ -557,7 +566,9 @@ class TestRateLimit:
             r = requests.post(f"{BASE}/auth/register", json={
                 "email": f"TEST_rl_{_tag()}_{i}@circles.app",
                 "password": "pass1234",
-                "name": "TEST RL"
+                "name": "TEST RL",
+                "date_of_birth": "1995-05-20",
+                "accepted_terms": True
             }, timeout=10)
             if r.status_code == 429:
                 got_429 = True

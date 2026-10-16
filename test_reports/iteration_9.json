@@ -1,0 +1,39 @@
+{
+  "summary": "LIVE security re-validation PASSED end-to-end against https://circles-demo-1.preview.emergentagent.com — 62/62 pytest cases green (iter7: 31/31 security + iter8: 31/31 compliance). Confirmed CLOSED on the running server: (DM IDOR SEC-002) non-member B → 403 on GET+POST messages / POST read / POST+GET typing for direct conv; non-member → 403 on circle conv messages. (Membership/ban SEC-003) non-member → 403 posting + commenting on a seed-circle post; after owner /remove, user → 403 posting AND 403 commenting (ban enforced via banned_until even without a membership row); muted user → 403 posting, then 200 after unmute. (Private circle SEC-003) non-member → 403 on GET /circles/{id}, /circles/{id}/posts, /circles/{id}/members, /circles/{id}/events, and /posts/{postId}/comments for a post inside; GET /circles discovery for non-member does NOT list the private circle, mine=true for owner does. (Wallet SEC-004) fresh user drained from 100→25 via three Flower(25) gifts, two rapid Flower attempts → exactly one 200 and one 400 'Not enough coins', balance never negative; self-gift → 400; /wallet/buy bounds amount=100001/0/-5 → 400, amount=50 credits +50; normal gift debits sender -10, credits recipient +10, bumps post.gift_count. (File traversal SEC-005) GET /api/files/../etc/passwd, /files/etc/passwd, /files/notcircles/x.jpg → 404; legitimate /api/files/circles/... from /api/upload → 200 with image/* content-type. (Rate limiting P3) login hits 429 within ≤30 attempts (10/min cap), register hits 429 within ≤8 attempts (5/min cap). (Email exposure P3) GET /users/{id} and /circles/{id}/members contain NO 'email' field; /auth/me returns own email; register/login responses return own email. (Age gate X3) under-13 DOB → 403, adult → 200 is_minor=false, 13≤age≤17 → 200 is_minor=true, missing DOB → 400 (422 Pydantic), invalid DOB format → 400, accepted_terms:false → 400, duplicate email → 409. (Compliance authZ X5/X6) /moderation/priority and /moderation/appeals mod-only (non-mod 403), appeal on action not belonging to you → 403, double-appeal → 409, /reports/mine returns only your reports; /users/me/export shape has 'account/consent/reports/posts/comments/messages/gifts/notifications/moderation' keys with own email present and no other users' emails. Default-credential informational: guide@circles.app/circles123 (owner+mod) and demo@circles.app/demo1234 both login 200 (expected in this preview per test_credentials.md).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter7_security.py",
+    "/app/backend/tests/test_iter8_compliance.py",
+    "/app/test_reports/pytest/iter9_iter7_results.xml",
+    "/app/test_reports/pytest/iter9_iter8_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now ~1971 lines — strongly recommend splitting into routers (auth, circles, posts, conv, rooms, wallet, moderation, compliance) before adding more surface area. Pre-existing from iter6/7/8 reports.",
+    "slowapi uses in-memory per-worker state and get_remote_address which, behind the K8s ingress, may collapse to a single IP for all callers. Rate limits DO fire (429 observed), but under multi-pod scale the effective window varies — consider Redis storage in prod.",
+    "send_gift uses atomic single-doc update_one({id, coins:{$gte:cost}}, {$inc:{coins:-cost}}) — correctly prevents overdraft on standalone Mongo. However, recipient credit + transaction inserts + gift insert that follow are non-transactional; a crash mid-flow could silently burn sender coins. Pre-existing from iter7, documented, acceptable for single-node.",
+    "DELETE /users/me is non-atomic across ~15 collections on standalone Mongo. Partial failure can leave orphans. Pre-existing from iter8.",
+    "No new bugs found — all previously-fixed security + compliance issues remain CLOSED on the live preview backend."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter7_security.py (test-harness only: added date_of_birth + accepted_terms to _register and the inline register-rate-limit loop so the stale register payload matches current required fields; also hardened seed_circle_id fixture to pick a non-private, non-TEST leftover circle guide owns — needed because the preview DB now has TEST private circles at index 0 from prior iterations)",
+    "/app/test_reports/pytest/iter9_iter7_results.xml (new — junit output: 31 passed)",
+    "/app/test_reports/pytest/iter9_iter8_results.xml (new — junit output: 31 passed)",
+    "/app/test_reports/iteration_9.json (new — this report)"
+  ],
+  "success_rate": {"backend": "100% (62/62 — iter7 31/31 + iter8 31/31)", "frontend": "not tested — testing_type was backend only"},
+  "seed_data_creation": "All throwaway users prefixed TEST_<role>_<hex>@circles.app with DOB 1995-05-20 + accepted_terms:true. Private circles and events named 'TEST ...'. No seed data mutated; guide still owns all seed circles. Idempotent — safe to re-run after ≥65s cooldown so rate-limit windows reset.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Base URL = EXPO_PUBLIC_BACKEND_URL in /app/frontend/.env (https://circles-demo-1.preview.emergentagent.com), all routes under /api. Credentials guide@circles.app/circles123 (owner of seed circles + global moderator) and demo@circles.app/demo1234 (not onboarded). Register payload MUST include date_of_birth (YYYY-MM-DD) and accepted_terms:true (both required by Pydantic model) — age<13 → 403, consent false → 400. Rate limits (slowapi in-memory): login 10/min, register 5/min per source IP; parallel pytest-xdist on same IP will share the bucket, use serial run (-o addopts='') or the retry/sleep helpers already in test_iter7_security._register and test_iter8_compliance._register. seed_circle_id fixture in test_iter7_security.py now filters mine=true + not is_private + name NOT startswith 'TEST' because the preview DB has leftover TEST private circles from prior iterations. iter8 cannot DELETE guide (owner guard — guide owns all seed circles). Mongo is standalone (no replica set) — do NOT rely on multi-doc transactions. Agora/live-audio out of scope. Everything green against live preview as of this run.",
+  "rca_of_issue": "Initial 10 errors + 7 failures on first iter7 run were test-harness drift only — not server bugs. Root causes: (1) _register payload missing date_of_birth/accepted_terms (iter8 made those required, iter7 fixture was stale) → fixed by adding the two fields; (2) seed_circle_id fixture returned circles[0] which on the current live DB is a leftover TEST Private circle from prior iter runs (not a public seed circle), causing guide to appear as non-owner for posting/mute/remove and circle-conv lookups to fail → fixed by filtering mine=true AND not is_private AND name not startswith 'TEST'. After both test-harness fixes, 31/31 iter7 + 31/31 iter8 pass against live preview. Zero backend bugs."
+}
