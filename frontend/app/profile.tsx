@@ -81,7 +81,7 @@ export default function Profile() {
         showBack
         right={
           <Pressable testID="edit-toggle" onPress={() => (editing ? save() : setEditing(true))} hitSlop={8}>
-            <Body size={14} weight="medium" color={colors.brandPrimary} style={{ fontFamily: fonts.textMedium }}>
+            <Body size={14} weight="medium" color={colors.brandPrimary}>
               {editing ? (busy ? "Saving…" : "Save") : "Edit"}
             </Body>
           </Pressable>

@@ -81,7 +81,7 @@ export function EventComposer({
           multiline
         />
 
-        <Body size={12} weight="medium" color={colors.onSurfaceSecondary} style={{ fontFamily: fonts.textMedium }}>
+        <Body size={12} weight="medium" color={colors.onSurfaceSecondary}>
           Starts
         </Body>
         {Platform.OS === "android" ? (

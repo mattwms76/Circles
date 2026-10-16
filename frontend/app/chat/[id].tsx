@@ -86,7 +86,7 @@ export default function Chat() {
               {!item.mine ? <Avatar uri={item.author_avatar} name={item.author_name} size={30} /> : null}
               <View style={[styles.bubble, item.mine ? styles.mineBubble : styles.theirsBubble]}>
                 {!item.mine ? (
-                  <Body size={11} weight="medium" color={colors.brandPrimary} style={{ fontFamily: fonts.textMedium, marginBottom: 2 }}>
+                  <Body size={11} weight="medium" color={colors.brandPrimary} style={{ marginBottom: 2 }}>
                     {item.author_name}
                   </Body>
                 ) : null}

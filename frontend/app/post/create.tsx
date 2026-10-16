@@ -113,7 +113,7 @@ export default function CreatePost() {
                   onPress={() => setCircleId(c.id)}
                   style={[styles.circleChip, { borderColor: circleId === c.id ? colors.brandPrimary : colors.border, backgroundColor: circleId === c.id ? colors.brandTertiary : colors.surface }]}
                 >
-                  <Body size={13} weight="medium" color={circleId === c.id ? colors.onBrandTertiary : colors.onSurfaceSecondary} style={{ fontFamily: fonts.textMedium }}>
+                  <Body size={13} weight="medium" color={circleId === c.id ? colors.onBrandTertiary : colors.onSurfaceSecondary}>
                     {c.name}
                   </Body>
                 </Pressable>
@@ -142,7 +142,7 @@ export default function CreatePost() {
 
           <Pressable testID="add-photo" style={styles.addPhoto} onPress={pickImage} disabled={uploading}>
             <Icon name="image" size={20} color={colors.brandPrimary} />
-            <Body size={14} weight="medium" color={colors.brandPrimary} style={{ fontFamily: fonts.textMedium }}>
+            <Body size={14} weight="medium" color={colors.brandPrimary}>
               {uploading ? "Uploading…" : imageUrl ? "Replace photo" : "Add photo"}
             </Body>
           </Pressable>

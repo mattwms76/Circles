@@ -16,7 +16,7 @@ const light = {
   onSurfaceTertiary: "#5C534D",
   surfaceInverse: "#2A2522",
   onSurfaceInverse: "#FAF7F5",
-  muted: "#8C7C75",
+  muted: "#7A6B61",
 
   brand: "#C86A4A",
   onBrand: "#FFFFFF",
@@ -98,6 +98,20 @@ export const spacing = {
   xl: 24,
   "2xl": 32,
   "3xl": 48,
+} as const;
+
+// Central type scale — the single source of truth for font sizes.
+// Use these named steps instead of passing raw numbers to Display/Body.
+export const type = {
+  micro: 11,
+  caption: 12,
+  footnote: 13,
+  body: 14,
+  callout: 15,
+  title: 18,
+  heading: 24,
+  display: 30,
+  hero: 48,
 } as const;
 
 export const radius = {

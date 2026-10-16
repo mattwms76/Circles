@@ -60,16 +60,17 @@ export default function Explore() {
             style={styles.searchInput}
           />
         </View>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.chipRow}
-          style={styles.chipScroller}
-        >
-          {CATEGORIES.map((c) => (
-            <Chip key={c} testID={`cat-${c}`} label={c} active={category === c} onPress={() => setCategory(c)} />
-          ))}
-        </ScrollView>
+        <View style={styles.chipScroller}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.chipRow}
+          >
+            {CATEGORIES.map((c) => (
+              <Chip key={c} testID={`cat-${c}`} label={c} active={category === c} onPress={() => setCategory(c)} />
+            ))}
+          </ScrollView>
+        </View>
       </>
     ),
     [search, category, colors, styles],
@@ -123,6 +124,6 @@ const useStyles = makeStyles((colors) => ({
     backgroundColor: colors.surfaceSecondary,
   },
   searchInput: { flex: 1, fontFamily: fonts.textRegular, fontSize: 15, color: colors.onSurface },
-  chipScroller: { maxHeight: 56 },
-  chipRow: { gap: spacing.sm, paddingHorizontal: spacing.lg, paddingVertical: spacing.md, alignItems: "center" },
+  chipScroller: { height: 60, flexGrow: 0, flexShrink: 0 },
+  chipRow: { gap: spacing.sm, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, alignItems: "center" },
 }));

@@ -10,14 +10,14 @@ import {
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
 
-import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
+import { fonts, makeStyles, radius, spacing, type, useTheme } from "@/src/theme";
 import { mediaUrl } from "@/src/api/client";
 import { Icon, IconName } from "@/src/components/icon";
 
 // ------------------------------- Text --------------------------------------
 export function Display({
   children,
-  size = 24,
+  size = type.heading,
   weight = "medium",
   style,
   numberOfLines,
@@ -43,7 +43,7 @@ export function Display({
 
 export function Body({
   children,
-  size = 14,
+  size = type.body,
   weight = "regular",
   color,
   style,
@@ -82,7 +82,7 @@ export function Overline({ children, style }: { children: ReactNode; style?: Tex
       style={[
         {
           fontFamily: fonts.textMedium,
-          fontSize: 11,
+          fontSize: type.micro,
           letterSpacing: 1.2,
           textTransform: "uppercase",
           color: colors.muted,
@@ -173,10 +173,10 @@ const useButtonStyles = makeStyles((colors) => ({
     alignItems: "center",
     justifyContent: "center",
   },
-  small: { minHeight: 38, paddingHorizontal: spacing.lg, borderRadius: radius.md },
+  small: { minHeight: 44, paddingHorizontal: spacing.lg, borderRadius: radius.md },
   row: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  label: { fontFamily: fonts.textMedium, fontSize: 15 },
-  labelSmall: { fontSize: 13 },
+  label: { fontFamily: fonts.textMedium, fontSize: type.callout },
+  labelSmall: { fontSize: type.footnote },
 }));
 
 // ------------------------------- Chip ---------------------------------------
@@ -197,7 +197,7 @@ export function Chip({
       testID={testID}
       onPress={onPress}
       style={{
-        height: 36,
+        height: 44,
         flexShrink: 0,
         paddingHorizontal: spacing.lg,
         borderRadius: radius.pill,
@@ -211,7 +211,7 @@ export function Chip({
       <Text
         style={{
           fontFamily: fonts.textMedium,
-          fontSize: 13,
+          fontSize: type.footnote,
           color: active ? colors.onBrandPrimary : colors.onSurfaceSecondary,
         }}
       >
@@ -317,4 +317,25 @@ export function EmptyState({
 export function Divider() {
   const { colors } = useTheme();
   return <View style={{ height: 1, backgroundColor: colors.divider }} />;
+}
+
+// --------------------------- CoinIcon ---------------------------------------
+// A filled terracotta token with a $ glyph — reads clearly as a coin
+// (Feather has no coin glyph, so "circle" alone looked like an empty ring).
+export function CoinIcon({ size = 24 }: { size?: number }) {
+  const { colors } = useTheme();
+  return (
+    <View
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        backgroundColor: colors.brandPrimary,
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <Icon name="dollar-sign" size={size * 0.56} color={colors.onBrandPrimary} />
+    </View>
+  );
 }

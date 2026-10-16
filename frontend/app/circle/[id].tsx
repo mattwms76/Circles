@@ -155,7 +155,7 @@ export default function CircleDetail() {
             <Icon name="arrow-left" size={22} color="#FFFFFF" />
           </Pressable>
           <View style={styles.heroContent}>
-            <Body size={11} weight="medium" color="#F4D5CA" style={{ letterSpacing: 1.2, fontFamily: fonts.textMedium }}>
+            <Body size={11} weight="medium" color="#F4D5CA" style={{ letterSpacing: 1.2 }}>
               {circle.category.toUpperCase()}
             </Body>
             <Display size={28} weight="semibold" style={{ color: "#FFFFFF" }}>{circle.name}</Display>
@@ -194,7 +194,7 @@ export default function CircleDetail() {
         <View style={styles.tabs}>
           {(["posts", "events", "about", "people"] as TabKey[]).map((t) => (
             <Pressable key={t} testID={`tab-${t}`} style={styles.tab} onPress={() => setTab(t)}>
-              <Body size={14} weight="medium" color={tab === t ? colors.onSurface : colors.muted} style={{ fontFamily: fonts.textMedium }}>
+              <Body size={14} weight="medium" color={tab === t ? colors.onSurface : colors.muted}>
                 {t[0].toUpperCase() + t.slice(1)}
               </Body>
               {tab === t ? <View style={styles.tabUnderline} /> : null}
@@ -316,10 +316,10 @@ export default function CircleDetail() {
                       <View>
                         <Avatar uri={l.avatar_url} name={l.name} size={52} />
                         <View style={[styles.rankBadge, i === 0 && { backgroundColor: colors.warning }]}>
-                          <Body size={10} weight="medium" color={colors.onSurface} style={{ fontFamily: fonts.textMedium }}>{i + 1}</Body>
+                          <Body size={10} weight="medium" color={colors.onSurface}>{i + 1}</Body>
                         </View>
                       </View>
-                      <Body size={12} weight="medium" color={colors.onSurface} numberOfLines={1} style={{ maxWidth: 70, textAlign: "center", fontFamily: fonts.textMedium }}>
+                      <Body size={12} weight="medium" color={colors.onSurface} numberOfLines={1} style={{ maxWidth: 70, textAlign: "center" }}>
                         {l.name.split(" ")[0]}
                       </Body>
                       <Body size={11} color={colors.brandPrimary}>{l.total} coins</Body>
@@ -336,7 +336,7 @@ export default function CircleDetail() {
                   <Pressable style={styles.memberInfo} onPress={() => router.push(`/user/${m.id}`)}>
                     <Avatar uri={m.avatar_url} name={m.name} size={44} />
                     <View style={{ flex: 1 }}>
-                      <Body size={15} weight="medium" color={colors.onSurface} style={{ fontFamily: fonts.textMedium }}>{m.name}</Body>
+                      <Body size={15} weight="medium" color={colors.onSurface}>{m.name}</Body>
                       <View style={{ flexDirection: "row", gap: spacing.sm }}>
                         {m.role !== "member" ? <Body size={12} color={colors.brandPrimary}>{m.role}</Body> : null}
                         {m.muted ? <Body size={12} color={colors.warning}>muted</Body> : null}

@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useRef, useState, type ReactNod
 import { Animated, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { fonts, radius, spacing, useTheme } from "@/src/theme";
+import { radius, spacing, useTheme } from "@/src/theme";
 import { Body } from "@/src/components/ui";
 import { Icon, IconName } from "@/src/components/icon";
 
@@ -64,7 +64,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           }}
         >
           <Icon name={icon} size={18} color={fg} />
-          <Body size={14} weight="medium" color={fg} style={{ flex: 1, fontFamily: fonts.textMedium }}>
+          <Body size={14} weight="medium" color={fg} style={{ flex: 1 }}>
             {message}
           </Body>
         </View>

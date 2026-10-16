@@ -72,7 +72,7 @@ export default function PostDetail() {
               <Avatar uri={item.author_avatar} name={item.author_name} size={36} />
               <View style={{ flex: 1 }}>
                 <View style={styles.commentTop}>
-                  <Body size={13} weight="medium" color={colors.onSurface} style={{ fontFamily: fonts.textMedium }}>
+                  <Body size={13} weight="medium" color={colors.onSurface}>
                     {item.author_name}
                   </Body>
                   {item.author_is_supporter ? (

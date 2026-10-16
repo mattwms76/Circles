@@ -5,7 +5,7 @@ import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
+import { makeStyles, radius, spacing, useTheme } from "@/src/theme";
 import { mediaUrl, apiDelete, apiPost } from "@/src/api/client";
 import { useAuth } from "@/src/auth/auth-context";
 import { useToast } from "@/src/components/toast";
@@ -83,13 +83,13 @@ function PostCardComponent({
         <Avatar uri={post.author_avatar} name={post.author_name} size={40} />
         <View style={{ flex: 1 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.xs }}>
-            <Body size={14} weight="medium" color={colors.onSurface} style={{ fontFamily: fonts.textMedium }}>
+            <Body size={14} weight="medium" color={colors.onSurface}>
               {post.author_name}
             </Body>
             {post.author_is_supporter ? (
               <View style={styles.supporterBadge} testID={`supporter-${post.id}`}>
-                <Icon name="star" size={10} color={colors.onWarning} />
-                <Body size={10} weight="medium" color={colors.onWarning} style={{ fontFamily: fonts.textMedium }}>Top supporter</Body>
+                <Icon name="star" size={11} color={colors.onWarning} />
+                <Body size={11} weight="medium" color={colors.onWarning}>Top supporter</Body>
               </View>
             ) : null}
           </View>
@@ -123,6 +123,7 @@ function PostCardComponent({
         <Pressable
           testID={`like-${post.id}`}
           style={styles.action}
+          hitSlop={8}
           onPress={() => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
             onToggleLike(post);
@@ -136,6 +137,7 @@ function PostCardComponent({
         <Pressable
           testID={`comment-${post.id}`}
           style={styles.action}
+          hitSlop={8}
           onPress={() => router.push(`/post/${post.id}`)}
         >
           <Icon name="message-circle" size={18} color={colors.muted} />
@@ -144,7 +146,7 @@ function PostCardComponent({
           </Body>
         </Pressable>
         {!isMine ? (
-          <Pressable testID={`gift-${post.id}`} style={styles.action} onPress={() => setGifting(true)}>
+          <Pressable testID={`gift-${post.id}`} style={styles.action} hitSlop={8} onPress={() => setGifting(true)}>
             <Icon name="gift" size={18} color={post.gift_count > 0 ? colors.brandPrimary : colors.muted} />
             <Body size={13} color={post.gift_count > 0 ? colors.brandPrimary : colors.muted}>
               {post.gift_count > 0 ? post.gift_count : "Gift"}

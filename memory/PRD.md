@@ -61,6 +61,18 @@ Rebuild the "Circles" app (github.com/mattwms76/Circles) as a fresh Expo + FastA
 - Reminder Nudges: NudgeWatcher toasts once when an RSVP'd event starts within the hour (dedup in storage), on top of the 24h Home banner.
 - Gift Leaderboard: gifts attributed to their circle; circle People tab shows "Top supporters" (top coin senders).
 
+## Implemented — Iteration 6 (2026-06, fork) — 17/17 backend tests pass
+- Backend polish: mute/ban duration capped at 7 days (MAX_MOD_MINUTES=10080, clamp_minutes); GET /circles/{id}/members now returns muted_until; event starts_at normalized to UTC on write (norm_iso).
+- Design-system fixes (8): raised light `muted` contrast to ~4.9:1; added central `type` scale in theme.ts; Chip + Button-small bumped to 44px touch targets; new `CoinIcon` (terracotta $ token) replacing empty-ring placeholder in Wallet; supporter badge 10→11px; hitSlop on post like/comment/gift; fixed Discover category-chip clipping; removed ~22 redundant fontFamily overrides across 15 files.
+
+## Security Audit (2026-06, fork) — findings open, NOT yet fixed
+- SEC-001 CRITICAL: seeded guide/demo login credentials (guide is platform moderator) — remove before launch.
+- SEC-002 HIGH: conversation message read/write missing membership check (DM IDOR).
+- SEC-003 HIGH: create_post/add_comment don't enforce membership or circle_bans; private circles readable by non-members.
+- SEC-004 MEDIUM: non-atomic coin debit/credit in /gifts (race to negative); /wallet/buy mints coins (intentionally mocked, no payment).
+- SEC-005 MEDIUM: /api/files/{path} served without auth; possible path traversal.
+- Hardening (P3): email exposed in public_user; static JWT secret + .env not gitignored; CORS '*' with credentials; no login/register rate limiting; unescaped $regex in list_circles search.
+
 ## Pending — Real Live Audio (Agora) [AWAITING KEYS + NATIVE BUILD]
 - Playbook obtained (react-native-agora 4.x native + agora-rtc-sdk-ng web; FastAPI RTC token endpoint with agora-token-builder).
 - Requires AGORA_APP_ID + AGORA_APP_CERTIFICATE from the user; cannot run in Expo Go/web preview (needs a dev/native build). The raise-hand/co-host stage is already built and will attach to Agora audio once keys are provided and a build is generated.

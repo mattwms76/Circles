@@ -4,11 +4,11 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useAuth } from "@/src/auth/auth-context";
 import { apiGet, apiPost } from "@/src/api/client";
-import { Body, Display, Divider, EmptyState, Loading, Overline } from "@/src/components/ui";
+import { Body, CoinIcon, Display, Divider, EmptyState, Loading, Overline } from "@/src/components/ui";
 import { ScreenHeader } from "@/src/components/header";
 import { Icon } from "@/src/components/icon";
 import { useToast } from "@/src/components/toast";
-import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
+import { makeStyles, radius, spacing, useTheme } from "@/src/theme";
 import { formatDateTime } from "@/src/lib/time";
 
 type Txn = { id: string; type: string; amount: number; label: string; created_at: string };
@@ -48,7 +48,7 @@ export default function WalletScreen() {
           <View style={styles.balanceCard}>
             <Overline>Your balance</Overline>
             <View style={styles.balanceRow}>
-              <Icon name="circle" size={28} color={colors.brandPrimary} />
+              <CoinIcon size={32} />
               <Display size={48} weight="semibold">{data.balance}</Display>
             </View>
             <Body size={13} color={colors.muted}>coins to send as gifts</Body>
@@ -59,10 +59,10 @@ export default function WalletScreen() {
             <View style={styles.packs}>
               {PACKS.map((p) => (
                 <Pressable key={p} testID={`buy-${p}`} style={styles.pack} onPress={() => buy(p)}>
-                  <Icon name="circle" size={22} color={colors.brandPrimary} />
+                  <CoinIcon size={24} />
                   <Display size={20} weight="medium">{p}</Display>
                   <View style={styles.priceTag}>
-                    <Body size={12} weight="medium" color={colors.onBrandPrimary} style={{ fontFamily: fonts.textMedium }}>{PRICES[p]}</Body>
+                    <Body size={12} weight="medium" color={colors.onBrandPrimary}>{PRICES[p]}</Body>
                   </View>
                 </Pressable>
               ))}
@@ -85,7 +85,7 @@ export default function WalletScreen() {
                     <Body size={14} color={colors.onSurface}>{t.label}</Body>
                     <Body size={12} color={colors.muted}>{formatDateTime(t.created_at)}</Body>
                   </View>
-                  <Body size={15} weight="medium" color={t.amount > 0 ? colors.success : colors.onSurface} style={{ fontFamily: fonts.textMedium }}>
+                  <Body size={15} weight="medium" color={t.amount > 0 ? colors.success : colors.onSurface}>
                     {t.amount > 0 ? "+" : ""}{t.amount}
                   </Body>
                 </View>

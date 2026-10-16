@@ -104,7 +104,7 @@ export default function CreateCircle() {
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.catRow}>
           {CATEGORIES.map((c) => (
             <Pressable key={c} testID={`circle-cat-${c}`} onPress={() => setCategory(c)} style={[styles.catChip, { borderColor: category === c ? colors.brandPrimary : colors.border, backgroundColor: category === c ? colors.brandPrimary : colors.surface }]}>
-              <Body size={13} weight="medium" color={category === c ? colors.onBrandPrimary : colors.onSurfaceSecondary} style={{ fontFamily: fonts.textMedium }}>{c}</Body>
+              <Body size={13} weight="medium" color={category === c ? colors.onBrandPrimary : colors.onSurfaceSecondary}>{c}</Body>
             </Pressable>
           ))}
         </ScrollView>

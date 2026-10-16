@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 6 polish verified end-to-end. Backend 17/17 pytest cases pass covering: (A) Mute cap — POST /circles/{id}/members/{uid}/mute with minutes=999999 clamps muted_until to <= now+7d (and >= now+7d-60s), minutes=-5 clamps to +1m, POST .../remove with 999999 clamps banned_until to <= now+7d and the ban still blocks rejoin (403); (B) muted_until exposure — GET /circles/{id}/members returns the exact muted_until ISO string for the muted member, null for owner/non-muted members, and reverts to null after /unmute (muted bool mirror still correct); (C) Event timestamp normalization — POST /circles/{id}/events with starts_at='2026-11-01T10:00:00+05:30' and '2026-12-15T08:00:00Z' both come back with +00:00 offset and no 'Z', same instant preserved, GET /circles/{id}/events ordering ascending by starts_at remains correct across mixed-tz inputs, GET /events/upcoming also returns +00:00-normalized strings; (D) Regression — login+feed 200 w/ author_is_supporter bool on items, create-post/like/comment chain returns author_is_supporter on both post and comment, owner-immune (400) for mute+remove, non-mod gets 403, muted user is blocked from POST /posts and /posts/{id}/comments (403 each), banned user cannot rejoin (403), self-gift still 400. Frontend smoke (390x844, Expo web): login as guide works; Home feed renders with like/comment/gift buttons; Circles (Discover) screen shows 13 category chips all 44px tall (All=49x44, Writing=78x44, Wellness=90x44 — no clipping, horizontally scrollable), tapping chips flips active brand color, circle-search input filters cards; Wallet screen renders the new CoinIcon (terracotta disc w/ dollar-sign glyph) at both 32px (balance 'Your balance') and 24px (3 pack cards), buy-120 tap successfully added +120 coins (balance 735 -> 855); Calendar month grid loads w/ cal-prev/cal-next; Messages inbox lists conversations; Circle detail tabs tab-posts/tab-events/tab-about/tab-people all tap and switch content; Profile screen shows avatar, wallet summary, moderation queue, sign-out. No red screens. Only pre-existing console noise observed (pointerEvents, shadow*, useNativeDriver, Image resizeMode) — carried over from earlier iters, not introduced by this round.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "pointerEvents prop", "issue": "Pre-existing: 'props.pointerEvents is deprecated. Use style.pointerEvents' warning on multiple screens. Non-blocking."},
+      {"component": "shadow* style props", "issue": "Pre-existing: '\"shadow*\" style props are deprecated. Use \"boxShadow\"' warning. Non-blocking."},
+      {"component": "Animated useNativeDriver", "issue": "Pre-existing: wallet/modal animations trigger 'useNativeDriver is not supported' on web preview. Harmless on native."},
+      {"component": "Image resizeMode", "issue": "Pre-existing: 'Image: style.resizeMode is deprecated. Please use props.resizeMode.' observed on calendar/circle screens. Non-blocking."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter6_features.py",
+    "/app/test_reports/pytest/iter6_results.xml"
+  ],
+  "action_items": [
+    "Nice-to-have: emit muted_until (full ISO) in the mute response AND the members GET so the client can show 'muted until Nov 7, 3:14 PM' — already shipped in this iter; consider surfacing it in the manage-mute sheet toast as well.",
+    "Pre-existing from iter3/iter4: /api/gifts has no DB transaction between sender debit and recipient credit — crash between the two writes could burn/leak coins. Wrap in a Mongo session transaction.",
+    "Pre-existing: server.py is now 1584 lines — overdue to split into routers (auth, circles, moderation, events, posts, gifts, wallet, rooms, messages).",
+    "Pre-existing deprecations in RN Web layer — migrate pointerEvents -> style.pointerEvents, shadow* -> boxShadow, Image style.resizeMode -> props.resizeMode. Non-blocking console noise."
+  ],
+  "critical_code_review_comments": [
+    "clamp_minutes(min=1) silently converts non-positive input into a 1-minute mute — the API returns 200 even for minutes=0 or -5. Fine for now, but a 4xx on < 1 might communicate intent better than silent clamp.",
+    "norm_iso() falls back to the raw value on parse errors — a malformed starts_at (e.g. '2026-13-99') would persist as-is, then compare lexicographically in /events/upcoming and misbehave. Consider raising 422 on parse failure or validating with Pydantic field_validator.",
+    "GET /circles/{id}/members returns muted_until only when currently muted; a stale (expired) muted_until is correctly hidden, but the underlying membership doc still carries the past timestamp forever (no cleanup). Minor DB bloat, no correctness issue.",
+    "server.py:570 still orders events via lexicographic ISO sort; now safe for new writes thanks to norm_iso, but legacy pre-iter6 events (stored with mixed offsets) will still mis-sort. Consider a one-time migration: db.events.update_many to re-normalize existing starts_at."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter6_features.py (new — 17 pytest cases for iter6 polish + regression)",
+    "/app/test_reports/pytest/iter6_results.xml (new — junit output)"
+  ],
+  "success_rate": {"backend": "100% (17/17)", "frontend": "100% of design-change screens verified (login, home feed buttons, Discover 13 chips @ 44px, chip toggle, circle-search, Wallet CoinIcon@32+24, buy-120 tap -> +120 coins, Calendar prev/next, Messages inbox, Circle detail tab-posts/events/about/people all tappable, Profile)"},
+  "seed_data_creation": "All test data auto-generated with TEST_ prefix (circle TEST_Iter6_*, events TEST_Iter6_IST/Z/Later/Earliest/Up_*). Throwaway users TEST_<hex>v/vr/atk/tgt/mb/ban@circles.app. Idempotent — safe to re-run.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend base = EXPO_PUBLIC_BACKEND_URL in /app/frontend/.env (https://circles-demo-1.preview.emergentagent.com), all routes under /api. Credentials: guide@circles.app/circles123 (owner of all seed circles + global moderator), demo@circles.app/demo1234 (not onboarded). Iter6 adds MAX_MOD_MINUTES=10080 cap (server.py:93) applied via clamp_minutes() in both mute_member and remove_member, muted_until key on GET /circles/{id}/members (ISO when muted, None otherwise), and norm_iso() on starts_at in create_event. API contracts: POST /posts expects field 'text' (NOT 'content'); POST /gifts expects 'recipient_id' (NOT 'to_user_id'); CommentIn.text min_length=1. Frontend testIDs added this round: buy-120/buy-700/buy-1600 (wallet packs), cat-{Category} (explore chips, 13 categories), circle-search (search input), home-calendar, cal-prev/cal-next, cal-day-{n}, cal-rsvp-{eid}, tab-posts/tab-events/tab-about/tab-people, manage-{uid}, manage-role/mute/remove, supporter-{postId}. Profile route is at /profile (NOT /me). Bottom tabs: Home, Circles, Rooms, Messages (no profile tab — avatar in top-right of Home routes to /profile). Agora/live audio is OUT OF SCOPE.",
+  "rca_of_issue": ""
+}

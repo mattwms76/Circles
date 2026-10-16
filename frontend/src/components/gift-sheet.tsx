@@ -6,7 +6,7 @@ import { apiPost } from "@/src/api/client";
 import { Body, Display } from "@/src/components/ui";
 import { Icon } from "@/src/components/icon";
 import { useToast } from "@/src/components/toast";
-import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
+import { makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
 const GIFTS: { type: string; glyph: string; cost: number }[] = [
   { type: "Heart", glyph: "❤", cost: 10 },
@@ -85,9 +85,9 @@ export function GiftSheet({
                 onPress={() => send(g.type, g.cost)}
               >
                 <Display size={28} weight="regular" style={{ color: colors.brandPrimary }}>{g.glyph}</Display>
-                <Body size={13} weight="medium" color={colors.onSurface} style={{ fontFamily: fonts.textMedium }}>{g.type}</Body>
+                <Body size={13} weight="medium" color={colors.onSurface}>{g.type}</Body>
                 <View style={styles.costTag}>
-                  <Body size={11} weight="medium" color={colors.onBrandTertiary} style={{ fontFamily: fonts.textMedium }}>{g.cost}</Body>
+                  <Body size={11} weight="medium" color={colors.onBrandTertiary}>{g.cost}</Body>
                 </View>
               </Pressable>
             );

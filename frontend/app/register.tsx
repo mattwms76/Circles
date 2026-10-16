@@ -100,7 +100,7 @@ export default function Register() {
         <Pressable style={styles.switch} onPress={() => router.replace("/login")} testID="go-login">
           <Body size={14} color={colors.muted}>
             Already have an account?{" "}
-            <Body size={14} weight="medium" color={colors.brandPrimary} style={{ fontFamily: fonts.textMedium }}>
+            <Body size={14} weight="medium" color={colors.brandPrimary}>
               Sign in
             </Body>
           </Body>

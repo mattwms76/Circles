@@ -10,7 +10,7 @@ import { useToast } from "@/src/components/toast";
 import { Body, Button, Display, Loading } from "@/src/components/ui";
 import { CircleCard, type Circle } from "@/src/components/circle-card";
 import { Icon } from "@/src/components/icon";
-import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
+import { makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
 const INTERESTS = [
   "Writing", "Wellness", "Photography", "Food", "Fitness", "Craft",
@@ -91,7 +91,7 @@ export default function Onboarding() {
                     ]}
                   >
                     {on ? <Icon name="check" size={15} color={colors.onBrandTertiary} /> : null}
-                    <Body size={14} weight="medium" color={on ? colors.onBrandTertiary : colors.onSurfaceSecondary} style={{ fontFamily: fonts.textMedium }}>
+                    <Body size={14} weight="medium" color={on ? colors.onBrandTertiary : colors.onSurfaceSecondary}>
                       {i}
                     </Body>
                   </Pressable>

@@ -122,7 +122,7 @@ export default function RoomScreen() {
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.topBar}>
         <View style={styles.liveBadge}>
-          <Body size={11} weight="medium" color={colors.onError} style={{ fontFamily: fonts.textMedium }}>● LIVE</Body>
+          <Body size={11} weight="medium" color={colors.onError}>● LIVE</Body>
         </View>
         <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
           {!room.is_host ? (
@@ -166,9 +166,9 @@ export default function RoomScreen() {
                   {p.name.split(" ")[0]}
                 </Body>
                 {p.role === "host" ? (
-                  <Body size={10} weight="medium" color={colors.brandPrimary} style={{ fontFamily: fonts.textMedium }}>HOST</Body>
+                  <Body size={10} weight="medium" color={colors.brandPrimary}>HOST</Body>
                 ) : p.role === "cohost" ? (
-                  <Body size={10} weight="medium" color={colors.brandPrimary} style={{ fontFamily: fonts.textMedium }}>CO-HOST</Body>
+                  <Body size={10} weight="medium" color={colors.brandPrimary}>CO-HOST</Body>
                 ) : null}
               </Pressable>
             );
@@ -187,7 +187,7 @@ export default function RoomScreen() {
           onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
           renderItem={({ item }) => (
             <View style={styles.msgRow} testID={`room-msg-${item.id}`}>
-              <Body size={13} weight="medium" color={colors.brandPrimary} style={{ fontFamily: fonts.textMedium }}>
+              <Body size={13} weight="medium" color={colors.brandPrimary}>
                 {item.author_name.split(" ")[0]}
               </Body>
               <Body size={14} color={colors.onSurface} style={{ flex: 1 }}>{item.text}</Body>

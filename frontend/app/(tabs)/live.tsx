@@ -95,7 +95,7 @@ export default function Live() {
             <Pressable testID={`room-${item.id}`} style={styles.card} onPress={() => router.push(`/room/${item.id}`)}>
               <View style={styles.badgeRow}>
                 <View style={[styles.badge, { backgroundColor: item.status === "live" ? colors.error : colors.surfaceTertiary }]}>
-                  <Body size={11} weight="medium" color={item.status === "live" ? colors.onError : colors.onSurfaceTertiary} style={{ fontFamily: fonts.textMedium }}>
+                  <Body size={11} weight="medium" color={item.status === "live" ? colors.onError : colors.onSurfaceTertiary}>
                     {item.status === "live" ? "● LIVE" : "SCHEDULED"}
                   </Body>
                 </View>

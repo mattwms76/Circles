@@ -98,7 +98,7 @@ export default function Login() {
         <Pressable style={styles.switch} onPress={() => router.push("/register")} testID="go-register">
           <Body size={14} color={colors.muted}>
             New here?{" "}
-            <Body size={14} weight="medium" color={colors.brandPrimary} style={{ fontFamily: fonts.textMedium }}>
+            <Body size={14} weight="medium" color={colors.brandPrimary}>
               Create an account
             </Body>
           </Body>

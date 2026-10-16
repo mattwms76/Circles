@@ -9,7 +9,7 @@ import { Avatar, Body, Display, EmptyState, Loading } from "@/src/components/ui"
 import { ScreenHeader } from "@/src/components/header";
 import { Icon } from "@/src/components/icon";
 import { usesNativeTabs } from "@/src/navigation";
-import { makeStyles, spacing, useTheme, fonts } from "@/src/theme";
+import { makeStyles, spacing, useTheme } from "@/src/theme";
 import { timeAgo } from "@/src/lib/time";
 
 type Conversation = {
@@ -70,7 +70,7 @@ export default function Messages() {
                   </Body>
                   {item.unread > 0 ? (
                     <View style={styles.unreadDot} testID={`unread-${item.id}`}>
-                      <Body size={11} weight="medium" color={colors.onBrandPrimary} style={{ fontFamily: fonts.textMedium }}>
+                      <Body size={11} weight="medium" color={colors.onBrandPrimary}>
                         {item.unread}
                       </Body>
                     </View>
