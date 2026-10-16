@@ -1,5 +1,6 @@
+import { FeedControls } from '../components/CommunityDepth';
 import React from 'react';
-import { FlatList, Image, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { FlatList, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import {
   ActionButton,
   Avatar,
@@ -34,7 +35,6 @@ export function HomeScreen({
   feedLoadingMore,
   onLoadMore,
   onProfile,
-  onLive,
   onLiveList,
   onCreatePost,
   onExplore,
@@ -95,7 +95,6 @@ export function HomeScreen({
             <Text style={styles.greetingTitle}>
               {greeting}, {profile.displayName.split(' ')[0]}.
             </Text>
-            <Text style={styles.greetingCopy}>A little closer to your people.</Text>
           </View>
           {stories}
           <View style={styles.quickActions}>
@@ -108,73 +107,12 @@ export function HomeScreen({
               <Icon name="edit" color={colors.coral} />
               <Text style={styles.quickText}>Share a thought</Text>
             </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              style={[styles.quickAction, styles.quickActionTint]}
-              onPress={onExplore}
-            >
-              <Icon name="plus" />
-              <Text style={styles.quickText}>Find circles</Text>
-            </Pressable>
-          </View>
-          {lives.length ? (
-            <View style={styles.sectionPad}>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ gap: 12 }}
-              >
-                {lives.slice(0, 3).map((session) => (
-                  <Pressable
-                    key={session.id}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Join ${session.title}`}
-                    onPress={() => onLive(session)}
-                    style={styles.compactLive}
-                  >
-                    <Avatar profile={session.host} size={36} ring />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.compactLiveLabel}>Live · {session.circleName}</Text>
-                      <Text numberOfLines={1} style={styles.compactLiveTitle}>
-                        {session.title}
-                      </Text>
-                    </View>
-                  </Pressable>
-                ))}
-                <ActionButton
-                  compact
-                  variant="outline"
-                  label="All live rooms"
-                  onPress={onLiveList}
-                />
-              </ScrollView>
-            </View>
-          ) : null}
-          <View style={styles.sectionPad}>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ gap: 8 }}
-            >
-              {circles
-                .filter((circle) => circle.isMember)
-                .map((circle) => (
-                  <Pressable
-                    key={circle.id}
-                    accessibilityRole="button"
-                    onPress={() => onCircle(circle)}
-                    style={styles.circleShortcut}
-                  >
-                    <Image
-                      source={{ uri: circle.imageUrl }}
-                      style={{ width: 28, height: 28, borderRadius: 10 }}
-                    />
-                    <Text style={{ color: colors.ink, fontSize: 14, fontWeight: '600' }}>
-                      {circle.name}
-                    </Text>
-                  </Pressable>
-                ))}
-            </ScrollView>
+            <ActionButton
+              compact
+              variant="outline"
+              label={lives.length ? `Live rooms · ${lives.length}` : 'Find circles'}
+              onPress={lives.length ? onLiveList : onExplore}
+            />
           </View>
           <View style={styles.sectionPad}>
             <View
@@ -187,6 +125,7 @@ export function HomeScreen({
               <SectionTitle title="Your timeline" />
               <SavedPostsButton />
             </View>
+            <FeedControls />
             {error ? (
               <EmptyState
                 emoji="☁️"
@@ -384,7 +323,7 @@ export function ExploreScreen({
             }}
           />
           <View style={styles.sectionPad}>
-            <ActionButton compact label="Create a circle" onPress={onCreate} />
+            <ActionButton compact variant="outline" label="Create a circle" onPress={onCreate} />
             {requests.map((request) => (
               <View key={request.id} style={styles.conversationRow}>
                 <View style={{ flex: 1 }}>

@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Platform, Pressable, StyleSheet, ScrollView, Text, View } from 'react-native';
+import { Platform, Pressable, Text, View } from 'react-native';
 import { useIAP, type Purchase } from 'expo-iap';
 import { createThemedStyles, colors, radii } from '../theme';
 import { backendReady, requireSupabase } from '../lib/supabase';
+import { Sheet } from './Sheet';
 import { ActionButton } from './Primitives';
 
 const packs = [
@@ -11,21 +12,21 @@ const packs = [
     coins: 120,
     title: 'A little love',
     price: '$0.99',
-    tint: colors.sage,
+    tint: 'sage' as const,
   },
   {
     sku: 'com.circles.coins.700',
     coins: 700,
     title: 'A lovely bunch',
     price: '$4.99',
-    tint: colors.lilac,
+    tint: 'lilac' as const,
   },
   {
     sku: 'com.circles.coins.1600',
     coins: 1600,
     title: 'The big-hearted',
     price: '$9.99',
-    tint: colors.butter,
+    tint: 'butter' as const,
   },
 ];
 
@@ -176,90 +177,11 @@ export function CoinStore({
   };
 
   return (
-    <View style={styles.container}>
-      <ScrollView style={{ maxHeight: '92%' }} contentContainerStyle={styles.sheet}>
-        <View style={styles.grabber} />
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.eyebrow}>CIRCLES WALLET</Text>
-            <Text style={styles.title}>A little appreciation.</Text>
-          </View>
-          <Pressable onPress={onClose} style={styles.close}>
-            <Text style={styles.closeText}>×</Text>
-          </Pressable>
-        </View>
-        <Text style={styles.copy}>
-          Coins stay in your account and can be used to send gifts during live rooms.
-        </Text>
-        {packs.map((pack) => {
-          const product = products.find((item) => item.id === pack.sku);
-          const price = product?.displayPrice ?? pack.price;
-          return (
-            <View key={pack.sku} style={[styles.pack, { backgroundColor: pack.tint }]}>
-              <View style={styles.coinIcon}>
-                <Text style={{ fontSize: 20 }}>◉</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.packTitle}>{pack.title}</Text>
-                <Text style={styles.packDetail}>{pack.coins.toLocaleString()} coins</Text>
-              </View>
-              <Pressable
-                style={[
-                  styles.buy,
-                  {
-                    opacity:
-                      !connected ||
-                      !backendReady ||
-                      serverReady !== true ||
-                      !product ||
-                      busySku !== null
-                        ? 0.45
-                        : 1,
-                  },
-                ]}
-                disabled={
-                  !connected ||
-                  !backendReady ||
-                  serverReady !== true ||
-                  !product ||
-                  busySku !== null
-                }
-                onPress={() => void buy(pack.sku)}
-              >
-                <Text style={styles.buyText}>{busySku === pack.sku ? '…' : price}</Text>
-              </Pressable>
-            </View>
-          );
-        })}
-        <Text style={styles.storeHint}>
-          {serverReady === false
-            ? serverSetupMessage
-            : !connected
-              ? 'Connect to the App Store or Google Play to load coin packs.'
-              : packs.some((pack) => !products.some((product) => product.id === pack.sku))
-                ? 'Some coin packs are temporarily unavailable. Please try again later.'
-                : serverReady === null
-                  ? 'Checking secure store verification…'
-                  : 'Purchases are verified before coins are added.'}
-        </Text>
-        {catalogError ? (
-          <View>
-            <Text accessibilityRole="alert" style={styles.feedback}>
-              {catalogError}
-            </Text>
-            <ActionButton
-              compact
-              variant="outline"
-              label="Retry loading coin packs"
-              onPress={() => setCatalogRevision((value) => value + 1)}
-            />
-          </View>
-        ) : null}
-        {errorText ? (
-          <Text style={[styles.feedback, { color: feedbackError ? '#B73543' : colors.ink }]}>
-            {errorText}
-          </Text>
-        ) : null}
+    <Sheet
+      title="A little appreciation."
+      eyebrow="CIRCLES WALLET"
+      onClose={onClose}
+      footer={
         <View style={styles.footer}>
           <Pressable
             style={{ minHeight: 48, justifyContent: 'center' }}
@@ -269,51 +191,83 @@ export function CoinStore({
           </Pressable>
           <ActionButton compact variant="outline" label="Done" onPress={onClose} />
         </View>
-      </ScrollView>
-    </View>
+      }
+    >
+      <Text style={styles.copy}>
+        Coins stay in your account and can be used to send gifts during live rooms.
+      </Text>
+      {packs.map((pack) => {
+        const product = products.find((item) => item.id === pack.sku);
+        const price = product?.displayPrice ?? pack.price;
+        return (
+          <View key={pack.sku} style={[styles.pack, { backgroundColor: colors[pack.tint] }]}>
+            <View style={styles.coinIcon}>
+              <Text style={{ fontSize: 20, color: colors.ink }}>◉</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.packTitle}>{pack.title}</Text>
+              <Text style={styles.packDetail}>{pack.coins.toLocaleString()} coins</Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Buy ${pack.coins} coins for ${price}`}
+              style={[
+                styles.buy,
+                {
+                  opacity:
+                    !connected ||
+                    !backendReady ||
+                    serverReady !== true ||
+                    !product ||
+                    busySku !== null
+                      ? 0.45
+                      : 1,
+                },
+              ]}
+              disabled={
+                !connected || !backendReady || serverReady !== true || !product || busySku !== null
+              }
+              onPress={() => void buy(pack.sku)}
+            >
+              <Text style={styles.buyText}>{busySku === pack.sku ? '…' : price}</Text>
+            </Pressable>
+          </View>
+        );
+      })}
+      <Text style={styles.storeHint}>
+        {serverReady === false
+          ? serverSetupMessage
+          : !connected
+            ? 'Connect to the App Store or Google Play to load coin packs.'
+            : packs.some((pack) => !products.some((product) => product.id === pack.sku))
+              ? 'Some coin packs are temporarily unavailable. Please try again later.'
+              : serverReady === null
+                ? 'Checking secure store verification…'
+                : 'Purchases are verified before coins are added.'}
+      </Text>
+      {catalogError ? (
+        <View>
+          <Text accessibilityRole="alert" style={styles.feedback}>
+            {catalogError}
+          </Text>
+          <ActionButton
+            compact
+            variant="outline"
+            label="Retry loading coin packs"
+            onPress={() => setCatalogRevision((value) => value + 1)}
+          />
+        </View>
+      ) : null}
+      {errorText ? (
+        <Text style={[styles.feedback, { color: feedbackError ? colors.error : colors.ink }]}>
+          {errorText}
+        </Text>
+      ) : null}
+    </Sheet>
   );
 }
 
 const styles = createThemedStyles(() => ({
-  container: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: 'rgba(24,22,25,0.45)',
-    justifyContent: 'flex-end',
-    zIndex: 20,
-  },
-  sheet: {
-    backgroundColor: colors.paper,
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    padding: 20,
-    paddingBottom: 36,
-  },
-  grabber: {
-    width: 38,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#D9D1C9',
-    alignSelf: 'center',
-    marginBottom: 22,
-  },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  eyebrow: {
-    color: colors.coral,
-    fontWeight: '700',
-    fontSize: 12,
-    letterSpacing: 1.5,
-    marginBottom: 6,
-  },
-  title: { color: colors.ink, fontSize: 23, fontWeight: '700', letterSpacing: -0.6 },
-  close: {
-    backgroundColor: colors.surface,
-    width: 48,
-    height: 48,
-    borderRadius: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  closeText: { color: colors.ink, fontSize: 26, lineHeight: 29 },
   copy: {
     color: colors.muted,
     fontSize: 16,
@@ -323,6 +277,7 @@ const styles = createThemedStyles(() => ({
     maxWidth: 300,
   },
   pack: {
+    flexWrap: 'wrap',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
@@ -334,12 +289,12 @@ const styles = createThemedStyles(() => ({
     width: 40,
     height: 40,
     borderRadius: 14,
-    backgroundColor: 'rgba(255,255,255,0.65)',
+    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  packTitle: { color: colors.ink, fontSize: 13, fontWeight: '700' },
-  packDetail: { color: colors.muted, fontSize: 12, marginTop: 2 },
+  packTitle: { color: colors.ink, fontSize: 16, fontWeight: '700' },
+  packDetail: { color: colors.muted, fontSize: 14, marginTop: 2 },
   buy: {
     minHeight: 48,
     justifyContent: 'center',
@@ -350,14 +305,14 @@ const styles = createThemedStyles(() => ({
     paddingVertical: 10,
     alignItems: 'center',
   },
-  buyText: { color: colors.ink, fontWeight: '700', fontSize: 12 },
-  storeHint: { color: colors.muted, fontSize: 12, lineHeight: 18, marginTop: 4 },
-  feedback: { color: colors.live, fontSize: 12, marginTop: 8 },
+  buyText: { color: colors.ink, fontWeight: '700', fontSize: 14 },
+  storeHint: { color: colors.muted, fontSize: 14, lineHeight: 20, marginTop: 4 },
+  feedback: { color: colors.error, fontSize: 14, marginTop: 8 },
   footer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginTop: 17,
   },
-  restore: { color: colors.muted, fontSize: 12, fontWeight: '700', padding: 8 },
+  restore: { color: colors.muted, fontSize: 14, fontWeight: '700', padding: 8 },
 }));

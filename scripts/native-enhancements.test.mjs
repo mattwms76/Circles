@@ -114,8 +114,8 @@ test('Video errors renew private URLs once; backgrounding pauses playback and ex
   const replacements = [];
   let pendingRenewal;
   const player = {
-    addListener: (_name, fn) => {
-      status = fn;
+    addListener: (name, fn) => {
+      if (name === 'statusChange') status = fn;
       return { remove() {} };
     },
     pause: () => pauses++,

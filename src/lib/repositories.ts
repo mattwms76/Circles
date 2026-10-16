@@ -1,3 +1,4 @@
+import { secureStorage as AsyncStorage } from './secureStorage';
 import * as FileSystem from 'expo-file-system/legacy';
 import { signedMediaUrls, uploadWithProgress } from './media';
 import type {
@@ -218,7 +219,32 @@ export async function decideCircleJoinRequest(
 }
 
 export async function loadPosts(offset = 0, pageSize = 20): Promise<CirclePost[]> {
-  return fetchPosts(offset, pageSize);
+  if (!supabase) return demoPosts.slice(offset, offset + pageSize);
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth.user) return [];
+  const raw = await AsyncStorage.getItem(`circles:experience:${auth.user.id}:community:feed-mode`);
+  const mode = raw === '"latest"' ? 'latest' : 'recommended';
+  const result = await supabase.rpc('personal_feed', {
+    sort_mode: mode,
+    page_offset: offset,
+    page_size: pageSize,
+  });
+  if (result.error) throw result.error;
+  const ranked = (result.data as { id: string; reason: string }[]) ?? [];
+  if (!ranked.length) return [];
+  const posts = await fetchPosts(
+    0,
+    pageSize,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    ranked.map((r) => r.id),
+  );
+  return ranked.flatMap((r) => {
+    const post = posts.find((p) => p.id === r.id);
+    return post ? [{ ...post, reason: r.reason }] : [];
+  });
 }
 
 export async function loadCirclePosts(
@@ -279,14 +305,18 @@ async function fetchPosts(
   authorId?: UUID,
   postId?: UUID,
   search?: { text: string; media: 'all' | 'image' | 'video' },
+  postIds?: string[],
+  topicId?: string,
 ): Promise<CirclePost[]> {
   if (!supabase) return demoPosts.slice(offset, offset + pageSize);
   let query = supabase
     .from('posts')
     .select(
-      `id,circle_id,body,created_at,profiles!posts_author_id_fkey(id,handle,display_name,avatar_url),circles!posts_circle_id_fkey(name),post_media${search && search.media !== 'all' ? '!inner' : ''}(id,kind,storage_path),post_likes(user_id)`,
+      `id,circle_id,body,created_at,post_type,topic_id,profiles!posts_author_id_fkey(id,handle,display_name,avatar_url),circles!posts_circle_id_fkey(name),post_media${search && search.media !== 'all' ? '!inner' : ''}(id,kind,storage_path,position,cover_path,subtitles),post_likes(user_id)`,
     )
     .eq('visibility', 'published');
+  if (topicId) query = query.eq('topic_id', topicId);
+  if (postIds) query = query.in('id', postIds);
   if (circleId) query = query.eq('circle_id', circleId);
   if (authorId) query = query.eq('author_id', authorId);
   if (postId) query = query.eq('id', postId);
@@ -305,16 +335,35 @@ async function fetchPosts(
   if (!data) return [];
   const { data: auth } = await supabase.auth.getUser();
   const signedUrls = await signedMediaUrls(
-    data.flatMap((row: any) => row.post_media?.map((m: any) => m.storage_path) ?? []),
+    data.flatMap(
+      (row: any) =>
+        row.post_media?.flatMap((m: any) => [
+          m.storage_path,
+          ...(m.cover_path ? [m.cover_path] : []),
+        ]) ?? [],
+    ),
     auth.user?.id ?? '',
   );
   return data.map((row: any) => {
-    let media: CirclePost['media'];
-    if (row.post_media?.[0]) {
-      const item = row.post_media[0];
-      const url = signedUrls.get(item.storage_path);
-      if (url) media = { id: item.id, kind: item.kind, url, storagePath: item.storage_path };
-    }
+    const mediaItems = [...(row.post_media ?? [])]
+      .sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0))
+      .flatMap((item: any) => {
+        const url = signedUrls.get(item.storage_path);
+        return url
+          ? [
+              {
+                id: item.id,
+                kind: item.kind,
+                url,
+                storagePath: item.storage_path,
+                position: item.position,
+                coverUrl: item.cover_path ? signedUrls.get(item.cover_path) : undefined,
+                subtitles: item.subtitles ?? [],
+              },
+            ]
+          : [];
+      });
+    const media = mediaItems[0];
     return {
       id: row.id,
       circleId: row.circle_id,
@@ -327,6 +376,9 @@ async function fetchPosts(
         interests: [],
       },
       body: row.body,
+      postType: row.post_type,
+      topicId: row.topic_id,
+      mediaItems,
       likes: row.post_likes?.length ?? 0,
       createdAt: relativeTime(row.created_at),
       liked: Boolean(
@@ -344,8 +396,18 @@ export async function createPost(
   const client = requireSupabase();
   const { data: auth } = await client.auth.getUser();
   if (!auth.user) throw new Error('Sign in to post.');
-  if (input.media) {
-    const info = await FileSystem.getInfoAsync(input.media.uri);
+  const attachments = input.mediaItems?.length
+    ? input.mediaItems
+    : input.media
+      ? [input.media]
+      : [];
+  if (
+    attachments.length > 10 ||
+    (attachments.length > 1 && attachments.some((m) => m.kind !== 'image'))
+  )
+    throw new Error('Choose up to 10 photos, or one video or GIF.');
+  for (const attachment of attachments) {
+    const info = await FileSystem.getInfoAsync(attachment.uri);
     if (!info.exists)
       throw new Error('The attachment is no longer on this device. Choose it again.');
     if (info.size > 25 * 1024 * 1024) throw new Error('Media must be 25 MB or smaller.');
@@ -354,7 +416,7 @@ export async function createPost(
       gif: ['image/gif'],
       video: ['video/mp4', 'video/quicktime', 'video/webm'],
     };
-    if (!allowed[input.media.kind].includes(input.media.mimeType))
+    if (!allowed[attachment.kind].includes(attachment.mimeType))
       throw new Error('Choose a supported photo, GIF, or video.');
   }
   const requestId = input.requestId ?? createIdempotencyKey();
@@ -364,7 +426,9 @@ export async function createPost(
       circle_id: input.circleId,
       author_id: auth.user.id,
       body: input.body.trim(),
-      visibility: input.media ? 'removed' : 'published',
+      topic_id: input.topicId ?? null,
+      visibility: attachments.length ? 'removed' : 'published',
+      upload_pending: attachments.length > 0,
       client_request_id: requestId,
     })
     .select('id,visibility')
@@ -381,35 +445,60 @@ export async function createPost(
     if (post?.visibility === 'published') return;
   }
   if (error || !post) throw error ?? new Error('Could not save your post.');
-  if (!input.media) return;
-  const path = `${auth.user.id}/${post.id}/${input.media.fileName.replace(/[^a-zA-Z0-9._-]/g, '-')}`;
-  // Keep partial uploads for TUS resume. A completed upload may precede a lost metadata response.
-  const existing = await client.storage
-    .from(postMediaBucket)
-    .list(`${auth.user.id}/${post.id}`, { search: path.split('/').pop() });
-  if (existing.error) throw existing.error;
-  const uploaded = existing.data.some((file) => file.name === path.split('/').pop());
-  try {
-    if (!uploaded)
-      await uploadWithProgress(
-        postMediaBucket,
-        path,
-        input.media.uri,
-        input.media.mimeType,
-        options.onProgress,
-        options.signal,
-      );
-    if (options.signal?.aborted) throw new Error('Upload cancelled. Your draft is saved.');
-    const metadata = await client.from('post_media').insert({
-      post_id: post.id,
-      owner_id: auth.user.id,
-      kind: input.media.kind,
-      storage_path: path,
-      mime_type: input.media.mimeType,
-    });
-    if (metadata.error && metadata.error.code !== '23505') throw metadata.error;
-  } catch (uploadError) {
-    throw uploadError;
+  if (!attachments.length) return;
+  for (const [position, attachment] of attachments.entries()) {
+    const path = `${auth.user.id}/${post.id}/${attachments.length > 1 ? position + '-' : ''}${attachment.fileName.replace(/[^a-zA-Z0-9._-]/g, '-')}`;
+    // Keep partial uploads for TUS resume. A completed upload may precede a lost metadata response.
+    const existing = await client.storage
+      .from(postMediaBucket)
+      .list(`${auth.user.id}/${post.id}`, { search: path.split('/').pop() });
+    if (existing.error) throw existing.error;
+    const uploaded = existing.data.some((file) => file.name === path.split('/').pop());
+    try {
+      if (!uploaded)
+        await uploadWithProgress(
+          postMediaBucket,
+          path,
+          attachment.uri,
+          attachment.mimeType,
+          (value) => options.onProgress?.((position + value) / attachments.length),
+          options.signal,
+        );
+      if (options.signal?.aborted) throw new Error('Upload cancelled. Your draft is saved.');
+      let coverPath: string | null = null;
+      if (attachment.coverUri) {
+        coverPath = `${auth.user.id}/${post.id}/cover-${position}.jpg`;
+        const cover = await FileSystem.getInfoAsync(attachment.coverUri);
+        if (!cover.exists || cover.size > 5 * 1024 * 1024)
+          throw new Error('Choose a video cover smaller than 5 MB.');
+        const priorCover = await client.storage
+          .from(postMediaBucket)
+          .list(`${auth.user.id}/${post.id}`, { search: `cover-${position}.jpg` });
+        if (priorCover.error) throw priorCover.error;
+        if (!priorCover.data.some((f) => f.name === `cover-${position}.jpg`))
+          await uploadWithProgress(
+            postMediaBucket,
+            coverPath,
+            attachment.coverUri,
+            'image/jpeg',
+            undefined,
+            options.signal,
+          );
+      }
+      const metadata = await client.from('post_media').insert({
+        post_id: post.id,
+        owner_id: auth.user.id,
+        kind: attachment.kind,
+        storage_path: path,
+        mime_type: attachment.mimeType,
+        position,
+        cover_path: coverPath,
+        subtitles: attachment.subtitles ?? [],
+      });
+      if (metadata.error && metadata.error.code !== '23505') throw metadata.error;
+    } catch (uploadError) {
+      throw uploadError;
+    }
   }
   // A lost publish response is ambiguous: preserve the upload and retry with the same request ID.
   const published = await client
@@ -1018,4 +1107,8 @@ export async function searchCirclePosts(
       )
       .slice(offset, offset + 20);
   return fetchPosts(offset, 20, circleId, undefined, undefined, { text, media });
+}
+
+export async function loadTopicPosts(topicId: string, offset = 0) {
+  return fetchPosts(offset, 20, undefined, undefined, undefined, undefined, undefined, topicId);
 }

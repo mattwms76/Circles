@@ -1510,6 +1510,106 @@ input[role='switch']:focus-visible {
   font-size: 16px;
   line-height: 22px;
 }
+/* Conversation: one header, a reading area, and a compact composer. */
+.device .inboxConversation,
+.device .inboxConversation.hasUnread {
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  min-height: 84px;
+  padding: 14px 0;
+}
+.device .inboxToolbar .ex-label {
+  font-size: 0;
+  gap: 0;
+}
+.device .inboxToolbar input {
+  font-size: 16px;
+}
+.device .messageThread {
+  position: relative;
+}
+.messageThread .modalHead h2 {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.messageThread .threadOptions {
+  flex: 0 0 auto;
+  border: 0;
+  overflow: visible;
+  max-height: none;
+}
+.messageThread .threadOptions > summary {
+  width: 44px;
+  height: 44px;
+  justify-content: center;
+}
+.conversationToolsBody {
+  position: absolute;
+  z-index: 5;
+  top: 68px;
+  left: 16px;
+  right: 16px;
+  max-height: 50%;
+  overflow: auto;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: 0 8px 24px #0002;
+}
+.messageThread .message {
+  display: block;
+  padding: 10px 14px 6px;
+}
+.messageMeta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.messageThread .messageTime {
+  margin: 0;
+  font-size: 11px;
+}
+.messageMenu > summary {
+  min-height: 36px;
+  min-width: 44px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+.messageMenuBody {
+  padding: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: 12px;
+  border: 1px solid var(--line);
+}
+.messageMeta:has(.messageMenu[open]) {
+  flex-wrap: wrap;
+}
+.messageMenu[open] {
+  flex-basis: 100%;
+}
+.messageSelectedReactions {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding-bottom: 4px;
+}
+.messageThread .threadComposer textarea {
+  height: 48px;
+  min-height: 48px;
+  max-height: 128px;
+  resize: none;
+}
 .storyTitle {
   display: flex;
   align-items: center;
@@ -1679,4 +1779,157 @@ input[role='switch']:focus-visible {
 .messageThread .message[hidden],
 .inboxConversation[hidden] {
   display: none !important;
+}
+
+/* Shared disclosure, form and story controls. */
+.communityDetails > summary {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+.communityDetails > summary::after {
+  content: '+';
+}
+.communityDetails[open] > summary::after {
+  content: '−';
+}
+.communityDetails > .demoList {
+  margin-top: 12px;
+}
+.storyDisclosure {
+  margin: 0 20px 16px;
+}
+.storyDisclosure .storyTray {
+  padding: 16px 0 0;
+}
+.storyDisclosure .storyTitle {
+  display: none;
+}
+.device .quick {
+  min-height: 48px;
+}
+.device .standardForm > .formSubmit {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  margin-top: 12px;
+  box-shadow: 0 -8px 0 var(--paper);
+  flex-shrink: 0;
+}
+.storyViewer .ex-row {
+  justify-content: center;
+}
+.storyOptions {
+  position: relative;
+}
+.storyOptions > summary {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+  list-style: none;
+  font-size: 22px;
+}
+.storyOptions > button {
+  position: absolute;
+  bottom: 56px;
+  right: 0;
+  width: 140px;
+  z-index: 2;
+}
+.device .walletDemo,
+.device .profileToolbar {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.device .circleCompact .circleCover {
+  background: transparent !important;
+  color: var(--ink);
+  min-height: 0;
+  padding: 12px 0 0;
+  border-radius: 0;
+}
+.device .circleCompact .circleCover h1 {
+  color: var(--ink);
+  font-size: 22px;
+  line-height: 28px;
+}
+.device .circleCompact .circleCover p,
+.device .circleCompact .circleIdentity {
+  color: var(--muted);
+}
+.device .demoChip {
+  background-color: var(--surface);
+}
+.device .demoChip.on {
+  background-color: var(--night);
+  color: var(--onPrimary);
+}
+@media (max-width: 360px) {
+  .device .modalPanel {
+    padding-inline: 16px;
+  }
+  .device .actions {
+    flex-wrap: wrap;
+  }
+  .device .actions .quick {
+    flex: 1 1 120px;
+  }
+}
+
+/* Community controls stay secondary and wrap at mobile widths. */
+.depthControls {
+  margin: 12px 0 16px;
+}
+.depthControls .demoChip {
+  white-space: normal;
+  max-width: 100%;
+}
+.depthBadge {
+  display: block;
+  color: var(--coral);
+  font-size: 12px;
+}
+.depthPoll .demoChip {
+  text-align: left;
+  width: 100%;
+  white-space: normal;
+}
+.depthCarousel {
+  display: flex;
+  overflow: auto;
+  scroll-snap-type: x mandatory;
+  gap: 8px;
+}
+.depthCarousel .postMedia {
+  flex: 0 0 100%;
+  scroll-snap-align: start;
+}
+.depthPublishing {
+  margin: 12px 0;
+}
+.depthPublishing summary {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+}
+.depthPublishing input[type='number'] {
+  max-width: 100%;
+}
+.ex-card audio {
+  max-width: 100%;
+  width: 100%;
 }

@@ -1,0 +1,39 @@
+# Use an installed development build signed into a disposable test account.
+# Repeat in light/dark appearance and at the largest OS text setting.
+appId: com.circles.social
+---
+- launchApp
+- tapOn: 'Home'
+- assertVisible: 'Your timeline'
+- takeScreenshot: artifacts/home
+- tapOn: 'Explore'
+- assertVisible: 'Explore circles'
+- takeScreenshot: artifacts/explore
+- tapOn: 'Live'
+- takeScreenshot: artifacts/live
+- tapOn: 'Inbox'
+- takeScreenshot: artifacts/inbox
+- tapOn: 'You'
+- takeScreenshot: artifacts/profile
+- tapOn: 'Edit profile'
+- assertVisible: 'Display name'
+- tapOn: 'About you'
+- inputText: 'Keyboard and spacing check'
+- takeScreenshot: artifacts/profile-keyboard
+- hideKeyboard
+- tapOn: 'Close dialog'
+- scrollUntilVisible:
+    element: 'Add coins'
+    direction: DOWN
+- tapOn: 'Add coins'
+- assertVisible: 'A little appreciation.'
+- takeScreenshot: artifacts/wallet
+- tapOn: 'Close dialog'
+- scrollUntilVisible:
+    element: 'Settings and privacy'
+    direction: DOWN
+- tapOn: 'Settings and privacy'
+- tapOn: 'Notifications'
+- assertVisible: 'Device notifications'
+- takeScreenshot: artifacts/settings
+- tapOn: 'Close dialog'

@@ -1,3 +1,11 @@
+import { PublishingTools } from '../components/PublishingTools';
+import {
+  CircleFeatures,
+  GroupInbox,
+  HelpfulAnswer,
+  PostTopicPicker,
+} from '../components/CommunityDepth';
+import { MessageAttachment, MessageMediaComposer } from '../components/CommunityMessages';
 import { Sheet } from '../components/Sheet';
 export { Sheet } from '../components/Sheet';
 import { LoadingCards } from '../components/LoadingCards';
@@ -21,7 +29,7 @@ import {
 import { supabase } from '../lib/supabase';
 import { canDeleteOwnContent, CONTENT_DELETE_WINDOW_MS } from '../lib/contentDeletion';
 import * as ImagePicker from 'expo-image-picker';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { secureStorage as AsyncStorage } from '../lib/secureStorage';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
@@ -49,6 +57,7 @@ import {
   type IconName,
   Avatar,
   EmptyState,
+  Disclosure,
   Pill,
   PostCard,
   SectionTitle,
@@ -72,6 +81,9 @@ import type {
 
 export type Tab = 'home' | 'circles' | 'live' | 'inbox' | 'profile';
 export type Attachment = {
+  coverUri?: string;
+  subtitles?: import('../types').SubtitleCue[];
+  durationMs?: number;
   uri: string;
   mimeType: string;
   fileName: string;
@@ -220,6 +232,7 @@ export function InboxScreen({
             onPress={() => setOnlyUnread(true)}
           />
         </View>
+        <GroupInbox />
         {visible.length === 0 && conversations.length > 0 ? (
           <Text style={ex.body}>
             No conversations match. Try All conversations or clear the search.
@@ -410,11 +423,6 @@ export function ProfileScreen({
                 {photoBusy ? 'Opening photos…' : 'Change photo'}
               </Text>
             </Pressable>
-            <Text style={styles.profileBio}>
-              {photo
-                ? 'New photo preview · save your profile to keep it.'
-                : 'Profile photos are public. JPG, PNG or WebP · up to 5 MB.'}
-            </Text>
             {photoError ? (
               <Text accessibilityRole="alert" style={styles.authError}>
                 {photoError}
@@ -422,14 +430,91 @@ export function ProfileScreen({
             ) : null}
           </>
         ) : null}
+
+        <Text style={styles.profileName}>{profile.displayName}</Text>
+        <Text style={styles.profileHandle}>@{profile.handle}</Text>
+        <Text style={styles.profileBio}>
+          {profile.bio || 'Finding new corners of the internet.'}
+        </Text>
+        {signedIn ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setEditing(true)}
+            style={styles.profileEditButton}
+          >
+            <Text style={styles.profileEditText}>Edit profile</Text>
+          </Pressable>
+        ) : null}
         {editing ? (
-          <>
+          <Sheet
+            title="Edit profile"
+            eyebrow="YOUR PROFILE"
+            onClose={() => {
+              if (!profileSaving && !photoBusy) setEditing(false);
+            }}
+            footer={
+              <ActionButton
+                compact
+                label={profileSaving ? 'Saving…' : 'Save profile'}
+                disabled={profileSaving || photoBusy || displayName.trim().length < 2}
+                onPress={() =>
+                  void onSaveProfile(
+                    {
+                      displayName,
+                      bio,
+                      interests: [
+                        ...new Set(
+                          interests
+                            .split(',')
+                            .map((item) => item.trim())
+                            .filter(Boolean),
+                        ),
+                      ],
+                    },
+                    photo,
+                  )
+                    .then(() => setEditing(false))
+                    .catch((error) =>
+                      setPhotoError(
+                        error instanceof Error
+                          ? error.message
+                          : 'Could not save your profile. Try again.',
+                      ),
+                    )
+                }
+              />
+            }
+          >
+            <View style={{ alignItems: 'center', gap: 12 }}>
+              <Image
+                accessibilityLabel="Profile photo preview"
+                source={{ uri: photo?.uri ?? profile.avatarUrl }}
+                style={{ width: 88, height: 88, borderRadius: 44 }}
+              />
+              <ActionButton
+                label="Choose another photo"
+                variant="outline"
+                disabled={photoBusy || profileSaving}
+                onPress={() => void choosePhoto()}
+              />
+            </View>
+            <Text style={styles.sheetCopy}>
+              Your photo is public. JPG, PNG or WebP, up to 5 MB.
+            </Text>
+            {photoError ? (
+              <Text accessibilityRole="alert" style={styles.authError}>
+                {photoError}
+              </Text>
+            ) : null}
+
             <Text
               style={{ fontSize: 14, color: colors.ink, alignSelf: 'stretch', marginBottom: 4 }}
             >
               Display name
             </Text>
             <TextInput
+              editable={!profileSaving && !photoBusy}
+              placeholderTextColor={colors.muted}
               accessibilityLabel="Display name"
               value={displayName}
               onChangeText={setDisplayName}
@@ -444,6 +529,8 @@ export function ProfileScreen({
               About you
             </Text>
             <TextInput
+              editable={!profileSaving && !photoBusy}
+              placeholderTextColor={colors.muted}
               accessibilityLabel="About you"
               value={bio}
               onChangeText={setBio}
@@ -458,36 +545,14 @@ export function ProfileScreen({
               Interests
             </Text>
             <TextInput
+              editable={!profileSaving && !photoBusy}
+              placeholderTextColor={colors.muted}
               accessibilityLabel="Interests"
               value={interests}
               onChangeText={setInterests}
               placeholder="Interests, separated by commas"
               maxLength={300}
               style={styles.field}
-            />
-            <ActionButton
-              compact
-              label={profileSaving ? 'Saving…' : 'Save profile'}
-              disabled={profileSaving || photoBusy || displayName.trim().length < 2}
-              onPress={() =>
-                void onSaveProfile(
-                  {
-                    displayName,
-                    bio,
-                    interests: [
-                      ...new Set(
-                        interests
-                          .split(',')
-                          .map((item) => item.trim())
-                          .filter(Boolean),
-                      ),
-                    ],
-                  },
-                  photo,
-                )
-                  .then(() => setEditing(false))
-                  .catch(() => {})
-              }
             />
             <Pressable
               disabled={profileSaving || photoBusy}
@@ -496,25 +561,8 @@ export function ProfileScreen({
             >
               <Text style={styles.signInText}>Cancel</Text>
             </Pressable>
-          </>
-        ) : (
-          <>
-            <Text style={styles.profileName}>{profile.displayName}</Text>
-            <Text style={styles.profileHandle}>@{profile.handle}</Text>
-            <Text style={styles.profileBio}>
-              {profile.bio || 'Finding new corners of the internet.'}
-            </Text>
-            {signedIn ? (
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => setEditing(true)}
-                style={styles.profileEditButton}
-              >
-                <Text style={styles.profileEditText}>Edit profile</Text>
-              </Pressable>
-            ) : null}
-          </>
-        )}
+          </Sheet>
+        ) : null}
         <View style={styles.profileStats}>
           <View style={styles.stat}>
             <Text style={styles.statValue}>{circles.length}</Text>
@@ -534,73 +582,75 @@ export function ProfileScreen({
       </View>
       {signedIn ? (
         <View style={styles.sectionPad}>
-          <SectionTitle eyebrow="YOUR COMMUNITY" title="Followers" />
-          {followers.map((follower) => (
-            <View key={follower.id} style={styles.followerRow}>
-              <Pressable
-                onPress={() => onOpenProfile(follower)}
-                accessibilityRole="button"
-                accessibilityLabel={`Open ${follower.displayName}'s profile`}
-                style={styles.publicProfileRow}
-              >
-                <Avatar profile={follower} size={42} />
-                <View style={styles.followerInfo}>
-                  <Text numberOfLines={1} style={styles.followerName}>
-                    {follower.displayName}
-                  </Text>
-                  <Text numberOfLines={1} style={styles.followerHandle}>
-                    @{follower.handle}
-                  </Text>
-                </View>
-              </Pressable>
-              <Pressable
-                onPress={() => onBlockFollower(follower)}
-                accessibilityRole="button"
-                accessibilityLabel={`Block follower ${follower.displayName}`}
-                style={styles.blockFollowerButton}
-              >
-                <Text style={styles.blockFollowerText}>Block</Text>
-              </Pressable>
-            </View>
-          ))}
-          {followers.length === 0 ? (
-            <EmptyState
-              emoji="👋"
-              title="No followers yet"
-              detail="When someone follows you, you can manage them here."
-            />
-          ) : null}
+          <Disclosure title={`Followers · ${followerCount.toLocaleString()}`}>
+            {followers.map((follower) => (
+              <View key={follower.id} style={styles.followerRow}>
+                <Pressable
+                  onPress={() => onOpenProfile(follower)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open ${follower.displayName}'s profile`}
+                  style={styles.publicProfileRow}
+                >
+                  <Avatar profile={follower} size={42} />
+                  <View style={styles.followerInfo}>
+                    <Text numberOfLines={1} style={styles.followerName}>
+                      {follower.displayName}
+                    </Text>
+                    <Text numberOfLines={1} style={styles.followerHandle}>
+                      @{follower.handle}
+                    </Text>
+                  </View>
+                </Pressable>
+                <Pressable
+                  onPress={() => onBlockFollower(follower)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Block follower ${follower.displayName}`}
+                  style={styles.blockFollowerButton}
+                >
+                  <Text style={styles.blockFollowerText}>Block</Text>
+                </Pressable>
+              </View>
+            ))}
+            {followers.length === 0 ? (
+              <EmptyState
+                emoji="👋"
+                title="No followers yet"
+                detail="When someone follows you, you can manage them here."
+              />
+            ) : null}
+          </Disclosure>
         </View>
       ) : null}
       {signedIn ? (
         <View style={styles.sectionPad}>
-          <SectionTitle eyebrow="YOUR COMMUNITY" title="Following" />
-          {following.map((person) => (
-            <Pressable
-              key={person.id}
-              onPress={() => onOpenProfile(person)}
-              accessibilityRole="button"
-              accessibilityLabel={`Open ${person.displayName}'s profile`}
-              style={styles.followerRow}
-            >
-              <Avatar profile={person} size={42} />
-              <View style={styles.followerInfo}>
-                <Text numberOfLines={1} style={styles.followerName}>
-                  {person.displayName}
-                </Text>
-                <Text numberOfLines={1} style={styles.followerHandle}>
-                  @{person.handle}
-                </Text>
-              </View>
-            </Pressable>
-          ))}
-          {following.length === 0 ? (
-            <EmptyState
-              emoji="🌱"
-              title="You’re not following anyone yet"
-              detail="Find people whose interests feel like yours in Explore."
-            />
-          ) : null}
+          <Disclosure title={`Following · ${followingCount.toLocaleString()}`}>
+            {following.map((person) => (
+              <Pressable
+                key={person.id}
+                onPress={() => onOpenProfile(person)}
+                accessibilityRole="button"
+                accessibilityLabel={`Open ${person.displayName}'s profile`}
+                style={styles.followerRow}
+              >
+                <Avatar profile={person} size={42} />
+                <View style={styles.followerInfo}>
+                  <Text numberOfLines={1} style={styles.followerName}>
+                    {person.displayName}
+                  </Text>
+                  <Text numberOfLines={1} style={styles.followerHandle}>
+                    @{person.handle}
+                  </Text>
+                </View>
+              </Pressable>
+            ))}
+            {following.length === 0 ? (
+              <EmptyState
+                emoji="🌱"
+                title="You’re not following anyone yet"
+                detail="Find people whose interests feel like yours in Explore."
+              />
+            ) : null}
+          </Disclosure>
         </View>
       ) : null}
       <View style={styles.walletCard}>
@@ -682,7 +732,7 @@ export function ProfileScreen({
           </View>
         ) : null}
         {signedIn ? (
-          <View style={styles.sectionPad}>
+          <View style={{ gap: 12 }}>
             <ActionButton label="Settings and privacy" variant="outline" onPress={onSettings} />
             <ActionButton
               label="Find circles for my interests"
@@ -691,7 +741,7 @@ export function ProfileScreen({
             />
           </View>
         ) : configured ? (
-          <View style={styles.sectionPad}>
+          <View style={{ gap: 12 }}>
             <ActionButton
               compact
               variant="outline"
@@ -747,33 +797,31 @@ export function PublicProfileScreen({
 }) {
   const peopleList = (title: string, users: Profile[]) => (
     <View style={styles.sectionPad}>
-      <SectionTitle
-        eyebrow="COMMUNITY"
-        title={`${title} · ${users.length}${users.length === 100 ? '+' : ''}`}
-      />
-      {users.map((person) => (
-        <Pressable
-          key={person.id}
-          onPress={() => onOpenProfile(person)}
-          accessibilityRole="button"
-          accessibilityLabel={`Open ${person.displayName}'s profile`}
-          style={styles.followerRow}
-        >
-          <Avatar profile={person} size={42} />
-          <View style={styles.followerInfo}>
-            <Text numberOfLines={1} style={styles.followerName}>
-              {person.displayName}
-            </Text>
-            <Text numberOfLines={1} style={styles.followerHandle}>
-              @{person.handle}
-            </Text>
-          </View>
-          <Text style={styles.publicProfileChevron}>›</Text>
-        </Pressable>
-      ))}
-      {!loading && users.length === 0 ? (
-        <Text style={styles.publicProfileEmpty}>No {title.toLowerCase()} yet.</Text>
-      ) : null}
+      <Disclosure title={`${title} · ${users.length}${users.length === 100 ? '+' : ''}`}>
+        {users.map((person) => (
+          <Pressable
+            key={person.id}
+            onPress={() => onOpenProfile(person)}
+            accessibilityRole="button"
+            accessibilityLabel={`Open ${person.displayName}'s profile`}
+            style={styles.followerRow}
+          >
+            <Avatar profile={person} size={42} />
+            <View style={styles.followerInfo}>
+              <Text numberOfLines={1} style={styles.followerName}>
+                {person.displayName}
+              </Text>
+              <Text numberOfLines={1} style={styles.followerHandle}>
+                @{person.handle}
+              </Text>
+            </View>
+            <Text style={styles.publicProfileChevron}>›</Text>
+          </Pressable>
+        ))}
+        {!loading && users.length === 0 ? (
+          <Text style={styles.publicProfileEmpty}>No {title.toLowerCase()} yet.</Text>
+        ) : null}
+      </Disclosure>
     </View>
   );
   return (
@@ -963,24 +1011,45 @@ export function CircleDetailScreen({
             />
           </View>
           <View style={styles.circlePageHero}>
-            <ImageBackground
-              source={{ uri: circle.imageUrl }}
-              style={[styles.circlePageCover, section !== 'about' && { minHeight: 96 }]}
-              imageStyle={styles.circlePageCoverImage}
-            >
-              <View style={styles.circlePageShade} />
-              {circle.isPrivate ? <Text style={styles.circlePagePrivate}>🔒 PRIVATE</Text> : null}
-              <View style={styles.circlePageCoverCopy}>
-                <View style={styles.circleIdentity}>
-                  <Image source={{ uri: circle.imageUrl }} style={styles.circleIdentityImage} />
-                  <Text style={styles.circlePageInterest}>{circle.interest}</Text>
+            {section === 'about' ? (
+              <ImageBackground
+                source={{ uri: circle.imageUrl }}
+                style={styles.circlePageCover}
+                imageStyle={styles.circlePageCoverImage}
+              >
+                <View style={styles.circlePageShade} />
+                {circle.isPrivate ? <Text style={styles.circlePagePrivate}>🔒 PRIVATE</Text> : null}
+                <View style={styles.circlePageCoverCopy}>
+                  <View style={styles.circleIdentity}>
+                    <Image source={{ uri: circle.imageUrl }} style={styles.circleIdentityImage} />
+                    <Text style={styles.circlePageInterest}>{circle.interest}</Text>
+                  </View>
+                  <Text style={styles.circlePageTitle}>{circle.name}</Text>
+                  <Text style={styles.circlePageMembers}>
+                    {formatCount(circle.members)} members
+                  </Text>
                 </View>
-                <Text style={styles.circlePageTitle}>{circle.name}</Text>
-                <Text style={styles.circlePageMembers}>{formatCount(circle.members)} members</Text>
+              </ImageBackground>
+            ) : (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <Image
+                  source={{ uri: circle.imageUrl }}
+                  style={{ width: 56, height: 56, borderRadius: 16 }}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={{ color: colors.ink, fontSize: 22, lineHeight: 28, fontWeight: '700' }}
+                  >
+                    {circle.name}
+                  </Text>
+                  <Text style={{ color: colors.muted, fontSize: 14, lineHeight: 20 }}>
+                    {formatCount(circle.members)} members ·{' '}
+                    {circle.isPrivate ? 'Private' : 'Public'}
+                  </Text>
+                </View>
               </View>
-            </ImageBackground>
+            )}
           </View>
-          {section === 'posts' && circle.isMember ? stories : null}
           <View style={styles.sectionPad}>
             <View accessibilityRole="tablist" style={styles.circleTabs}>
               {(['posts', 'events', 'about'] as const).map((value) => (
@@ -1012,6 +1081,7 @@ export function CircleDetailScreen({
                 </Text>
               </>
             ) : null}
+            {circle.isMember ? <CircleFeatures circle={circle} /> : null}
             {section === 'posts' && circle.isMember ? <CirclePostSearch search={search} /> : null}
             <View style={styles.circlePageActions}>
               {!circle.isMember && !requested ? (
@@ -1055,6 +1125,11 @@ export function CircleDetailScreen({
                 </>
               ) : null}
             </View>
+            {section === 'posts' && circle.isMember && stories ? (
+              <Disclosure title="Circle stories">
+                <View style={{ marginHorizontal: -20 }}>{stories}</View>
+              </Disclosure>
+            ) : null}
             {section !== 'posts' && circle.isMember ? React.cloneElement(tools, { section }) : null}
             {section !== 'posts' && !circle.isMember ? (
               <EmptyState
@@ -1436,6 +1511,7 @@ export function PostRepliesSheet({
               </View>
             ) : null}
             <Text style={ex.body}>{comment.body}</Text>
+            <HelpfulAnswer post={post} comment={comment} />
             <View
               style={{
                 flexDirection: 'row',
@@ -1576,13 +1652,18 @@ export function CreatePostSheet({
   error,
   onCancel,
   onDiscard,
-  busy,
+  busy: posting,
   circles,
   selectedCircleId,
   onSelectCircle,
   body,
   onBody,
   attachment,
+  extraAttachments = [],
+  topicId,
+  onTopic,
+  onChangeAttachments,
+  onAddPhotos,
   onPick,
   onRecordVideo,
   onClearAttachment,
@@ -1600,21 +1681,41 @@ export function CreatePostSheet({
   body: string;
   onBody: (text: string) => void;
   attachment: Attachment | null;
+  extraAttachments?: Attachment[];
+  topicId?: string | null;
+  onTopic?: (id: string | null) => void;
+  onChangeAttachments?: (items: Attachment[]) => void | Promise<void>;
+  onAddPhotos?: () => void;
   onPick: (kind: 'image' | 'gif' | 'video') => void;
   onRecordVideo: () => void;
   onClearAttachment: () => void;
   onClose: () => void;
   onSubmit: () => void;
 }) {
+  const [processingMedia, setProcessingMedia] = useState(false);
+  const processing = useRef(false);
+  const busy = posting || processingMedia;
   return (
     <Sheet
-      onClose={onClose}
+      onClose={() => {
+        if (!processing.current) onClose();
+      }}
       title="Create a post"
       eyebrow=""
       footer={
         <ActionButton
-          label={busy ? 'Sharing…' : error ? 'Retry sharing' : 'Share with your circle'}
-          onPress={onSubmit}
+          label={
+            posting
+              ? 'Sharing…'
+              : processingMedia
+                ? 'Processing video…'
+                : error
+                  ? 'Retry sharing'
+                  : 'Share with your circle'
+          }
+          onPress={() => {
+            if (!processing.current) onSubmit();
+          }}
           disabled={busy || !circles.length || (!body.trim() && !attachment)}
         />
       }
@@ -1643,6 +1744,14 @@ export function CreatePostSheet({
       ) : (
         <Text style={styles.sheetCopy}>Join a circle before you share a post.</Text>
       )}
+      {onTopic ? (
+        <PostTopicPicker
+          circleId={selectedCircleId}
+          selected={topicId ?? null}
+          onSelect={onTopic}
+          disabled={busy}
+        />
+      ) : null}
       <TextInput
         accessibilityLabel="Post text"
         multiline
@@ -1686,6 +1795,18 @@ export function CreatePostSheet({
           </Pressable>
         </View>
       ) : null}
+      {onChangeAttachments ? (
+        <PublishingTools
+          items={attachment ? [attachment, ...extraAttachments] : []}
+          onChange={onChangeAttachments}
+          onAddPhotos={onAddPhotos ?? (() => onPick('image'))}
+          disabled={busy}
+          onProcessingChange={(value) => {
+            processing.current = value;
+            setProcessingMedia(value);
+          }}
+        />
+      ) : null}
       <View style={styles.mediaButtons}>
         <MediaButton
           icon="photo"
@@ -1711,7 +1832,7 @@ export function CreatePostSheet({
       <Text style={styles.sheetCopy}>
         Draft saved on this device. You can close this and come back.
       </Text>
-      {busy ? (
+      {posting ? (
         <>
           <Text accessibilityLiveRegion="polite" style={styles.sheetCopy}>
             {attachment ? `Uploading · ${Math.round(progress * 100)}%` : 'Sharing your post…'}
@@ -1793,7 +1914,18 @@ export function CreateCircleSheet({
   onSubmit: () => void;
 }) {
   return (
-    <Sheet onClose={onClose} title="Make a little space." eyebrow="START A NEW CIRCLE">
+    <Sheet
+      onClose={onClose}
+      title="Make a little space."
+      eyebrow="START A NEW CIRCLE"
+      footer={
+        <ActionButton
+          label={busy ? 'Creating…' : 'Create your circle'}
+          onPress={onSubmit}
+          disabled={busy || name.trim().length < 2 || !interest.trim()}
+        />
+      }
+    >
       <Text style={{ fontSize: 14, color: colors.ink, alignSelf: 'stretch', marginBottom: 4 }}>
         Circle name
       </Text>
@@ -1854,11 +1986,6 @@ export function CreateCircleSheet({
         </View>
         <Text style={{ fontSize: 22 }}>{isPrivate ? '🔒' : '🌱'}</Text>
       </Pressable>
-      <ActionButton
-        label={busy ? 'Creating…' : 'Create your circle'}
-        onPress={onSubmit}
-        disabled={busy}
-      />
     </Sheet>
   );
 }
@@ -1875,7 +2002,18 @@ export function StartLiveSheet({
   onSubmit: () => void;
 }) {
   return (
-    <Sheet onClose={onClose} title="Go live, say hello." eyebrow="YOUR ROOM, YOUR PEOPLE">
+    <Sheet
+      onClose={onClose}
+      title="Go live, say hello."
+      eyebrow="YOUR ROOM, YOUR PEOPLE"
+      footer={
+        <ActionButton
+          label="Start livestream"
+          onPress={onSubmit}
+          disabled={title.trim().length < 2}
+        />
+      }
+    >
       <Text style={styles.sheetCopy}>
         Set the tone for your room. You can invite up to three co-hosts once you’re live.
       </Text>
@@ -1900,7 +2038,6 @@ export function StartLiveSheet({
           <Text style={styles.stageCopy}>You + up to three co-hosts</Text>
         </View>
       </View>
-      <ActionButton label="Start livestream" onPress={onSubmit} />
     </Sheet>
   );
 }
@@ -2027,10 +2164,10 @@ export function LiveRoom({
         }}
         style={styles.roomBackdrop}
       >
-        <View style={styles.roomTint} />
         {streamCredentials && streamCredentials.role !== 'viewer' ? (
           <AgoraVideoTile uid={streamCredentials.uid} local style={StyleSheet.absoluteFill} />
         ) : null}
+        <View pointerEvents="none" style={styles.roomTint} />
         <SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom']}>
           <ScrollView contentContainerStyle={styles.roomSafe}>
             <View style={styles.roomHeader}>
@@ -2141,12 +2278,16 @@ export function LiveRoom({
                 </View>
                 <Pressable
                   onPress={() => onDecision(liveRequests[0].id, liveRequests[0].requester, false)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Decline co-host request"
                   style={styles.requestDecline}
                 >
                   <Text style={styles.requestDeclineText}>×</Text>
                 </Pressable>
                 <Pressable
                   onPress={() => onDecision(liveRequests[0].id, liveRequests[0].requester, true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Accept co-host request"
                   style={styles.requestAccept}
                 >
                   <Text style={styles.requestAcceptText}>Let in</Text>
@@ -2177,7 +2318,7 @@ export function LiveRoom({
               ))}
               <View style={styles.roomControls}>
                 {onStage ? (
-                  <>
+                  <View style={styles.stageControls}>
                     <Pressable
                       onPress={onToggleMic}
                       style={styles.roomControl}
@@ -2207,16 +2348,15 @@ export function LiveRoom({
                       accessibilityLabel="Switch camera"
                     >
                       <Text style={styles.roomControlIcon}>↻</Text>
+                      <Text style={{ fontSize: 12, color: 'white' }}>Switch</Text>
                     </Pressable>
-                  </>
+                  </View>
                 ) : canRequest ? (
                   <Pressable onPress={onRequestCoHost} style={styles.requestSeat}>
                     <Text style={styles.requestSeatText}>＋ Ask to join</Text>
                   </Pressable>
                 ) : null}
-                <View style={styles.roomControlHint}>
-                  <Text style={styles.roomControlHintText}>Appreciate the host</Text>
-                </View>
+
                 <Pressable
                   onPress={() => onGiftSelect(selectedGift ? null : (gifts[0] ?? null))}
                   style={styles.giftOpen}
@@ -2309,6 +2449,12 @@ export function LiveRoom({
             {displayGifts.map((gift) => (
               <Pressable
                 key={gift.id}
+                accessibilityRole="button"
+                accessibilityLabel={`${gift.name}, ${gift.coins} coins`}
+                accessibilityState={{
+                  selected: selectedGift.id === gift.id,
+                  disabled: giftSending,
+                }}
                 disabled={giftSending}
                 onPress={() => onGiftSelect(gift)}
                 style={[
@@ -2354,9 +2500,6 @@ export function LiveRoom({
               disabled={giftSending || walletBalance < selectedGift.coins}
             />
           </View>
-          <Pressable style={ex.quiet} onPress={() => onBuyCoins()} disabled={giftSending}>
-            <Text style={styles.walletLink}>Need coins? Open wallet</Text>
-          </Pressable>
         </View>
       ) : null}
     </View>
@@ -2372,6 +2515,7 @@ export function ChatScreen({
   onSend,
   onDelete,
   onReport,
+  onMediaSent,
 }: {
   conversation: Conversation;
   profile: Profile;
@@ -2381,6 +2525,7 @@ export function ChatScreen({
   onSend: (body: string, replyToId?: string) => Promise<void>;
   onDelete: (message: DirectMessage) => Promise<void>;
   onReport: () => void;
+  onMediaSent?: () => void;
 }) {
   const [replyTo, setReplyTo] = useState<DirectMessage | null>(null);
   const [query, setQuery] = useState('');
@@ -2401,6 +2546,7 @@ export function ChatScreen({
   const initialUnread = useRef(conversation.unread);
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [actionMessage, setActionMessage] = useState<DirectMessage | null>(null);
   const searchGeneration = useRef(0);
   useEffect(() => {
     let active = true;
@@ -2707,7 +2853,12 @@ export function ChatScreen({
           const mine = message.senderId === profile.id;
           const parent = conversation.messages.find((m) => m.id === message.replyToId);
           return (
-            <View style={[styles.messageBubble, mine ? styles.messageMine : styles.messageTheirs]}>
+            <Pressable
+              style={[styles.messageBubble, mine ? styles.messageMine : styles.messageTheirs]}
+              onPress={() => setActionMessage(message)}
+              accessibilityRole="button"
+              accessibilityLabel={`${mine ? 'You' : conversation.peer.displayName}: ${message.body}. Message options`}
+            >
               {message.replyToId ? (
                 <View style={ex.quote}>
                   <Text style={ex.hint}>
@@ -2719,49 +2870,65 @@ export function ChatScreen({
                   </Text>
                 </View>
               ) : null}
+              {['Photo', 'Voice note'].includes(message.body) ? (
+                <MessageAttachment messageId={message.id} />
+              ) : null}
               <Text selectable style={[styles.messageText, mine && { color: colors.onPrimary }]}>
                 {message.body}
               </Text>
               <Text style={[styles.messageTime, mine && { color: colors.onPrimary }]}>
                 {message.createdAt}
               </Text>
-              <View
-                style={{
-                  flexDirection: 'row',
-                  flexWrap: 'wrap',
-                  alignItems: 'flex-start',
-                  justifyContent: 'space-between',
-                }}
-              >
+              {reactionState.reactions[message.id]?.length ? (
                 <ReactionBar
                   items={reactionState.reactions[message.id]}
                   viewerId={profile.id}
                   light={mine}
+                  allowPicker={false}
                   onReact={(emoji, remove) => void reactionState.react(message.id, emoji, remove)}
                 />
-                <ContentActions light={mine}>
-                  <Pressable
-                    style={ex.quiet}
-                    accessibilityRole="button"
-                    accessibilityLabel="Reply to message"
-                    onPress={() => setReplyTo(message)}
-                  >
-                    <Text style={[ex.label, mine && { color: 'white' }]}>Reply</Text>
-                  </Pressable>
-                  <DeleteOwnContentButton
-                    ownerId={message.senderId}
-                    viewerId={profile.id}
-                    createdAtIso={message.createdAtIso}
-                    kind="message"
-                    light={mine}
-                    onDelete={() => onDelete(message)}
-                  />
-                </ContentActions>
-              </View>
-            </View>
+              ) : null}
+            </Pressable>
           );
         }}
       />
+      {actionMessage ? (
+        <Sheet
+          title="Message options"
+          eyebrow="CONVERSATION"
+          onClose={() => setActionMessage(null)}
+        >
+          <Text numberOfLines={3} style={ex.body}>
+            {actionMessage.body}
+          </Text>
+          <ReactionBar
+            items={reactionState.reactions[actionMessage.id]}
+            viewerId={profile.id}
+            onReact={(emoji, remove) => {
+              void reactionState.react(actionMessage.id, emoji, remove);
+              setActionMessage(null);
+            }}
+          />
+          <ActionButton
+            variant="outline"
+            label="Reply"
+            onPress={() => {
+              setReplyTo(actionMessage);
+              setActionMessage(null);
+            }}
+          />
+          <DeleteOwnContentButton
+            ownerId={actionMessage.senderId}
+            viewerId={profile.id}
+            createdAtIso={actionMessage.createdAtIso}
+            kind="message"
+            onDelete={async () => {
+              await onDelete(actionMessage);
+              setActionMessage(null);
+            }}
+          />
+        </Sheet>
+      ) : null}
       {replyTo ? (
         <View style={ex.quote}>
           <Text style={ex.hint}>
@@ -2780,6 +2947,13 @@ export function ChatScreen({
           />
         </View>
       ) : null}
+      <MessageMediaComposer
+        user={profile.id}
+        target={conversation.peer.id}
+        disabled={sending || !draftLoaded}
+        onSent={() => onMediaSent?.()}
+      />
+      <Text style={styles.messageOptionsHint}>Tap a message for replies and reactions</Text>
       <View style={styles.messageComposer}>
         <TextInput
           value={draft}

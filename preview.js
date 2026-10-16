@@ -22,23 +22,36 @@
     })[interest] || 'photo-1441974231531-c6227db76b6e';
   const coverURL = (interest) =>
     `https://images.unsplash.com/${circleCover(interest)}?w=900&h=450&fit=crop`;
-  const mediaMarkup = (media) =>
-    media
-      ? media.kind === 'video'
-        ? `<video class="postMedia" src="${media.url}" controls playsinline preload="metadata"></video>`
-        : `<img class="postMedia" src="${media.url}" alt="Attached photo">`
-      : '';
+  const mediaMarkup = (media) => {
+    if (!media) return '';
+    if (media.items?.length > 1)
+      return `<div class="depthCarousel" role="group" aria-label="Photo carousel">${media.items.map((m, i) => `<img class="postMedia" src="${escapeHtml(m.url)}" alt="Photo ${i + 1} of ${media.items.length}">`).join('')}</div><p class="ex-hint">${media.items.length} photos · Swipe to browse</p>`;
+    return media.kind === 'video'
+      ? `<video class="postMedia" src="${escapeHtml(media.url)}" ${media.cover ? `poster="${escapeHtml(media.cover)}"` : ''} controls playsinline preload="metadata">${media.subtitles ? `<track kind="captions" srclang="en" label="English" src="${escapeHtml(media.subtitles)}" default>` : ''}</video>`
+      : `<img class="postMedia" src="${escapeHtml(media.url)}" alt="Attached photo">`;
+  };
   let composerMedia = null;
   let mediaRequest = 0;
   let mediaPreparing = false;
   const clearMedia = () => {
     mediaRequest++;
     mediaPreparing = false;
-    if (composerMedia) URL.revokeObjectURL(composerMedia.url);
+    if (composerMedia) {
+      const urls = new Set(
+        [
+          composerMedia.url,
+          ...(composerMedia.items ?? []).map((m) => m.url),
+          composerMedia.cover,
+          composerMedia.subtitles,
+        ].filter(Boolean),
+      );
+      urls.forEach((url) => URL.revokeObjectURL(url));
+    }
     composerMedia = null;
   };
   let stories;
   let experience;
+  let depth;
   const page = document.querySelector('.page');
   const tabs = [...document.querySelectorAll('.tab')];
   page.querySelectorAll('.post').forEach((post, index) => {
@@ -46,13 +59,7 @@
   });
   const seedTimeline = [...page.querySelectorAll('.section')].at(-1).innerHTML;
   const homeMarkup = () =>
-    `<header class="top"><div class="brand"><span class="mark"><i class="dot"></i><i class="dot"></i><i class="dot"></i></span>circles</div><div class="topActions"><span id="activitySlot"></span><img class="avatar" src="${escapeHtml(state.avatarUrl)}" alt="Your profile"></div></header><section class="intro"><h1 class="headline">${new Date().getHours() < 12 ? 'Good morning' : new Date().getHours() < 18 ? 'Good afternoon' : 'Good evening'}, ${escapeHtml(state.displayName.split(' ')[0])}.</h1><p class="sub">A little closer to your people.</p></section><div class="actions"><button class="quick" data-action="writePost">${icon('edit')} Share a thought</button><button class="quick tint" data-action="exploreCircles">${icon('plus')} Find circles</button></div><section class="section compactLiveSection"><button class="compactLiveCard" data-action="joinLive"><span class="liveIndicator"></span><span><small>Live · Kitchen Table Club</small><strong>Good food, better company</strong></span><span aria-hidden="true">›</span></button></section><section class="section"><div class="circleShortcuts">${state.circles
-      .filter((c) => c[4])
-      .map(
-        (c) =>
-          `<button class="circleShortcut" data-action="openCircle" data-name="${escapeHtml(c[0])}"><img src="${coverURL(c[1])}" alt="">${escapeHtml(c[0])}</button>`,
-      )
-      .join('')}</div></section><section class="section timeline">${seedTimeline}</section>`;
+    `<header class="top"><div class="brand"><span class="mark"><i class="dot"></i><i class="dot"></i><i class="dot"></i></span>circles</div><div class="topActions"><span id="activitySlot"></span><img class="avatar" src="${escapeHtml(state.avatarUrl)}" alt="Your profile"></div></header><section class="intro"><h1 class="headline">${new Date().getHours() < 12 ? 'Good morning' : new Date().getHours() < 18 ? 'Good afternoon' : 'Good evening'}, ${escapeHtml(state.displayName.split(' ')[0])}.</h1></section><div class="actions"><button class="quick" data-action="writePost">${icon('edit')} Share a thought</button><button class="quick tint" data-action="joinLive">${icon('video')} Live rooms</button></div><section class="section timeline">${seedTimeline}</section>`;
   const giftNames = [
     ['Petal', '🌸'],
     ['Cup of tea', '🍵'],
@@ -331,10 +338,10 @@
       : requested
         ? `<button class="demoButton soft" data-action="cancelCircleRequest" data-name="${escapeHtml(name)}">Request pending · cancel</button>`
         : `<button class="demoButton" data-action="join" data-name="${escapeHtml(name)}">${isPrivate ? 'Request to join' : 'Join this circle'}</button>`;
-    return `<header class="screenHead circleHeading"><button class="demoButton soft" data-action="backCircle">‹ Back</button><div class="circleCover" style="background-image:linear-gradient(0deg,#15131cdd,transparent),url('${coverURL(interest)}')"><div class="circleIdentity"><img src="${coverURL(interest)}" alt=""><span>${escapeHtml(interest)} · ${isPrivate ? 'Private' : 'Public'}</span></div><h1>${escapeHtml(name)}</h1><p>${escapeHtml(count)} members ${joined ? '· Joined' : ''}</p></div><div class="circleTabs" role="tablist" aria-label="Circle sections">${['posts', 'events', 'about'].map((t) => `<button role="tab" aria-selected="${t === tab}" data-action="circleTab" data-tab="${t}" id="circle-tab-${t}" aria-controls="circle-panel">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div>${membership}</header><section class="section" id="circle-panel" role="tabpanel" aria-labelledby="circle-tab-${tab}">${tab === 'posts' ? (joined ? posts || '<div class="ex-empty"><h2>Start the conversation</h2><p>Share a thought, photo or video with your circle.</p></div>' : '<div class="ex-empty"><h2>Come on in</h2><p>Join this circle to read and share posts.</p></div>') : !joined ? '<div class="ex-empty">Join to see events and member information.</div>' : ''}</section>`;
+    return `<header class="screenHead circleHeading ${tab === 'about' ? 'circleAbout' : 'circleCompact'}"><button class="demoButton soft" data-action="backCircle">‹ Back</button><div class="circleCover" style="background-image:linear-gradient(0deg,#15131cdd,transparent),url('${coverURL(interest)}')"><div class="circleIdentity"><img src="${coverURL(interest)}" alt=""><span>${escapeHtml(interest)} · ${isPrivate ? 'Private' : 'Public'}</span></div><h1>${escapeHtml(name)}</h1><p>${escapeHtml(count)} members ${joined ? '· Joined' : ''}</p></div><div class="circleTabs" role="tablist" aria-label="Circle sections">${['posts', 'events', 'about'].map((t) => `<button role="tab" aria-selected="${t === tab}" data-action="circleTab" data-tab="${t}" id="circle-tab-${t}" aria-controls="circle-panel">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div>${membership}</header><section class="section" id="circle-panel" role="tabpanel" aria-labelledby="circle-tab-${tab}">${tab === 'posts' ? (joined ? posts || '<div class="ex-empty"><h2>Start the conversation</h2><p>Share a thought, photo or video with your circle.</p></div>' : '<div class="ex-empty"><h2>Come on in</h2><p>Join this circle to read and share posts.</p></div>') : !joined ? '<div class="ex-empty">Join to see events and member information.</div>' : ''}</section>`;
   };
   const profileScreen = () =>
-    `<header class="screenHead"><div class="eyebrow">YOUR LITTLE CORNER</div><div class="profilePhotoRow"><img class="profilePhotoDemo" data-own-avatar src="${escapeHtml(state.avatarUrl)}" alt="Your profile photo"><button class="demoButton soft" data-action="editProfilePhoto">Change photo</button></div><h1>${escapeHtml(state.displayName)}</h1><p>@julesmakes · ${escapeHtml(state.bio)}</p></header><div class="demoCard walletDemo demoRow"><div class="grow"><div class="demoCopy">YOUR WALLET</div><div style="font-size:23px;font-weight:850;margin-top:5px">◉ ${state.coins} <span style="font-size:12px;font-weight:500">coins</span></div></div><button class="demoButton" data-action="buyCoins">Add coins</button></div><div class="demoCard demoRow"><div class="grow"><div class="demoTitle">${state.following.size} following</div><p class="demoCopy">Your profile and interests</p></div><button class="demoButton soft" data-action="editProfile">Edit profile</button></div><section class="section"><div class="sectionHead"><div><div class="eyebrow">YOUR COMMUNITY</div><h2>Following · ${state.following.size}</h2></div></div><div class="demoList" style="padding:0">${profilePeople(state.following)}</div></section><section class="section"><div class="sectionHead"><div><div class="eyebrow">YOUR COMMUNITY</div><h2>Followers · ${state.followers.size}</h2></div></div><div class="demoList" style="padding:0">${profilePeople(state.followers)}</div></section><div class="sectionHead" style="padding:8px 22px"><div><div class="eyebrow">YOUR CIRCLES</div><h2>Places you belong</h2></div></div><div class="demoList">${state.circles
+    `<header class="screenHead"><div class="eyebrow">YOUR LITTLE CORNER</div><div class="profilePhotoRow"><img class="profilePhotoDemo" data-own-avatar src="${escapeHtml(state.avatarUrl)}" alt="Your profile photo"><button class="demoButton soft" data-action="editProfilePhoto">Change photo</button></div><h1>${escapeHtml(state.displayName)}</h1><p>@julesmakes · ${escapeHtml(state.bio)}</p></header><div class="demoCard walletDemo demoRow"><div class="grow"><div class="demoCopy">YOUR WALLET</div><div style="font-size:23px;font-weight:850;margin-top:5px">◉ ${state.coins} <span style="font-size:12px;font-weight:500">coins</span></div></div><button class="demoButton" data-action="buyCoins">Add coins</button></div><div class="demoCard demoRow"><div class="grow"><div class="demoTitle">${state.following.size} following</div><p class="demoCopy">Your profile and interests</p></div><button class="demoButton soft" data-action="editProfile">Edit profile</button></div><section class="section"><details class="communityDetails"><summary>Following · ${state.following.size}</summary><div class="demoList" style="padding:0">${profilePeople(state.following)}</div></details></section><section class="section"><details class="communityDetails"><summary>Followers · ${state.followers.size}</summary><div class="demoList" style="padding:0">${profilePeople(state.followers)}</div></details></section><div class="sectionHead" style="padding:8px 20px"><div><div class="eyebrow">YOUR CIRCLES</div><h2>Places you belong</h2></div></div><div class="demoList">${state.circles
       .filter((c) => c[4])
       .map(circleCard)
       .join('')}</div>`;
@@ -439,6 +446,7 @@
       'Post options',
       `<div class="ex-stack"><button class="demoButton" data-enhance="save" data-id="${escapeHtml(id)}">${savedPreviewPosts[id] ? 'Remove from saved posts' : 'Save post'}</button>${own ? `<p class="demoCopy">You can edit or remove your timeline posts at any time while you are a member.</p><textarea class="demoArea" id="editPostBody" aria-label="Edit post text" maxlength="5000">${escapeHtml(content)}</textarea><button class="demoButton soft" data-enhance="edit" data-id="${escapeHtml(id)}">Save changes</button><button class="demoButton soft" data-enhance="delete" data-id="${escapeHtml(id)}">Delete post</button>` : '<button class="demoButton soft" data-action="report">Report post (preview)</button>'}</div>`,
     );
+    depth?.options(id);
   }
   document.addEventListener(
     'click',
@@ -533,6 +541,7 @@
       if (action === 'delete') delete savedPreviewPosts[id];
       else if (savedPreviewPosts[id]) savedPreviewPosts[id].body = body;
       savePreviewBookmarks();
+      depth?.changePost(id, action === 'delete' ? null : body);
       document.querySelector('.modalDemo')?.remove();
       render();
       toast(action === 'delete' ? 'Post deleted.' : 'Post updated.');
@@ -606,6 +615,7 @@
     });
     experience?.decorate(screen);
     stories?.decorate();
+    depth?.decorate(screen);
     enhancePosts(screen);
     makePreviewControlsAccessible();
     document.querySelector('.note').textContent =
@@ -633,6 +643,13 @@
     el.className = 'modalDemo';
     el.innerHTML = `<section class="modalPanel" role="dialog" aria-modal="true" aria-label="${title.replace(/<[^>]*>/g, '')}"><header class="modalHead"><h2>${title}</h2><button data-action="closeModal" aria-label="Close">×</button></header>${content}</section>`;
     document.querySelector('.device').append(el);
+    el.querySelectorAll('form').forEach((form) => {
+      form.classList.add('standardForm');
+      const submit = [...form.querySelectorAll('button')]
+        .filter((button) => button.type === 'submit')
+        .at(-1);
+      if (submit) submit.classList.add('formSubmit');
+    });
     experience?.labelFields();
     el.querySelector('[data-action="closeModal"]')?.focus();
     el.addEventListener('keydown', (event) => {
@@ -1088,7 +1105,7 @@
       }
       const postId = crypto.randomUUID();
       state.posts.unshift(
-        `<article class="post" data-post-id="${postId}"><div class="postMeta"><img data-own-avatar src="${escapeHtml(state.avatarUrl)}" alt="Your profile photo"><div><div class="author" data-own-author>${escapeHtml(state.displayName)}</div><div class="meta">${escapeHtml(circle)} · now</div></div></div><p class="body">${escapeHtml(body)}</p>${mediaMarkup(composerMedia)}<div class="postActions"><span>♡　0</span><span>◯　Reply</span><span>↗　Share</span></div></article>`,
+        `<article class="post" data-post-id="${postId}" data-created-at="${Date.now()}"><div class="postMeta"><img data-own-avatar src="${escapeHtml(state.avatarUrl)}" alt="Your profile photo"><div><div class="author" data-own-author>${escapeHtml(state.displayName)}</div><div class="meta">${escapeHtml(circle)} · now</div></div></div><p class="body">${escapeHtml(body)}</p>${mediaMarkup(composerMedia)}<div class="postActions"><span>♡　0</span><span>◯　Reply</span><span>↗　Share</span></div></article>`,
       );
       state.circlePosts[circle] ||= [];
       state.circlePosts[circle].unshift({
@@ -1212,6 +1229,7 @@
         )}</div><p class="ex-hint" id="attachmentName" role="status"></p><p class="ex-hint">Videos up to 2 minutes · 25 MB maximum.</p><input type="file" id="mediaPicker" hidden></div><footer class="composerFooter"><button class="demoButton" data-action="publish" disabled>Share with your circle</button></footer>`,
     );
     document.querySelector('.modalPanel').classList.add('composerPanel');
+    depth?.composer();
     document.querySelector('.composerBody').addEventListener('input', updatePublishButton);
   }
   function escapeHtml(value) {
@@ -1306,7 +1324,7 @@
         return;
       }
       clearMedia();
-      composerMedia = { url, kind };
+      composerMedia = { url, kind, file };
       state.attachment = file.name;
       panel.querySelector('#mediaPreview').innerHTML =
         `<div class="attachmentCard">${mediaMarkup(composerMedia)}<div class="ex-row"><button class="demoChip" data-action="media" data-kind="${kind}">Replace</button><button class="demoChip" data-action="removeMedia">Remove</button></div></div>`;
@@ -1413,6 +1431,25 @@
     giftCatalog,
     canDelete,
     deleteControl,
+  });
+  depth = window.createCirclesDepth({
+    state,
+    page,
+    modal,
+    render,
+    toast,
+    escapeHtml,
+    openCircle,
+    openReplies,
+    openChat,
+    getMedia: () => composerMedia,
+    setMedia: (media) => {
+      composerMedia = media;
+      state.attachment = media?.file?.name || media?.items?.[0]?.file?.name || '';
+      updatePublishButton();
+    },
+    mediaMarkup,
+    updatePublishButton,
   });
   stories = window.createCirclesStories({ state, page, modal, render, toast, escapeHtml });
   const previewMeta = document.createElement('aside');

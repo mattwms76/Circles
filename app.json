@@ -13,14 +13,16 @@
       "bundleIdentifier": "com.circles.social",
       "infoPlist": {
         "NSCameraUsageDescription": "Circles uses your camera when you create a post or go live.",
-        "NSMicrophoneUsageDescription": "Circles uses your microphone during livestreams and when recording video."
+        "NSMicrophoneUsageDescription": "Circles uses your microphone for livestreams, video recordings, and voice notes you choose to record."
       }
     },
     "android": {
       "package": "com.circles.social",
+      "allowBackup": false,
       "permissions": ["CAMERA", "RECORD_AUDIO", "READ_MEDIA_IMAGES", "READ_MEDIA_VIDEO"]
     },
     "plugins": [
+      ["expo-secure-store", { "configureAndroidBackup": true }],
       [
         "expo-image-picker",
         {
@@ -38,6 +40,12 @@
         "expo-calendar",
         {
           "calendarPermission": "Add Circles events to your calendar when you choose."
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Record voice notes to share with your conversations and circles."
         }
       ]
     ],

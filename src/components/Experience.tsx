@@ -230,11 +230,13 @@ export function ReactionBar({
   viewerId,
   onReact,
   light = false,
+  allowPicker = true,
 }: {
   items?: Reaction[];
   viewerId: string;
   onReact: (emoji: string, remove: boolean) => void;
   light?: boolean;
+  allowPicker?: boolean;
 }) {
   const [choosing, setChoosing] = useState(false);
   return (
@@ -274,15 +276,17 @@ export function ReactionBar({
             </Pressable>
           );
         })}
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={choosing ? 'Close reactions' : 'Add reaction'}
-        accessibilityState={{ expanded: choosing }}
-        onPress={() => setChoosing(!choosing)}
-        style={s.quiet}
-      >
-        <Icon name="plus" color={light ? 'white' : colors.muted} />
-      </Pressable>
+      {allowPicker ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={choosing ? 'Close reactions' : 'Add reaction'}
+          accessibilityState={{ expanded: choosing }}
+          onPress={() => setChoosing(!choosing)}
+          style={s.quiet}
+        >
+          <Icon name="plus" color={light ? 'white' : colors.muted} />
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -545,7 +549,30 @@ export function ScheduledRooms({
         }}
       />
       {editing ? (
-        <View style={s.card}>
+        <Sheet
+          title={editing === 'new' ? 'Schedule a live room' : 'Edit scheduled room'}
+          eyebrow="LIVE ROOMS"
+          onClose={() => {
+            if (!busy) setEditing(null);
+          }}
+          footer={
+            <ActionButton
+              disabled={busy || title.trim().length < 2 || !date.trim()}
+              label={busy ? 'Saving…' : 'Save scheduled room'}
+              onPress={() =>
+                void run(async () => {
+                  await saveScheduledRoom(
+                    title,
+                    date.replace(' ', 'T'),
+                    circle,
+                    editing === 'new' ? undefined : editing,
+                  );
+                  setEditing(null);
+                })
+              }
+            />
+          }
+        >
           <LabeledField label="Room title" value={title} onChangeText={setTitle} maxLength={120} />
           <ScheduleDateField value={date} onChangeText={setDate} />
           <Text style={s.hint}>
@@ -567,28 +594,19 @@ export function ScheduledRooms({
                 ))}
             </View>
           ) : null}
-          <ActionButton
-            disabled={busy}
-            label={busy ? 'Saving…' : 'Save scheduled room'}
-            onPress={() =>
-              void run(async () => {
-                await saveScheduledRoom(
-                  title,
-                  date.replace(' ', 'T'),
-                  circle,
-                  editing === 'new' ? undefined : editing,
-                );
-                setEditing(null);
-              })
-            }
-          />
+
           <ActionButton
             variant="outline"
             label="Cancel editing"
             disabled={busy}
             onPress={() => setEditing(null)}
           />
-        </View>
+          {error ? (
+            <Text accessibilityRole="alert" style={s.error}>
+              {error}
+            </Text>
+          ) : null}
+        </Sheet>
       ) : null}
       {rooms.map((room) => (
         <View key={room.id} style={s.card}>

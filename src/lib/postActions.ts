@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { secureStorage as AsyncStorage } from './secureStorage';
 import { supabase } from './supabase';
 import type { CirclePost } from '../types';
 import { readStringList } from './localData';

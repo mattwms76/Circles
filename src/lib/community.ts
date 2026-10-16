@@ -1,11 +1,12 @@
 import { people as demoPeople, currentUser as demoUser } from '../data/demo';
 import { defaultDiscovery, type DiscoveryOptions } from './experience';
 import { signedMediaUrls } from './media';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { clearAccountDrafts } from './drafts';
-import { requireSupabase, supabase } from './supabase';
+import { requireSupabase, supabase, signOutDeviceSession, allowAuthSession } from './supabase';
+import { beginAuthFlow } from './authFlow';
+import { registerPushDevice, deregisterPushDevice } from './pushDevice';
 import { toProfile, loadCircles } from './repositories';
 import type { Circle, Profile, UUID } from '../types';
 
@@ -16,6 +17,7 @@ export interface NotificationSettings {
   memberships: boolean;
   live: boolean;
   events: boolean;
+  digests: boolean;
   quiet_enabled: boolean;
   quiet_start: string;
   quiet_end: string;
@@ -29,6 +31,7 @@ export const defaultNotificationSettings: NotificationSettings = {
   memberships: true,
   live: true,
   events: true,
+  digests: false,
   quiet_enabled: false,
   quiet_start: '22:00',
   quiet_end: '08:00',
@@ -216,8 +219,7 @@ export async function enableDevicePush() {
   const { data: token } = await Notifications.getExpoPushTokenAsync({
     projectId,
   });
-  checked(await requireSupabase().rpc('register_push_token', { push_token: token }));
-  await AsyncStorage.setItem('circles:device-push-token', token);
+  await registerPushDevice(token);
   return token;
 }
 export async function loadNotifications(offset = 0): Promise<ActivityNotification[]> {
@@ -396,6 +398,11 @@ export async function beatLiveSeat(id: UUID) {
   if (supabase) checked(await supabase.rpc('heartbeat_live_seat', { target_session_id: id }));
 }
 export async function requestPasswordReset(email: string) {
+  const current = await requireSupabase().auth.getSession();
+  if (current.error) throw current.error;
+  if (current.data.session) throw new Error('Sign out before requesting a password reset link.');
+  allowAuthSession();
+  await beginAuthFlow('recovery');
   checked(
     await requireSupabase().auth.resetPasswordForEmail(email.trim(), {
       redirectTo: 'circles://auth/recovery',
@@ -413,13 +420,8 @@ export async function deleteAccount(password: string) {
     data: { user },
   } = await client.auth.getUser();
   if (!user?.email) throw new Error('Sign in again before deleting your account.');
-  const authenticated = await client.auth.signInWithPassword({
-    email: user.email,
-    password,
-  });
-  if (authenticated.error) throw authenticated.error;
   const result = await client.functions.invoke('delete-account', {
-    body: { confirmation: 'DELETE' },
+    body: { confirmation: 'DELETE', password },
   });
   if (result.error)
     throw new Error('Your account could not be deleted. Please sign in again and retry.');
@@ -433,12 +435,18 @@ export async function deleteAccount(password: string) {
 
 export async function signOutDevice() {
   if (!supabase) return;
-  const token = await AsyncStorage.getItem('circles:device-push-token');
-  if (token) {
-    const result = await supabase.from('device_push_tokens').delete().eq('token', token);
-    if (result.error) throw result.error;
-    await AsyncStorage.removeItem('circles:device-push-token');
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      deregisterPushDevice(),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(Error('Cleanup deferred')), 3000);
+      }),
+    ]);
+  } catch {
+    /* Keep the token for deregistration at the next authenticated startup. */
+  } finally {
+    if (timer) clearTimeout(timer);
+    await signOutDeviceSession();
   }
-  const result = await supabase.auth.signOut();
-  if (result.error) throw result.error;
 }

@@ -291,6 +291,13 @@ window.createCirclesExperience = ({
   function entryMarkup(item, kind, key) {
     const parent = content(kind, key).find((m) => m.id === item.replyToId);
     const selected = item.reactions || [];
+    if (kind === 'message')
+      return `<div class="message ${item.own ? 'mine' : ''}" data-entry="${item.id}" ${!item.body.toLowerCase().includes(chatSearch.toLowerCase()) ? 'hidden' : ''}>
+      ${item.replyToId ? `<div class="ex-quote"><small>Replying to ${parent?.own ? 'yourself' : e(key)}</small><p>${e(parent?.body || 'Original message unavailable')}</p></div>` : ''}
+      <p>${e(item.body)}</p>${item.media ? (item.kind === 'voice' ? `<audio controls preload="metadata" data-depth-media="${e(item.id)}"></audio>` : `<img class="postMedia" alt="Shared photo" data-depth-media="${e(item.id)}">`) : ''}<div class="messageMeta"><small class="messageTime">${e(new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))}</small>
+      <details class="messageMenu"><summary aria-label="Message options">•••</summary><div class="messageMenuBody"><div class="ex-row">${button('Reply', 'replyTo', `data-id="${item.id}"`)}${deleteControl(item, kind)}</div><div class="ex-row" aria-label="Reactions">${['❤️', '👍', '😂', '🎉', '😮'].map((emoji) => button(emoji, 'react', `data-id="${item.id}" data-emoji="${emoji}" aria-label="${selected.includes(emoji) ? 'Remove' : 'Add'} ${emoji} reaction" aria-pressed="${selected.includes(emoji)}"`)).join('')}</div></div></details></div>
+      ${selected.length ? `<div class="messageSelectedReactions">${selected.map((emoji) => button(`${emoji} 1`, 'react', `data-id="${item.id}" data-emoji="${emoji}" aria-pressed="true"`)).join('')}</div>` : ''}</div>`;
+
     return `<div class="message ${item.own ? 'mine' : ''} ${item.replyToId ? 'isReply' : ''}" data-entry="${item.id}" ${kind === 'message' && !item.body.toLowerCase().includes(chatSearch.toLowerCase()) ? 'hidden' : ''}>${item.replyToId ? `<div class="ex-quote"><small>Replying to ${parent?.own ? 'yourself' : e(key)}</small><p>${e(parent?.body || 'Original message unavailable')}</p></div>` : ''}<p>${e(item.body)}</p><small class="messageTime">${e(new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))}</small><div class="entryControls"><div class="ex-reactions">${selected.map((emoji) => button(`${emoji} 1`, 'react', `data-id="${item.id}" data-emoji="${emoji}" aria-pressed="true"`)).join('')}<details class="reactionPicker"><summary aria-label="Add reaction">${icon('plus')}</summary><div class="reactionChoices">${['❤️', '👍', '😂', '🎉', '😮'].map((emoji) => button(emoji, 'react', `data-id="${item.id}" data-emoji="${emoji}" aria-label="${selected.includes(emoji) ? 'Remove' : 'Add'} ${emoji} reaction" aria-pressed="${selected.includes(emoji)}"`)).join('')}</div></details></div><details class="entryMenu"><summary aria-label="Message actions">•••</summary><div class="ex-row">${button('Reply', 'replyTo', `data-id="${item.id}"`)}${deleteControl(item, kind)}</div></details></div></div>`;
   }
   let activeKind = 'message',
@@ -357,6 +364,29 @@ window.createCirclesExperience = ({
         : '<summary>About replies</summary>';
     while (stack.firstElementChild !== messages) options.append(stack.firstElementChild);
     stack.prepend(options);
+    if (kind === 'message') {
+      const summary = options.querySelector('summary');
+      summary.textContent = '•••';
+      summary.setAttribute('aria-label', 'Conversation options');
+      const body = document.createElement('div');
+      body.className = 'conversationToolsBody';
+      [...options.children]
+        .filter((child) => child !== summary)
+        .forEach((child) => body.append(child));
+      options.append(body);
+      panel
+        .querySelector('.modalHead')
+        .insertBefore(options, panel.querySelector('[data-action="closeModal"]'));
+      const textarea = composer.querySelector('textarea');
+      textarea.setAttribute('aria-label', 'Message');
+      textarea.placeholder = 'Write a message…';
+      textarea.rows = 1;
+      const label = textarea.closest('label');
+      [...label.childNodes]
+        .filter((child) => child.nodeType === Node.TEXT_NODE)
+        .forEach((child) => child.remove());
+      textarea.style.height = Math.min(128, Math.max(48, textarea.scrollHeight)) + 'px';
+    }
     if (kind === 'message' && chatSearch) options.open = true;
     if (kind === 'message' && !chatSearch) messages.scrollTop = messages.scrollHeight;
     if (kind === 'comment')
@@ -733,6 +763,10 @@ window.createCirclesExperience = ({
   );
   document.addEventListener('input', (event) => {
     if (event.target.closest('[data-form=ex-thread]')) {
+      if (event.target.tagName === 'TEXTAREA') {
+        event.target.style.height = '48px';
+        event.target.style.height = Math.min(128, Math.max(48, event.target.scrollHeight)) + 'px';
+      }
       model.drafts[`${activeKind}:${activeKey}`] = event.target.value;
       event.target.closest('form').querySelector('[type=submit]').disabled =
         !event.target.value.trim();

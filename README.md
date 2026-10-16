@@ -1,6 +1,45 @@
 # Circles
 
+Security remediation (15 October 2026): see [the security fix record](docs/security-fixes.html) for S01–S11, deployment status and remaining native/admin acceptance checks. The canonical bootstrap manifest now includes `20261015135615_security_hardening.sql`. Deploy that migration before the updated purchase, account-deletion and retention functions. Existing Circles data is preserved.
+
+`pnpm security:check` queries the advisory feed and verifies the actual Expo/Metro files against reviewed local patches for node-forge and braces; those advisories remain in registry metadata until upstream releases fixes. New/unmitigated advisories, absent patches and registry failures fail the gate. Xcode's UUID dependency is overridden to 11.1.1. Patch settings use pnpm 11's `pnpm-workspace.yaml`; package-age safeguards remain unchanged. Run `pnpm check`, `pnpm security:check`, Deno checks and native exports after dependency changes.
+
+Authentication uses device-bound PKCE. Request email confirmation/recovery on this device and sign out before using a callback. Legacy token-bearing callbacks cannot silently inject sessions. SecureStore requires a rebuilt native client; plaintext session/draft values migrate to device-only encrypted storage. Draft media is cached outside backups and may need selecting again if the OS reclaims it. Database content limits and account upload quotas are documented in the fix record. Offline sign-out clears local credentials; remote revocation and push cleanup depend on connectivity, with device-proof deregistration retried on authenticated startup.
+
 Circles is an Expo / React Native iOS and Android community app backed by Supabase. It supports interest-based circles, posts and media, mutual-follow messages, live rooms, co-host seats, gifts, and moderation. Without Supabase configuration it opens with demo data.
+
+## Current implementation status — 15 October 2026
+
+The latest eight community improvements are implemented in the native app, with a local browser prototype:
+
+| Area | Implemented behavior |
+| --- | --- |
+| Personal timeline | Latest/Recommended, favourite circles, See less, snooze, hide/restore and recommendation explanations. Filtering happens before pagination. |
+| Publishing | Up to ten ordered photos, native video trimming, selectable cover frames and editable timed subtitles, with retained drafts and upload retry. |
+| Participation | Questions, polls with change/remove vote and closing times, and optional host-configured weekly prompts. |
+| Circle library | Host topics, topic-filtered posts, shared collections, contributor attribution and permission-aware removal. |
+| Circle chats | Optional member-only chats, host slow mode/moderation, mute/read receipts, photo/voice messages and recoverable drafts. Direct messages also support photo/voice attachments. |
+| Invitations | Expiring/revocable HTTPS invitations, limited host-approved previews, installed-app join links and private-circle approval. |
+| Recognition | Host-awarded member recognition, recipient removal and helpful answers on question posts. |
+| Catch-up | New conversations, unanswered questions, replies and upcoming events since the last visit; an optional weekly digest, off by default. |
+
+Story media cleanup now has its own function, database secret and minute scheduler, independent of notifications. `supabase/bootstrap.list` is the canonical fresh-project order used by CI and the PostgreSQL regression suite. Story API/Storage/cleanup checks and wider preview/native acceptance flows have been added. EAS production builds run the required configuration check after installation; development and preview builds remain usable while service values are deferred.
+
+**Connected deployment:** The app now targets `vvclcsqletcxzoaayqzq`. Its initial schema, stories/retention, community features, policy tuning and media retry correction are deployed. All 53 public tables have RLS. Six Edge Functions and six scheduled maintenance jobs are active; automatic retention requests returned HTTP 200. Security and performance advisors report no warnings/errors. The two app authentication callbacks are saved: `circles://auth/callback` and `circles://auth/recovery`. No users or content were copied from the old project.
+
+The public [invitation page](https://mattwms76.github.io/Circles/) is published from the dedicated `codex/invitation-pages` branch. Set `EXPO_PUBLIC_INVITE_BASE_URL` as shown in `.env.example`. `pnpm publish:invitations` publishes only `web/index.html` and `.nojekyll` using the signed-in GitHub CLI. The page opens the installed app through an explicit button; automatic iOS Universal Links/Android App Links and store fallbacks require release identifiers/signing fingerprints and store listings.
+
+**Still pending:** Agora App ID, EAS project ID and support email remain deferred. Real push, streaming, store purchases, iOS/Android camera/audio/video trimming, keyboard/accessibility and device acceptance require configured services and physical devices. Rebuild the development client for the new audio, crypto and trimming modules; Expo Go is insufficient. Local browser automation is restricted in this session; visual and disposable Docker integration suites are authored for CI and were not executed here. The Windows utility remains local and excluded from this work.
+
+**Verified in this pass:** 158 automated regressions, strict TypeScript, shared palette consistency, preview JavaScript syntax, Deno checks for all six functions, and final Android/iOS JavaScript exports. Tests include database permissions, private invitations, voting, chat deletion/rate limits, filtering before pagination, upload metadata retries, recording interruption, account changes, chat recovery and cleanup queue retry. The published page's expired/revoked invitation state was checked in the browser. The prototype is served at `http://127.0.0.1:4173/preview.html`; it uses local simulated data. App source changes remain uncommitted; only the invitation site was published.
+
+### Screen and code debugging — 15 October 2026
+
+Reviewed navigation, Home/Explore, circles/library, publishing/stories, inbox/chat, profiles/onboarding, settings/recovery, activity/moderation, live rooms and wallet code against the regression suite. Fixed overlapping feed refresh/pagination, stale poll results and duplicate vote taps, stale message attachments, malformed community caches, delayed participation-draft restoration, ordered draft persistence/error handling, collection pagination through inaccessible posts, concurrent chat mute/read updates, voice replay/recording cleanup, and publishing before video edits finish. Authentication consumes tokens only on the two configured callback routes; failed callback processing can be retried. The browser prototype now orders new questions/polls correctly in Latest and circle timelines.
+
+Fourteen new regression tests reproduce the asynchronous failures and verify recovery; see `scripts/screen-debug.test.mjs`. Crypto, the development client and TypeScript are now pinned to the SDK 57 recommended versions. The newest Expo/notification patch set was tested but rejected by the environment's minimum package-age policy, so the final dependency set retains Expo `57.0.27` and notifications `57.0.22`. The compatibility checker still recommends `57.0.29` / `57.0.23`; these updates remain deferred. Frozen-lockfile installation and supply-chain verification pass without age-policy exceptions. No new database migration or production content change was needed for these fixes. Browser visual automation and disposable Docker integration were not run in this session; physical iOS/Android acceptance remains required, including real camera, audio, trimming, push, streaming and purchases.
+
+See [the implementation and release checklist](docs/release-acceptance.html) for all eight areas, deployment order and acceptance criteria. Dated validation notes below are historical; they do not supersede this status.
 
 ## Run the native app
 
@@ -19,33 +58,25 @@ Circles is an Expo / React Native iOS and Android community app backed by Supaba
 | Onboarding | Name, public profile photo, interests, suggested circles, and first-circle joining. Empty feeds explain the next action. Moderator metrics show registration, onboarding, joining, and contribution for the last 30 days. |
 | Discovery | Circle and people search run on the server before pagination. Circles have interest filters and shared-interest recommendations; blocked people are excluded. |
 | Everyday use | Pull to refresh, loading placeholders, account-scoped post and message drafts, retained attachment files, upload progress, cancellation, retry keys, readable wallet errors, improved contrast, labels, and touch targets. |
-| Community activity | Private activity inbox for messages, replies, approvals, followed hosts, and events. Notification categories, circle mutes, quiet hours, pinned welcome text, scheduled events, RSVPs, and deduplicated reminders. Device-push worker is implemented but deployment remains pending approval. |
+| Community activity | Private activity inbox for messages, replies, approvals, followed hosts, and events. Notification categories, circle mutes, quiet hours, pinned welcome text, scheduled events, RSVPs, and deduplicated reminders. Device-push worker is implemented; connected deployment and device verification remain pending. |
 | Account and moderation | Password-reset links, account deletion with password confirmation, blocked-member management, report reasons, and a server-authorized moderator queue with reported-media previews, removal, audit records, and protection against republishing removed posts. |
 | Reliability | Virtualized feeds and chat, batched/cached signed media URLs, an error boundary, opt-in technical diagnostics, PostgreSQL regressions, API integration checks, and GitHub Actions. |
 
 ## Deleting messages and comments
 
-Authors can delete their own direct messages and comments for 15 minutes after sending. Tap **Delete** beneath the item and confirm the deletion. The control expires while the screen is open; PostgreSQL independently enforces the author and deadline using server-owned timestamps. Deletion removes the item, associated activity notification, and queued push delivery. Already delivered device notifications cannot be recalled. Realtime deletes update open conversations and replies, and failures leave the content available for retry. The browser prototype has the same controls for its local demo data.
+Authors can delete their own direct messages and comments for 15 minutes after sending. Open the message or comment actions, choose **Delete**, and confirm the deletion. The control expires while the screen is open; PostgreSQL independently enforces the author and deadline using server-owned timestamps. Deletion removes the item, associated activity notification, and queued push delivery. Already delivered device notifications cannot be recalled. Realtime deletes update open conversations and replies, and failures leave the content available for retry. The browser prototype has the same controls for its local demo data.
 
 ## Database and functions
 
-The connected Supabase project has the community schema and account-deletion function deployed. Existing streaming and purchase functions remain deployed. The push dispatcher is **not deployed or connected to its scheduler endpoint**, pending approval for Expo push delivery. The scheduled database job still creates in-app event reminders without making an external request.
+Previous passes verified the community/bookmark schema and account-deletion, streaming and purchase functions on the connected project. Their current deployment state must be rechecked when access returns. The story migration, independent retention migration and updated account-deletion function remain pending. Notification dispatch and story cleanup have separate endpoints and secrets; configuring one does not activate the other.
 
-For a **fresh project**, apply these files once, in this order:
-
-1. `supabase/setup.sql`
-2. `supabase/migrations/20261012145107_community_experience.sql`
-3. `supabase/migrations/20261012145255_community_foreign_key_indexes.sql`
-4. `supabase/migrations/20261012155424_content_deletion_window.sql`
-5. `supabase/migrations/20261012163503_experience_enhancements.sql`
-6. `supabase/migrations/20261012164050_experience_policy_consolidation.sql`
-7. `supabase/migrations/20261013063428_replies_audit_hardening.sql`
+For a **fresh project**, apply the files in [`supabase/bootstrap.list`](supabase/bootstrap.list) once, in that order. It includes the current bootstrap, community upgrades, deletion/experience/reply hardening, bookmarks, stories and independent story cleanup. CI reads this same manifest. Historical migrations outside the manifest must not be replayed against the current bootstrap.
 
 `setup.sql` is a one-time bootstrap, not a repeatable migration. Historical files in `supabase/migrations` describe upgrades to older bootstraps; they are not a complete from-zero migration chain. Do not run all historical files after the current bootstrap. Existing initialized installations need the applicable upgrades, including `20261012135221_fix_core_flow_authorization.sql` if it has not already been applied, then the two community migrations and the content-deletion migration above.
 
 Allow `circles://**` in Supabase Auth URL Configuration. Recovery emails return to `circles://auth/recovery`; verify this on an installed native build.
 
-The functions are `issue-stream-token`, `verify-coin-purchase`, `delete-account`, and the pending `dispatch-notifications`. Normal user functions require JWT verification and validate the user or operation internally. The dispatcher uses a random database-owned secret and service-only RPCs; it accepts only POST requests with that secret. No client receives it. Notification delivery rows, moderation audit records, and runtime settings deliberately have no client RLS policies.
+The functions are `issue-stream-token`, `verify-coin-purchase`, `delete-account`, `dispatch-notifications` and `cleanup-story-media`. Normal user functions require JWT verification and validate the user or operation internally. The dispatcher uses a random database-owned secret and service-only RPCs; it accepts only POST requests with that secret. No client receives it. Notification delivery rows, moderation audit records, and runtime settings deliberately have no client RLS policies.
 
 Account deletion revokes sessions, transfers owned circles to the longest-standing remaining member (or removes empty circles), removes the profile and dependent records, removes uploaded media, then deletes the Auth identity. Failed server cleanup is retryable. Successful deletion also clears the account's local drafts and pending gift keys. Profile photos can be changed from **You → Change photo** or **Edit profile**, previewed, then saved with the profile. JPG, PNG, and WebP images up to 5 MB are supported. The browser prototype saves a resized photo locally in that browser. Public avatars are disclosed as public in onboarding and the profile editor; post media stays private behind signed URLs.
 
@@ -80,11 +111,11 @@ Live rooms support a host plus up to three co-hosts. Host and co-host heartbeats
 - `pnpm check`: TypeScript and credential-free regression tests. There are currently 92 passing checks, including React component tests for repeated sign-in events, navigation during requests, account isolation, immediate chat-draft persistence, failed stream setup cleanup, demo state/media consistency, and profile photo selection, cancellation, upload retry, and account isolation. The component harness runs the actual app code with mocked native SDK and network boundaries; it does not replace device testing. PGlite executes the real SQL with Supabase-style grants and Auth/Storage schema fixtures. Tests cover both the previous six fixes and the new community, moderation, push queue, idempotency, and deletion permissions.
 - `pnpm export:android` and `pnpm export:ios`: bundle the native JavaScript to catch module and compilation problems. These are not native device builds.
 - `pnpm e2e:local`: creates and cleans up temporary accounts and fixtures in a **disposable local** Supabase stack. It checks Auth, REST, Storage, circle membership, DMs, live seats, gifts, onboarding, discovery, events, notification privacy, and moderation. It refuses non-local URLs unless explicitly overridden; never run it against the production project.
-- `.github/workflows/checks.yml`: runs static/database checks and both bundle exports, then boots a disposable Supabase Docker stack, applies the complete seven-file bootstrap sequence, serves functions, waits for the account endpoint to return its expected method response, and runs API integration tests. It keeps historical migration files outside the startup directory because they are not a from-zero chain.
+- `.github/workflows/checks.yml`: runs static/database checks and both bundle exports, then boots a disposable Supabase Docker stack, applies the complete manifest in `supabase/bootstrap.list`, serves functions, waits for the account endpoint to return its expected method response, and runs API integration tests. It keeps historical migration files outside the startup directory because they are not a from-zero chain.
 
 For manual local integration, use the same empty-migrations startup and bootstrap procedure as the workflow. Set `CIRCLES_E2E_URL`, `CIRCLES_E2E_ANON_KEY`, and `CIRCLES_E2E_SERVICE_ROLE_KEY` from `supabase status -o env`. Set `CIRCLES_E2E_ACCOUNT_FUNCTIONS=true` when the deletion function is served; set `CIRCLES_E2E_STREAM_FUNCTIONS=true` when Agora token secrets and the stream function are available.
 
-The database advisor reports no security warnings or missing foreign-key indexes. Remaining informational notices concern [deliberately policy-free internal tables](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy), [indexes awaiting production traffic](https://supabase.com/docs/guides/database/database-linter?lint=0005_unused_index), and the existing [Auth connection allocation setting](https://supabase.com/docs/guides/deployment/going-into-prod).
+The last connected database review reported no security warnings or missing foreign-key indexes; this must be rerun after the pending story deployment. Remaining informational notices concern [deliberately policy-free internal tables](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy), [indexes awaiting production traffic](https://supabase.com/docs/guides/database/database-linter?lint=0005_unused_index), and the existing [Auth connection allocation setting](https://supabase.com/docs/guides/deployment/going-into-prod).
 
 ### Device release checklist
 
@@ -97,7 +128,7 @@ The database advisor reports no security warnings or missing foreign-key indexes
 | Push | After authorized deployment and APNs/FCM setup, test foreground/background alerts, taps, sign-out, account switching, quiet hours, and expired tokens. |
 | Live and wallet | Multiple devices joining/releasing seats, reconnects and background expiry; Apple/Google sandbox purchase, cancellation, and transaction retry. |
 
-At implementation time, TypeScript, isolated regressions, both JavaScript bundle exports, and Deno function checks were run. The connected database's RLS, privileged-function grants, Realtime publication, and scheduled jobs were verified. Docker and native devices were unavailable, so the Docker/API workflow and the device checklist remain unexecuted. The push worker is awaiting deployment approval, and EAS/support details have not been supplied. Changes have not been pushed to GitHub.
+At implementation time, TypeScript, isolated regressions, both JavaScript bundle exports, and Deno function checks were run. The connected database's RLS, privileged-function grants, Realtime publication, and scheduled jobs were verified. Docker and native devices were unavailable, so the Docker/API workflow and the device checklist remain unexecuted. The push worker and device credentials were still pending at that time. That historical pass had not yet been pushed at the time of its validation.
 
 
 ## Experience enhancements (12 October 2026)
@@ -112,9 +143,9 @@ All seven experience areas are implemented in the native app with interactive lo
 6. Scheduled live rooms, edits/cancellation, opt-in reminders, host-only start, live connection status, gift categories/search/favourites and coin prices. Reminder records and queued deliveries are removed when plans change or a member unsubscribes.
 7. Activity grouped by destination and day, explicit unread labels and filters, direct content navigation, circle notification preferences and conversation muting.
 
-Database migrations `20261012163503_experience_enhancements.sql` and `20261012164050_experience_policy_consolidation.sql` are deployed to the connected Circles project. Reaction tables are included in Realtime. The existing minute scheduler creates upcoming-room reminders in the in-app activity inbox. Device push remains subject to the existing dispatcher approval and EAS/APNs/FCM setup described above; this change does not activate external push delivery.
+Database migrations `20261012163503_experience_enhancements.sql` and `20261012164050_experience_policy_consolidation.sql` are deployed to the connected Circles project. Reaction tables are included in Realtime. The existing minute scheduler creates upcoming-room reminders in the in-app activity inbox. Device push remains subject to dispatcher deployment and EAS/APNs/FCM setup described above; this change does not activate external push delivery.
 
-Verification includes TypeScript, 65 regression checks, Android and iOS bundle exports, browser flow checks, and a 320-pixel layout check. New SQL regressions cover private replies/reactions, owner-only roles, moderator events, private scheduled rooms, reminder deduplication, rescheduling, unsubscribe cleanup and delivery eligibility. Database advisors report no security or performance warnings from these changes; informational notices remain for deliberately server-only tables and unused indexes. Native camera/audio, store transactions and real device push still require the device checks above. No changes have been pushed to GitHub.
+Verification includes TypeScript, 65 regression checks, Android and iOS bundle exports, browser flow checks, and a 320-pixel layout check. New SQL regressions cover private replies/reactions, owner-only roles, moderator events, private scheduled rooms, reminder deduplication, rescheduling, unsubscribe cleanup and delivery eligibility. Database advisors report no security or performance warnings from these changes; informational notices remain for deliberately server-only tables and unused indexes. Native camera/audio, store transactions and real device push still require the device checks above. That historical pass had not yet been pushed at the time of its validation.
 
 
 ## Replies and comments audit (13 October 2026)
@@ -123,7 +154,7 @@ The audit found and fixed late sends affecting another thread/account, reopened 
 
 The local regression suite now has 82 passing tests. Targeted checks include 251-comment threads, 1,203 reactions, send failures and repeated taps, account changes, parent deletion, private-circle membership, forged authors, cross-post replies, deletion expiry, reaction races and draft preservation. TypeScript and Android/iOS bundle exports pass. Browser checks cover draft restoration, quoted replies, multiline/HTML-like text rendering, reaction persistence, blank-send prevention and cancelling deletion. The SQL checks use isolated PostgreSQL/PGlite with the actual schema and migrations; native component tests mock transport and native SDK boundaries.
 
-**Deployed and verified (13 October 2026):** `supabase/migrations/20261013063428_replies_audit_hardening.sql` adds direct-comment-author notifications and rejects whitespace-only comments at the database boundary. It was committed to the connected project over a certificate-verified PostgreSQL connection after transactional live checks passed. Checks covered normalization, blank/oversized bodies, private membership, forged authors, cross-post replies, recipient notifications, parent/reaction cleanup, notification deletion, author-only deletion, and the 15-minute deadline. Temporary test records were rolled back before the schema migration was committed; a subsequent read confirmed the migration and restricted function grants. Database access does not restore the Codex Supabase connector or configure the native app. Real-device, two-account Realtime and external push delivery still require integration testing. No changes were pushed to GitHub.
+**Deployed and verified (13 October 2026):** `supabase/migrations/20261013063428_replies_audit_hardening.sql` adds direct-comment-author notifications and rejects whitespace-only comments at the database boundary. It was committed to the connected project over a certificate-verified PostgreSQL connection after transactional live checks passed. Checks covered normalization, blank/oversized bodies, private membership, forged authors, cross-post replies, recipient notifications, parent/reaction cleanup, notification deletion, author-only deletion, and the 15-minute deadline. Temporary test records were rolled back before the schema migration was committed; a subsequent read confirmed the migration and restricted function grants. Database access does not restore the Codex Supabase connector or configure the native app. Real-device, two-account Realtime and external push delivery still require integration testing. That historical pass had not yet been pushed at the time of its validation.
 
 ## Full app audit (13 October 2026)
 
@@ -193,7 +224,7 @@ Validation for this enhancement pass: 105 automated tests pass, strict TypeScrip
 
 Home and joined-circle pages now include photo/video stories with captions, viewed rings, previous/next controls, pause and author deletion. Members can choose media or use the device camera; videos are limited to 60 seconds and 25 MB, images to 10 MB. Stories expire after 24 hours. Reduced-motion settings disable automatic photo advancement.
 
-Connected stories require `supabase/migrations/20261014162132_circle_stories.sql`. Apply it and redeploy both `dispatch-notifications` and `delete-account`. The existing scheduled notification dispatcher also drains the story media cleanup queue: expired rows are removed in batches, and deleted/expired media plus abandoned uploads older than 25 hours are reclaimed asynchronously. Private bucket policies restrict access to circle members and respect blocks. Deployment is pending restored Supabase access; these changes have only been verified locally.
+Connected stories require `supabase/migrations/20261014162132_circle_stories.sql` followed by `20261015105642_independent_story_cleanup.sql`. Deploy `cleanup-story-media` and the updated `delete-account`; update `dispatch-notifications` if it is deployed. The independent minute scheduler drains the story cleanup queue: expired rows are removed in bounded batches, and deleted/expired media plus abandoned uploads older than 25 hours are reclaimed asynchronously. Configure the `story_cleanup_url` key in `private.runtime_settings` as described below; no notification endpoint is needed. Private bucket policies restrict access to circle members and respect blocks. Deployment is pending restored Supabase access; these changes have only been verified locally.
 
 The browser preview stores its stories locally in IndexedDB; native demo stories use local device storage. These demos do not publish to Supabase. Connected upload/record/playback and interruption behaviour still require iOS and Android device testing. Local validation passes 108 automated tests, TypeScript, shared palette checks, and Android/iOS JavaScript exports. Browser visual inspection was unavailable in this session.
 
@@ -210,3 +241,19 @@ Before release, test a rebuilt native app on physical iOS and Android devices: f
 Fixed recovery from malformed story-view/bookmark caches, upload cancellation when the transport abort rejects, late video URL renewal after a source change, stale story responses after disabling stories, and story polling when its circle scope changes. Video source changes reset the poster/play controls; browser story playback pauses when the tab becomes hidden.
 
 Validation: 114 automated regression tests pass, strict TypeScript and shared-token checks pass, all preview JavaScript parses, and Android/iOS exports pass. Regression coverage includes local database access policies, authentication/account changes, posts/comments/messages, recording, uploads, bookmarks, purchases and stories. This does not certify live services: the disposable Supabase E2E configuration is absent; story migration/function deployment is still pending; physical-device testing is outstanding. Release checks still require the previously deferred Agora App ID, EAS project ID and support email. Browser visual automation was unavailable in this session, so preview checks here were syntax checks only.
+
+
+### Independent story retention deployment
+
+After deploying the cleanup function and applying its migration, a project administrator configures its endpoint once in the SQL editor (replace the project URL with the verified project):
+
+```sql
+insert into private.runtime_settings(key, value)
+values ('story_cleanup_url', 'https://YOUR_PROJECT.supabase.co/functions/v1/cleanup-story-media')
+on conflict (key) do update set value = excluded.value;
+select private.cleanup_story_media();
+```
+
+The migration generates the private cleanup secret. Do not copy it into app configuration. Verify the `circles-cleanup-story-media` cron job and Edge Function response, then inspect queue drain and Storage deletion. Clients cannot invoke privileged cleanup RPCs. Storage failures retain queued paths for retry. This uses Supabase's [scheduled Edge Function pattern](https://supabase.com/docs/guides/functions/schedule-functions), with an independent private scheduler secret. Notification settings and `dispatch_url` remain separate.
+
+For disposable function integration, set `CIRCLES_E2E_CLEANUP_SECRET` to the test database's `story_cleanup_secret` value. CI generates and installs an ephemeral test secret without printing it. Do not reuse production secrets or run the integration harness against production.

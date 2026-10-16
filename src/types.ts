@@ -29,6 +29,9 @@ export interface Circle {
 }
 
 export interface PostMedia {
+  position?: number;
+  coverUrl?: string;
+  subtitles?: SubtitleCue[];
   storagePath?: string;
   id: UUID;
   kind: MediaKind;
@@ -38,6 +41,11 @@ export interface PostMedia {
 }
 
 export interface CirclePost {
+  postType?: 'note' | 'question' | 'poll';
+  topicId?: string;
+  collectedBy?: string;
+  reason?: string;
+  mediaItems?: PostMedia[];
   id: UUID;
   circleId: UUID;
   circleName: string;
@@ -140,7 +148,20 @@ export interface CreatePostInput {
   circleId: UUID;
   body: string;
   requestId?: string;
-  media?: { uri: string; mimeType: string; fileName: string; kind: MediaKind };
+  media?: PostAttachment;
+  mediaItems?: PostAttachment[];
+  topicId?: string | null;
+}
+
+export interface SubtitleCue { start: number; end: number; text: string }
+export interface PostAttachment {
+  uri: string;
+  mimeType: string;
+  fileName: string;
+  kind: MediaKind;
+  coverUri?: string;
+  subtitles?: SubtitleCue[];
+  durationMs?: number;
 }
 
 export interface StreamingAdapter {

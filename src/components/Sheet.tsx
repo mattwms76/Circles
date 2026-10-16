@@ -8,6 +8,7 @@ import {
   View,
   Text,
   ScrollView,
+  type ScrollViewProps,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useReducedMotion } from '../theme';
@@ -18,12 +19,18 @@ export function Sheet({
   onClose,
   children,
   footer,
+  scrollRef,
+  onContentSizeChange,
+  onScroll,
 }: {
   footer?: React.ReactNode;
   title: string;
   eyebrow: string;
   onClose: () => void;
   children: React.ReactNode;
+  scrollRef?: React.Ref<ScrollView>;
+  onContentSizeChange?: ScrollViewProps['onContentSizeChange'];
+  onScroll?: ScrollViewProps['onScroll'];
 }) {
   const insets = useSafeAreaInsets();
   const reducedMotion = useReducedMotion();
@@ -51,13 +58,16 @@ export function Sheet({
             </Pressable>
           </View>
           <ScrollView
+            ref={scrollRef}
+            onContentSizeChange={onContentSizeChange}
+            onScroll={onScroll}
+            scrollEventThrottle={16}
             keyboardShouldPersistTaps="handled"
             style={{ flexShrink: 1 }}
-            contentContainerStyle={{ gap: 12 }}
+            contentContainerStyle={{ gap: 12, paddingBottom: 16 }}
             showsVerticalScrollIndicator={false}
           >
             {children}
-            <View style={{ height: 24 }} />
           </ScrollView>
           {footer ? <View style={styles.sheetFooter}>{footer}</View> : null}
         </View>

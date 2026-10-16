@@ -26,6 +26,24 @@ Deno.serve(async (request: Request) => {
     const body = await request.json();
     if (body.confirmation !== 'DELETE')
       return json({ error: 'Deletion confirmation required' }, 400);
+    if (
+      typeof body.password !== 'string' ||
+      !body.password ||
+      body.password.length > 1024 ||
+      !user.email
+    )
+      return json({ error: 'Confirm your current password to delete your account.' }, 400);
+    // Validate credentials here, bound to the user authenticated by this request.
+    // Screen-level reauthentication alone can be bypassed by a direct API call.
+    const reauth = createClient(url, Deno.env.get('SUPABASE_ANON_KEY')!, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const proof = await reauth.auth.signInWithPassword({
+      email: user.email,
+      password: body.password,
+    });
+    if (proof.error || proof.data.user?.id !== user.id || !proof.data.session)
+      return json({ error: 'Your current password could not be verified.' }, 403);
     const admin = createClient(url, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
@@ -40,7 +58,7 @@ Deno.serve(async (request: Request) => {
       target_user: user.id,
     });
     if (prepared.error) throw prepared.error;
-    for (const bucket of ['post-media', 'avatars', 'story-media']) {
+    for (const bucket of ['post-media', 'avatars', 'story-media', 'community-media']) {
       const folders = [user.id];
       while (folders.length) {
         const folder = folders.pop()!;

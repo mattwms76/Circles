@@ -1,6 +1,10 @@
+import { CommunityProvider } from './src/components/CommunityDepth';
+import { redeemInvite } from './src/lib/communityDepth';
 import { inspectPickedMedia } from './src/lib/pickedMedia';
 import { Stories } from './src/components/Stories';
-import { parseContentLink, type ContentLink } from './src/lib/contentLinks';
+import { isAuthCallback, parseContentLink, type ContentLink } from './src/lib/contentLinks';
+import { beginAuthFlow, completeAuthFlow } from './src/lib/authFlow';
+import { flushPendingPushDeregistration } from './src/lib/pushDevice';
 import { PostActionsProvider } from './src/components/PostActions';
 import {
   defaultDiscovery,
@@ -41,7 +45,7 @@ import {
 import { clearMediaCache } from './src/lib/media';
 import { AppErrorBoundary, reportDiagnostic } from './src/lib/diagnostics';
 import React, { useEffect, useRef, useState } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { secureStorage as AsyncStorage } from './src/lib/secureStorage';
 import { AccessibilityInfo, AppState, Alert, Linking, StatusBar, Text, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
@@ -76,7 +80,7 @@ import {
   people,
   posts as seedPosts,
 } from './src/data/demo';
-import { backendReady, supabase } from './src/lib/supabase';
+import { backendReady, supabase, allowAuthSession } from './src/lib/supabase';
 import {
   blockUser,
   createCircle,
@@ -158,6 +162,7 @@ function CirclesApp() {
   const [discovery, setDiscovery] = useState(defaultDiscovery);
   const [showSettings, setShowSettings] = useState(false);
   const [showActivity, setShowActivity] = useState(false);
+  const [catchupRequest, setCatchupRequest] = useState(0);
   const [showModerator, setShowModerator] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [recoveryMode, setRecoveryMode] = useState<'request' | 'update' | null>(null);
@@ -179,6 +184,11 @@ function CirclesApp() {
   const circleSearchOffset = useRef(0);
   const peopleSearchOffset = useRef(0);
   const searchGeneration = useRef(0);
+  const feedGeneration = useRef(0);
+  function beginFeedRefresh() {
+    setFeedLoadingMore(false);
+    return ++feedGeneration.current;
+  }
   const [publicProfilePosts, setPublicProfilePosts] = useState<CirclePost[]>([]);
   const [publicProfileHasMore, setPublicProfileHasMore] = useState(false);
   const [postRequestId, setPostRequestId] = useState<string>(createIdempotencyKey);
@@ -308,6 +318,8 @@ function CirclesApp() {
     seedCircles.find((circle) => circle.isMember)?.id ?? seedCircles[0].id,
   );
   const [attachment, setAttachment] = useState<Attachment | null>(null);
+  const [extraAttachments, setExtraAttachments] = useState<Attachment[]>([]);
+  const [postTopicId, setPostTopicId] = useState<string | null>(null);
   const [toast, setToast] = useState('');
   const activeUserId = useRef<UUID | null>(null);
   const accountEpoch = useRef(0);
@@ -324,6 +336,7 @@ function CirclesApp() {
     const clearAccountState = () => {
       accountEpoch.current += 1;
       searchGeneration.current += 1;
+      feedGeneration.current += 1;
       pendingLikes.current.clear();
       deletedMessageIds.current.clear();
       deletedCommentIds.current.clear();
@@ -391,6 +404,8 @@ function CirclesApp() {
       setShowCoinStore(false);
       setShowStartLive(false);
       setAttachment(null);
+      setExtraAttachments([]);
+      setPostTopicId(null);
       setPostBody('');
       setCreateTitle('');
       setCreateCircleName('');
@@ -461,61 +476,14 @@ function CirclesApp() {
     });
     const handledUrls = new Set<string>();
     const processAuthUrl = async (url: string) => {
-      if (!mounted || handledUrls.has(url) || !url.startsWith('circles://')) return;
+      if (!mounted || handledUrls.has(url) || !isAuthCallback(url)) return;
       handledUrls.add(url);
       try {
-        const parsed = new URL(url);
-        const params = new URLSearchParams(parsed.search);
-        new URLSearchParams(parsed.hash.replace(/^#/, '')).forEach((value, key) => {
-          if (!params.has(key)) params.set(key, value);
-        });
-        const code = params.get('code');
-        const tokenHash = params.get('token_hash');
-        const otpType = params.get('type');
-        let error: Error | null = null;
-        let session: any = null;
-        if (code) {
-          const result = await supabase!.auth.exchangeCodeForSession(code);
-          error = result.error;
-          session = result.data.session;
-        } else if (
-          tokenHash &&
-          ['signup', 'invite', 'magiclink', 'recovery', 'email_change', 'email'].includes(
-            otpType ?? '',
-          )
-        ) {
-          const result = await supabase!.auth.verifyOtp({
-            token_hash: tokenHash,
-            type: otpType as
-              | 'signup'
-              | 'invite'
-              | 'magiclink'
-              | 'recovery'
-              | 'email_change'
-              | 'email',
-          });
-          error = result.error;
-          session = result.data.session;
-        } else {
-          const accessToken = params.get('access_token');
-          const refreshToken = params.get('refresh_token');
-          if (accessToken && refreshToken) {
-            const result = await supabase!.auth.setSession({
-              access_token: accessToken,
-              refresh_token: refreshToken,
-            });
-            error = result.error;
-            session = result.data.session;
-          }
-        }
-        if (error) throw error;
+        const { session, recovery } = await completeAuthFlow(url, supabase!);
         if (session?.user) {
           applySignedInUser(session.user);
           setAuthError('');
-          if (
-            otpType === 'recovery' ||
-            (parsed.hostname === 'auth' && parsed.pathname === '/recovery')
-          ) {
+          if (recovery) {
             setRecoveryMode('update');
             setTab('profile');
           } else {
@@ -524,6 +492,7 @@ function CirclesApp() {
           }
         }
       } catch (error) {
+        handledUrls.delete(url);
         const message = error instanceof Error ? error.message : 'Could not confirm your email.';
         setAuthError(message);
         Alert.alert('Email confirmation failed', message);
@@ -563,7 +532,9 @@ function CirclesApp() {
         if (draft) {
           setPostBody(draft.body);
           setPostCircleId(draft.circleId);
-          setAttachment(draft.media ?? null);
+          setPostTopicId(draft.topicId ?? null);
+          setAttachment(draft.mediaItems?.[0] ?? draft.media ?? null);
+          setExtraAttachments(draft.mediaItems?.slice(1) ?? []);
           setPostRequestId(draft.requestId);
         }
         setDraftReady(owner);
@@ -582,11 +553,23 @@ function CirclesApp() {
         body: postBody,
         circleId: postCircleId,
         media: attachment ?? undefined,
+        mediaItems: attachment ? [attachment, ...extraAttachments] : [],
+        topicId: postTopicId,
         requestId: postRequestId,
       }).catch(() => setPostError('Your draft could not be saved on this device.'));
     }, 400);
     return () => clearTimeout(timer);
-  }, [draftReady, profile.id, signedIn, postBody, postCircleId, attachment, postRequestId]);
+  }, [
+    draftReady,
+    profile.id,
+    signedIn,
+    postBody,
+    postCircleId,
+    attachment,
+    extraAttachments,
+    postTopicId,
+    postRequestId,
+  ]);
 
   useEffect(() => {
     if (backendReady && !signedIn) return;
@@ -787,6 +770,9 @@ function CirclesApp() {
   useEffect(() => {
     if (!backendReady || !signedIn) return;
     let active = true;
+    void flushPendingPushDeregistration().catch(() => {
+      /* Retained securely for the next online attempt. */
+    });
     void loadOwnProfile()
       .then(async (ownProfile) => {
         const { data: auth } = await supabase!.auth.getUser();
@@ -815,6 +801,7 @@ function CirclesApp() {
     }
     let active = true;
     setInitialLoading(true);
+    const initialFeedRequest = beginFeedRefresh();
     void Promise.all([
       loadCircles(0, CIRCLE_PAGE_SIZE),
       loadPosts(0, FEED_PAGE_SIZE),
@@ -829,8 +816,10 @@ function CirclesApp() {
         setLoadError('');
         setCircles(nextCircles);
 
-        setFeed(nextFeed);
-        setFeedHasMore(nextFeed.length === FEED_PAGE_SIZE);
+        if (initialFeedRequest === feedGeneration.current) {
+          setFeed(nextFeed);
+          setFeedHasMore(nextFeed.length === FEED_PAGE_SIZE);
+        }
         setLives(nextLives);
         setGifts(nextGifts.slice(0, 300));
         setCircleRequests(nextRequests);
@@ -846,6 +835,7 @@ function CirclesApp() {
         if (active) setInitialLoading(false);
       });
     const refreshMemberships = async () => {
+      const request = beginFeedRefresh();
       try {
         const [nextCircles, nextRequests, pendingIds, nextFeed] = await Promise.all([
           loadCircles(0, CIRCLE_PAGE_SIZE),
@@ -858,8 +848,10 @@ function CirclesApp() {
 
         setCircleRequests(nextRequests);
         setRequestedCircles(new Set(pendingIds));
-        setFeed(nextFeed);
-        setFeedHasMore(nextFeed.length === FEED_PAGE_SIZE);
+        if (request === feedGeneration.current) {
+          setFeed(nextFeed);
+          setFeedHasMore(nextFeed.length === FEED_PAGE_SIZE);
+        }
       } catch (error) {
         if (active)
           showMessage(
@@ -878,9 +870,10 @@ function CirclesApp() {
     const postsChannel = supabase!
       .channel(`posts-${profile.id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, async () => {
+        const request = beginFeedRefresh();
         try {
           const nextFeed = await loadPosts(0, FEED_PAGE_SIZE);
-          if (active) {
+          if (active && request === feedGeneration.current) {
             setFeed(nextFeed);
             setFeedHasMore(nextFeed.length === FEED_PAGE_SIZE);
           }
@@ -1526,6 +1519,7 @@ function CirclesApp() {
       return;
     }
     const current = captureAccount();
+    const request = beginFeedRefresh();
     setRefreshing(true);
     setLoadError('');
     clearMediaCache();
@@ -1539,11 +1533,13 @@ function CirclesApp() {
       ]);
       if (!current()) return;
       setCircles(nextCircles);
-      setFeed(nextPosts);
+      if (request === feedGeneration.current) {
+        setFeed(nextPosts);
+        setFeedHasMore(nextPosts.length === FEED_PAGE_SIZE);
+      }
       setLives(nextLives);
       setCircleRequests(nextRequests);
       setRequestedCircles(new Set(pending));
-      setFeedHasMore(nextPosts.length === FEED_PAGE_SIZE);
       setSearchRevision((v) => v + 1);
     } catch (error) {
       if (current()) {
@@ -1575,7 +1571,9 @@ function CirclesApp() {
   async function openActivityItem(item: ActivityNotification, groupIds?: string[]) {
     const current = captureAccount();
     try {
-      if (item.kind === 'messages') {
+      if (item.kind === 'digests') {
+        setCatchupRequest((v) => v + 1);
+      } else if (item.kind === 'messages') {
         const person = await loadPublicProfile(item.target_id);
         if (!current()) return;
         if (!person) throw new Error('This conversation is no longer available.');
@@ -1644,17 +1642,18 @@ function CirclesApp() {
   async function loadMorePosts() {
     if (feedLoadingMore || !feedHasMore) return;
     const current = captureAccount();
+    const request = feedGeneration.current;
     setFeedLoadingMore(true);
     try {
       const page = await loadPosts(feed.length, FEED_PAGE_SIZE);
-      if (!current()) return;
+      if (!current() || request !== feedGeneration.current) return;
       setFeed((old) => mergeUniquePage(old, page));
       setFeedHasMore(page.length === FEED_PAGE_SIZE);
     } catch (error) {
-      if (current())
+      if (current() && request === feedGeneration.current)
         showMessage(error instanceof Error ? error.message : 'Could not load more posts.');
     } finally {
-      if (current()) setFeedLoadingMore(false);
+      if (current() && request === feedGeneration.current) setFeedLoadingMore(false);
     }
   }
 
@@ -1778,6 +1777,8 @@ function CirclesApp() {
     setAuthBusy(true);
     setAuthError('');
     try {
+      allowAuthSession();
+      if (kind === 'signUp') await beginAuthFlow('signup');
       const result =
         kind === 'signUp'
           ? await supabase.auth.signUp({
@@ -1847,13 +1848,16 @@ function CirclesApp() {
             : old,
         );
         if (backendReady) {
+          const request = beginFeedRefresh();
           void Promise.all([loadCircles(0, CIRCLE_PAGE_SIZE), loadPosts(0, FEED_PAGE_SIZE)])
             .then(([nextCircles, nextFeed]) => {
               if (!current()) return;
               setCircles(nextCircles);
 
-              setFeed(nextFeed);
-              setFeedHasMore(nextFeed.length === FEED_PAGE_SIZE);
+              if (request === feedGeneration.current) {
+                setFeed(nextFeed);
+                setFeedHasMore(nextFeed.length === FEED_PAGE_SIZE);
+              }
               const refreshed = nextCircles.find((item) => item.id === circle.id);
               if (refreshed) setSelectedCircle((old) => (old?.id === circle.id ? refreshed : old));
             })
@@ -1940,6 +1944,7 @@ function CirclesApp() {
             : `You left ${circle.name}.`,
       );
       if (backendReady) {
+        const request = beginFeedRefresh();
         void Promise.all([
           loadCircles(0, CIRCLE_PAGE_SIZE),
           loadPosts(0, FEED_PAGE_SIZE),
@@ -1949,8 +1954,10 @@ function CirclesApp() {
             if (!current()) return;
             setCircles(nextCircles);
 
-            setFeed(nextPosts);
-            setFeedHasMore(nextPosts.length === FEED_PAGE_SIZE);
+            if (request === feedGeneration.current) {
+              setFeed(nextPosts);
+              setFeedHasMore(nextPosts.length === FEED_PAGE_SIZE);
+            }
             setRequestedCircles(new Set(pendingIds));
             const refreshed = nextCircles.find((item) => item.id === circle.id);
             if (refreshed) setSelectedCircle((old) => (old?.id === circle.id ? refreshed : old));
@@ -2023,6 +2030,7 @@ function CirclesApp() {
   async function pickAttachment(
     kind: 'image' | 'gif' | 'video',
     source: 'library' | 'camera' = 'library',
+    append = false,
   ) {
     if (attachmentPicker.current || createPostBusyRef.current) return;
     const picker = Symbol();
@@ -2052,28 +2060,36 @@ function CirclesApp() {
           : await ImagePicker.launchImageLibraryAsync({
               mediaTypes: kind === 'video' ? ['videos'] : ['images'],
               quality: kind === 'image' ? 0.8 : 1,
+              allowsMultipleSelection: kind === 'image',
+              selectionLimit: 10,
               allowsEditing: false,
             });
       if (!current()) return;
       if (result.canceled || !result.assets[0]) return;
-      const asset = result.assets[0];
-      const { mimeType } = await inspectPickedMedia(asset, kind, 120);
-      if (!current()) return;
-      if (kind === 'gif' && mimeType !== 'image/gif') {
-        Alert.alert('Choose a GIF', 'Please select an animated GIF file.');
-        return;
+      const retainedItems: Attachment[] = [];
+      for (const asset of result.assets.slice(0, kind === 'image' ? 10 : 1)) {
+        const { mimeType } = await inspectPickedMedia(asset, kind, 120);
+        if (!current()) return;
+        if (kind === 'gif' && mimeType !== 'image/gif')
+          throw new Error('Please select an animated GIF file.');
+        const media: Attachment = {
+          uri: asset.uri,
+          mimeType,
+          fileName:
+            asset.fileName ??
+            `${Date.now()}.${kind === 'video' ? 'mp4' : kind === 'gif' ? 'gif' : 'jpg'}`,
+          kind: kind === 'video' ? 'video' : mimeType === 'image/gif' ? 'gif' : kind,
+          durationMs: asset.duration ?? undefined,
+        };
+        retainedItems.push(await retainDraftMedia(profile.id, media));
+        if (!current()) return;
       }
-      const media: Attachment = {
-        uri: asset.uri,
-        mimeType,
-        fileName:
-          asset.fileName ??
-          `${Date.now()}.${kind === 'video' ? 'mp4' : kind === 'gif' ? 'gif' : 'jpg'}`,
-        kind: kind === 'video' ? 'video' : mimeType === 'image/gif' ? 'gif' : kind,
-      };
-      const retained = await retainDraftMedia(profile.id, media);
-      if (!current()) return;
-      setAttachment(retained);
+      const items =
+        append && attachment ? [attachment, ...extraAttachments, ...retainedItems] : retainedItems;
+      if (items.length > 10 || (items.length > 1 && items.some((m) => m.kind !== 'image')))
+        throw new Error('Choose up to 10 photos, or one video or GIF.');
+      setAttachment(items[0] ?? null);
+      setExtraAttachments(items.slice(1));
       setPostRequestId(createIdempotencyKey());
     } catch (error) {
       if (!current()) return;
@@ -2113,6 +2129,8 @@ function CirclesApp() {
             circleId: postCircleId,
             body: postBody,
             media: attachment ?? undefined,
+            mediaItems: attachment ? [attachment, ...extraAttachments] : [],
+            topicId: postTopicId,
             requestId: postRequestId,
           },
           { onProgress: setUploadProgress, signal: uploadController.current.signal },
@@ -2121,9 +2139,13 @@ function CirclesApp() {
         void refreshAll();
       } else {
         const circle = circles.find((item) => item.id === postCircleId) ?? circles[0];
-        const publishedMedia = attachment
-          ? await retainPublishedMedia(profile.id, attachment)
-          : null;
+        const publishedItems = attachment
+          ? await Promise.all(
+              [attachment, ...extraAttachments].map((m) => retainPublishedMedia(profile.id, m)),
+            )
+          : [];
+        if (!current()) return;
+        const publishedMedia = publishedItems[0];
         const local: CirclePost = {
           id: `post-${Date.now()}`,
           circleId: circle.id,
@@ -2133,6 +2155,13 @@ function CirclesApp() {
           media: attachment
             ? { id: `media-${Date.now()}`, kind: attachment.kind, url: publishedMedia!.uri }
             : undefined,
+          mediaItems: publishedItems.map((m, i) => ({
+            id: `media-${Date.now()}-${i}`,
+            kind: m.kind,
+            url: m.uri,
+            coverUrl: m.coverUri,
+            subtitles: m.subtitles,
+          })),
           likes: 0,
           createdAt: 'now',
           liked: false,
@@ -2145,6 +2174,8 @@ function CirclesApp() {
       setShowCreatePost(false);
       setPostBody('');
       setAttachment(null);
+      setExtraAttachments([]);
+      setPostTopicId(null);
       setTab('home');
       showMessage('Shared with your circle.');
     } catch (error) {
@@ -3065,8 +3096,10 @@ function CirclesApp() {
         onBlockFollower={confirmBlockFollower}
         onOpenProfile={(person) => void openPublicProfile(person)}
         onSignOut={() => {
-          void signOutDevice().catch(() =>
-            showMessage('Could not sign out. Check your connection and retry.'),
+          void signOutDevice().catch((error) =>
+            showMessage(
+              error instanceof Error ? error.message : 'Sign-out could not finish. Please retry.',
+            ),
           );
         }}
       />
@@ -3091,6 +3124,25 @@ function CirclesApp() {
     let active = true;
     void (async () => {
       try {
+        if (pendingContentLink.kind === 'invite') {
+          const result = await redeemInvite(pendingContentLink.id);
+          if (!active) return;
+          const circle = await loadCircleById(result.circleId);
+          if (!active) return;
+          setPendingContentLink(null);
+          await refreshAll();
+          if (!active) return;
+          if (circle) {
+            setSelectedCircle(circle);
+            setTab('circles');
+          }
+          showMessage(
+            result.status === 'member'
+              ? 'You joined this circle.'
+              : 'Your request is waiting for host approval.',
+          );
+          return;
+        }
         if (pendingContentLink.kind === 'post') {
           const post = await loadPostById(pendingContentLink.id);
           if (!active) return;
@@ -3134,305 +3186,350 @@ function CirclesApp() {
   // This local state keeps the start-live sheet independent of the bottom tab.
 
   return (
-    <PostActionsProvider
-      key={signedIn ? profile.id : 'signed-out'}
-      userId={profile.id}
-      onOpen={openPostReplies}
-      onChanged={(id, body) => {
-        const update = (rows: CirclePost[]) =>
-          body === null
-            ? rows.filter((p) => p.id !== id)
-            : rows.map((p) => (p.id === id ? { ...p, body } : p));
-        setFeed(update);
-        setCirclePosts(update);
-        setPublicProfilePosts(update);
-        if (selectedPost?.id === id)
-          setSelectedPost(body === null ? null : { ...selectedPost, body });
-      }}
+    <CommunityProvider
+      key={signedIn ? profile.id : 'signed-out-community'}
+      profile={profile}
+      circles={circles}
+      catchupRequest={catchupRequest}
+      onChanged={() => void refreshAll()}
+      onOpenPost={openPostReplies}
     >
-      <SafeAreaView style={styles.safeArea} edges={['top', 'bottom', 'left', 'right']}>
-        <StatusBar barStyle={selectedLive || theme === 'dark' ? 'light-content' : 'dark-content'} />
-        <View style={styles.appShell}>
-          {screenContent()}
-          <TabBar
-            selected={tab}
-            onChange={(nextTab) => {
-              closeCircle();
-              closePublicProfile();
-              setTab(nextTab);
-            }}
+      <PostActionsProvider
+        key={signedIn ? profile.id : 'signed-out'}
+        userId={profile.id}
+        onOpen={openPostReplies}
+        onChanged={(id, body) => {
+          const update = (rows: CirclePost[]) =>
+            body === null
+              ? rows.filter((p) => p.id !== id)
+              : rows.map((p) => (p.id === id ? { ...p, body } : p));
+          setFeed(update);
+          setCirclePosts(update);
+          setPublicProfilePosts(update);
+          if (selectedPost?.id === id)
+            setSelectedPost(body === null ? null : { ...selectedPost, body });
+        }}
+      >
+        <SafeAreaView style={styles.safeArea} edges={['top', 'bottom', 'left', 'right']}>
+          <StatusBar
+            barStyle={selectedLive || theme === 'dark' ? 'light-content' : 'dark-content'}
           />
-          {toast ? (
-            <View accessibilityLiveRegion="polite" style={styles.toast}>
-              <Text style={styles.toastText}>{toast}</Text>
-            </View>
-          ) : null}
-          {showCreatePost ? (
-            <CreatePostSheet
-              progress={uploadProgress}
-              error={postError}
-              onCancel={() => uploadController.current?.abort()}
-              onDiscard={() => {
-                void clearDraft(profile.id);
-                setPostBody('');
-                setAttachment(null);
-                setPostRequestId(createIdempotencyKey());
-                setPostError('');
-              }}
-              busy={createPostBusy}
-              circles={circles.filter((circle) => circle.isMember)}
-              selectedCircleId={postCircleId}
-              onSelectCircle={(value) => {
-                setPostCircleId(value);
-                setPostRequestId(createIdempotencyKey());
-              }}
-              body={postBody}
-              onBody={(value) => {
-                setPostBody(value);
-                setPostRequestId(createIdempotencyKey());
-                setPostError('');
-              }}
-              attachment={attachment}
-              onPick={pickAttachment}
-              onRecordVideo={() => void pickAttachment('video', 'camera')}
-              onClearAttachment={() => {
-                setAttachment(null);
-                setPostRequestId(createIdempotencyKey());
-              }}
-              onClose={() => {
-                if (!createPostBusy) {
-                  attachmentPicker.current = null;
-                  setShowCreatePost(false);
-                }
-              }}
-              onSubmit={() => void handleCreatePost()}
-            />
-          ) : null}
-          {showCreateCircle ? (
-            <CreateCircleSheet
-              busy={createCircleBusy}
-              name={createCircleName}
-              description={createCircleDescription}
-              interest={createCircleInterest}
-              isPrivate={createCirclePrivate}
-              onName={setCreateCircleName}
-              onDescription={setCreateCircleDescription}
-              onInterest={setCreateCircleInterest}
-              onPrivate={setCreateCirclePrivate}
-              onClose={() => setShowCreateCircle(false)}
-              onSubmit={() => void handleCreateCircle()}
-            />
-          ) : null}
-          {showStartLive ? (
-            <StartLiveSheet
-              title={createTitle}
-              onTitle={setCreateTitle}
-              onClose={() => setShowStartLive(false)}
-              onSubmit={() => {
-                setShowStartLive(false);
-                void handleStartLive();
+          <View style={styles.appShell}>
+            {screenContent()}
+            <TabBar
+              selected={tab}
+              onChange={(nextTab) => {
+                closeCircle();
+                closePublicProfile();
+                setTab(nextTab);
               }}
             />
-          ) : null}
-          {selectedLive ? (
-            <LiveRoom
-              session={selectedLive}
-              profile={profile}
-              walletBalance={walletBalance}
-              gifts={gifts}
-              giftEvents={liveGiftEvents}
-              selectedGift={selectedGift}
-              giftSending={giftSending}
-              liveRequestStatus={liveRequestStatus}
-              liveRequests={liveRequests}
-              signedIn={signedIn}
-              backendReady={backendReady}
-              streamCredentials={streamCredentials}
-              streamError={streamError}
-              connectionState={connectionState}
-              onReconnect={() => {
-                if (selectedLive)
-                  void joinStream(
-                    selectedLive,
-                    selectedLive.host.id === profile.id
-                      ? 'host'
-                      : selectedLive.seats.some((seat) => seat.user.id === profile.id)
-                        ? 'cohost'
-                        : 'viewer',
-                  );
-              }}
-              remoteUids={remoteUids}
-              micEnabled={micEnabled}
-              cameraEnabled={cameraEnabled}
-              onClose={() => void closeLiveRoom(selectedLive)}
-              onGiftSelect={setSelectedGift}
-              onGiftSend={handleGift}
-              onBuyCoins={() => setShowCoinStore(true)}
-              onRequestCoHost={() => void handleRequestCoHost()}
-              onDecision={handleSeatDecision}
-              onReport={() =>
-                void handleReport('live_session', selectedLive.id, selectedLive.host.id)
-              }
-              onToggleMic={() => {
-                const next = !micEnabled;
-                if (!streamingAdapter) return;
-                void streamingAdapter
-                  .setMicrophoneEnabled(next)
-                  .then(() => setMicEnabled(next))
-                  .catch((error) =>
-                    showMessage(
-                      error instanceof Error ? error.message : 'Could not update your microphone.',
-                    ),
-                  );
-              }}
-              onToggleCamera={() => {
-                const next = !cameraEnabled;
-                if (!streamingAdapter) return;
-                void streamingAdapter
-                  .setCameraEnabled(next)
-                  .then(() => setCameraEnabled(next))
-                  .catch((error) =>
-                    showMessage(
-                      error instanceof Error ? error.message : 'Could not update your camera.',
-                    ),
-                  );
-              }}
-              onSwitchCamera={() => {
-                void streamingAdapter
-                  ?.switchCamera()
-                  .catch((error) =>
-                    showMessage(
-                      error instanceof Error ? error.message : 'Could not switch cameras.',
-                    ),
-                  );
-              }}
-            />
-          ) : null}
-          {selectedConversation ? (
-            <ChatScreen
-              key={selectedConversation.peer.id}
-              conversation={selectedConversation}
-              profile={profile}
-              hasOlder={chatHasOlder}
-              onLoadOlder={loadOlderMessages}
-              onClose={() => setSelectedConversation(null)}
-              onSend={handleSendMessage}
-              onDelete={handleDeleteMessage}
-              onReport={() => {
-                const lastMessage = selectedConversation.messages.at(-1);
-                void handleReport(
-                  lastMessage ? 'message' : 'profile',
-                  lastMessage?.id ?? selectedConversation.peer.id,
-                  selectedConversation.peer.id,
-                );
-              }}
-            />
-          ) : null}
-          {showCoinStore ? (
-            <CoinStore
-              balance={walletBalance}
-              onClose={() => setShowCoinStore(false)}
-              onBalance={setWalletBalance}
-            />
-          ) : null}
-          {showOnboarding && !recoveryMode ? (
-            <OnboardingSheet
-              key={profile.id}
-              profile={profile}
-              onComplete={(updated, introduceIn) => {
-                setProfile(updated);
-                setShowOnboarding(false);
-                void refreshAll();
-                if (introduceIn) {
-                  setPostCircleId(introduceIn.id);
+            {toast ? (
+              <View accessibilityLiveRegion="polite" style={styles.toast}>
+                <Text style={styles.toastText}>{toast}</Text>
+              </View>
+            ) : null}
+            {showCreatePost ? (
+              <CreatePostSheet
+                progress={uploadProgress}
+                error={postError}
+                onCancel={() => uploadController.current?.abort()}
+                onDiscard={() => {
+                  void clearDraft(profile.id);
                   setPostBody('');
+                  setAttachment(null);
+                  setExtraAttachments([]);
+                  setPostTopicId(null);
                   setPostRequestId(createIdempotencyKey());
-                  setCircles((old) =>
-                    old.map((c) => (c.id === introduceIn.id ? { ...c, isMember: true } : c)),
+                  setPostError('');
+                }}
+                busy={createPostBusy}
+                circles={circles.filter((circle) => circle.isMember)}
+                selectedCircleId={postCircleId}
+                onSelectCircle={(value) => {
+                  setPostCircleId(value);
+                  setPostTopicId(null);
+                  setPostRequestId(createIdempotencyKey());
+                }}
+                body={postBody}
+                onBody={(value) => {
+                  setPostBody(value);
+                  setPostRequestId(createIdempotencyKey());
+                  setPostError('');
+                }}
+                topicId={postTopicId}
+                onTopic={(id) => {
+                  setPostTopicId(id);
+                  setPostRequestId(createIdempotencyKey());
+                }}
+                attachment={attachment}
+                extraAttachments={extraAttachments}
+                onAddPhotos={() => void pickAttachment('image', 'library', true)}
+                onChangeAttachments={(items) => {
+                  if (createPostBusyRef.current || attachmentPicker.current) return;
+                  const token = Symbol();
+                  attachmentPicker.current = token;
+                  const current = captureAccount();
+                  return Promise.all(items.map((item) => retainDraftMedia(profile.id, item)))
+                    .then((retained) => {
+                      if (!current() || attachmentPicker.current !== token) return;
+                      setAttachment(retained[0] ?? null);
+                      setExtraAttachments(retained.slice(1));
+                      setPostRequestId(createIdempotencyKey());
+                    })
+                    .catch((error) => {
+                      if (current()) setPostError(error.message ?? 'Could not save edited media.');
+                    })
+                    .finally(() => {
+                      if (attachmentPicker.current === token) attachmentPicker.current = null;
+                    });
+                }}
+                onPick={pickAttachment}
+                onRecordVideo={() => void pickAttachment('video', 'camera')}
+                onClearAttachment={() => {
+                  setAttachment(null);
+                  setExtraAttachments([]);
+                  setPostTopicId(null);
+                  setPostRequestId(createIdempotencyKey());
+                }}
+                onClose={() => {
+                  if (!createPostBusy) {
+                    attachmentPicker.current = null;
+                    setShowCreatePost(false);
+                  }
+                }}
+                onSubmit={() => void handleCreatePost()}
+              />
+            ) : null}
+            {showCreateCircle ? (
+              <CreateCircleSheet
+                busy={createCircleBusy}
+                name={createCircleName}
+                description={createCircleDescription}
+                interest={createCircleInterest}
+                isPrivate={createCirclePrivate}
+                onName={setCreateCircleName}
+                onDescription={setCreateCircleDescription}
+                onInterest={setCreateCircleInterest}
+                onPrivate={setCreateCirclePrivate}
+                onClose={() => setShowCreateCircle(false)}
+                onSubmit={() => void handleCreateCircle()}
+              />
+            ) : null}
+            {showStartLive ? (
+              <StartLiveSheet
+                title={createTitle}
+                onTitle={setCreateTitle}
+                onClose={() => setShowStartLive(false)}
+                onSubmit={() => {
+                  setShowStartLive(false);
+                  void handleStartLive();
+                }}
+              />
+            ) : null}
+            {selectedLive ? (
+              <LiveRoom
+                session={selectedLive}
+                profile={profile}
+                walletBalance={walletBalance}
+                gifts={gifts}
+                giftEvents={liveGiftEvents}
+                selectedGift={selectedGift}
+                giftSending={giftSending}
+                liveRequestStatus={liveRequestStatus}
+                liveRequests={liveRequests}
+                signedIn={signedIn}
+                backendReady={backendReady}
+                streamCredentials={streamCredentials}
+                streamError={streamError}
+                connectionState={connectionState}
+                onReconnect={() => {
+                  if (selectedLive)
+                    void joinStream(
+                      selectedLive,
+                      selectedLive.host.id === profile.id
+                        ? 'host'
+                        : selectedLive.seats.some((seat) => seat.user.id === profile.id)
+                          ? 'cohost'
+                          : 'viewer',
+                    );
+                }}
+                remoteUids={remoteUids}
+                micEnabled={micEnabled}
+                cameraEnabled={cameraEnabled}
+                onClose={() => void closeLiveRoom(selectedLive)}
+                onGiftSelect={setSelectedGift}
+                onGiftSend={handleGift}
+                onBuyCoins={() => setShowCoinStore(true)}
+                onRequestCoHost={() => void handleRequestCoHost()}
+                onDecision={handleSeatDecision}
+                onReport={() =>
+                  void handleReport('live_session', selectedLive.id, selectedLive.host.id)
+                }
+                onToggleMic={() => {
+                  const next = !micEnabled;
+                  if (!streamingAdapter) return;
+                  void streamingAdapter
+                    .setMicrophoneEnabled(next)
+                    .then(() => setMicEnabled(next))
+                    .catch((error) =>
+                      showMessage(
+                        error instanceof Error
+                          ? error.message
+                          : 'Could not update your microphone.',
+                      ),
+                    );
+                }}
+                onToggleCamera={() => {
+                  const next = !cameraEnabled;
+                  if (!streamingAdapter) return;
+                  void streamingAdapter
+                    .setCameraEnabled(next)
+                    .then(() => setCameraEnabled(next))
+                    .catch((error) =>
+                      showMessage(
+                        error instanceof Error ? error.message : 'Could not update your camera.',
+                      ),
+                    );
+                }}
+                onSwitchCamera={() => {
+                  void streamingAdapter
+                    ?.switchCamera()
+                    .catch((error) =>
+                      showMessage(
+                        error instanceof Error ? error.message : 'Could not switch cameras.',
+                      ),
+                    );
+                }}
+              />
+            ) : null}
+            {selectedConversation ? (
+              <ChatScreen
+                key={selectedConversation.peer.id}
+                conversation={selectedConversation}
+                profile={profile}
+                hasOlder={chatHasOlder}
+                onLoadOlder={loadOlderMessages}
+                onClose={() => setSelectedConversation(null)}
+                onSend={handleSendMessage}
+                onMediaSent={() => void openConversation(selectedConversation)}
+                onDelete={handleDeleteMessage}
+                onReport={() => {
+                  const lastMessage = selectedConversation.messages.at(-1);
+                  void handleReport(
+                    lastMessage ? 'message' : 'profile',
+                    lastMessage?.id ?? selectedConversation.peer.id,
+                    selectedConversation.peer.id,
                   );
-                  setShowCreatePost(true);
-                } else setTab('circles');
-              }}
-            />
-          ) : null}
-          {showSettings ? (
-            <SettingsSheet
-              onClose={() => setShowSettings(false)}
-              onBlocksChanged={() => {
-                clearMediaCache();
-                setSearchRevision((v) => v + 1);
-                void loadBlockedPeople().then((items) =>
-                  setBlockedIds(new Set(items.map((p) => p.id))),
-                );
-                void refreshAll();
-              }}
-              onDeleted={() => {
-                void clearDraft(profile.id);
-                setShowSettings(false);
-                setSignedIn(false);
-                setTab('profile');
-              }}
-              onModerator={() => {
-                setShowSettings(false);
-                setShowModerator(true);
-              }}
-            />
-          ) : null}
-          {recoveryMode ? (
-            <RecoverySheet
-              email={authEmail}
-              recovery={recoveryMode === 'update'}
-              onClose={() => setRecoveryMode(null)}
-            />
-          ) : null}
-          {showActivity ? (
-            <ActivitySheet
-              items={activity}
-              loading={activityLoading}
-              hasMore={activityHasMore}
-              onMore={() => void refreshActivity(true)}
-              onRefresh={() => void refreshActivity()}
-              onOpen={(item, ids) => void openActivityItem(item, ids)}
-              onClose={() => setShowActivity(false)}
-            />
-          ) : null}
-          {showModerator ? (
-            <ModeratorSheet
-              onClose={() => {
-                setShowModerator(false);
-                void refreshAll();
-              }}
-            />
-          ) : null}
-          {reportTarget ? (
-            <ReportSheet
-              onClose={() => setReportTarget(null)}
-              onSubmit={async (reason) => {
-                if (backendReady) await reportContent({ ...reportTarget, reason });
-                showMessage('Your report has been sent for review.');
-              }}
-            />
-          ) : null}
-          {selectedPost ? (
-            <PostRepliesSheet
-              key={`${profile.id}:${selectedPost.id}`}
-              loading={commentsLoading}
-              loadError={commentsError}
-              hasMore={commentsHasMore}
-              onRetry={() => setCommentsRevision((v) => v + 1)}
-              onLoadMore={() => setCommentLimit((v) => v + 50)}
-              post={selectedPost}
-              comments={postComments}
-              profile={profile}
-              onDelete={handleDeleteComment}
-              draft={commentDraft}
-              onDraft={setCommentDraft}
-              onSend={handlePostReply}
-              onClose={closePostReplies}
-            />
-          ) : null}
-        </View>
-      </SafeAreaView>
-    </PostActionsProvider>
+                }}
+              />
+            ) : null}
+            {showCoinStore ? (
+              <CoinStore
+                balance={walletBalance}
+                onClose={() => setShowCoinStore(false)}
+                onBalance={setWalletBalance}
+              />
+            ) : null}
+            {showOnboarding && !recoveryMode ? (
+              <OnboardingSheet
+                key={profile.id}
+                profile={profile}
+                onComplete={(updated, introduceIn) => {
+                  setProfile(updated);
+                  setShowOnboarding(false);
+                  void refreshAll();
+                  if (introduceIn) {
+                    setPostCircleId(introduceIn.id);
+                    setPostBody('');
+                    setPostRequestId(createIdempotencyKey());
+                    setCircles((old) =>
+                      old.map((c) => (c.id === introduceIn.id ? { ...c, isMember: true } : c)),
+                    );
+                    setShowCreatePost(true);
+                  } else setTab('circles');
+                }}
+              />
+            ) : null}
+            {showSettings ? (
+              <SettingsSheet
+                onClose={() => setShowSettings(false)}
+                onBlocksChanged={() => {
+                  clearMediaCache();
+                  setSearchRevision((v) => v + 1);
+                  void loadBlockedPeople().then((items) =>
+                    setBlockedIds(new Set(items.map((p) => p.id))),
+                  );
+                  void refreshAll();
+                }}
+                onDeleted={() => {
+                  void clearDraft(profile.id);
+                  setShowSettings(false);
+                  setSignedIn(false);
+                  setTab('profile');
+                }}
+                onModerator={() => {
+                  setShowSettings(false);
+                  setShowModerator(true);
+                }}
+              />
+            ) : null}
+            {recoveryMode ? (
+              <RecoverySheet
+                email={authEmail}
+                recovery={recoveryMode === 'update'}
+                onClose={() => setRecoveryMode(null)}
+              />
+            ) : null}
+            {showActivity ? (
+              <ActivitySheet
+                items={activity}
+                loading={activityLoading}
+                hasMore={activityHasMore}
+                onMore={() => void refreshActivity(true)}
+                onRefresh={() => void refreshActivity()}
+                onOpen={(item, ids) => void openActivityItem(item, ids)}
+                onClose={() => setShowActivity(false)}
+              />
+            ) : null}
+            {showModerator ? (
+              <ModeratorSheet
+                onClose={() => {
+                  setShowModerator(false);
+                  void refreshAll();
+                }}
+              />
+            ) : null}
+            {reportTarget ? (
+              <ReportSheet
+                onClose={() => setReportTarget(null)}
+                onSubmit={async (reason) => {
+                  if (backendReady) await reportContent({ ...reportTarget, reason });
+                  showMessage('Your report has been sent for review.');
+                }}
+              />
+            ) : null}
+            {selectedPost ? (
+              <PostRepliesSheet
+                key={`${profile.id}:${selectedPost.id}`}
+                loading={commentsLoading}
+                loadError={commentsError}
+                hasMore={commentsHasMore}
+                onRetry={() => setCommentsRevision((v) => v + 1)}
+                onLoadMore={() => setCommentLimit((v) => v + 50)}
+                post={selectedPost}
+                comments={postComments}
+                profile={profile}
+                onDelete={handleDeleteComment}
+                draft={commentDraft}
+                onDraft={setCommentDraft}
+                onSend={handlePostReply}
+                onClose={closePostReplies}
+              />
+            ) : null}
+          </View>
+        </SafeAreaView>
+      </PostActionsProvider>
+    </CommunityProvider>
   );
 }

@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { secureStorage as AsyncStorage } from './secureStorage';
 import { Upload } from 'tus-js-client';
 import { requireSupabase } from './supabase';
 type StoredUpload = Parameters<

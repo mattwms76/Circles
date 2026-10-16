@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { secureStorage as AsyncStorage } from './secureStorage';
 import { requireSupabase, supabase } from './supabase';
 import { getDemoCurrentUser, toProfile, relativeTime } from './repositories';
 import type { Circle, DirectMessage, Profile } from '../types';

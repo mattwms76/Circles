@@ -4,7 +4,7 @@ appId: com.circles.social
 - tapOn: "Home"
 - tapOn: "Saved posts"
 - assertVisible: "Saved posts"
-- tapOn: "Close"
+- tapOn: "Close dialog"
 - scrollUntilVisible:
     element: "Post options"
     direction: DOWN
@@ -17,4 +17,4 @@ appId: com.circles.social
 - assertVisible: "Remove saved post"
 - takeScreenshot: artifacts/saved-posts
 - tapOn: "Remove saved post"
-- tapOn: "Close"
+- tapOn: "Close dialog"

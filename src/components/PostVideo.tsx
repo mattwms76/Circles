@@ -11,6 +11,7 @@ export function PostVideo({ media }: { media: PostMedia }) {
   const player = useVideoPlayer(media.url);
   const [error, setError] = useState(false),
     [busy, setBusy] = useState(false);
+  const [subtitle, setSubtitle] = useState('');
   const [poster, setPoster] = useState<VideoThumbnail | null>(null),
     [started, setStarted] = useState(false);
   const alive = useRef(true),
@@ -66,6 +67,11 @@ export function PostVideo({ media }: { media: PostMedia }) {
         }
       }
     });
+    player.timeUpdateEventInterval = 0.15;
+    const time = player.addListener('timeUpdate', ({ currentTime }) => {
+      const cue = media.subtitles?.find((c) => currentTime >= c.start && currentTime < c.end);
+      if (alive.current) setSubtitle(cue?.text ?? '');
+    });
     const app = AppState.addEventListener('change', (state) => {
       if (state !== 'active') player.pause();
     });
@@ -80,10 +86,11 @@ export function PostVideo({ media }: { media: PostMedia }) {
       alive.current = false;
       generation.current++;
       status.remove();
+      time.remove();
       app.remove();
       clearInterval(timer);
     };
-  }, [player, media.storagePath, media.url]);
+  }, [player, media.storagePath, media.url, media.subtitles]);
   return (
     <View ref={container} style={{ borderRadius: 16, overflow: 'hidden' }}>
       <VideoView
@@ -109,8 +116,12 @@ export function PostVideo({ media }: { media: PostMedia }) {
             backgroundColor: colors.surface,
           }}
         >
-          {poster ? (
-            <Image source={poster} style={{ position: 'absolute', inset: 0 }} contentFit="cover" />
+          {media.coverUrl || poster ? (
+            <Image
+              source={media.coverUrl ? { uri: media.coverUrl } : poster}
+              style={{ position: 'absolute', inset: 0 }}
+              contentFit="cover"
+            />
           ) : null}
           <Text
             style={{
@@ -123,6 +134,26 @@ export function PostVideo({ media }: { media: PostMedia }) {
             ▶ Play video
           </Text>
         </Pressable>
+      ) : null}
+      {subtitle && started ? (
+        <View
+          pointerEvents="none"
+          style={{ position: 'absolute', bottom: 42, left: 12, right: 12, alignItems: 'center' }}
+        >
+          <Text
+            style={{
+              backgroundColor: colors.night,
+              color: colors.onPrimary,
+              fontSize: 16,
+              lineHeight: 24,
+              padding: 6,
+              borderRadius: 6,
+              textAlign: 'center',
+            }}
+          >
+            {subtitle}
+          </Text>
+        </View>
       ) : null}
       {error || busy ? (
         <Pressable

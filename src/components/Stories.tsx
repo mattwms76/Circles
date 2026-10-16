@@ -13,12 +13,12 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { secureStorage as AsyncStorage } from '../lib/secureStorage';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { Sheet } from './Sheet';
-import { ActionButton, Pill } from './Primitives';
+import { ActionButton, IconButton, Pill } from './Primitives';
 import { TextInput } from 'react-native';
 import { colors, createThemedStyles, typography, useReducedMotion } from '../theme';
 import { createIdempotencyKey } from '../lib/repositories';
@@ -607,12 +607,29 @@ export function Stories({
                   {current.circleName} · {index + 1}/{visible.length}
                 </Text>
               </View>
-              <ActionButton
-                compact
-                variant="outline"
-                label="Close"
-                onPress={() => setSelected(null)}
-              />
+              {current.authorId === profile.id ? (
+                <IconButton
+                  label="Story options"
+                  symbol="⋯"
+                  onPress={() => {
+                    setPaused(true);
+                    Alert.alert(
+                      'Your story',
+                      'Visible to circle members for up to 24 hours.',
+                      [
+                        { text: 'Keep watching', style: 'cancel', onPress: () => setPaused(false) },
+                        {
+                          text: 'Delete story',
+                          style: 'destructive',
+                          onPress: () => void erase(current),
+                        },
+                      ],
+                      { cancelable: true },
+                    );
+                  }}
+                />
+              ) : null}
+              <IconButton label="Close story" symbol="×" onPress={() => setSelected(null)} />
             </View>
             <View style={s.track}>
               <View
@@ -656,40 +673,28 @@ export function Stories({
                 onError={() => setViewerError('Photo unavailable. Try reopening the story.')}
               />
             )}
-            {current.caption ? <Text style={s.caption}>{current.caption}</Text> : null}
-            <View style={s.wrap}>
-              <ActionButton
-                compact
-                variant="outline"
-                label="Previous"
+            {current.caption ? (
+              <ScrollView style={{ maxHeight: 120, flexGrow: 0 }}>
+                <Text style={s.caption}>{current.caption}</Text>
+              </ScrollView>
+            ) : null}
+            <View style={[s.row, { justifyContent: 'center' }]}>
+              <IconButton
+                label="Previous story"
+                symbol="‹"
                 disabled={index <= 0}
                 onPress={() => advance(-1)}
               />
-              <ActionButton
-                compact
-                variant="outline"
-                label={paused ? 'Play' : 'Pause'}
+              <IconButton
+                label={paused ? 'Play story' : 'Pause story'}
+                symbol={paused ? '▶' : 'Ⅱ'}
                 onPress={() => setPaused(!paused)}
               />
-              <ActionButton
-                compact
-                label={index === visible.length - 1 ? 'Done' : 'Next'}
+              <IconButton
+                label={index === visible.length - 1 ? 'Finish stories' : 'Next story'}
+                symbol={index === visible.length - 1 ? '✓' : '›'}
                 onPress={() => advance(1)}
               />
-              {current.authorId === profile.id ? (
-                <ActionButton
-                  compact
-                  variant="destructive"
-                  label="Delete"
-                  onPress={() => {
-                    setPaused(true);
-                    Alert.alert('Delete this story?', 'It will no longer appear in the circle.', [
-                      { text: 'Keep story', style: 'cancel' },
-                      { text: 'Delete', style: 'destructive', onPress: () => void erase(current) },
-                    ]);
-                  }}
-                />
-              ) : null}
             </View>
           </SafeAreaView>
         </Modal>

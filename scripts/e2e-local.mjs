@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
+import { verifyStories } from './e2e-stories.mjs';
 
 const url = process.env.CIRCLES_E2E_URL;
 const anonKey = process.env.CIRCLES_E2E_ANON_KEY;
@@ -211,6 +212,15 @@ try {
       .eq('user_id', guest.id),
     'Approve private circle request',
   );
+  await verifyStories({
+    admin,
+    host,
+    guest,
+    outsider: third,
+    circleId: privateCircle.id,
+    url,
+    anonKey,
+  });
   assert.equal(
     expectNoError(
       await guest.client.rpc('leave_circle', { target_circle_id: privateCircle.id }),
@@ -753,7 +763,9 @@ try {
   );
   if (process.env.CIRCLES_E2E_ACCOUNT_FUNCTIONS === 'true') {
     const deleted = expectNoError(
-      await fourth.client.functions.invoke('delete-account', { body: { confirmation: 'DELETE' } }),
+      await fourth.client.functions.invoke('delete-account', {
+        body: { confirmation: 'DELETE', password },
+      }),
       'Delete own account through Edge Function',
     );
     assert.equal(deleted.deleted, true);

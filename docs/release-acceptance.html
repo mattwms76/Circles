@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Circles — implementation and release checks</title>
+  <style>
+    body {
+      font:
+        16px/1.6 system-ui,
+        sans-serif;
+      max-width: 960px;
+      margin: 32px auto;
+      padding: 0 20px;
+      background: #faf7f2;
+      color: #242326;
+    }
+    h1 {
+      font-size: 32px;
+      line-height: 1.2;
+    }
+    h2 {
+      font-size: 22px;
+      margin-top: 32px;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      background: white;
+    }
+    th,
+    td {
+      text-align: left;
+      vertical-align: top;
+      padding: 12px;
+      border: 1px solid #d8d2cc;
+    }
+    th {
+      background: #e7e2f4;
+    }
+    code {
+      overflow-wrap: anywhere;
+    }
+    a {
+      color: #a1392a;
+    }
+    .pending {
+      background: #f7ebc9;
+    }
+    li {
+      margin: 8px 0;
+    }
+    @media (prefers-color-scheme: dark) {
+      body {
+        background: #18171b;
+        color: #f4efe9;
+      }
+      table {
+        background: #242229;
+      }
+      th {
+        background: #393047;
+      }
+      td,
+      th {
+        border-color: #413b46;
+      }
+      a {
+        color: #f29c87;
+      }
+      .pending {
+        background: #433c26;
+      }
+    }
+    @media (max-width: 600px) {
+      table,
+      tbody,
+      tr,
+      th,
+      td {
+        display: block;
+      }
+      thead {
+        display: none;
+      }
+      td:first-child {
+        font-weight: 700;
+      }
+    }
+  </style>
+  <h1>Circles implementation and release checks</h1>
+  <h2>Screen/code debugging — 15 October 2026</h2>
+  <p>
+    158 automated tests pass, including fourteen new checks for stale attachments/polls, duplicate
+    voting, malformed caches, draft restore races, obsolete feed pagination, inaccessible collection
+    entries, voice replay/background interruption, recording cleanup, authentication callback
+    routing, concurrent mute/read updates, and publishing during video processing. TypeScript,
+    palette consistency, preview syntax and all six function checks pass. Crypto, the development
+    client and TypeScript match SDK 57 recommendations; Android/iOS JavaScript exports pass. Expo
+    57.0.29 and notifications 57.0.23 remain deferred by the minimum package-age policy; the final
+    Expo 57.0.27 / notifications 57.0.22 installation passes frozen-lockfile and supply-chain checks
+    without exceptions.
+  </p>
+  <p>
+    Source review covers main navigation, Home/Explore, circles/library, posts/comments/stories,
+    profiles/onboarding, inbox/chats, settings/recovery, activity/moderation, live rooms and wallet
+    flows. This is not a claim of visual or device certification: local browser visual automation
+    and Docker integration were not run. Rebuild the development client for updated native packages
+    and complete the device acceptance matrix below. These client fixes require no new production
+    schema changes.
+  </p>
+  <h2>Community feature deployment — 15 October 2026</h2>
+  <p>
+    The app uses Supabase project <code>vvclcsqletcxzoaayqzq</code>. Initial schema, story
+    retention, all eight community features, policy tuning and upload retry validation are deployed.
+    All 53 public tables have RLS; six Edge Functions and six scheduled jobs are active.
+    Security/performance advisors report no warnings or errors. Both mobile authentication callbacks
+    are saved. The old project's users and content were not copied.
+  </p>
+  <table>
+    <thead>
+      <tr>
+        <th>Feature</th>
+        <th>Implemented</th>
+        <th>Acceptance still needed</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Personal timeline</td>
+        <td>
+          Latest/Recommended, favourites, less/snooze/hide/restore, reasons, server filtering before
+          pagination.
+        </td>
+        <td>Two-account feed behaviour and long-list scrolling on devices.</td>
+      </tr>
+      <tr>
+        <td>Publishing</td>
+        <td>
+          Ten-photo ordering, actual native trim, covers, timed subtitles, retained drafts and
+          retry.
+        </td>
+        <td>
+          Native recording/trim/cover/audio, background interruption and slow-network retry on both
+          platforms.
+        </td>
+      </tr>
+      <tr>
+        <td>Participation</td>
+        <td>Questions, polls, change/remove vote, close times, optional weekly host prompts.</td>
+        <td>Two-device realtime votes and scheduled prompt presentation.</td>
+      </tr>
+      <tr>
+        <td>Library</td>
+        <td>Topics, filtered posts, shared collections, attribution and controlled removal.</td>
+        <td>Member/host/outsider REST flows on a disposable Auth stack.</td>
+      </tr>
+      <tr>
+        <td>Chats</td>
+        <td>
+          Optional member-only chat, slow mode, mute/read, photo/voice, host moderation, 15-minute
+          author deletion, initial-load retry.
+        </td>
+        <td>
+          Microphone denial/recovery, automatic stop, audible playback, attachment renewal and
+          account switching on devices.
+        </td>
+      </tr>
+      <tr>
+        <td>Invitations</td>
+        <td>
+          GitHub Pages landing page, expiring/revocable tokens, private-safe preview and
+          installed-app join.
+        </td>
+        <td>
+          Installed app confirmation/recovery/join links on iOS/Android. Universal/App Links and
+          store fallbacks await release identifiers/listings.
+        </td>
+      </tr>
+      <tr>
+        <td>Recognition</td>
+        <td>Host labels, recipient removal and helpful answers.</td>
+        <td>Two-account permissions and readable badges at large text sizes.</td>
+      </tr>
+      <tr>
+        <td>Catch-up</td>
+        <td>
+          New conversations, unanswered questions, replies/events, server checkpoint and optional
+          weekly digest.
+        </td>
+        <td>Real push delivery, quiet hours, digest opt-in/out and notification deep links.</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    Validation: 144 local automated tests, TypeScript, shared tokens, six Deno checks and
+    Android/iOS JavaScript exports pass. Production scheduler HTTP responses and advisor results
+    were checked read-only. Physical-device, local browser visual and Docker integration runs remain
+    outstanding. Rebuild the native development client for audio/crypto/video trimming. Agora, EAS,
+    support contact and store configuration remain deferred. The sections below retain the earlier
+    design and release criteria.
+  </p>
+  <p>
+    15 October 2026. Local code changes are ready for review. This checklist separates implemented
+    work from deployment and device evidence that is still needed.
+  </p>
+  <table>
+    <thead>
+      <tr>
+        <th>Area</th>
+        <th>Implemented locally</th>
+        <th>Remaining evidence</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>1. Shared design</td>
+        <td>
+          Theme-aware surfaces and wallet packs; consistent headings, text, gutters, fields and
+          buttons; stronger image overlays.
+        </td>
+        <td>Visual inspection on physical devices in both themes.</td>
+      </tr>
+      <tr>
+        <td>2. Main screens</td>
+        <td>
+          Shorter Home header, quieter Explore action, compact circle identity, collapsed
+          stories/community lists, separate profile editor and contextual message tools.
+        </td>
+        <td>Narrow-screen and large-text acceptance.</td>
+      </tr>
+      <tr>
+        <td>3. Secondary screens</td>
+        <td>
+          Compact story controls; grouped live controls; shared wallet sheet; grouped settings;
+          fixed submission footers for creation, scheduling, onboarding, recovery and reports.
+        </td>
+        <td>Keyboard, safe-area and screen-reader acceptance.</td>
+      </tr>
+      <tr>
+        <td>4. Backend and CI</td>
+        <td>
+          Canonical fresh-install manifest, independent retention function/secret/scheduler, SQL and
+          cleanup regressions, story integration checks.
+        </td>
+        <td>Run disposable Supabase Docker integration and new visual suite in CI.</td>
+      </tr>
+      <tr class="pending">
+        <td>5. Connected deployment</td>
+        <td>Migrations, function and verification instructions prepared.</td>
+        <td>
+          Restore Supabase access, deploy stories/retention/account cleanup, verify live grants,
+          media and scheduler.
+        </td>
+      </tr>
+      <tr class="pending">
+        <td>6. Native services</td>
+        <td>Environment validation and an EAS production build configuration gate.</td>
+        <td>
+          Supply Agora App ID, EAS project ID, support email; configure server/store/push
+          credentials and rebuild clients.
+        </td>
+      </tr>
+      <tr class="pending">
+        <td>7. Acceptance</td>
+        <td>
+          Expanded preview screenshots and interaction checks; native smoke flow and the matrix
+          below.
+        </td>
+        <td>
+          Browser access is restricted here. iOS/Android devices, macOS and a Docker stack are
+          unavailable.
+        </td>
+      </tr>
+      <tr>
+        <td>8. Delivery</td>
+        <td>Code, migration, CI and documentation changes prepared locally.</td>
+        <td>
+          Review screenshots and connected/device evidence before release. GitHub push is a separate
+          delivery action.
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <h2>Verification recorded</h2>
+  <p>
+    126 automated regression tests passed. TypeScript, shared palette consistency, preview
+    JavaScript syntax and Deno checks for all five functions passed. Final Android and iOS
+    JavaScript bundle exports passed. Nine visual tests are discoverable; browser execution and the
+    disposable Docker integration suite remain unexecuted in this session. Changes are local and
+    have not been committed or pushed.
+  </p>
+  <h2>Connected deployment sequence</h2>
+  <ol>
+    <li>
+      Reconnect Supabase in Codex, or authenticate the Supabase CLI. Confirm the project reference
+      is <code>nmbmkyhrybanwsmylbqd</code>. Inspect the migration ledger and existing functions
+      before applying upgrades.
+    </li>
+    <li>
+      For the existing Circles project, apply missing
+      <code>20261014162132_circle_stories.sql</code>, then
+      <code>20261015105642_independent_story_cleanup.sql</code>. Never rerun
+      <code>setup.sql</code> against an initialized project. Fresh projects use
+      <code>supabase/bootstrap.list</code>.
+    </li>
+    <li>
+      Deploy <code>cleanup-story-media</code> and the updated <code>delete-account</code>. Update
+      <code>dispatch-notifications</code> if that function is already deployed. Story retention
+      requires no Expo push setup.
+    </li>
+    <li>
+      Set the private runtime setting <code>story_cleanup_url</code> to the project's
+      <code>/functions/v1/cleanup-story-media</code> HTTPS endpoint. The migration creates a private
+      random cleanup secret and the minute cron job. Do not expose the secret to the client or place
+      it in source control.
+    </li>
+    <li>
+      Invoke <code>private.cleanup_story_media()</code> and inspect the function response, cron runs
+      and cleanup queue. Verify failed Storage deletion leaves queue entries for retry. Check
+      member/non-member/blocked-account story access and signed-URL expiry with disposable records.
+    </li>
+    <li>
+      Verify the updated account deletion function removes stories and uploaded story media. Test in
+      a disposable project before any production account test.
+    </li>
+    <li>
+      Configure notification dispatch independently after APNs/FCM and EAS are ready. Verify
+      delivery, quiet hours, sign-out, account switches, taps and invalid device-token cleanup.
+    </li>
+  </ol>
+  <h2>Native service setup</h2>
+  <p>
+    Fill the deferred public values in ignored <code>.env.local</code> and the EAS build
+    environment. Run <code>pnpm release:check</code>. The EAS production post-install hook fails
+    when required values are missing or malformed; development and preview builds remain available.
+    Configure Agora server credentials and App Store/Play purchase credentials only in their server
+    secret stores. Rebuild development clients for the native camera, video, calendar, notification
+    and appearance modules.
+  </p>
+  <h2>Acceptance matrix</h2>
+  <p>
+    Record platform, OS version, build revision, date and screenshots for every pass. Use disposable
+    accounts A (circle owner), B (member), C (non-member), plus a moderator. Mark failed, blocked or
+    untested flows explicitly.
+  </p>
+  <table>
+    <thead>
+      <tr>
+        <th>Surface</th>
+        <th>Checks</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>All screens</td>
+        <td>
+          320/390-point widths; light/dark; largest text; VoiceOver/TalkBack; Reduce Motion;
+          scrolling; safe areas; 48-point controls; no clipped labels or unreachable actions.
+        </td>
+      </tr>
+      <tr>
+        <td>Home / Explore / circle / profiles</td>
+        <td>
+          Loading, empty and failed fetch; pagination; rapid search/filter changes;
+          Posts/Events/About separation; membership revocation; collapsed sections; photo change,
+          cancellation, upload failure/retry and saved profile refresh.
+        </td>
+      </tr>
+      <tr>
+        <td>Messages / comments</td>
+        <td>
+          Two-account delivery and Realtime updates; multiline keyboard layout; draft retention
+          through options/search and failed send; reply/reaction menu; own deletion just before and
+          after 15 minutes; search, mute, block and account switching.
+        </td>
+      </tr>
+      <tr>
+        <td>Posts / stories</td>
+        <td>
+          Camera/microphone permission denial and recovery; front/back camera; audible playback;
+          cancel/re-record; 60-second stories/120-second posts; size/type validation; upload
+          interruption/retry; private access; visible story ring; pause, previous/next, deletion and
+          expiry at 24 hours.
+        </td>
+      </tr>
+      <tr>
+        <td>Forms / account</td>
+        <td>
+          Keyboard does not hide submit; busy controls prevent duplicates; invalid input remains
+          editable; sign-up, recovery deep link, welcome flow, reports, settings, moderation,
+          calendar and scheduled event validation.
+        </td>
+      </tr>
+      <tr>
+        <td>Live / gifts / wallet</td>
+        <td>
+          Host/co-host/viewer controls; mic, camera and switch; reconnection, background expiry and
+          seat release; gift selection/favourites; insufficient funds; store cancellation, verified
+          purchase and idempotent retry.
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    Commands: <code>pnpm check</code>, both Expo bundle exports, Deno function checking,
+    <code>pnpm e2e:local</code>, <code>pnpm test:visual</code>, and the <code>.maestro</code> smoke
+    flows. Bundle exports and mocked SDK tests do not certify physical recording, purchases or push.
+  </p>
+</html>

@@ -65,8 +65,15 @@ window.createCirclesStories = ({ state, page, modal, render, toast, escapeHtml: 
         },
         Math.max(0, nextExpiry - Date.now()),
       );
+    const wasExpanded = page.querySelector('.storyDisclosure')?.open;
+    page.querySelector('.storyDisclosure')?.remove();
     page.querySelector('.storyTray')?.remove();
     if (!['home', 'circle'].includes(state.screen)) return;
+    if (
+      state.screen === 'circle' &&
+      (state.circleTab !== 'posts' || !members().some((c) => c[0] === state.activeCircle))
+    )
+      return;
     const stories = visible().filter(
       (s) => state.screen !== 'circle' || s.circle === state.activeCircle,
     );
@@ -75,7 +82,15 @@ window.createCirclesStories = ({ state, page, modal, render, toast, escapeHtml: 
     tray.innerHTML = `<div class="storyTitle"><h2>Circle stories</h2><span>24 hours</span></div><div class="storyRail"><button class="storyTile" data-story="create"><span class="storyRing storyAdd">＋</span><strong>Your story</strong></button>${stories.map((s) => `<button class="storyTile" data-story="view" data-id="${s.id}" aria-label="${seen.includes(s.id) ? 'Viewed' : 'New'} story in ${e(s.circle)}"><span class="storyRing storyActive ${seen.includes(s.id) ? 'seen' : ''}"><img src="${e(state.avatarUrl)}" alt=""></span><strong>You</strong><small>${e(s.circle)}</small></button>`).join('')}</div>${stories.length ? '' : '<p class="ex-hint">Share a photo or video with your circle for 24 hours.</p>'}`;
     const anchor =
       state.screen === 'home' ? page.querySelector('.intro') : page.querySelector('.circleHeading');
-    anchor?.after(tray);
+    if (state.screen === 'circle') {
+      const details = document.createElement('details');
+      details.className = 'storyDisclosure communityDetails';
+      details.open = Boolean(wasExpanded);
+      const summary = document.createElement('summary');
+      summary.textContent = `Circle stories · ${stories.length}`;
+      details.append(summary, tray);
+      anchor?.after(details);
+    } else anchor?.after(tray);
   }
   let selectedFile = null,
     selectedKind = null,
@@ -247,9 +262,13 @@ window.createCirclesStories = ({ state, page, modal, render, toast, escapeHtml: 
     const index = list.findIndex((s) => s.id === id);
     modal(
       'Circle story',
-      `<div class="storyViewer"><div class="storyTitle"><strong>${e(state.displayName)}</strong><span>${index + 1}/${list.length}</span></div><p class="ex-hint">${e(story.circle)} · Expires ${e(new Date(story.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))}</p><progress class="storyProgress" max="6" value="0" aria-label="Story progress"></progress><div class="storyStage">${story.kind === 'image' ? `<img src="${viewerUrl}" alt="${e(story.caption || 'Circle story')}">` : `<video src="${viewerUrl}" controls playsinline autoplay></video>`}</div>${story.caption ? `<p class="storyCaption">${e(story.caption)}</p>` : ''}<p class="storyError" role="alert"></p><div class="ex-row"><button class="demoChip" data-story="previous" ${index === 0 ? 'disabled' : ''}>Previous</button><button class="demoChip" data-story="pause">Pause</button><button class="demoButton" data-story="next">${index === list.length - 1 ? 'Done' : 'Next'}</button><button class="demoChip storyDelete" data-story="delete">Delete</button></div></div>`,
+      `<div class="storyViewer"><div class="storyTitle"><strong>${e(state.displayName)}</strong><span>${index + 1}/${list.length}</span></div><p class="ex-hint">${e(story.circle)} · Expires ${e(new Date(story.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))}</p><progress class="storyProgress" max="6" value="0" aria-label="Story progress"></progress><div class="storyStage">${story.kind === 'image' ? `<img src="${viewerUrl}" alt="${e(story.caption || 'Circle story')}">` : `<video src="${viewerUrl}" controls playsinline autoplay></video>`}</div>${story.caption ? `<p class="storyCaption">${e(story.caption)}</p>` : ''}<p class="storyError" role="alert"></p><div class="ex-row"><button class="iconButton" aria-label="Previous story" data-story="previous" ${index === 0 ? 'disabled' : ''}>‹</button><button class="iconButton" aria-label="Pause story" data-story="pause">Ⅱ</button><button class="iconButton" data-story="next" aria-label="${index === list.length - 1 ? 'Finish stories' : 'Next story'}">${index === list.length - 1 ? '✓' : '›'}</button><details class="storyOptions"><summary aria-label="Story options">⋯</summary><button class="demoChip storyDelete" data-story="delete">Delete story</button></details></div></div>`,
     );
     document.querySelector('.modalPanel').classList.add('storyViewerPanel');
+    document.querySelector('.storyOptions').addEventListener('toggle', (event) => {
+      if (event.currentTarget.open && !paused)
+        document.querySelector('[data-story="pause"]').click();
+    });
     const video = document.querySelector('.storyStage video');
     const picture = document.querySelector('.storyStage img');
     if (video) {
@@ -313,7 +332,8 @@ window.createCirclesStories = ({ state, page, modal, render, toast, escapeHtml: 
     if (action === 'previous') advance(-1);
     if (action === 'pause') {
       paused = !paused;
-      target.textContent = paused ? 'Play' : 'Pause';
+      target.textContent = paused ? '▶' : 'Ⅱ';
+      target.setAttribute('aria-label', paused ? 'Play story' : 'Pause story');
       const video = document.querySelector('.storyStage video');
       if (video) {
         if (paused) video.pause();
@@ -357,7 +377,10 @@ window.createCirclesStories = ({ state, page, modal, render, toast, escapeHtml: 
         video.pause();
         paused = true;
         const toggle = document.querySelector('[data-story="pause"]');
-        if (toggle) toggle.textContent = 'Play';
+        if (toggle) {
+          toggle.textContent = '▶';
+          toggle.setAttribute('aria-label', 'Play story');
+        }
       }
     } else {
       decorate();

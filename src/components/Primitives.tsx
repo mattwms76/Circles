@@ -1,6 +1,8 @@
+import { ParticipationCard } from './ParticipationCard';
+import { PostGallery } from './PostGallery';
+import { MemberRecognition } from './CommunityDepth';
 import { contentLink } from '../lib/contentLinks';
 import { usePostActions } from './PostActions';
-import { PostVideo } from './PostVideo';
 import React from 'react';
 import { Image, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import { createThemedStyles, colors, radii } from '../theme';
@@ -370,6 +372,7 @@ export function PostCard({
         <Avatar profile={post.author} size={42} />
         <View style={{ flex: 1 }}>
           <Text style={styles.postAuthor}>{post.author.displayName}</Text>
+          <MemberRecognition circleId={post.circleId} userId={post.author.id} />
           {onOpenCircle ? (
             <Pressable onPress={onOpenCircle}>
               <Text style={styles.postCircle}>
@@ -394,10 +397,12 @@ export function PostCard({
         ) : null}
       </View>
       <Text style={styles.postBody}>{post.body}</Text>
-      {post.media?.kind === 'video' ? (
-        <PostVideo media={post.media} />
-      ) : post.media ? (
-        <Image source={{ uri: post.media.url }} style={styles.postImage} resizeMode="cover" />
+      {post.postType === 'question' ? (
+        <Text style={{ color: colors.coral, fontSize: 14 }}>Question for the circle</Text>
+      ) : null}
+      {post.postType === 'poll' ? <ParticipationCard postId={post.id} /> : null}
+      {post.mediaItems?.length || post.media ? (
+        <PostGallery items={post.mediaItems?.length ? post.mediaItems : [post.media!]} />
       ) : null}
       <View style={styles.postActions}>
         <Pressable
@@ -483,6 +488,42 @@ export function ActionButton({
   );
 }
 
+export function IconButton({
+  label,
+  symbol,
+  onPress,
+  disabled = false,
+}: {
+  label: string;
+  symbol: string;
+  onPress: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => ({
+        minHeight: 48,
+        minWidth: 48,
+        padding: 12,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: radii.small,
+        backgroundColor: colors.surface,
+        opacity: disabled ? 0.45 : pressed ? 0.75 : 1,
+      })}
+    >
+      <Text accessible={false} style={{ fontSize: 22, lineHeight: 24, color: colors.ink }}>
+        {symbol}
+      </Text>
+    </Pressable>
+  );
+}
+
 export function Pill({
   label,
   selected = false,
@@ -532,6 +573,47 @@ export function formatCount(count: number) {
   return count >= 1000 ? `${(count / 1000).toFixed(count >= 10000 ? 0 : 1)}k` : String(count);
 }
 
+export function Disclosure({
+  title,
+  children,
+  initiallyOpen = false,
+}: {
+  title: string;
+  children: React.ReactNode;
+  initiallyOpen?: boolean;
+}) {
+  const [open, setOpen] = React.useState(initiallyOpen);
+  return (
+    <View style={{ gap: 12 }}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={title}
+        accessibilityState={{ expanded: open }}
+        onPress={() => setOpen(!open)}
+        style={{
+          minHeight: 48,
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 12,
+          paddingVertical: 12,
+          borderBottomWidth: 1,
+          borderColor: colors.line,
+        }}
+      >
+        <Text
+          style={{ flex: 1, fontSize: 16, lineHeight: 24, fontWeight: '600', color: colors.ink }}
+        >
+          {title}
+        </Text>
+        <Text accessibilityElementsHidden style={{ fontSize: 22, color: colors.muted }}>
+          {open ? '−' : '+'}
+        </Text>
+      </Pressable>
+      {open ? children : null}
+    </View>
+  );
+}
+
 const styles = createThemedStyles(() => ({
   avatarFrame: { alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   avatarRing: { borderWidth: 2, borderColor: colors.coral, padding: 2 },
@@ -578,8 +660,20 @@ const styles = createThemedStyles(() => ({
     letterSpacing: 1.4,
     marginBottom: 5,
   },
-  sectionTitle: { color: colors.ink, fontSize: 21, fontWeight: '700', letterSpacing: -0.6 },
-  actionText: { color: colors.coral, fontWeight: '700', fontSize: 13, paddingBottom: 3 },
+  sectionTitle: {
+    color: colors.ink,
+    fontSize: 22,
+    lineHeight: 28,
+    fontWeight: '700',
+    letterSpacing: -0.4,
+  },
+  actionText: {
+    color: colors.coral,
+    fontWeight: '600',
+    fontSize: 14,
+    lineHeight: 20,
+    paddingBottom: 3,
+  },
   circleTile: {
     backgroundColor: colors.surface,
     borderRadius: radii.medium,
@@ -590,7 +684,7 @@ const styles = createThemedStyles(() => ({
   },
   circleImageWrap: { height: 162, backgroundColor: colors.sage },
   circleImage: { width: '100%', height: '100%' },
-  circlePhotoOverlay: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(25,22,21,0.16)' },
+  circlePhotoOverlay: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(25,22,21,0.62)' },
   privateBadge: {
     position: 'absolute',
     top: 13,
@@ -610,7 +704,13 @@ const styles = createThemedStyles(() => ({
     textShadowRadius: 8,
   },
   circleMemberOnImage: { color: '#FFFFFF', fontSize: 12, fontWeight: '600', marginTop: 3 },
-  circleTileFooter: { flexDirection: 'row', alignItems: 'center', padding: 15, gap: 10 },
+  circleTileFooter: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    padding: 16,
+    gap: 12,
+  },
   circleInterest: {
     fontSize: 12,
     color: colors.coral,
@@ -620,10 +720,9 @@ const styles = createThemedStyles(() => ({
   },
   circleDescription: {
     color: colors.muted,
-    fontSize: 12,
-    lineHeight: 18,
+    fontSize: 14,
+    lineHeight: 20,
     marginTop: 4,
-    maxWidth: 210,
   },
   circleMore: { minHeight: 48, minWidth: 48, width: 29, alignItems: 'center' },
   joinButton: {
@@ -638,7 +737,7 @@ const styles = createThemedStyles(() => ({
   },
   joinedButton: { backgroundColor: colors.sage },
   requestedButton: { backgroundColor: colors.butter },
-  joinButtonText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
+  joinButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
   joinedButtonText: { color: colors.green },
   postCard: {
     backgroundColor: colors.surface,
@@ -660,9 +759,9 @@ const styles = createThemedStyles(() => ({
     backgroundColor: colors.sage,
     marginBottom: 12,
   },
-  postActions: { flexDirection: 'row', gap: 24 },
-  postAction: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 7 },
-  postActionLabel: { color: colors.muted, fontSize: 12, fontWeight: '600' },
+  postActions: { flexDirection: 'row', flexWrap: 'wrap', columnGap: 20, rowGap: 4 },
+  postAction: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 7 },
+  postActionLabel: { color: colors.muted, fontSize: 14, fontWeight: '600' },
   actionButton: {
     minHeight: 48,
     paddingVertical: 12,
@@ -683,20 +782,20 @@ const styles = createThemedStyles(() => ({
     borderWidth: 1,
     borderColor: colors.line,
     paddingHorizontal: 13,
-    minHeight: 44,
+    minHeight: 48,
     justifyContent: 'center',
     paddingVertical: 9,
     marginRight: 0,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.surface,
   },
   pillSelected: { backgroundColor: colors.night, borderColor: colors.night },
-  pillText: { color: colors.muted, fontSize: 12, fontWeight: '700' },
+  pillText: { color: colors.muted, fontSize: 14, lineHeight: 20, fontWeight: '600' },
   pillTextSelected: { color: '#FFFFFF' },
   emptyState: {
     alignItems: 'center',
     gap: 9,
     padding: 28,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.surface,
     borderRadius: radii.medium,
     borderWidth: 1,
     borderColor: colors.line,
@@ -704,8 +803,8 @@ const styles = createThemedStyles(() => ({
   emptyTitle: { color: colors.ink, fontSize: 16, fontWeight: '700' },
   emptyDetail: {
     color: colors.muted,
-    fontSize: 12,
-    lineHeight: 18,
+    fontSize: 14,
+    lineHeight: 20,
     textAlign: 'center',
     marginBottom: 6,
   },

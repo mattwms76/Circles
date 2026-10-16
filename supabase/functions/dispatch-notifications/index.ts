@@ -28,26 +28,6 @@ Deno.serve(async (request: Request) => {
     if (result.error) throw result.error;
   };
   try {
-    // Cleanup failures must never prevent notification delivery. Retry on the next dispatch.
-    try {
-      const queued = await admin.rpc('queue_expired_story_media');
-      if (queued.error) throw queued.error;
-      const pending = await admin
-        .from('story_media_cleanup')
-        .select('storage_path')
-        .order('queued_at')
-        .limit(100);
-      if (pending.error) throw pending.error;
-      const paths = (pending.data ?? []).map((item) => item.storage_path);
-      if (paths.length) {
-        const removed = await admin.storage.from('story-media').remove(paths);
-        if (removed.error) throw removed.error;
-        const cleared = await admin.from('story_media_cleanup').delete().in('storage_path', paths);
-        if (cleared.error) throw cleared.error;
-      }
-    } catch {
-      console.error('Story media cleanup deferred');
-    }
     const { data: jobs, error } = await admin.rpc('claim_notification_deliveries');
     if (error) throw error;
     // One request per token allows tokens from different EAS projects during migrations.

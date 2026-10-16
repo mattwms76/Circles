@@ -21,7 +21,14 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
-import { ActionButton, Avatar, CircleTile, EmptyState, Pill } from '../components/Primitives';
+import {
+  ActionButton,
+  Disclosure,
+  Avatar,
+  CircleTile,
+  EmptyState,
+  Pill,
+} from '../components/Primitives';
 import { Sheet } from './AppScreens';
 import { createThemedStyles, useReducedMotion, colors } from '../theme';
 import { backendReady } from '../lib/supabase';
@@ -162,6 +169,24 @@ export function OnboardingSheet({
       onClose={() => {
         if (!busy) void finish();
       }}
+      footer={
+        step === 0 ? (
+          <ActionButton
+            label={busy ? 'Finding circles…' : 'Find my circles'}
+            disabled={busy || name.trim().length < 2 || selected.length === 0}
+            onPress={() => void next()}
+          />
+        ) : step === 1 ? (
+          <ActionButton label="Continue · meet people" disabled={busy} onPress={() => setStep(2)} />
+        ) : (
+          <ActionButton
+            variant="outline"
+            label={busy ? 'Saving…' : 'Explore at my own pace'}
+            disabled={busy}
+            onPress={() => void finish()}
+          />
+        )
+      }
     >
       {step === 0 ? (
         <>
@@ -190,11 +215,6 @@ export function OnboardingSheet({
               />
             ))}
           </View>
-          <ActionButton
-            label={busy ? 'Finding circles…' : 'Find my circles'}
-            disabled={busy || name.trim().length < 2 || selected.length === 0}
-            onPress={() => void next()}
-          />
         </>
       ) : step === 1 ? (
         <>
@@ -226,7 +246,7 @@ export function OnboardingSheet({
               detail="Explore more interests or start a circle of your own."
             />
           ) : null}
-          <ActionButton label="Continue · meet people" disabled={busy} onPress={() => setStep(2)} />
+
           <ActionButton
             compact
             variant="outline"
@@ -260,12 +280,7 @@ export function OnboardingSheet({
               are pending.
             </Text>
           )}
-          <ActionButton
-            variant="outline"
-            label={busy ? 'Saving…' : 'Explore at my own pace'}
-            disabled={busy}
-            onPress={() => void finish()}
-          />
+
           <ActionButton
             variant="outline"
             label="Back to circles"
@@ -414,93 +429,98 @@ export function SettingsSheet({
     );
   return (
     <Sheet title="Your settings" eyebrow="MAKE CIRCLES YOURS" onClose={onClose}>
-      <Text style={ui.heading}>Notifications</Text>
-      <Text style={ui.copy}>Activity stays in your inbox. Device alerts are optional.</Text>
-      <Toggle
-        label="Device notifications"
-        value={settings.push_enabled}
-        onChange={(v) => {
-          if (!busy) void enable(v);
-        }}
-      />
-      {(['messages', 'replies', 'memberships', 'live', 'events'] as const).map((key) => (
+      <Disclosure title="Notifications">
+        <Text style={ui.copy}>Activity stays in your inbox. Device alerts are optional.</Text>
         <Toggle
-          key={key}
-          label={
-            {
-              messages: 'Messages',
-              replies: 'Replies to my posts',
-              memberships: 'Membership approvals',
-              live: 'Followed hosts going live',
-              events: 'Circle events and reminders',
-            }[key]
-          }
-          value={settings[key]}
-          onChange={(value) => setSettings((s) => ({ ...s, [key]: value }))}
+          label="Device notifications"
+          value={settings.push_enabled}
+          onChange={(v) => {
+            if (!busy) void enable(v);
+          }}
         />
-      ))}
-      <Toggle
-        label="Quiet hours"
-        value={settings.quiet_enabled}
-        onChange={(quiet_enabled) => setSettings((s) => ({ ...s, quiet_enabled }))}
-      />
-      {settings.quiet_enabled ? (
-        <>
-          <Field
-            label="Quiet hours start (24-hour)"
-            value={settings.quiet_start.slice(0, 5)}
-            onChangeText={(quiet_start) => setSettings((s) => ({ ...s, quiet_start }))}
-          />
-          <Field
-            label="Quiet hours end (24-hour)"
-            value={settings.quiet_end.slice(0, 5)}
-            onChangeText={(quiet_end) => setSettings((s) => ({ ...s, quiet_end }))}
-          />
-          <Field
-            label="Time zone"
-            value={settings.timezone}
-            onChangeText={(timezone) => setSettings((s) => ({ ...s, timezone }))}
-          />
-        </>
-      ) : null}
-      <Toggle
-        label="Share technical error reports"
-        value={settings.diagnostics_enabled}
-        onChange={(diagnostics_enabled) => setSettings((s) => ({ ...s, diagnostics_enabled }))}
-      />
-      <Text style={ui.hint}>
-        Error codes and technical traces only. No message or post text. Reports are linked to your
-        account so deletion also removes them.
-      </Text>
-      <ActionButton
-        label={busy ? 'Saving…' : 'Save preferences'}
-        disabled={busy}
-        onPress={() => void save()}
-      />
-      <Text style={ui.heading}>Blocked members</Text>
-      {blocked.length ? (
-        blocked.map((p) => (
-          <View key={p.id} style={ui.row}>
-            <Avatar profile={p} />
-            <Text style={[ui.copy, { flex: 1 }]}>{p.displayName}</Text>
-            <ActionButton
-              compact
-              variant="outline"
-              label="Unblock"
-              onPress={() => {
-                void unblockPerson(p.id)
-                  .then(() => {
-                    setBlocked((old) => old.filter((x) => x.id !== p.id));
-                    onBlocksChanged();
-                  })
-                  .catch((e) => setFeedback(message(e)));
-              }}
+        {(['messages', 'replies', 'memberships', 'live', 'events', 'digests'] as const).map(
+          (key) => (
+            <Toggle
+              key={key}
+              label={
+                {
+                  messages: 'Messages',
+                  replies: 'Replies to my posts',
+                  memberships: 'Membership approvals',
+                  live: 'Followed hosts going live',
+                  events: 'Circle events and reminders',
+                  digests: 'Optional weekly catch-up',
+                }[key]
+              }
+              value={settings[key]}
+              onChange={(value) => setSettings((s) => ({ ...s, [key]: value }))}
             />
-          </View>
-        ))
-      ) : (
-        <Text style={ui.copy}>No blocked members.</Text>
-      )}
+          ),
+        )}
+        <Toggle
+          label="Quiet hours"
+          value={settings.quiet_enabled}
+          onChange={(quiet_enabled) => setSettings((s) => ({ ...s, quiet_enabled }))}
+        />
+        {settings.quiet_enabled ? (
+          <>
+            <Field
+              label="Quiet hours start (24-hour)"
+              value={settings.quiet_start.slice(0, 5)}
+              onChangeText={(quiet_start) => setSettings((s) => ({ ...s, quiet_start }))}
+            />
+            <Field
+              label="Quiet hours end (24-hour)"
+              value={settings.quiet_end.slice(0, 5)}
+              onChangeText={(quiet_end) => setSettings((s) => ({ ...s, quiet_end }))}
+            />
+            <Field
+              label="Time zone"
+              value={settings.timezone}
+              onChangeText={(timezone) => setSettings((s) => ({ ...s, timezone }))}
+            />
+          </>
+        ) : null}
+        <Toggle
+          label="Share technical error reports"
+          value={settings.diagnostics_enabled}
+          onChange={(diagnostics_enabled) => setSettings((s) => ({ ...s, diagnostics_enabled }))}
+        />
+        <Text style={ui.hint}>
+          Error codes and technical traces only. No message or post text. Reports are linked to your
+          account so deletion also removes them.
+        </Text>
+        <ActionButton
+          label={busy ? 'Saving…' : 'Save preferences'}
+          disabled={busy}
+          onPress={() => void save()}
+        />
+      </Disclosure>
+      <Disclosure title={`Blocked members · ${blocked.length}`}>
+        {blocked.length ? (
+          blocked.map((p) => (
+            <View key={p.id} style={ui.row}>
+              <Avatar profile={p} />
+              <Text style={[ui.copy, { flex: 1 }]}>{p.displayName}</Text>
+              <ActionButton
+                compact
+                variant="outline"
+                label="Unblock"
+                onPress={() => {
+                  void unblockPerson(p.id)
+                    .then(() => {
+                      setBlocked((old) => old.filter((x) => x.id !== p.id));
+                      onBlocksChanged();
+                    })
+                    .catch((e) => setFeedback(message(e)));
+                }}
+              />
+            </View>
+          ))
+        ) : (
+          <Text style={ui.copy}>No blocked members.</Text>
+        )}
+      </Disclosure>
       {moderator ? (
         <ActionButton label="Open moderator tools" variant="secondary" onPress={onModerator} />
       ) : null}
@@ -543,6 +563,7 @@ export function SettingsSheet({
           />
           <ActionButton
             label={busy ? 'Deleting account…' : 'Permanently delete my account'}
+            variant="destructive"
             disabled={busy || confirmation !== 'DELETE' || !password}
             onPress={() =>
               Alert.alert('Permanently delete account?', 'This cannot be undone.', [
@@ -600,6 +621,21 @@ export function RecoverySheet({
       title={recovery ? 'Choose a new password' : 'Reset your password'}
       eyebrow="YOUR ACCOUNT"
       onClose={onClose}
+      footer={
+        <ActionButton
+          label={
+            complete
+              ? 'Done'
+              : busy
+                ? 'Please wait…'
+                : recovery
+                  ? 'Update password'
+                  : 'Send reset link'
+          }
+          disabled={busy || (!complete && (recovery ? value.length < 8 : !value.includes('@')))}
+          onPress={complete ? onClose : () => void submit()}
+        />
+      }
     >
       <Field
         label={recovery ? 'New password (at least 8 characters)' : 'Email address'}
@@ -610,19 +646,7 @@ export function RecoverySheet({
         autoComplete={recovery ? 'new-password' : 'email'}
         keyboardType={recovery ? 'default' : 'email-address'}
       />
-      <ActionButton
-        label={
-          complete
-            ? 'Done'
-            : busy
-              ? 'Please wait…'
-              : recovery
-                ? 'Update password'
-                : 'Send reset link'
-        }
-        disabled={busy || (!complete && (recovery ? value.length < 8 : !value.includes('@')))}
-        onPress={complete ? onClose : () => void submit()}
-      />
+
       {feedback ? (
         <Text accessibilityLiveRegion="polite" style={ui.feedback}>
           {feedback}
@@ -704,15 +728,21 @@ export function ActivitySheet({
             </Pressable>
           )}
           ListEmptyComponent={
-            <EmptyState
-              emoji="🌱"
-              title="You’re all caught up"
-              detail={
-                unreadOnly
-                  ? 'No unread activity.'
-                  : 'Messages, replies, and circle updates will appear here.'
-              }
-            />
+            loading ? (
+              <Text accessibilityLiveRegion="polite" style={ui.hint}>
+                Loading activity…
+              </Text>
+            ) : (
+              <EmptyState
+                emoji="🌱"
+                title="You’re all caught up"
+                detail={
+                  unreadOnly
+                    ? 'No unread activity.'
+                    : 'Messages, replies, and circle updates will appear here.'
+                }
+              />
+            )
           }
           ListFooterComponent={
             hasMore ? (
@@ -869,7 +899,33 @@ export function CircleTools({
                 </>
               ) : null}
               {section === 'events' ? (
-                <>
+                <Sheet
+                  title="Schedule an event"
+                  eyebrow={circle.name}
+                  onClose={() => {
+                    if (!busy) setEditing(false);
+                  }}
+                  footer={
+                    <ActionButton
+                      label="Schedule event"
+                      disabled={busy || title.trim().length < 2}
+                      onPress={() =>
+                        void run(async () => {
+                          await scheduleEvent(
+                            circle.id,
+                            title,
+                            description,
+                            date.replace(' ', 'T'),
+                          );
+                          setTitle('');
+                          setDescription('');
+                          setDate('');
+                          setEditing(false);
+                        })
+                      }
+                    />
+                  }
+                >
                   <Field
                     label="Event title"
                     value={title}
@@ -884,19 +940,13 @@ export function CircleTools({
                     maxLength={2000}
                   />
                   <ScheduleDateField value={date} onChangeText={setDate} />
-                  <ActionButton
-                    label="Schedule event"
-                    disabled={busy || title.trim().length < 2}
-                    onPress={() =>
-                      void run(async () => {
-                        await scheduleEvent(circle.id, title, description, date.replace(' ', 'T'));
-                        setTitle('');
-                        setDescription('');
-                        setDate('');
-                      })
-                    }
-                  />
-                </>
+
+                  {error ? (
+                    <Text accessibilityRole="alert" style={ui.error}>
+                      {error}
+                    </Text>
+                  ) : null}
+                </Sheet>
               ) : null}
             </>
           ) : null}
@@ -945,12 +995,14 @@ export function ModeratorSheet({ onClose }: { onClose: () => void }) {
   };
   return (
     <Sheet title="Moderator workspace" eyebrow="COMMUNITY CARE" onClose={onClose}>
-      <Text style={ui.heading}>New members · last 30 days</Text>
-      <Text style={ui.copy}>
-        {Object.entries(metrics)
-          .map(([key, value]) => `${key}: ${value}`)
-          .join(' · ')}
-      </Text>
+      <Disclosure title="Member activity · last 30 days">
+        {Object.entries(metrics).map(([key, value]) => (
+          <View key={key} style={ui.row}>
+            <Text style={[ui.copy, { flex: 1 }]}>{key.replaceAll('_', ' ')}</Text>
+            <Text style={ui.label}>{value}</Text>
+          </View>
+        ))}
+      </Disclosure>
       <Field label="Review note" value={note} onChangeText={setNote} multiline maxLength={1000} />
       <ActionButton
         compact
@@ -959,6 +1011,17 @@ export function ModeratorSheet({ onClose }: { onClose: () => void }) {
         disabled={busy}
         onPress={() => void refresh()}
       />
+      {!reports.length ? (
+        busy ? (
+          <Text style={ui.hint}>Loading reports…</Text>
+        ) : !error ? (
+          <EmptyState
+            emoji="✓"
+            title="No open reports"
+            detail="New reports will appear here for review."
+          />
+        ) : null
+      ) : null}
       {reports.map((r) => (
         <View key={r.id} style={ui.card}>
           <Text style={ui.label}>{r.target_type.toUpperCase()} REPORT</Text>
@@ -968,7 +1031,9 @@ export function ModeratorSheet({ onClose }: { onClose: () => void }) {
             m.url ? (
               <ReportedMedia key={m.path} kind={m.kind} url={m.url} />
             ) : (
-              <Text key={m.path}>Attachment unavailable</Text>
+              <Text key={m.path} style={ui.hint}>
+                Attachment unavailable
+              </Text>
             ),
           )}
           <View style={ui.wrap}>
@@ -1028,7 +1093,24 @@ export function ReportSheet({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   return (
-    <Sheet title="Report content" eyebrow="KEEP CIRCLES KIND" onClose={onClose}>
+    <Sheet
+      title="Report content"
+      eyebrow="KEEP CIRCLES KIND"
+      onClose={onClose}
+      footer={
+        <ActionButton
+          label={busy ? 'Sending…' : 'Submit report'}
+          disabled={busy}
+          onPress={() => {
+            setBusy(true);
+            void onSubmit(`${reason}${detail ? ': ' + detail : ''}`)
+              .then(onClose)
+              .catch((e) => setError(message(e)))
+              .finally(() => setBusy(false));
+          }}
+        />
+      }
+    >
       <View style={ui.wrap}>
         {[
           'Harassment or bullying',
@@ -1047,17 +1129,7 @@ export function ReportSheet({
         onChangeText={setDetail}
         maxLength={800}
       />
-      <ActionButton
-        label={busy ? 'Sending…' : 'Submit report'}
-        disabled={busy}
-        onPress={() => {
-          setBusy(true);
-          void onSubmit(`${reason}${detail ? ': ' + detail : ''}`)
-            .then(onClose)
-            .catch((e) => setError(message(e)))
-            .finally(() => setBusy(false));
-        }}
-      />
+
       {error ? <Text style={ui.error}>{error}</Text> : null}
     </Sheet>
   );
@@ -1074,15 +1146,16 @@ const ui = createThemedStyles(() => ({
   },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
   heading: {
-    fontSize: 20,
+    fontSize: 22,
+    lineHeight: 28,
     fontWeight: '700',
     color: colors.ink,
     marginTop: 20,
     marginBottom: 12,
   },
   label: { fontSize: 15, fontWeight: '700', color: colors.ink },
-  copy: { fontSize: 15, lineHeight: 23, color: colors.ink, marginBottom: 10 },
-  hint: { fontSize: 13, lineHeight: 20, color: colors.muted, marginBottom: 12 },
+  copy: { fontSize: 16, lineHeight: 24, color: colors.ink, marginBottom: 10 },
+  hint: { fontSize: 14, lineHeight: 20, color: colors.muted, marginBottom: 12 },
   field: {
     borderWidth: 1,
     borderColor: colors.line,

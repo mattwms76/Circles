@@ -42,6 +42,25 @@ export function loadSource(file, mocks = {}) {
                 ...mocks[name],
               }
             : mocks[name];
+        if (name.endsWith('/secureStorage'))
+          return {
+            secureStorage: mocks['@react-native-async-storage/async-storage'] ?? {
+              getItem: async () => null,
+              setItem: async () => {},
+              removeItem: async () => {},
+              getAllKeys: async () => [],
+              multiRemove: async () => {},
+            },
+          };
+        if (name.endsWith('/authFlow')) return { beginAuthFlow: async () => {} };
+        if (name.endsWith('/pushDevice'))
+          return {
+            deregisterPushDevice: async () => {},
+            flushPendingPushDeregistration: async () => {},
+            registerPushDevice: async () => {},
+          };
+        if (name === '@react-native-async-storage/async-storage')
+          return { getItem: async () => null, setItem: async () => {}, removeItem: async () => {} };
         if (name.endsWith('/Sheet'))
           return loadSource('src/components/Sheet.tsx', {
             'react-native': native,
@@ -49,6 +68,26 @@ export function loadSource(file, mocks = {}) {
             '../theme': { colors: {} },
             '../appStyles': { styles: {} },
           });
+        if (name.endsWith('/CommunityContext')) return { useCommunity: () => null };
+        if (name.endsWith('/CommunityDepth'))
+          return {
+            CommunityProvider: ({ children }) => children,
+            FeedControls: 'FeedControls',
+            CircleFeatures: 'CircleFeatures',
+            GroupInbox: 'GroupInbox',
+            HelpfulAnswer: 'HelpfulAnswer',
+            MemberRecognition: 'MemberRecognition',
+            PostTopicPicker: 'PostTopicPicker',
+          };
+        if (name.endsWith('/CommunityMessages'))
+          return {
+            MessageMediaComposer: 'MessageMediaComposer',
+            MessageAttachment: 'MessageAttachment',
+          };
+        if (name.endsWith('/PublishingTools')) return { PublishingTools: 'PublishingTools' };
+        if (name.endsWith('/ParticipationCard')) return { ParticipationCard: 'ParticipationCard' };
+        if (name.endsWith('/PostGallery')) return { PostGallery: 'PostGallery' };
+        if (name.endsWith('/communityDepth')) return { redeemInvite: async () => ({}) };
         if (name.endsWith('/components/Stories')) return { Stories: 'Stories' };
         if (name === './DiscoveryScreens')
           return { HomeScreen: 'HomeScreen', ExploreScreen: 'ExploreScreen' };
@@ -86,7 +125,8 @@ export function loadSource(file, mocks = {}) {
         if (name.endsWith('/ScheduleDateField'))
           return { ScheduleDateField: 'ScheduleDateField', AddToCalendar: 'AddToCalendar' };
         if (name === './PostVideo') return { PostVideo: 'PostVideo' };
-        if (name === '../lib/textDraftStore') return loadSource('src/lib/textDraftStore.ts');
+        if (name === '../lib/textDraftStore' || name === './textDraftStore')
+          return loadSource('src/lib/textDraftStore.ts');
         if (name.endsWith('/lib/experience')) return experience;
         if (name === '../lib/supabase') return { supabase: null, backendReady: false };
         if (name === '../components/Experience')
@@ -104,6 +144,8 @@ export function loadSource(file, mocks = {}) {
       process,
       URL,
       URLSearchParams,
+      Request,
+      Response,
       AbortController,
       setTimeout,
       clearTimeout,

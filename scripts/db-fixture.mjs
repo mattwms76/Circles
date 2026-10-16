@@ -14,7 +14,7 @@ export async function createDatabase(source) {
       select (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub')::uuid
     $$;
     create table storage.buckets (id text primary key, name text, public boolean, file_size_limit bigint, allowed_mime_types text[]);
-    create table storage.objects (id uuid primary key default gen_random_uuid(), bucket_id text, name text, created_at timestamptz default now());
+    create table storage.objects (id uuid primary key default gen_random_uuid(), bucket_id text, name text, metadata jsonb, created_at timestamptz default now());
     alter table storage.objects enable row level security;
     grant all on storage.objects to authenticated, service_role;
     create function storage.foldername(text) returns text[] language sql as $$

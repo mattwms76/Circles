@@ -1,0 +1,20 @@
+--- a/lib/parse.js
++++ b/lib/parse.js
+@@ -144,6 +144,8 @@
+ 
+     if (value === CHAR_LEFT_PARENTHESES) {
+       block = push({ type: 'paren', nodes: [] });
++      // Bound all nested AST blocks before recursive compile/stringify/expand.
++      if (stack.length >= 64) throw new SyntaxError('Brace nesting exceeds safe depth (64)');
+       stack.push(block);
+       push({ type: 'text', value });
+       continue;
+@@ -210,6 +212,8 @@
+       };
+ 
+       block = push(brace);
++      // Bound all nested AST blocks before recursive compile/stringify/expand.
++      if (stack.length >= 64) throw new SyntaxError('Brace nesting exceeds safe depth (64)');
+       stack.push(block);
+       push({ type: 'open', value });
+       continue;

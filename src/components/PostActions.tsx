@@ -1,3 +1,5 @@
+import { useCommunity } from './CommunityContext';
+import { feedChoices, updateFeedChoice, hidePost } from '../lib/communityDepth';
 import { Sheet } from './Sheet';
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, Text, TextInput, View } from 'react-native';
@@ -66,6 +68,7 @@ export function PostActionsProvider({
   onOpen: (post: CirclePost) => void;
   children: React.ReactNode;
 }) {
+  const community = useCommunity();
   const [post, setPost] = useState<CirclePost | null>(null),
     [editing, setEditing] = useState(false),
     [body, setBody] = useState(''),
@@ -208,6 +211,73 @@ export function PostActionsProvider({
                       })
                     }
                   />
+                  {community ? (
+                    <>
+                      <Button
+                        label="Add to circle collection"
+                        disabled={busy}
+                        onPress={() => {
+                          const selected = post;
+                          setPost(null);
+                          community.collect(selected);
+                        }}
+                      />
+                      <Button
+                        label="Favourite this circle"
+                        disabled={busy}
+                        onPress={() =>
+                          void run(async () => {
+                            const pref = (await feedChoices(userId)).find(
+                              (p) => p.circle_id === post.circleId,
+                            );
+                            await updateFeedChoice(userId, post.circleId, {
+                              favourite: !pref?.favourite,
+                            });
+                            setPost(null);
+                            community.refresh();
+                          })
+                        }
+                      />
+                      <Button
+                        label="See less from this circle"
+                        disabled={busy}
+                        onPress={() =>
+                          void run(async () => {
+                            await updateFeedChoice(userId, post.circleId, { see_less: true });
+                            setPost(null);
+                            community.refresh();
+                          })
+                        }
+                      />
+                      <Button
+                        label="Snooze circle for 7 days"
+                        disabled={busy}
+                        onPress={() =>
+                          void run(async () => {
+                            await updateFeedChoice(userId, post.circleId, {
+                              snoozed_until: new Date(Date.now() + 7 * 86400000).toISOString(),
+                            });
+                            setPost(null);
+                            community.refresh();
+                          })
+                        }
+                      />
+                      <Button
+                        label="Hide this post"
+                        disabled={busy}
+                        onPress={() =>
+                          void run(async () => {
+                            await hidePost(userId, post.id);
+                            setPost(null);
+                            community.refresh();
+                          })
+                        }
+                      />
+                      <Text style={{ color: colors.muted, fontSize: 14, lineHeight: 21 }}>
+                        Why this post? {post.reason ?? 'A conversation in a circle you joined.'}
+                      </Text>
+                    </>
+                  ) : null}
                   {post.author.id === userId ? (
                     <>
                       <Text style={{ color: colors.muted }}>

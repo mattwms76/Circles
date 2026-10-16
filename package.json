@@ -17,26 +17,33 @@
     "tokens:sync": "node scripts/design-tokens.mjs",
     "tokens:check": "node scripts/design-tokens.mjs --check",
     "release:check": "node scripts/release-readiness.mjs",
-    "test:visual": "playwright test"
+    "eas-build-post-install": "node scripts/release-readiness.mjs --production-only",
+    "test:visual": "playwright test",
+    "publish:invitations": "node scripts/publish-invitations.mjs",
+    "security:check": "node scripts/security-dependencies.mjs"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/datetimepicker": "9.1.0",
     "@supabase/supabase-js": "2.117.3",
     "expo": "57.0.27",
+    "expo-audio": "~57.0.5",
     "expo-calendar": "57.0.5",
-    "expo-dev-client": "57.0.19",
+    "expo-crypto": "57.0.4",
+    "expo-dev-client": "57.0.20",
     "expo-file-system": "57.0.7",
     "expo-iap": "5.6.3",
     "expo-image": "~57.0.5",
     "expo-image-picker": "57.0.20",
     "expo-notifications": "57.0.22",
+    "expo-secure-store": "57.0.4",
     "expo-system-ui": "~57.0.4",
     "expo-video": "57.0.5",
     "react": "19.2.3",
     "react-native": "0.86.3",
     "react-native-agora": "4.6.4",
     "react-native-safe-area-context": "~5.7.0",
+    "react-native-video-trim": "8.2.4",
     "tus-js-client": "4.3.1"
   },
   "devDependencies": {
@@ -44,7 +51,7 @@
     "@playwright/test": "1.63.0",
     "@types/react": "19.2.14",
     "react-test-renderer": "19.2.3",
-    "typescript": "5.9.3"
+    "typescript": "6.0.3"
   },
   "engines": {
     "node": ">=24"
