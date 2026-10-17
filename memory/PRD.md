@@ -1,4 +1,24 @@
-# Circles — Product Requirements Document
+# Circles — Product Requirements
+
+## ⚠️ ACTIVE: Supabase migration (Option A — adopt existing Supabase schema + Supabase Auth)
+Target project: nmbmkyhrybanwsmylbqd (eu-west-1). Creds in backend/.env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, DATABASE_URL (transaction pooler aws-0-eu-west-1:6543). Publishable key: sb_publishable__vH4ygFn4mUHBVTTpPrY_Q_tDbccfjG.
+Decisions: Supabase Auth replaces custom JWT (confirmed). Features without a home in the existing schema are PARKED (mute/ban, supporter perks, appeals, consent log, transparency, in-app password reset → use Supabase Auth reset).
+Existing schema = original Circles design: profiles(=auth.users), circles, posts(body)+post_media+post_comments+post_likes, circle_memberships(status enum), circle_events+event_rsvps, direct_messages, follows, blocks, reports, coin_wallets+coin_ledger, gifts(300-row catalog)+live_gifts, live_sessions+live_seats+live_seat_requests, scheduled_live_rooms, notifications+device_push_tokens, coin_packs(3). Enums: circle_member_status, gift_tier, live_* statuses.
+
+### DONE — Phase 1 (Auth) — VERIFIED
+- /app/backend/migrate_phase1_users.py: migrated all 184 Mongo users → auth.users + public.profiles, PRESERVING uuid id + bcrypt password_hash; added auth.identities (email) rows; coalesced GoTrue token columns to ''.
+- Verified: Supabase Auth password login works (POST /auth/v1/token grant_type=password) for guide@circles.app/circles123 → returns access_token, user id == original Mongo id (eaa0e63c...).
+- /app/backend/supabase_schema.sql exists (OUR schema) — NOT used for Option A; kept for reference only.
+- Live app UNCHANGED — still runs on FastAPI + MongoDB. No cutover yet.
+
+### TODO — Phases 2-5 (NOT started)
+- P2 Content: rewrite circles/posts/comments/likes endpoints → Supabase tables (asyncpg); migrate circles(58)/posts(67)/comments(14)/memberships(130)/events(33) data; map fields (content→body, category→interest, welcome_message→welcome_text, photos→post_media+Supabase Storage, muted_until→PARKED).
+- P3 Social: direct_messages (our conversations+messages → sender/recipient), follows, blocks(uuid), reports (target_type/target_id uuid, resolution_note).
+- P4 Economy/Live: coin_wallets+coin_ledger (users.coins+transactions), gifts catalog + live_gifts, live_sessions+live_seats+live_seat_requests (our rooms+participants+seats).
+- P5 Storage+Email+cutover: images → Supabase Storage (post_media.storage_path); email via Supabase Auth; rewrite backend data layer fully; switch Expo app to Supabase Auth sessions (supabase-js) — big frontend change; full re-test; flip live app off Mongo.
+- Backend module still TODO: supabase_db.py (asyncpg engine from DATABASE_URL, statement_cache_size=0).
+
+ Document
 
 ## Original Problem Statement
 Rebuild the "Circles" app (github.com/mattwms76/Circles) as a fresh Expo + FastAPI + MongoDB app that runs in the Expo Go / web preview. Circles is a warm-editorial, interest-based community app.
