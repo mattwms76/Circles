@@ -1,0 +1,135 @@
+name: Circles CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: "true"
+  # Public build settings only. No database, OAuth signing, storage, or Expo secrets.
+  EXPO_PUBLIC_API_BASE_URL: ${{ vars.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000' }}
+  EXPO_PUBLIC_APP_ID: ${{ vars.EXPO_PUBLIC_APP_ID || 'circles-ci' }}
+  EXPO_PUBLIC_OAUTH_PORTAL_URL: ${{ vars.EXPO_PUBLIC_OAUTH_PORTAL_URL || 'https://oauth.example.invalid' }}
+  EXPO_PUBLIC_OAUTH_SERVER_URL: ${{ vars.EXPO_PUBLIC_OAUTH_SERVER_URL || 'https://oauth-api.example.invalid' }}
+  EXPO_NO_TELEMETRY: "1"
+
+jobs:
+  checks:
+    name: Environment, TypeScript, tests, and API build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Install the package-manager version declared in package.json
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+        with:
+          run_install: false
+          cache: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+          package-manager-cache: false
+          # Untrusted PRs never restore or write the trusted push-job dependency cache.
+          cache: ${{ github.event_name != 'pull_request' && 'pnpm' || '' }}
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check environment template and safe CI configuration
+        run: |
+          pnpm check:env --template
+          pnpm check:env --mode ci
+
+      - name: TypeScript check
+        run: pnpm check
+
+      - name: Run unit and regression tests
+        run: |
+          mkdir -p artifacts/test-results
+          pnpm test:ci
+
+      - name: Compile API
+        run: pnpm build
+
+      - name: Upload test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: circles-test-results-${{ github.sha }}
+          path: artifacts/test-results/junit.xml
+          if-no-files-found: warn
+          retention-days: 14
+          include-hidden-files: false
+
+      - name: Upload compiled API
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: circles-api-${{ github.sha }}
+          path: dist/index.js
+          if-no-files-found: error
+          retention-days: 14
+          include-hidden-files: false
+
+  bundles:
+    name: Compile ${{ matrix.platform }} app bundle
+    needs: checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [web, ios, android]
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Install the package-manager version declared in package.json
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+        with:
+          run_install: false
+          cache: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+          package-manager-cache: false
+          cache: ${{ github.event_name != 'pull_request' && 'pnpm' || '' }}
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Compile Expo app bundle
+        run: >-
+          pnpm exec expo export
+          --platform ${{ matrix.platform }}
+          --output-dir artifacts/bundles/${{ matrix.platform }}
+          --max-workers 1
+
+      - name: Upload compiled app bundle
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: circles-${{ matrix.platform }}-bundle-${{ github.sha }}
+          path: artifacts/bundles/${{ matrix.platform }}/
+          if-no-files-found: error
+          retention-days: 14
+          include-hidden-files: false

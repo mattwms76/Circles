@@ -10,7 +10,10 @@ type CookieCall = {
 
 type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
 
-function createAuthContext(): { ctx: TrpcContext; clearedCookies: CookieCall[] } {
+function createAuthContext(protocol: "https" | "http" = "https"): {
+  ctx: TrpcContext;
+  clearedCookies: CookieCall[];
+} {
   const clearedCookies: CookieCall[] = [];
 
   const user: AuthenticatedUser = {
@@ -28,7 +31,7 @@ function createAuthContext(): { ctx: TrpcContext; clearedCookies: CookieCall[] }
   const ctx: TrpcContext = {
     user,
     req: {
-      protocol: "https",
+      protocol,
       headers: {},
     } as TrpcContext["req"],
     res: {
@@ -41,23 +44,47 @@ function createAuthContext(): { ctx: TrpcContext; clearedCookies: CookieCall[] }
   return { ctx, clearedCookies };
 }
 
-// TODO: Remove `.skip` below once you implement user authentication
-describe.skip("auth.logout", () => {
-  it("clears the session cookie and reports success", async () => {
+describe("auth.logout", () => {
+  it("clears both secure session cookies and reports success", async () => {
     const { ctx, clearedCookies } = createAuthContext();
     const caller = appRouter.createCaller(ctx);
 
     const result = await caller.auth.logout();
 
     expect(result).toEqual({ success: true });
-    expect(clearedCookies).toHaveLength(1);
-    expect(clearedCookies[0]?.name).toBe(getSessionCookieName(ctx.req));
-    expect(clearedCookies[0]?.options).toMatchObject({
-      maxAge: -1,
-      secure: true,
-      sameSite: "none",
-      httpOnly: true,
-      path: "/",
-    });
+    expect(clearedCookies.map((cookie) => cookie.name)).toEqual([
+      "webdev_app_session",
+      getSessionCookieName(ctx.req),
+    ]);
+    for (const cookie of clearedCookies) {
+      expect(cookie.options).toMatchObject({
+        maxAge: -1,
+        secure: true,
+        sameSite: "none",
+        httpOnly: true,
+        path: "/",
+      });
+      expect(cookie.options).not.toHaveProperty("domain");
+    }
+  });
+
+  it("keeps plain-HTTP local logout cookies compatible", async () => {
+    const { ctx, clearedCookies } = createAuthContext("http");
+    const result = await appRouter.createCaller(ctx).auth.logout();
+
+    expect(result).toEqual({ success: true });
+    expect(clearedCookies.map((cookie) => cookie.name)).toEqual([
+      "webdev_app_session",
+      getSessionCookieName(ctx.req),
+    ]);
+    for (const cookie of clearedCookies) {
+      expect(cookie.options).toMatchObject({
+        maxAge: -1,
+        secure: false,
+        sameSite: "lax",
+        httpOnly: true,
+        path: "/",
+      });
+    }
   });
 });

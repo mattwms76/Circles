@@ -1,6 +1,12 @@
 const { getDefaultConfig } = require("expo/metro-config");
 const { withNativeWind } = require("nativewind/metro");
 const { createPreviewApiProxy } = require("./scripts/preview-api-proxy.cjs");
+const {
+  prepareNativeWindWebCache,
+} = require("./scripts/prepare-nativewind-cache.cjs");
+
+// Ensure a cold, non-watching CI file map includes NativeWind's generated web stylesheet.
+prepareNativeWindWebCache();
 
 const config = getDefaultConfig(__dirname);
 const previousEnhanceMiddleware = config.server.enhanceMiddleware;

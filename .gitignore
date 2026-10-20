@@ -33,7 +33,12 @@ yarn-error.*
 *.pem
 
 # local env files
-.env*.local
+.env
+.env.*
+!.env.example
+# Optional untracked fixtures may emulate local environment files without exposing credentials.
+tests/fixtures/*.env
+tests/fixtures/.env*
 
 # typescript
 *.tsbuildinfo
@@ -62,6 +67,7 @@ Thumbs.db
 *.tgz
 *.tar.gz
 .cache/
+/artifacts/
 
 # Webdev artifacts (checkpoint zips, migrations, etc.)
 .webdev/
