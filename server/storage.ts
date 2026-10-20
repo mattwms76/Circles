@@ -32,9 +32,11 @@ export async function storagePut(
   relKey: string,
   data: Buffer | Uint8Array | string,
   contentType = "application/octet-stream",
+  options: { stableKey?: boolean } = {},
 ): Promise<{ key: string; url: string }> {
   const { forgeUrl, forgeKey } = getForgeConfig();
-  const key = appendHashSuffix(normalizeKey(relKey));
+  const normalizedKey = normalizeKey(relKey);
+  const key = options.stableKey ? normalizedKey : appendHashSuffix(normalizedKey);
 
   // 1. Get presigned PUT URL from Forge
   const presignUrl = new URL("v1/storage/presign/put", forgeUrl + "/");

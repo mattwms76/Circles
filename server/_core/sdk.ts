@@ -1,6 +1,7 @@
 import { AXIOS_TIMEOUT_MS, ONE_YEAR_MS } from "../../shared/const.js";
 import { ForbiddenError } from "../../shared/_core/errors.js";
 import axios, { type AxiosInstance } from "axios";
+import { parse as parseCookieHeader } from "cookie";
 import type { Request } from "express";
 import { SignJWT, jwtVerify } from "jose";
 import type { User } from "../../drizzle/schema";
@@ -39,11 +40,31 @@ class OAuthService {
   }
 
   private decodeState(state: string): string {
-    const redirectUri = atob(state);
-    return redirectUri;
+    // Manus state is base64 JSON ({ redirectUri, nonce }). The nonce is verified
+    // by the callback route before this exchange; the OAuth API needs only the
+    // redirect URI. Retain legacy base64 redirect-only state decoding for any
+    // in-flight pre-hardening login started before this deployment.
+    const decoded = Buffer.from(state, "base64").toString("utf8");
+    try {
+      const value: unknown = JSON.parse(decoded);
+      if (
+        value &&
+        typeof value === "object" &&
+        typeof (value as Record<string, unknown>).redirectUri === "string"
+      ) {
+        return (value as { redirectUri: string }).redirectUri;
+      }
+    } catch {
+      // Legacy state was the redirect URI itself, not JSON.
+    }
+    if (!decoded) throw new Error("Invalid OAuth state");
+    return decoded;
   }
 
-  async getTokenByCode(code: string, state: string): Promise<ExchangeTokenResponse> {
+  async getTokenByCode(
+    code: string,
+    state: string,
+  ): Promise<ExchangeTokenResponse> {
     const payload: ExchangeTokenRequest = {
       clientId: ENV.appId,
       grantType: "authorization_code",
@@ -51,15 +72,23 @@ class OAuthService {
       redirectUri: this.decodeState(state),
     };
 
-    const { data } = await this.client.post<ExchangeTokenResponse>(EXCHANGE_TOKEN_PATH, payload);
+    const { data } = await this.client.post<ExchangeTokenResponse>(
+      EXCHANGE_TOKEN_PATH,
+      payload,
+    );
 
     return data;
   }
 
-  async getUserInfoByToken(token: ExchangeTokenResponse): Promise<GetUserInfoResponse> {
-    const { data } = await this.client.post<GetUserInfoResponse>(GET_USER_INFO_PATH, {
-      accessToken: token.accessToken,
-    });
+  async getUserInfoByToken(
+    token: ExchangeTokenResponse,
+  ): Promise<GetUserInfoResponse> {
+    const { data } = await this.client.post<GetUserInfoResponse>(
+      GET_USER_INFO_PATH,
+      {
+        accessToken: token.accessToken,
+      },
+    );
 
     return data;
   }
@@ -86,11 +115,16 @@ class SDKServer {
   ): string | null {
     if (fallback && fallback.length > 0) return fallback;
     if (!Array.isArray(platforms) || platforms.length === 0) return null;
-    const set = new Set<string>(platforms.filter((p): p is string => typeof p === "string"));
+    const set = new Set<string>(
+      platforms.filter((p): p is string => typeof p === "string"),
+    );
     if (set.has("REGISTERED_PLATFORM_EMAIL")) return "email";
     if (set.has("REGISTERED_PLATFORM_GOOGLE")) return "google";
     if (set.has("REGISTERED_PLATFORM_APPLE")) return "apple";
-    if (set.has("REGISTERED_PLATFORM_MICROSOFT") || set.has("REGISTERED_PLATFORM_AZURE"))
+    if (
+      set.has("REGISTERED_PLATFORM_MICROSOFT") ||
+      set.has("REGISTERED_PLATFORM_AZURE")
+    )
       return "microsoft";
     if (set.has("REGISTERED_PLATFORM_GITHUB")) return "github";
     const first = Array.from(set)[0];
@@ -102,7 +136,10 @@ class SDKServer {
    * @example
    * const tokenResponse = await sdk.exchangeCodeForToken(code, state);
    */
-  async exchangeCodeForToken(code: string, state: string): Promise<ExchangeTokenResponse> {
+  async exchangeCodeForToken(
+    code: string,
+    state: string,
+  ): Promise<ExchangeTokenResponse> {
     return this.oauthService.getTokenByCode(code, state);
   }
 
@@ -184,8 +221,17 @@ class SDKServer {
       });
       const { openId, appId, name } = payload as Record<string, unknown>;
 
-      if (!isNonEmptyString(openId) || !isNonEmptyString(appId) || !isNonEmptyString(name)) {
+      if (
+        !isNonEmptyString(openId) ||
+        !isNonEmptyString(appId) ||
+        !isNonEmptyString(name)
+      ) {
         console.warn("[Auth] Session payload missing required fields");
+        return null;
+      }
+
+      if (appId !== ENV.appId) {
+        console.warn("[Auth] Session payload app mismatch");
         return null;
       }
 
@@ -200,7 +246,9 @@ class SDKServer {
     }
   }
 
-  async getUserInfoWithJwt(jwtToken: string): Promise<GetUserInfoWithJwtResponse> {
+  async getUserInfoWithJwt(
+    jwtToken: string,
+  ): Promise<GetUserInfoWithJwtResponse> {
     const payload: GetUserInfoWithJwtRequest = {
       jwtToken,
       projectId: ENV.appId,
@@ -230,7 +278,11 @@ class SDKServer {
       token = authHeader.slice("Bearer ".length).trim();
     }
 
-    const sessionCookie = token || currentSessionCookie(req);
+    const exactApplicationCookie = req.headers.cookie
+      ? parseCookieHeader(req.headers.cookie).webdev_app_session
+      : undefined;
+    const sessionCookie =
+      token || exactApplicationCookie || currentSessionCookie(req);
     const session = await this.verifySession(sessionCookie);
 
     if (!session) {
@@ -289,7 +341,9 @@ export type AuthenticatedUser = User & {
   isCron?: boolean;
 };
 
-function buildCronUser(userInfo: GetUserInfoWithJwtResponse): AuthenticatedUser {
+function buildCronUser(
+  userInfo: GetUserInfoWithJwtResponse,
+): AuthenticatedUser {
   const now = new Date();
   return {
     id: -1,

@@ -8,6 +8,20 @@
       "when": 1763372440610,
       "tag": "0000_elite_eternals",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1792494123598,
+      "tag": "0001_foamy_jean_grey",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1792494881232,
+      "tag": "0002_dapper_odin",
+      "breakpoints": true
     }
   ]
 }

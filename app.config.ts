@@ -32,7 +32,8 @@ const env = {
   appSlug: "circles",
   // S3 URL of the app logo - set this to the URL returned by generate_image when creating custom logo
   // Leave empty to use the default icon from assets/images/icon.png
-  logoUrl: "",
+  logoUrl:
+    "https://files.manuscdn.com/user_upload_by_module/session_file/310519663989254838/EoFBQRvXmtcitydR.png",
   scheme: schemeFromBundleId,
   iosBundleId: bundleId,
   androidPackage: bundleId,
@@ -67,17 +68,17 @@ const config: ExpoConfig = {
   orientation: "portrait",
   icon: "./assets/images/icon.png",
   scheme: env.scheme,
-  userInterfaceStyle: "automatic",
+  userInterfaceStyle: "light",
   ios: {
     supportsTablet: true,
     bundleIdentifier: env.iosBundleId,
-    "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
-      }
+    infoPlist: {
+      ITSAppUsesNonExemptEncryption: false,
+    },
   },
   android: {
     adaptiveIcon: {
-      backgroundColor: "#E6F4FE",
+      backgroundColor: "#ED604A",
       foregroundImage: "./assets/images/android-icon-foreground.png",
       backgroundImage: "./assets/images/android-icon-background.png",
       monochromeImage: "./assets/images/android-icon-monochrome.png",
@@ -108,9 +109,26 @@ const config: ExpoConfig = {
     "expo-asset",
     "expo-router",
     [
+      "expo-image-picker",
+      {
+        photosPermission:
+          "Allow Circles to access photos and videos you choose to share.",
+      },
+    ],
+    [
+      "@config-plugins/react-native-webrtc",
+      {
+        cameraPermission:
+          "Allow Circles to use your camera for live conversations.",
+        microphonePermission:
+          "Allow Circles to use your microphone for live conversations.",
+      },
+    ],
+    [
       "expo-audio",
       {
-        microphonePermission: "Allow $(PRODUCT_NAME) to access your microphone.",
+        microphonePermission:
+          "Allow $(PRODUCT_NAME) to access your microphone.",
       },
     ],
     [
@@ -126,9 +144,9 @@ const config: ExpoConfig = {
         image: "./assets/images/splash-icon.png",
         imageWidth: 200,
         resizeMode: "contain",
-        backgroundColor: "#ffffff",
+        backgroundColor: "#F9F8F5",
         dark: {
-          backgroundColor: "#000000",
+          backgroundColor: "#F9F8F5",
         },
       },
     ],
