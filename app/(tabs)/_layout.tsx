@@ -19,7 +19,6 @@ function TabBar({ state, navigation }: TabBarProps) {
     index: ["home-outline", "home", "Home"],
     discover: ["compass-outline", "compass", "Discover"],
     circles: ["ellipse-outline", "ellipse", "Circles"],
-    messages: ["chatbubble-ellipses-outline", "chatbubble-ellipses", "Chats"],
     profile: ["person-outline", "person", "You"],
   };
   return (
@@ -100,7 +99,10 @@ export default function TabLayout() {
       <Tabs.Screen name="index" options={{ title: "Home" }} />
       <Tabs.Screen name="discover" options={{ title: "Discover" }} />
       <Tabs.Screen name="circles" options={{ title: "Circles" }} />
-      <Tabs.Screen name="messages" options={{ title: "Messages" }} />
+      <Tabs.Screen
+        name="messages"
+        options={{ title: "Messages", href: null }}
+      />
       <Tabs.Screen name="profile" options={{ title: "Profile" }} />
     </Tabs>
   );

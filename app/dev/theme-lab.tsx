@@ -56,7 +56,11 @@ export default function ThemeLabScreen() {
 
   return (
     <ScreenContainer className="p-5">
-      <ScrollView className="flex-1">
+      <ScrollView
+        showsHorizontalScrollIndicator={false}
+        showsVerticalScrollIndicator={false}
+        className="flex-1"
+      >
         <View className="gap-4 pb-8">
           <View className="flex-row gap-2">
             {(["light", "dark"] as ColorScheme[]).map((scheme) => (

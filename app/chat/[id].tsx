@@ -168,6 +168,8 @@ export default function ChatScreen() {
         ) : (
           <>
             <ScrollView
+              showsHorizontalScrollIndicator={false}
+              showsVerticalScrollIndicator={false}
               ref={scroll}
               style={{ flex: 1 }}
               onContentSizeChange={() =>
@@ -176,7 +178,6 @@ export default function ChatScreen() {
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="interactive"
               contentContainerStyle={{ padding: 22, gap: 20, flexGrow: 1 }}
-              showsVerticalScrollIndicator={false}
             >
               <View style={{ alignItems: "center", marginBottom: 15 }}>
                 <T style={s.eyebrow}>GOOD CONVERSATIONS START WITH KINDNESS</T>

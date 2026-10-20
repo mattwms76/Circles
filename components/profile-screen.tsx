@@ -266,6 +266,8 @@ export default function ProfileScreen({ personId }: { personId?: number }) {
             }}
           >
             <ScrollView
+              showsHorizontalScrollIndicator={false}
+              showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="interactive"
               style={{

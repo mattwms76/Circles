@@ -295,6 +295,7 @@ export function AppShell({
         <View style={{ flex: 1, minWidth: 0 }}>
           {scroll ? (
             <ScrollView
+              showsHorizontalScrollIndicator={false}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"
@@ -324,6 +325,7 @@ export function AppShell({
         </View>
         {wide && width > 1130 && sidebar && (
           <ScrollView
+            showsHorizontalScrollIndicator={false}
             style={{
               width: 296,
               maxWidth: 296,

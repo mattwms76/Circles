@@ -55,8 +55,9 @@ export default function HomeScreen() {
         </T>
       </View>
       <ScrollView
+        showsVerticalScrollIndicator={false}
         horizontal
-        showsHorizontalScrollIndicator
+        showsHorizontalScrollIndicator={false}
         accessibilityLabel="Moments from people you may know"
         accessibilityHint="Swipe sideways to browse more moments"
         style={{ marginTop: 23, marginBottom: 21 }}
@@ -107,8 +108,9 @@ export default function HomeScreen() {
       </ScrollView>
       <View style={[s.divider, { marginBottom: 19 }]} />
       <ScrollView
+        showsVerticalScrollIndicator={false}
         horizontal
-        showsHorizontalScrollIndicator
+        showsHorizontalScrollIndicator={false}
         accessibilityLabel="Feed filters"
         accessibilityHint="Swipe sideways to choose another feed filter"
         contentContainerStyle={{ gap: 7, paddingBottom: 20, paddingRight: 20 }}

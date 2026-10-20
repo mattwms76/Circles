@@ -304,6 +304,7 @@ export function PostCard({ post }: { post: Post }) {
                 </T>
               ) : (
                 <ScrollView
+                  showsHorizontalScrollIndicator={false}
                   style={{ flexGrow: 0, flexShrink: 1 }}
                   contentContainerStyle={{ gap: 16 }}
                   keyboardShouldPersistTaps="handled"

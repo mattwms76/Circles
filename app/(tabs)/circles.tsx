@@ -133,8 +133,9 @@ export default function CirclesScreen() {
           />
         </View>
         <ScrollView
+          showsVerticalScrollIndicator={false}
           horizontal
-          showsHorizontalScrollIndicator
+          showsHorizontalScrollIndicator={false}
           accessibilityLabel="Circle categories"
           accessibilityHint="Swipe sideways to browse all circle categories"
           contentContainerStyle={{ gap: 7, paddingRight: 20 }}

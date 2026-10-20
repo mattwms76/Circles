@@ -70,6 +70,7 @@ export default function LiveScreen() {
         behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
         <ScrollView
+          showsHorizontalScrollIndicator={false}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={{
@@ -210,6 +211,7 @@ export default function LiveScreen() {
                   />
                 </View>
                 <ScrollView
+                  showsHorizontalScrollIndicator={false}
                   style={{ maxHeight: 270 }}
                   contentContainerStyle={{ gap: 13 }}
                   showsVerticalScrollIndicator={false}

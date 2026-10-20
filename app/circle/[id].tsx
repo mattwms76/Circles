@@ -240,8 +240,9 @@ export default function CircleScreen() {
             )}
           </View>
           <ScrollView
+            showsVerticalScrollIndicator={false}
             horizontal
-            showsHorizontalScrollIndicator
+            showsHorizontalScrollIndicator={false}
             accessibilityLabel="Circle sections"
             accessibilityHint="Swipe sideways to find all circle sections"
             style={{ marginBottom: 22 }}

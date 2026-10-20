@@ -164,6 +164,8 @@ export default function CreateScreen() {
         behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
         <ScrollView
+          showsHorizontalScrollIndicator={false}
+          showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
           contentContainerStyle={{
@@ -301,6 +303,7 @@ export default function CreateScreen() {
                 <>
                   <T style={s.eyebrow}>SHARE WITH</T>
                   <ScrollView
+                    showsVerticalScrollIndicator={false}
                     horizontal
                     showsHorizontalScrollIndicator={false}
                     contentContainerStyle={{ gap: 8 }}

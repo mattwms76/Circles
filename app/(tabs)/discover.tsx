@@ -91,8 +91,9 @@ export default function DiscoverScreen() {
           )}
         </View>
         <ScrollView
+          showsVerticalScrollIndicator={false}
           horizontal
-          showsHorizontalScrollIndicator
+          showsHorizontalScrollIndicator={false}
           accessibilityLabel="Discover categories"
           accessibilityHint="Swipe sideways to browse all discover categories"
           contentContainerStyle={{ gap: 8, paddingRight: 20 }}
