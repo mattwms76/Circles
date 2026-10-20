@@ -14,6 +14,14 @@ pnpm dev
 
 The database migration and starter-content script are finite, repeatable preparation commands. The seed creates explicitly fictional public creator profiles and curated example content, not a fake logged-in account. All personal actions require real Manus OAuth. Development and production share the same managed database, so test writes affect the same stored data.
 
+## Environment configuration and GitHub CI
+
+For an independent clone, use Node.js 22 and the `pnpm@9.12.0` version pinned in `package.json`. Copy `.env.example` to `.env`, fill the actual required runtime values, and run `pnpm check:env --mode runtime` before starting the API. The [environment setup guide](docs/environment-setup.md) explains public versus private settings, native-device API addresses, OAuth origins, and encrypted-media key handling. Real environment files are ignored by Git. In the managed app, platform-injected values retain priority over local placeholders.
+
+The [GitHub CI workflow](.github/workflows/ci.yml) runs on `main` pushes, pull requests, and manual dispatches. It verifies the environment contract, TypeScript and regression tests, then compiles the API and web/iOS/Android Expo bundles without production credentials or database writes. Read [continuous-integration.md](docs/continuous-integration.md) for build artifacts and local reproduction. Bundle compilation is not a signed native release; Dashboard mobile builds and device verification remain separate.
+
+The [repository audit](docs/repository-audit.md) records the verified original 155-file upload and the environment/CI improvements added afterward.
+
 ## Product areas
 
 `app/(tabs)/` contains Home, Discover, Circles, Messages and Profile. `app/circle/[id].tsx` connects circle feeds, membership and governance. `app/chat/[id].tsx` connects private and group conversations. `app/create.tsx` handles text/photo/video posts, circle creation and broadcast setup. `app/live/` contains actual live discovery, WebRTC video and audience chat.
