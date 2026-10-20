@@ -65,3 +65,8 @@ Thumbs.db
 
 # Webdev artifacts (checkpoint zips, migrations, etc.)
 .webdev/
+
+# Generated design-audit captures (reports and scripts stay versioned)
+/design-audit/before/
+/design-audit/after/
+/design-audit/verification/

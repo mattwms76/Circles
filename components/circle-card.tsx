@@ -27,7 +27,7 @@ export function CircleCard({ circle }: { circle: Circle }) {
       <Pressable onPress={() => router.push(`/circle/${circle.id}`)}>
         <Image
           source={{ uri: circle.image }}
-          style={{ width: "100%", height: 172 }}
+          style={{ width: "100%", aspectRatio: 16 / 9 }}
           contentFit="cover"
         />
         <View
@@ -72,15 +72,20 @@ export function CircleCard({ circle }: { circle: Circle }) {
           </T>
         </Pressable>
         <T
-          style={{ color: C.muted, fontSize: 12, lineHeight: 19 }}
+          style={{ color: C.muted, fontSize: 14, lineHeight: 22 }}
           numberOfLines={2}
         >
           {circle.description}
         </T>
-        <View style={[s.between, { marginTop: 6 }]}>
-          <View style={[s.row, { gap: 5 }]}>
+        <View style={[s.between, { alignItems: "flex-start", marginTop: 6 }]}>
+          <View
+            style={[s.row, { flex: 1, minWidth: 0, gap: 5, paddingRight: 10 }]}
+          >
             <Icon name="people-outline" size={15} color={C.muted} />
-            <T style={{ color: C.muted, fontSize: 11 }}>
+            <T
+              numberOfLines={2}
+              style={{ flex: 1, color: C.muted, fontSize: 12, lineHeight: 18 }}
+            >
               {circle.memberCount} members · {circle.privacy}
             </T>
           </View>
@@ -102,7 +107,6 @@ export function CircleCard({ circle }: { circle: Circle }) {
             }
             style={{
               paddingHorizontal: 12,
-              paddingVertical: 8,
               borderRadius: 9,
             }}
           />

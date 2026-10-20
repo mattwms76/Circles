@@ -11,6 +11,7 @@ import {
   C,
   Empty,
   Icon,
+  IconButton,
   Loading,
   photo,
   Pill,
@@ -38,21 +39,18 @@ export default function CirclesScreen() {
             <T style={s.eyebrow}>A PLACE TO BELONG</T>
             <T style={[s.title, { marginTop: 6 }]}>Find your people.</T>
           </View>
-          <Pressable
+          <IconButton
+            icon="add"
+            color={C.coral}
+            label="Create a circle"
             onPress={() =>
               requireAuth(() => router.push("/create?mode=circle"))
             }
             style={{
-              width: 40,
-              height: 40,
               borderRadius: 13,
               backgroundColor: C.soft,
-              alignItems: "center",
-              justifyContent: "center",
             }}
-          >
-            <Icon name="add" color={C.coral} />
-          </Pressable>
+          />
         </View>
         <View
           style={{
@@ -92,7 +90,7 @@ export default function CirclesScreen() {
                 letterSpacing: -0.7,
               }}
             >
-              Big passions.\nYour kind of people.
+              {"Big passions.\nYour kind of people."}
             </T>
             <Pressable
               onPress={() => {
@@ -125,13 +123,21 @@ export default function CirclesScreen() {
             value={search}
             onChangeText={setSearch}
             placeholderTextColor={C.muted}
-            style={{ flex: 1, fontSize: 13, color: C.ink, paddingVertical: 14 }}
+            style={{
+              flex: 1,
+              fontSize: 14,
+              lineHeight: 20,
+              color: C.ink,
+              paddingVertical: 14,
+            }}
           />
         </View>
         <ScrollView
           horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ gap: 7 }}
+          showsHorizontalScrollIndicator
+          accessibilityLabel="Circle categories"
+          accessibilityHint="Swipe sideways to browse all circle categories"
+          contentContainerStyle={{ gap: 7, paddingRight: 20 }}
         >
           {[
             "All",
@@ -150,9 +156,19 @@ export default function CirclesScreen() {
             />
           ))}
         </ScrollView>
-        <View style={s.between}>
+        <View
+          style={[
+            s.between,
+            { alignItems: "center", gap: 8, flexWrap: "wrap" },
+          ]}
+        >
           <View style={[s.row, { gap: 18 }]}>
-            <Pressable onPress={() => setJoinedOnly(false)}>
+            <Pressable
+              accessibilityRole="tab"
+              accessibilityState={{ selected: !joinedOnly }}
+              onPress={() => setJoinedOnly(false)}
+              style={{ minHeight: 44, justifyContent: "center" }}
+            >
               <T
                 style={{
                   fontSize: 15,
@@ -163,7 +179,12 @@ export default function CirclesScreen() {
                 Discover circles
               </T>
             </Pressable>
-            <Pressable onPress={() => setJoinedOnly(true)}>
+            <Pressable
+              accessibilityRole="tab"
+              accessibilityState={{ selected: joinedOnly }}
+              onPress={() => setJoinedOnly(true)}
+              style={{ minHeight: 44, justifyContent: "center" }}
+            >
               <T
                 style={{
                   fontSize: 15,
@@ -175,7 +196,16 @@ export default function CirclesScreen() {
               </T>
             </Pressable>
           </View>
-          <T style={{ color: C.muted, fontSize: 11 }}>{items.length} circles</T>
+          <T
+            style={{
+              color: C.muted,
+              fontSize: 12,
+              lineHeight: 18,
+              marginLeft: "auto",
+            }}
+          >
+            {items.length} circles
+          </T>
         </View>
       </View>
       <View style={{ marginTop: 20 }}>

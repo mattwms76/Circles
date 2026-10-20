@@ -13,6 +13,7 @@ import {
   C,
   Empty,
   Icon,
+  IconButton,
   Loading,
   Pill,
   s,
@@ -42,9 +43,14 @@ export default function DiscoverScreen() {
         .toLowerCase()
         .includes(search.toLowerCase()),
     ) || [];
+  const contentWidth = {
+    width: "100%" as const,
+    maxWidth: 680,
+    alignSelf: "flex-start" as const,
+  };
   return (
     <AppShell>
-      <View style={{ gap: 19 }}>
+      <View style={[contentWidth, { gap: 19 }]}>
         <T style={s.eyebrow}>FOLLOW YOUR CURIOSITY</T>
         <T style={s.title}>There’s more out there.</T>
         <View
@@ -66,18 +72,30 @@ export default function DiscoverScreen() {
             value={search}
             onChangeText={setSearch}
             placeholderTextColor={C.muted}
-            style={{ flex: 1, paddingVertical: 15, fontSize: 14, color: C.ink }}
+            style={{
+              flex: 1,
+              paddingVertical: 15,
+              fontSize: 14,
+              lineHeight: 20,
+              color: C.ink,
+            }}
           />
           {!!search && (
-            <Pressable onPress={() => setSearch("")}>
-              <Icon name="close-circle" size={18} color={C.muted} />
-            </Pressable>
+            <IconButton
+              icon="close-circle"
+              size={18}
+              color={C.muted}
+              label="Clear search"
+              onPress={() => setSearch("")}
+            />
           )}
         </View>
         <ScrollView
           horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ gap: 8 }}
+          showsHorizontalScrollIndicator
+          accessibilityLabel="Discover categories"
+          accessibilityHint="Swipe sideways to browse all discover categories"
+          contentContainerStyle={{ gap: 8, paddingRight: 20 }}
         >
           {["For you", "People", "Circles", "Posts", "Live"].map((item) => (
             <Pill
@@ -90,10 +108,12 @@ export default function DiscoverScreen() {
         </ScrollView>
       </View>
       {(tab === "For you" || tab === "People") && (
-        <View style={{ marginTop: 25, gap: 15 }}>
+        <View style={[contentWidth, { marginTop: 25, gap: 15 }]}>
           <View style={s.between}>
             <T style={{ fontSize: 17, fontWeight: "700" }}>People to know</T>
-            <T style={{ fontSize: 10, color: C.muted }}>MAKE A CONNECTION</T>
+            <T style={{ fontSize: 12, lineHeight: 18, color: C.muted }}>
+              MAKE A CONNECTION
+            </T>
           </View>
           {people.isLoading ? (
             <Loading />
@@ -123,15 +143,20 @@ export default function DiscoverScreen() {
                 </Pressable>
                 <Pressable
                   onPress={() => router.push(`/person/${person.id}`)}
-                  style={{ flex: 1 }}
+                  style={{ flex: 1, minWidth: 0 }}
                 >
-                  <T style={{ fontWeight: "700", fontSize: 13 }}>
+                  <T
+                    style={{ fontWeight: "700", fontSize: 14, lineHeight: 20 }}
+                  >
                     {person.name}
                   </T>
-                  <T style={{ color: C.muted, fontSize: 11 }}>
+                  <T style={{ color: C.muted, fontSize: 12, lineHeight: 18 }}>
                     @{person.handle}
                   </T>
-                  <T numberOfLines={1} style={{ color: C.muted, fontSize: 11 }}>
+                  <T
+                    numberOfLines={2}
+                    style={{ color: C.muted, fontSize: 14, lineHeight: 21 }}
+                  >
                     {person.bio}
                   </T>
                 </Pressable>
@@ -143,7 +168,6 @@ export default function DiscoverScreen() {
                   }
                   style={{
                     paddingHorizontal: 11,
-                    paddingVertical: 8,
                     borderRadius: 9,
                   }}
                 />
@@ -153,7 +177,7 @@ export default function DiscoverScreen() {
         </View>
       )}
       {(tab === "For you" || tab === "Circles") && (
-        <View style={{ marginTop: 27 }}>
+        <View style={[contentWidth, { marginTop: 27 }]}>
           <T style={{ fontSize: 17, fontWeight: "700", marginBottom: 16 }}>
             A circle for your thing
           </T>
@@ -172,7 +196,7 @@ export default function DiscoverScreen() {
         </View>
       )}
       {tab === "Posts" && (
-        <View style={{ marginTop: 24 }}>
+        <View style={[contentWidth, { marginTop: 24 }]}>
           {feed.isLoading ? (
             <Loading />
           ) : !posts.length ? (
@@ -186,7 +210,7 @@ export default function DiscoverScreen() {
         </View>
       )}
       {tab === "Live" && (
-        <View style={{ marginTop: 25 }}>
+        <View style={[contentWidth, { marginTop: 25 }]}>
           {lives.data?.length ? (
             lives.data.map((live) => (
               <Pressable

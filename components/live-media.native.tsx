@@ -466,23 +466,25 @@ export default function LiveMedia({
   }, [host, streamId]);
 
   return (
-    <View style={styles.frame}>
-      {RTCView && streamURL ? (
-        <RTCView
-          streamURL={streamURL}
-          style={styles.video}
-          objectFit="cover"
-          mirror={host}
-        />
-      ) : null}
-      {status !== "Live" ? (
-        <View style={styles.overlay}>
-          <Text style={styles.status}>{status}</Text>
-        </View>
-      ) : null}
-      <View pointerEvents="none" style={styles.networkNote}>
+    <View>
+      <View style={styles.frame}>
+        {RTCView && streamURL ? (
+          <RTCView
+            streamURL={streamURL}
+            style={styles.video}
+            objectFit="cover"
+            mirror={host}
+          />
+        ) : null}
+        {status !== "Live" ? (
+          <View style={styles.overlay}>
+            <Text style={styles.status}>{status}</Text>
+          </View>
+        ) : null}
+      </View>
+      <View style={styles.networkNote}>
         <Text style={styles.networkNoteText}>
-          Direct connection; restrictive networks may need TURN.
+          Some networks need a TURN relay for reliable video.
         </Text>
       </View>
     </View>
@@ -507,14 +509,9 @@ const styles = StyleSheet.create({
   },
   status: { color: "#fff", textAlign: "center" },
   networkNote: {
-    position: "absolute",
-    right: 8,
-    bottom: 8,
-    maxWidth: "75%",
-    paddingHorizontal: 6,
-    paddingVertical: 4,
-    borderRadius: 4,
-    backgroundColor: "rgba(0,0,0,0.55)",
+    paddingHorizontal: 14,
+    paddingTop: 10,
+    paddingBottom: 12,
   },
-  networkNoteText: { color: "#fff", fontSize: 11, lineHeight: 14 },
+  networkNoteText: { color: "#F9F8F5", fontSize: 12, lineHeight: 18 },
 });

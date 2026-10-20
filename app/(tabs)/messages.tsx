@@ -48,7 +48,7 @@ export default function MessagesScreen() {
             label="Find someone to message"
           />
         </View>
-        <T style={{ color: C.muted, fontSize: 12 }}>
+        <T style={{ color: C.muted, fontSize: 14, lineHeight: 21 }}>
           The best connections happen one conversation at a time.
         </T>
         <View
@@ -70,7 +70,13 @@ export default function MessagesScreen() {
             onChangeText={setSearch}
             placeholder="Find a conversation"
             placeholderTextColor={C.muted}
-            style={{ paddingVertical: 14, flex: 1, fontSize: 13, color: C.ink }}
+            style={{
+              paddingVertical: 14,
+              flex: 1,
+              fontSize: 14,
+              lineHeight: 20,
+              color: C.ink,
+            }}
           />
         </View>
         <View style={[s.row, { gap: 8 }]}>
@@ -154,16 +160,27 @@ export default function MessagesScreen() {
                   </View>
                 )}
               </View>
-              <View style={{ flex: 1, gap: 4 }}>
-                <T style={{ fontSize: 14, fontWeight: "700" }}>
+              <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
+                <T
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                  style={{ fontSize: 14, fontWeight: "700" }}
+                >
                   {conversation.name}
                 </T>
                 <T numberOfLines={1} style={{ fontSize: 12, color: C.muted }}>
                   {conversation.lastMessage || "Say something kind."}
                 </T>
               </View>
-              <View style={{ alignItems: "flex-end", gap: 8 }}>
-                <T style={{ fontSize: 10, color: C.muted }}>
+              <View
+                style={{
+                  width: 44,
+                  flexShrink: 0,
+                  alignItems: "flex-end",
+                  gap: 8,
+                }}
+              >
+                <T style={{ fontSize: 12, lineHeight: 18, color: C.muted }}>
                   {ago(conversation.updatedAt)}
                 </T>
                 {conversation.unread > 0 && (

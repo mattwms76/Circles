@@ -62,6 +62,7 @@ export function AppShell({
 }) {
   const { width } = useWindowDimensions();
   const wide = width >= 900;
+  const gutter = wide ? 30 : width <= 360 ? 16 : 20;
   const router = useRouter();
   const path = usePathname();
   const { user, requireAuth, showLogin } = useCircles();
@@ -88,13 +89,18 @@ export function AppShell({
             maxWidth: 1270,
             alignSelf: "center",
             height: wide ? 86 : 70,
-            paddingHorizontal: wide ? 32 : 20,
+            paddingHorizontal: wide ? 32 : gutter,
             flexDirection: "row",
             alignItems: "center",
             justifyContent: "space-between",
           }}
         >
-          <Pressable onPress={() => router.push("/")}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Circles home"
+            onPress={() => router.push("/")}
+            style={{ minHeight: 44, justifyContent: "center" }}
+          >
             <Wordmark />
           </Pressable>
           {wide && (
@@ -111,6 +117,7 @@ export function AppShell({
                 flexDirection: "row",
                 gap: 12,
                 alignItems: "center",
+                minHeight: 44,
               }}
             >
               <Icon name="search-outline" size={18} color={C.muted} />
@@ -155,6 +162,14 @@ export function AppShell({
                 />
                 <Pressable
                   onPress={() => (user ? router.push("/profile") : showLogin())}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open your profile"
+                  style={{
+                    minWidth: 44,
+                    minHeight: 44,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
                 >
                   <Avatar
                     uri={myProfile.data?.avatar}
@@ -281,15 +296,30 @@ export function AppShell({
           {scroll ? (
             <ScrollView
               showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              automaticallyAdjustKeyboardInsets
               contentContainerStyle={{
-                padding: wide ? 30 : 20,
-                paddingBottom: 32,
+                padding: gutter,
+                paddingBottom: Math.max(32, insets.bottom + 16),
+                width: "100%",
+                maxWidth: 760,
+                alignSelf: "center",
               }}
             >
               {children}
             </ScrollView>
           ) : (
-            children
+            <View
+              style={{
+                flex: 1,
+                width: "100%",
+                maxWidth: 760,
+                alignSelf: "center",
+              }}
+            >
+              {children}
+            </View>
           )}
         </View>
         {wide && width > 1130 && sidebar && (
@@ -366,7 +396,11 @@ export function CommunitySidebar() {
               style={{
                 backgroundColor: circle.joined ? C.sage : C.soft,
                 paddingHorizontal: 10,
-                paddingVertical: 5,
+                paddingVertical: 10,
+                minWidth: 48,
+                minHeight: 44,
+                alignItems: "center",
+                justifyContent: "center",
                 borderRadius: 7,
               }}
             >
@@ -382,7 +416,11 @@ export function CommunitySidebar() {
             </Pressable>
           </View>
         ))}
-        <Pressable onPress={() => router.push("/circles")}>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => router.push("/circles")}
+          style={{ minHeight: 44, justifyContent: "center" }}
+        >
           <T style={{ color: C.coral, fontWeight: "600", fontSize: 12 }}>
             Explore all circles ↗
           </T>
@@ -416,7 +454,7 @@ export function CommunitySidebar() {
             letterSpacing: -0.6,
           }}
         >
-          Good things start\nwith a circle.
+          {"Good things start\nwith a circle."}
         </T>
         <T style={{ color: "#75816E", fontSize: 12, lineHeight: 19 }}>
           A space for your people, your passions, and everything in between.
@@ -437,7 +475,7 @@ export function CommunitySidebar() {
       <View style={{ gap: 13 }}>
         <T style={s.eyebrow}>THE CIRCLES WAY</T>
         <T style={{ color: C.muted, fontSize: 12, lineHeight: 20 }}>
-          Be yourself. Be kind.\nMake room for someone new.
+          {"Be yourself. Be kind.\nMake room for someone new."}
         </T>
         <Image
           source={{ uri: photo.coffee }}

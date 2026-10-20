@@ -44,6 +44,7 @@ function TabBar({ state, navigation }: TabBarProps) {
             {index === 2 && (
               <Pressable
                 accessibilityLabel="Create a post or circle"
+                accessibilityRole="button"
                 onPress={() => requireAuth(() => router.push("/create"))}
                 style={{
                   width: 44,
@@ -72,8 +73,8 @@ function TabBar({ state, navigation }: TabBarProps) {
               />
               <T
                 style={{
-                  fontSize: 9,
-                  lineHeight: 13,
+                  fontSize: 12,
+                  lineHeight: 17,
                   color: selected ? C.coral : C.muted,
                   fontWeight: selected ? "700" : "500",
                 }}

@@ -1,5 +1,13 @@
 import React, { useState } from "react";
-import { Modal, ScrollView, TextInput, View } from "react-native";
+import {
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  ScrollView,
+  TextInput,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
@@ -26,6 +34,8 @@ export default function LiveScreen() {
   const [mediaError, setMediaError] = useState("");
   const [ready, setReady] = useState(false);
   const [endConfirm, setEndConfirm] = useState(false);
+  const { width } = useWindowDimensions();
+  const wide = width >= 900;
   const lives = trpc.live.list.useQuery({}, { refetchInterval: 4000 });
   const live = lives.data?.find((item) => item.id === streamId);
   const host = !!user && live?.host.id === user.id;
@@ -54,242 +64,295 @@ export default function LiveScreen() {
     onError: (e) => notify(e.message),
   });
   return (
-    <AppShell sidebar={false}>
-      <View style={[s.between, { marginBottom: 20 }]}>
-        <IconButton
-          icon="arrow-back"
-          onPress={() =>
-            host
-              ? setEndConfirm(true)
-              : router.canGoBack()
-                ? router.back()
-                : router.replace("/live")
-          }
-          label="Leave live stream"
-        />
-        <T style={s.eyebrow}>A MOMENT TOGETHER</T>
-        <Icon name="radio-outline" color={C.coral} />
-      </View>
-      {!user ? (
-        <Empty
-          title="Come join the moment."
-          text="Sign in to watch live video and join the conversation."
-          action="Sign in"
-          onAction={showLogin}
-        />
-      ) : lives.isLoading ? (
-        <Loading />
-      ) : !live ? (
-        <Empty
-          icon="radio-outline"
-          title="This live moment has ended."
-          text="Some moments are best enjoyed as they happen. Find another connection."
-          action="Find live streams"
-          onAction={() => router.replace("/live")}
-        />
-      ) : (
-        <>
-          <View
-            style={{
-              backgroundColor: "#20261F",
-              borderRadius: 19,
-              overflow: "hidden",
-              minHeight: 300,
-            }}
-          >
-            <LiveMedia
-              streamId={streamId}
-              host={host}
-              onError={setMediaError}
-              onReady={() => setReady(true)}
-            />
-            <View
-              style={{
-                position: "absolute",
-                top: 14,
-                left: 14,
-                backgroundColor: ready ? C.coral : "#6B7564",
-                paddingHorizontal: 9,
-                paddingVertical: 5,
-                borderRadius: 6,
-              }}
-            >
-              <T style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>
-                {ready ? "LIVE" : "CONNECTING"} · {live.viewers} watching
-              </T>
-            </View>
-          </View>
-          {!!mediaError && (
-            <View
-              style={{
-                backgroundColor: C.soft,
-                borderRadius: 12,
-                padding: 15,
-                marginTop: 15,
-              }}
-            >
-              <T style={{ color: C.coral, fontSize: 12 }}>{mediaError}</T>
-            </View>
-          )}
-          <View style={[s.row, { gap: 13, marginVertical: 20 }]}>
-            <Avatar uri={live.host.avatar} name={live.host.name} size={43} />
-            <View style={{ flex: 1 }}>
-              <T
-                style={{ fontSize: 19, fontWeight: "700", letterSpacing: -0.3 }}
-              >
-                {live.title}
-              </T>
-              <T style={{ color: C.muted, fontSize: 12 }}>
-                With {live.host.name}
-              </T>
-            </View>
-            <IconButton
-              icon="heart"
-              color={C.coral}
-              size={28}
-              onPress={() => react.mutate({ streamId })}
-              label="Send live reaction"
-            />
-          </View>
-          {host && (
-            <Button
-              title="End live session"
-              secondary
-              icon="stop-circle-outline"
-              onPress={() => setEndConfirm(true)}
-            />
-          )}
-          <View style={[s.card, { padding: 19, marginTop: 20, gap: 17 }]}>
-            <View style={s.between}>
-              <T style={{ fontWeight: "700", fontSize: 15 }}>
-                In the conversation
-              </T>
-              <Icon
-                name="chatbubble-ellipses-outline"
-                size={19}
-                color={C.green}
-              />
-            </View>
-            <ScrollView
-              style={{ maxHeight: 270 }}
-              contentContainerStyle={{ gap: 13 }}
-              showsVerticalScrollIndicator={false}
-            >
-              {chat.data?.length ? (
-                chat.data.map((message) => (
-                  <View
-                    key={message.id}
-                    style={[s.row, { gap: 9, alignItems: "flex-start" }]}
-                  >
-                    <Avatar
-                      uri={message.avatar}
-                      name={message.userName}
-                      size={25}
-                    />
-                    <View style={{ flex: 1 }}>
-                      <T style={{ fontSize: 11, fontWeight: "700" }}>
-                        {message.userName}
-                      </T>
-                      <T style={{ fontSize: 12, color: C.muted }}>
-                        {message.text}
-                      </T>
-                    </View>
-                  </View>
-                ))
-              ) : (
-                <T
-                  style={{ color: C.muted, fontSize: 12, paddingVertical: 15 }}
-                >
-                  Say hello. You’re part of this moment.
-                </T>
-              )}
-            </ScrollView>
-            <View
-              style={[
-                s.row,
-                {
-                  gap: 7,
-                  borderTopWidth: 1,
-                  borderColor: C.border,
-                  paddingTop: 14,
-                },
-              ]}
-            >
-              <TextInput
-                value={text}
-                onChangeText={setText}
-                placeholder="Join the conversation…"
-                placeholderTextColor={C.muted}
-                style={{
-                  flex: 1,
-                  color: C.ink,
-                  fontSize: 12,
-                  backgroundColor: C.bg,
-                  borderRadius: 12,
-                  padding: 12,
-                }}
-                onSubmitEditing={() =>
-                  text.trim() && send.mutate({ streamId, text: text.trim() })
-                }
-              />
-              <IconButton
-                icon="arrow-up-circle"
-                size={30}
-                color={C.coral}
-                onPress={() =>
-                  text.trim() && send.mutate({ streamId, text: text.trim() })
-                }
-                label="Send live chat message"
-              />
-            </View>
-          </View>
-        </>
-      )}
-      <Modal
-        visible={endConfirm}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setEndConfirm(false)}
+    <AppShell sidebar={false} scroll={false}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
-        <View
-          style={{
-            flex: 1,
-            backgroundColor: "#19201B88",
-            justifyContent: "center",
-            alignItems: "center",
-            padding: 25,
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={{
+            padding: wide ? 30 : 20,
+            paddingBottom: 32,
           }}
+        >
+          <View style={[s.between, { marginBottom: 20 }]}>
+            <IconButton
+              icon="arrow-back"
+              onPress={() =>
+                host
+                  ? setEndConfirm(true)
+                  : router.canGoBack()
+                    ? router.back()
+                    : router.replace("/live")
+              }
+              label="Leave live stream"
+            />
+            <T style={s.eyebrow}>A MOMENT TOGETHER</T>
+            <Icon name="radio-outline" color={C.coral} />
+          </View>
+          {!user ? (
+            <Empty
+              title="Come join the moment."
+              text="Sign in to watch live video and join the conversation."
+              action="Sign in"
+              onAction={showLogin}
+            />
+          ) : lives.isLoading ? (
+            <Loading />
+          ) : !live ? (
+            <Empty
+              icon="radio-outline"
+              title="This live moment has ended."
+              text="Some moments are best enjoyed as they happen. Find another connection."
+              action="Find live streams"
+              onAction={() => router.replace("/live")}
+            />
+          ) : (
+            <>
+              <View
+                style={{
+                  backgroundColor: "#20261F",
+                  borderRadius: 19,
+                  overflow: "hidden",
+                }}
+              >
+                <LiveMedia
+                  streamId={streamId}
+                  host={host}
+                  onError={setMediaError}
+                  onReady={() => setReady(true)}
+                />
+                <View
+                  style={{
+                    position: "absolute",
+                    top: 14,
+                    left: 14,
+                    backgroundColor: ready ? C.coral : "#6B7564",
+                    paddingHorizontal: 9,
+                    paddingVertical: 5,
+                    borderRadius: 6,
+                  }}
+                >
+                  <T style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>
+                    {ready ? "LIVE" : "CONNECTING"} · {live.viewers} watching
+                  </T>
+                </View>
+              </View>
+              {!!mediaError && (
+                <View
+                  style={{
+                    backgroundColor: C.soft,
+                    borderRadius: 12,
+                    padding: 15,
+                    marginTop: 15,
+                  }}
+                >
+                  <T style={{ color: C.coral, fontSize: 12 }}>{mediaError}</T>
+                </View>
+              )}
+              <View style={[s.row, { gap: 13, marginVertical: 20 }]}>
+                <Avatar
+                  uri={live.host.avatar}
+                  name={live.host.name}
+                  size={43}
+                />
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <T
+                    numberOfLines={3}
+                    style={{
+                      fontSize: 19,
+                      lineHeight: 24,
+                      fontWeight: "700",
+                      letterSpacing: -0.3,
+                    }}
+                  >
+                    {live.title}
+                  </T>
+                  <T style={{ color: C.muted, fontSize: 12 }}>
+                    With {live.host.name}
+                  </T>
+                </View>
+                <IconButton
+                  icon="heart"
+                  color={C.coral}
+                  size={28}
+                  onPress={() => react.mutate({ streamId })}
+                  label="Send live reaction"
+                  style={{
+                    width: 44,
+                    height: 44,
+                    minWidth: 44,
+                    minHeight: 44,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                />
+              </View>
+              {host && (
+                <Button
+                  title="End live session"
+                  secondary
+                  icon="stop-circle-outline"
+                  onPress={() => setEndConfirm(true)}
+                />
+              )}
+              <View style={[s.card, { padding: 16, marginTop: 20, gap: 12 }]}>
+                <View style={s.between}>
+                  <T style={{ fontWeight: "700", fontSize: 15 }}>
+                    In the conversation
+                  </T>
+                  <Icon
+                    name="chatbubble-ellipses-outline"
+                    size={19}
+                    color={C.green}
+                  />
+                </View>
+                <ScrollView
+                  style={{ maxHeight: 270 }}
+                  contentContainerStyle={{ gap: 13 }}
+                  showsVerticalScrollIndicator={false}
+                  nestedScrollEnabled
+                  keyboardShouldPersistTaps="handled"
+                >
+                  {chat.data?.length ? (
+                    chat.data.map((message) => (
+                      <View
+                        key={message.id}
+                        style={[s.row, { gap: 9, alignItems: "flex-start" }]}
+                      >
+                        <Avatar
+                          uri={message.avatar}
+                          name={message.userName}
+                          size={25}
+                        />
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                          <T style={{ fontSize: 11, fontWeight: "700" }}>
+                            {message.userName}
+                          </T>
+                          <T
+                            style={{
+                              fontSize: 14,
+                              lineHeight: 21,
+                              color: C.muted,
+                            }}
+                          >
+                            {message.text}
+                          </T>
+                        </View>
+                      </View>
+                    ))
+                  ) : (
+                    <T
+                      style={{
+                        color: C.muted,
+                        fontSize: 14,
+                        lineHeight: 21,
+                        paddingVertical: 15,
+                      }}
+                    >
+                      Say hello. You’re part of this moment.
+                    </T>
+                  )}
+                </ScrollView>
+                <View
+                  style={[
+                    s.row,
+                    {
+                      gap: 7,
+                      borderTopWidth: 1,
+                      borderColor: C.border,
+                      paddingTop: 12,
+                    },
+                  ]}
+                >
+                  <TextInput
+                    value={text}
+                    onChangeText={setText}
+                    placeholder="Join the conversation…"
+                    placeholderTextColor={C.muted}
+                    multiline
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      color: C.ink,
+                      fontSize: 14,
+                      lineHeight: 21,
+                      backgroundColor: C.bg,
+                      borderRadius: 12,
+                      minHeight: 48,
+                      maxHeight: 126,
+                      paddingHorizontal: 12,
+                      paddingVertical: 12,
+                      textAlignVertical: "top",
+                    }}
+                    onSubmitEditing={() =>
+                      text.trim() &&
+                      send.mutate({ streamId, text: text.trim() })
+                    }
+                  />
+                  <IconButton
+                    icon="arrow-up-circle"
+                    size={30}
+                    color={C.coral}
+                    onPress={() =>
+                      text.trim() &&
+                      send.mutate({ streamId, text: text.trim() })
+                    }
+                    label="Send live chat message"
+                  />
+                </View>
+              </View>
+            </>
+          )}
+        </ScrollView>
+        <Modal
+          visible={endConfirm}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setEndConfirm(false)}
         >
           <View
             style={{
-              width: "100%",
-              maxWidth: 360,
-              backgroundColor: C.paper,
-              borderRadius: 22,
+              flex: 1,
+              backgroundColor: "#19201B88",
+              justifyContent: "center",
+              alignItems: "center",
               padding: 25,
-              gap: 17,
             }}
           >
-            <T style={{ fontWeight: "700", fontSize: 20 }}>
-              Wrap up the moment?
-            </T>
-            <T style={{ color: C.muted }}>
-              Ending this broadcast disconnects your viewers and turns off your
-              camera and microphone.
-            </T>
-            <Button
-              title="End live session"
-              onPress={() => end.mutate({ streamId })}
-              loading={end.isPending}
-            />
-            <Button
-              title="Keep connecting"
-              secondary
-              onPress={() => setEndConfirm(false)}
-            />
+            <View
+              style={{
+                width: "100%",
+                maxWidth: 360,
+                backgroundColor: C.paper,
+                borderRadius: 22,
+                padding: 25,
+                gap: 17,
+              }}
+            >
+              <T style={{ fontWeight: "700", fontSize: 20 }}>
+                Wrap up the moment?
+              </T>
+              <T style={{ color: C.muted }}>
+                Ending this broadcast disconnects your viewers and turns off
+                your camera and microphone.
+              </T>
+              <Button
+                title="End live session"
+                onPress={() => end.mutate({ streamId })}
+                loading={end.isPending}
+              />
+              <Button
+                title="Keep connecting"
+                secondary
+                onPress={() => setEndConfirm(false)}
+              />
+            </View>
           </View>
-        </View>
-      </Modal>
+        </Modal>
+      </KeyboardAvoidingView>
     </AppShell>
   );
 }

@@ -1,11 +1,19 @@
 import React, { useEffect, useState } from "react";
-import { Modal, ScrollView, View } from "react-native";
+import {
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  ScrollView,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { Image } from "@/components/media-image";
 import { useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
 import * as Api from "@/lib/_core/api";
 import * as Auth from "@/lib/_core/auth";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppShell } from "./app-shell";
 import { PostCard } from "./post-card";
 import {
@@ -25,6 +33,9 @@ import {
 export default function ProfileScreen({ personId }: { personId?: number }) {
   const router = useRouter();
   const { user, requireAuth, notify, showLogin, refresh } = useCircles();
+  const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const editorOuterPadding = width <= 360 ? 16 : 24;
   const own = !personId || personId === user?.id;
   const profile = trpc.social.profile.useQuery(
     personId ? { id: personId } : {},
@@ -148,14 +159,16 @@ export default function ProfileScreen({ personId }: { personId?: number }) {
                 title="Edit profile"
                 secondary
                 onPress={() => setEdit(true)}
-                style={{ marginTop: 36, paddingVertical: 8, borderRadius: 9 }}
+                style={{ marginTop: 36, borderRadius: 9 }}
               />
             )}
           </View>
-          <View style={{ paddingVertical: 16, gap: 10 }}>
-            <T style={s.title}>{p.name}</T>
+          <View style={{ paddingVertical: 16, gap: 10, minWidth: 0 }}>
+            <T style={[s.title, { flexShrink: 1 }]} numberOfLines={2}>
+              {p.name}
+            </T>
             <T style={{ color: C.muted, fontSize: 12 }}>@{p.handle}</T>
-            <T style={{ color: C.muted, fontSize: 13, lineHeight: 21 }}>
+            <T style={{ color: C.muted, fontSize: 14, lineHeight: 21 }}>
               {p.bio || "A new face. A new connection."}
             </T>
             <View style={[s.row, { gap: 25, marginVertical: 8 }]}>
@@ -166,7 +179,7 @@ export default function ProfileScreen({ personId }: { personId?: number }) {
               ].map(([count, label]) => (
                 <View key={String(label)}>
                   <T style={{ fontWeight: "800", fontSize: 20 }}>{count}</T>
-                  <T style={{ color: C.muted, fontSize: 11 }}>{label}</T>
+                  <T style={{ color: C.muted, fontSize: 12 }}>{label}</T>
                 </View>
               ))}
             </View>
@@ -238,55 +251,67 @@ export default function ProfileScreen({ personId }: { personId?: number }) {
         animationType="fade"
         onRequestClose={() => setEdit(false)}
       >
-        <View
-          style={{
-            flex: 1,
-            backgroundColor: "#19201B88",
-            justifyContent: "center",
-            alignItems: "center",
-            padding: 24,
-          }}
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
         >
-          <ScrollView
+          <View
             style={{
-              width: "100%",
-              maxWidth: 420,
-              maxHeight: "85%",
-              backgroundColor: C.paper,
-              borderRadius: 23,
+              flex: 1,
+              backgroundColor: "#19201B88",
+              justifyContent: "center",
+              alignItems: "center",
+              paddingHorizontal: editorOuterPadding,
+              paddingVertical: Math.max(16, insets.top),
             }}
-            contentContainerStyle={{ padding: 25, gap: 18 }}
           >
-            <View style={s.between}>
-              <T style={{ fontWeight: "700", fontSize: 20 }}>Make it you.</T>
-              <IconButton icon="close" onPress={() => setEdit(false)} />
-            </View>
-            <Input label="YOUR NAME" value={name} onChangeText={setName} />
-            <Input
-              label="YOUR HANDLE"
-              value={handle}
-              onChangeText={setHandle}
-              placeholder="letters, numbers, underscores"
-            />
-            <Input
-              label="A LITTLE ABOUT YOU"
-              value={bio}
-              onChangeText={setBio}
-              multiline
-            />
-            <Button
-              title="Save profile"
-              onPress={() =>
-                update.mutate({
-                  name: name.trim(),
-                  handle: handle.trim(),
-                  bio: bio.trim(),
-                })
-              }
-              loading={update.isPending}
-            />
-          </ScrollView>
-        </View>
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="interactive"
+              style={{
+                width: "100%",
+                maxWidth: 420,
+                maxHeight: "100%",
+                backgroundColor: C.paper,
+                borderRadius: 23,
+              }}
+              contentContainerStyle={{
+                padding: 20,
+                gap: 16,
+                paddingBottom: Math.max(20, insets.bottom + 20),
+              }}
+            >
+              <View style={s.between}>
+                <T style={{ fontWeight: "700", fontSize: 20 }}>Make it you.</T>
+                <IconButton icon="close" onPress={() => setEdit(false)} />
+              </View>
+              <Input label="YOUR NAME" value={name} onChangeText={setName} />
+              <Input
+                label="YOUR HANDLE"
+                value={handle}
+                onChangeText={setHandle}
+                placeholder="letters, numbers, underscores"
+              />
+              <Input
+                label="A LITTLE ABOUT YOU"
+                value={bio}
+                onChangeText={setBio}
+                multiline
+              />
+              <Button
+                title="Save profile"
+                onPress={() =>
+                  update.mutate({
+                    name: name.trim(),
+                    handle: handle.trim(),
+                    bio: bio.trim(),
+                  })
+                }
+                loading={update.isPending}
+              />
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
     </AppShell>
   );

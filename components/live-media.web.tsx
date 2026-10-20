@@ -396,70 +396,66 @@ export default function LiveMedia({
   }, [host, streamId]);
 
   return (
-    <div
-      style={{
-        position: "relative",
-        width: "100%",
-        aspectRatio: "16 / 9",
-        overflow: "hidden",
-        background: "#0a0a0a",
-        borderRadius: 12,
-      }}
-    >
-      {host ? (
-        <video
-          ref={localVideoRef}
-          autoPlay
-          muted
-          playsInline
-          style={{
-            width: "100%",
-            height: "100%",
-            objectFit: "cover",
-            transform: "scaleX(-1)",
-          }}
-        />
-      ) : (
-        <video
-          ref={remoteVideoRef}
-          autoPlay
-          playsInline
-          controls
-          style={{ width: "100%", height: "100%", objectFit: "cover" }}
-        />
-      )}
-      {status !== "Live" && (
-        <div
-          role="status"
-          style={{
-            position: "absolute",
-            inset: 0,
-            display: "grid",
-            placeItems: "center",
-            padding: 16,
-            color: "#fff",
-            background: "rgba(0, 0, 0, 0.45)",
-            textAlign: "center",
-          }}
-        >
-          {status}
-        </div>
-      )}
+    <div>
       <div
         style={{
-          position: "absolute",
-          right: 8,
-          bottom: 8,
-          maxWidth: "75%",
-          padding: "4px 6px",
-          borderRadius: 4,
-          color: "#fff",
-          background: "rgba(0, 0, 0, 0.55)",
-          fontSize: 11,
-          lineHeight: 1.25,
+          position: "relative",
+          width: "100%",
+          aspectRatio: "16 / 9",
+          overflow: "hidden",
+          background: "#0a0a0a",
+          borderRadius: 12,
         }}
       >
-        Direct peer connection; restrictive networks may need TURN.
+        {host ? (
+          <video
+            ref={localVideoRef}
+            autoPlay
+            muted
+            playsInline
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              transform: "scaleX(-1)",
+            }}
+          />
+        ) : (
+          <video
+            ref={remoteVideoRef}
+            autoPlay
+            playsInline
+            controls
+            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+          />
+        )}
+        {status !== "Live" && (
+          <div
+            role="status"
+            style={{
+              position: "absolute",
+              inset: 0,
+              display: "grid",
+              placeItems: "center",
+              padding: 16,
+              color: "#fff",
+              background: "rgba(0, 0, 0, 0.45)",
+              textAlign: "center",
+            }}
+          >
+            {status}
+          </div>
+        )}
+      </div>
+      <div
+        style={{
+          padding: "10px 14px 12px",
+          color: "#F9F8F5",
+          fontSize: 12,
+          lineHeight: "18px",
+        }}
+      >
+        Some networks need a TURN relay for reliable video.
       </div>
     </div>
   );

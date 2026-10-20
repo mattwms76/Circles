@@ -60,7 +60,7 @@ export default function LiveLobby() {
           onPress={() => requireAuth(() => router.push("/create?mode=live"))}
         />
       </View>
-      <View style={{ marginTop: 27 }}>
+      <View style={{ marginTop: 16 }}>
         {lives.isLoading ? (
           <Loading />
         ) : lives.error ? (
@@ -87,7 +87,7 @@ export default function LiveLobby() {
             >
               <Image
                 source={{ uri: live.thumbnail }}
-                style={{ width: "100%", height: 220 }}
+                style={{ width: "100%", aspectRatio: 16 / 9 }}
                 contentFit="cover"
               />
               <View

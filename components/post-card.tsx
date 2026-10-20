@@ -1,7 +1,9 @@
 import { useMediaSource } from "@/components/media-image";
 import React, { useState } from "react";
 import {
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   Share,
@@ -10,6 +12,7 @@ import {
 } from "react-native";
 import { Image } from "@/components/media-image";
 import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { trpc } from "@/lib/trpc";
 import type { Post } from "@/shared/social";
@@ -34,7 +37,7 @@ function PostVideo({ uri }: { uri: string }) {
   return (
     <VideoView
       player={player}
-      style={{ width: "100%", height: 330 }}
+      style={{ width: "100%", aspectRatio: 1.38 }}
       nativeControls
       contentFit="cover"
     />
@@ -43,6 +46,7 @@ function PostVideo({ uri }: { uri: string }) {
 export function PostCard({ post }: { post: Post }) {
   const router = useRouter();
   const { user, requireAuth, notify } = useCircles();
+  const insets = useSafeAreaInsets();
   const utils = trpc.useUtils();
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [menu, setMenu] = useState(false);
@@ -102,20 +106,20 @@ export function PostCard({ post }: { post: Post }) {
       <View style={[s.between, { padding: 15, gap: 10 }]}>
         <Pressable
           onPress={() => router.push(`/person/${post.author.id}`)}
-          style={[s.row, { gap: 10, flex: 1 }]}
+          style={[s.row, { gap: 10, flex: 1, minHeight: 44 }]}
         >
           <Avatar uri={post.author.avatar} name={post.author.name} size={37} />
-          <View style={{ flex: 1 }}>
+          <View style={{ flex: 1, minWidth: 0 }}>
             <View style={[s.row, { gap: 6 }]}>
-              <T style={{ fontWeight: "700", fontSize: 13 }}>
+              <T style={{ fontWeight: "700", fontSize: 14 }} numberOfLines={1}>
                 {post.author.name}
               </T>
               <Icon name="checkmark-circle" color={C.green} size={12} />
-              <T style={{ color: C.muted, fontSize: 10 }}>
+              <T style={{ color: C.muted, fontSize: 12 }}>
                 · {ago(post.createdAt)}
               </T>
             </View>
-            <T style={{ color: C.muted, fontSize: 10, lineHeight: 17 }}>
+            <T style={{ color: C.muted, fontSize: 12, lineHeight: 18 }}>
               @{post.author.handle}
             </T>
           </View>
@@ -136,6 +140,7 @@ export function PostCard({ post }: { post: Post }) {
             marginBottom: 13,
             paddingHorizontal: 10,
             paddingVertical: 4,
+            minHeight: 44,
             borderRadius: 7,
             backgroundColor: C.sage,
             flexDirection: "row",
@@ -182,23 +187,23 @@ export function PostCard({ post }: { post: Post }) {
               onPress={() =>
                 requireAuth(() => like.mutate({ postId: post.id }))
               }
-              style={[s.row, { gap: 5, paddingVertical: 5 }]}
+              style={[s.row, { gap: 5, paddingVertical: 5, minHeight: 44 }]}
             >
               <Icon
                 name={liked ? "heart" : "heart-outline"}
                 size={23}
                 color={liked ? C.coral : C.ink}
               />
-              <T style={{ fontSize: 11, fontWeight: "600" }}>
+              <T style={{ fontSize: 12, fontWeight: "600" }}>
                 {post.likes + (liked !== post.liked ? (liked ? 1 : -1) : 0)}
               </T>
             </Pressable>
             <Pressable
               onPress={() => setCommentsOpen(true)}
-              style={[s.row, { gap: 5, paddingVertical: 5 }]}
+              style={[s.row, { gap: 5, paddingVertical: 5, minHeight: 44 }]}
             >
               <Icon name="chatbubble-outline" size={21} />
-              <T style={{ fontSize: 11 }}>{post.comments}</T>
+              <T style={{ fontSize: 12 }}>{post.comments}</T>
             </Pressable>
             <IconButton
               icon="paper-plane-outline"
@@ -223,15 +228,22 @@ export function PostCard({ post }: { post: Post }) {
             label="Save post"
           />
         </View>
-        <T style={{ fontSize: 12, lineHeight: 19 }}>
-          <T style={{ fontSize: 12, fontWeight: "700" }}>
+        <T style={{ fontSize: 14, lineHeight: 21 }}>
+          <T style={{ fontSize: 14, lineHeight: 21, fontWeight: "700" }}>
             {post.author.name.split(" ")[0]}{" "}
           </T>
           {post.text}
         </T>
         {post.comments > 0 && (
-          <Pressable onPress={() => setCommentsOpen(true)}>
-            <T style={{ fontSize: 11, color: C.muted }}>
+          <Pressable
+            onPress={() => setCommentsOpen(true)}
+            style={{
+              minHeight: 44,
+              justifyContent: "center",
+              alignSelf: "flex-start",
+            }}
+          >
+            <T style={{ fontSize: 12, color: C.muted }}>
               View all {post.comments} comments
             </T>
           </Pressable>
@@ -243,118 +255,135 @@ export function PostCard({ post }: { post: Post }) {
         animationType="slide"
         onRequestClose={() => setCommentsOpen(false)}
       >
-        <View
-          style={{
-            flex: 1,
-            backgroundColor: "#19201B88",
-            justifyContent: "flex-end",
-            alignItems: "center",
-          }}
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
         >
           <View
             style={{
-              width: "100%",
-              maxWidth: 570,
-              backgroundColor: C.paper,
-              borderTopLeftRadius: 25,
-              borderTopRightRadius: 25,
-              padding: 23,
-              gap: 18,
-              maxHeight: "80%",
+              flex: 1,
+              backgroundColor: "#19201B88",
+              justifyContent: "flex-end",
+              alignItems: "center",
             }}
           >
-            <View style={s.between}>
-              <T style={{ fontSize: 19, fontWeight: "700" }}>
-                The conversation
-              </T>
-              <IconButton icon="close" onPress={() => setCommentsOpen(false)} />
-            </View>
-            {comments.isLoading ? (
-              <Loading />
-            ) : !comments.data?.length ? (
-              <T
-                style={{
-                  color: C.muted,
-                  paddingVertical: 30,
-                  textAlign: "center",
-                }}
-              >
-                Be the first to say something kind.
-              </T>
-            ) : (
-              <ScrollView
-                style={{ maxHeight: 330 }}
-                contentContainerStyle={{ gap: 16 }}
-                showsVerticalScrollIndicator={false}
-              >
-                {comments.data.map((comment) => (
-                  <View
-                    key={comment.id}
-                    style={[s.row, { alignItems: "flex-start", gap: 12 }]}
-                  >
-                    <Avatar
-                      uri={comment.author.avatar}
-                      name={comment.author.name}
-                      size={30}
-                    />
-                    <View style={{ flex: 1 }}>
-                      <T style={{ fontWeight: "700", fontSize: 12 }}>
-                        {comment.author.name}
-                        <T style={{ fontSize: 10, color: C.muted }}>
-                          {" "}
-                          · {ago(comment.createdAt)}
-                        </T>
-                      </T>
-                      <T style={{ fontSize: 13 }}>{comment.text}</T>
-                    </View>
-                  </View>
-                ))}
-              </ScrollView>
-            )}
             <View
-              style={[
-                s.row,
-                {
-                  gap: 10,
-                  borderTopWidth: 1,
-                  borderColor: C.border,
-                  paddingTop: 15,
-                },
-              ]}
+              style={{
+                width: "100%",
+                maxWidth: 570,
+                backgroundColor: C.paper,
+                borderTopLeftRadius: 25,
+                borderTopRightRadius: 25,
+                paddingHorizontal: 20,
+                paddingTop: 20,
+                paddingBottom: Math.max(20, insets.bottom + 12),
+                gap: 16,
+                maxHeight: "85%",
+              }}
             >
-              <TextInput
-                value={commentText}
-                onChangeText={setCommentText}
-                placeholder="Add to the conversation…"
-                placeholderTextColor={C.muted}
-                style={{
-                  flex: 1,
-                  padding: 12,
-                  backgroundColor: C.bg,
-                  borderRadius: 12,
-                  fontSize: 13,
-                  color: C.ink,
-                }}
-              />
-              <IconButton
-                icon="arrow-up-circle"
-                color={C.coral}
-                size={32}
-                onPress={() =>
-                  requireAuth(
-                    () =>
-                      commentText.trim() &&
-                      addComment.mutate({
-                        postId: post.id,
-                        text: commentText.trim(),
-                      }),
-                  )
-                }
-                label="Send comment"
-              />
+              <View style={s.between}>
+                <T style={{ fontSize: 19, fontWeight: "700" }}>
+                  The conversation
+                </T>
+                <IconButton
+                  icon="close"
+                  onPress={() => setCommentsOpen(false)}
+                />
+              </View>
+              {comments.isLoading ? (
+                <Loading />
+              ) : !comments.data?.length ? (
+                <T
+                  style={{
+                    color: C.muted,
+                    paddingVertical: 30,
+                    textAlign: "center",
+                  }}
+                >
+                  Be the first to say something kind.
+                </T>
+              ) : (
+                <ScrollView
+                  style={{ flexGrow: 0, flexShrink: 1 }}
+                  contentContainerStyle={{ gap: 16 }}
+                  keyboardShouldPersistTaps="handled"
+                  keyboardDismissMode="interactive"
+                  showsVerticalScrollIndicator={false}
+                >
+                  {comments.data.map((comment) => (
+                    <View
+                      key={comment.id}
+                      style={[s.row, { alignItems: "flex-start", gap: 12 }]}
+                    >
+                      <Avatar
+                        uri={comment.author.avatar}
+                        name={comment.author.name}
+                        size={30}
+                      />
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <T style={{ fontWeight: "700", fontSize: 14 }}>
+                          {comment.author.name}
+                          <T style={{ fontSize: 12, color: C.muted }}>
+                            {" "}
+                            · {ago(comment.createdAt)}
+                          </T>
+                        </T>
+                        <T style={{ fontSize: 14, lineHeight: 21 }}>
+                          {comment.text}
+                        </T>
+                      </View>
+                    </View>
+                  ))}
+                </ScrollView>
+              )}
+              <View
+                style={[
+                  s.row,
+                  {
+                    gap: 10,
+                    borderTopWidth: 1,
+                    borderColor: C.border,
+                    paddingTop: 15,
+                  },
+                ]}
+              >
+                <TextInput
+                  value={commentText}
+                  onChangeText={setCommentText}
+                  placeholder="Add to the conversation…"
+                  placeholderTextColor={C.muted}
+                  style={{
+                    flex: 1,
+                    minHeight: 44,
+                    paddingHorizontal: 12,
+                    paddingVertical: 11,
+                    backgroundColor: C.bg,
+                    borderRadius: 12,
+                    fontSize: 14,
+                    lineHeight: 21,
+                    color: C.ink,
+                  }}
+                />
+                <IconButton
+                  icon="arrow-up-circle"
+                  color={C.coral}
+                  size={32}
+                  onPress={() =>
+                    requireAuth(
+                      () =>
+                        commentText.trim() &&
+                        addComment.mutate({
+                          postId: post.id,
+                          text: commentText.trim(),
+                        }),
+                    )
+                  }
+                  label="Send comment"
+                />
+              </View>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
       <Modal
         visible={menu}

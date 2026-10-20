@@ -6,6 +6,7 @@ import {
   Pressable,
   ScrollView,
   TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { Image } from "@/components/media-image";
@@ -29,13 +30,13 @@ import {
 import { useVideoPlayer, VideoView } from "expo-video";
 import { assetBase64, supportedMime } from "@/lib/media";
 
-function ChatVideo({ uri }: { uri: string }) {
+function ChatVideo({ uri, width }: { uri: string; width: number }) {
   const source = useMediaSource(uri);
   const player = useVideoPlayer(source);
   return (
     <VideoView
       player={player}
-      style={{ width: 230, height: 180 }}
+      style={{ width, aspectRatio: 1.38 }}
       nativeControls
       contentFit="contain"
     />
@@ -47,10 +48,15 @@ export default function ChatScreen() {
   const router = useRouter();
   const { user, showLogin, notify } = useCircles();
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
   const scroll = useRef<ScrollView>(null);
   const [text, setText] = useState("");
   const [sendingMedia, setSendingMedia] = useState(false);
   const [asset, setAsset] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  const chatMediaWidth = Math.min(
+    220,
+    Math.max(120, Math.floor((windowWidth - 44) * 0.8) - 26),
+  );
   const messages = trpc.social.messages.useQuery(
     { conversationId },
     { enabled: !!user, refetchInterval: 2000 },
@@ -110,7 +116,7 @@ export default function ChatScreen() {
     <AppShell scroll={false} sidebar={false}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
         <View
           style={[
@@ -130,11 +136,14 @@ export default function ChatScreen() {
             }
             label="Back to inbox"
           />
-          <View style={{ flex: 1 }}>
-            <T style={{ fontSize: 18, fontWeight: "700" }}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <T style={{ fontSize: 18, fontWeight: "700" }} numberOfLines={2}>
               {name || "Your conversation"}
             </T>
-            <T style={{ fontSize: 11, color: C.muted }}>
+            <T
+              style={{ fontSize: 12, lineHeight: 18, color: C.muted }}
+              numberOfLines={2}
+            >
               A space to connect · Private conversation
             </T>
           </View>
@@ -160,9 +169,12 @@ export default function ChatScreen() {
           <>
             <ScrollView
               ref={scroll}
+              style={{ flex: 1 }}
               onContentSizeChange={() =>
                 scroll.current?.scrollToEnd({ animated: false })
               }
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="interactive"
               contentContainerStyle={{ padding: 22, gap: 20, flexGrow: 1 }}
               showsVerticalScrollIndicator={false}
             >
@@ -197,6 +209,7 @@ export default function ChatScreen() {
                     <View
                       style={{
                         maxWidth: "80%",
+                        minWidth: 0,
                         alignItems: own ? "flex-end" : "flex-start",
                         gap: 5,
                       }}
@@ -220,13 +233,16 @@ export default function ChatScreen() {
                       >
                         {message.media &&
                           (/\.mp4(?:\.enc)?(?:\?|$)/i.test(message.media) ? (
-                            <ChatVideo uri={message.media} />
+                            <ChatVideo
+                              uri={message.media}
+                              width={chatMediaWidth}
+                            />
                           ) : (
                             <Image
                               source={{ uri: message.media }}
                               style={{
-                                width: 220,
-                                height: 170,
+                                width: chatMediaWidth,
+                                aspectRatio: 1.38,
                                 borderRadius: 9,
                               }}
                               contentFit="cover"
@@ -236,7 +252,9 @@ export default function ChatScreen() {
                           <T
                             style={{
                               color: own ? "#fff" : C.ink,
-                              fontSize: 13,
+                              fontSize: 14,
+                              lineHeight: 21,
+                              flexShrink: 1,
                             }}
                           >
                             {message.text}
@@ -291,7 +309,7 @@ export default function ChatScreen() {
                 {
                   gap: 8,
                   padding: 14,
-                  paddingBottom: Math.max(14, insets.bottom),
+                  paddingBottom: Math.max(14, insets.bottom + 8),
                   borderTopWidth: 1,
                   borderColor: C.border,
                   backgroundColor: C.bg,
@@ -310,15 +328,18 @@ export default function ChatScreen() {
                 placeholder="Say something kind…"
                 placeholderTextColor={C.muted}
                 onSubmitEditing={sendMessage}
+                returnKeyType="send"
                 style={{
                   flex: 1,
                   borderWidth: 1,
                   borderColor: C.border,
                   borderRadius: 24,
                   paddingHorizontal: 16,
-                  paddingVertical: 12,
+                  paddingVertical: 11,
                   backgroundColor: C.paper,
-                  fontSize: 13,
+                  fontSize: 14,
+                  lineHeight: 21,
+                  minHeight: 44,
                   color: C.ink,
                 }}
               />
@@ -327,8 +348,8 @@ export default function ChatScreen() {
                 onPress={sendMessage}
                 accessibilityLabel="Send message"
                 style={{
-                  width: 42,
-                  height: 42,
+                  width: 44,
+                  height: 44,
                   borderRadius: 15,
                   backgroundColor: C.coral,
                   alignItems: "center",

@@ -1,4 +1,4 @@
-import { ThemedView } from "@/components/themed-view";
+import { Button, C, T } from "@/components/circles-ui";
 import {
   clearNativeOAuthFlowToken,
   getApiBaseUrl,
@@ -8,7 +8,7 @@ import * as Auth from "@/lib/_core/auth";
 import * as Linking from "expo-linking";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Text } from "react-native";
+import { ActivityIndicator, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 type MobileExchangeResponse = {
@@ -23,6 +23,31 @@ type MobileExchangeResponse = {
   };
   error?: string;
 };
+
+function friendlyOAuthError(value: string | null | undefined): string {
+  const error = value?.trim().toLowerCase().replace(/\s+/g, " ") ?? "";
+  if (error.includes("access_denied") || error.includes("access denied")) {
+    return "Sign-in was cancelled. You can return to Circles and try again.";
+  }
+  if (
+    error.includes("temporarily_unavailable") ||
+    error.includes("temporarily unavailable") ||
+    error.includes("server_error")
+  ) {
+    return "Sign-in is temporarily unavailable. Please try again shortly.";
+  }
+  if (
+    error.includes("invalid_request") ||
+    error.includes("missing oauth callback parameters") ||
+    error.includes("expired")
+  ) {
+    return "This sign-in link is no longer valid. Please return to Circles and try again.";
+  }
+  if (error.includes("network") || error.includes("fetch")) {
+    return "We couldn't reach secure sign-in. Check your connection and try again.";
+  }
+  return "We couldn't complete that sign-in. Please return to Circles and try again.";
+}
 
 async function exchangeNativeOAuthCode(
   code: string,
@@ -91,12 +116,14 @@ export default function OAuthCallback() {
 
         if (error) {
           setStatus("error");
-          setErrorMessage(error);
+          setErrorMessage(friendlyOAuthError(error));
           return;
         }
         if (!code || !state) {
           setStatus("error");
-          setErrorMessage("Missing OAuth callback parameters");
+          setErrorMessage(
+            "This sign-in link is missing information. Please return to Circles and try again.",
+          );
           return;
         }
 
@@ -122,9 +149,7 @@ export default function OAuthCallback() {
       } catch (error) {
         setStatus("error");
         setErrorMessage(
-          error instanceof Error
-            ? error.message
-            : "Failed to complete secure sign in",
+          friendlyOAuthError(error instanceof Error ? error.message : null),
         );
       }
     };
@@ -133,37 +158,64 @@ export default function OAuthCallback() {
   }, [params.code, params.state, params.error, router]);
 
   return (
-    <SafeAreaView className="flex-1" edges={["top", "bottom", "left", "right"]}>
-      <ThemedView className="flex-1 items-center justify-center gap-4 p-5">
-        {status === "processing" && (
-          <>
-            <ActivityIndicator size="large" />
-            <Text className="mt-4 text-base leading-6 text-center text-foreground">
-              Completing authentication...
-            </Text>
-          </>
-        )}
-        {status === "success" && (
-          <>
-            <Text className="text-base leading-6 text-center text-foreground">
-              Authentication successful!
-            </Text>
-            <Text className="text-base leading-6 text-center text-foreground">
-              Redirecting...
-            </Text>
-          </>
-        )}
-        {status === "error" && (
-          <>
-            <Text className="mb-2 text-xl font-bold leading-7 text-error">
-              Authentication failed
-            </Text>
-            <Text className="text-base leading-6 text-center text-foreground">
-              {errorMessage}
-            </Text>
-          </>
-        )}
-      </ThemedView>
+    <SafeAreaView
+      style={{ flex: 1, backgroundColor: C.bg }}
+      edges={["top", "bottom", "left", "right"]}
+    >
+      <View
+        style={{
+          flex: 1,
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 20,
+        }}
+      >
+        <View
+          style={{
+            width: "100%",
+            maxWidth: 400,
+            alignItems: "center",
+            gap: 16,
+          }}
+        >
+          {status === "processing" && (
+            <>
+              <ActivityIndicator size="large" color={C.coral} />
+              <T style={{ color: C.muted, textAlign: "center" }}>
+                Completing secure sign-in…
+              </T>
+            </>
+          )}
+          {status === "success" && (
+            <T style={{ color: C.green, textAlign: "center" }}>
+              Signed in. Opening your circles…
+            </T>
+          )}
+          {status === "error" && (
+            <>
+              <T
+                style={{
+                  color: C.coral,
+                  fontSize: 20,
+                  lineHeight: 28,
+                  fontWeight: "700",
+                  textAlign: "center",
+                }}
+              >
+                Authentication failed
+              </T>
+              <T style={{ color: C.muted, textAlign: "center", maxWidth: 400 }}>
+                {errorMessage}
+              </T>
+              <Button
+                title="Back to Circles"
+                onPress={() => router.replace("/")}
+                style={{ width: "100%", minHeight: 44 }}
+              />
+            </>
+          )}
+        </View>
+      </View>
     </SafeAreaView>
   );
 }

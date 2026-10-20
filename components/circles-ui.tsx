@@ -37,10 +37,16 @@ export function Icon({
   return <Ionicons name={name} size={size} color={color} />;
 }
 export function T({ style, ...props }: TextProps) {
+  const resolved = StyleSheet.flatten(style) || {};
+  const fontSize = Math.max(12, resolved.fontSize ?? 14);
+  const lineHeight = Math.max(
+    resolved.lineHeight ?? 21,
+    Math.ceil(fontSize * 1.35),
+  );
   return (
     <Text
       {...props}
-      style={[{ color: C.ink, fontSize: 14, lineHeight: 21 }, style]}
+      style={[{ color: C.ink, flexShrink: 1 }, style, { fontSize, lineHeight }]}
     />
   );
 }
@@ -178,6 +184,7 @@ export function Button({
           opacity: disabled || loading ? 0.6 : pressed ? 0.8 : 1,
         },
         style,
+        { minHeight: 48 },
       ]}
     >
       {loading ? (
@@ -219,8 +226,15 @@ export function IconButton({
       onPress={onPress}
       hitSlop={8}
       style={({ pressed }) => [
-        { padding: 8, borderRadius: 30, opacity: pressed ? 0.5 : 1 },
+        {
+          padding: 8,
+          borderRadius: 30,
+          opacity: pressed ? 0.5 : 1,
+          alignItems: "center",
+          justifyContent: "center",
+        },
         style,
+        { minWidth: 44, minHeight: 44 },
       ]}
     >
       <Icon name={icon} size={size} color={color} />
@@ -256,16 +270,20 @@ export function Pill({
   return (
     <Pressable
       onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected: !!selected }}
       style={({ pressed }) => [
         {
           paddingHorizontal: 15,
           paddingVertical: 9,
+          minHeight: 44,
           borderRadius: 24,
           backgroundColor: selected ? C.ink : C.paper,
           borderWidth: 1,
           borderColor: selected ? C.ink : C.border,
           flexDirection: "row",
           alignItems: "center",
+          justifyContent: "center",
           gap: 6,
           opacity: pressed ? 0.7 : 1,
         },
@@ -323,8 +341,9 @@ export function Input({
           borderColor: C.border,
           borderRadius: 12,
           color: C.ink,
-          fontSize: 14,
-          minHeight: multiline ? 110 : 47,
+          fontSize: 16,
+          lineHeight: 22,
+          minHeight: multiline ? 110 : 48,
           textAlignVertical: multiline ? "top" : "center",
         }}
       />
@@ -348,8 +367,8 @@ export function Empty({
     <View
       style={{
         alignItems: "center",
-        paddingVertical: 46,
-        paddingHorizontal: 25,
+        paddingVertical: 32,
+        paddingHorizontal: 16,
         gap: 12,
       }}
     >
@@ -407,10 +426,10 @@ export const s = StyleSheet.create({
     letterSpacing: -1.2,
   },
   eyebrow: {
-    fontSize: 10,
-    lineHeight: 16,
+    fontSize: 12,
+    lineHeight: 18,
     fontWeight: "700",
-    letterSpacing: 1.6,
+    letterSpacing: 1.1,
     color: C.muted,
   },
   divider: { height: 1, backgroundColor: C.border },

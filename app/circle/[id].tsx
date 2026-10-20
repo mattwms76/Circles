@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Pressable, View } from "react-native";
+import { Pressable, ScrollView, useWindowDimensions, View } from "react-native";
 import { Image } from "@/components/media-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
@@ -23,6 +23,9 @@ export default function CircleScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const circleId = Number(id);
   const router = useRouter();
+  const { width } = useWindowDimensions();
+  const narrowActions = width < 390;
+  const coverAspectRatio = width < 600 ? 16 / 10 : 3;
   const { user, requireAuth, notify } = useCircles();
   const [tab, setTab] = useState("Feed");
   const circle = trpc.social.circle.useQuery({ id: circleId });
@@ -131,7 +134,7 @@ export default function CircleScreen() {
           >
             <Image
               source={{ uri: group.image }}
-              style={{ width: "100%", height: 220 }}
+              style={{ width: "100%", aspectRatio: coverAspectRatio }}
               contentFit="cover"
             />
             <View
@@ -152,8 +155,15 @@ export default function CircleScreen() {
           </View>
           <View style={{ paddingVertical: 24, gap: 13 }}>
             <View style={s.between}>
-              <T style={[s.title, { flex: 1 }]}>{group.name}</T>
-              <Icon name="ellipse-outline" color={C.coral} size={30} />
+              <T style={[s.title, { flex: 1, minWidth: 0, paddingRight: 10 }]}>
+                {group.name}
+              </T>
+              <View
+                accessible={false}
+                importantForAccessibility="no-hide-descendants"
+              >
+                <Icon name="ellipse-outline" color={C.coral} size={30} />
+              </View>
             </View>
             <View style={[s.row, { gap: 7 }]}>
               <Icon
@@ -165,7 +175,14 @@ export default function CircleScreen() {
                 size={14}
                 color={C.muted}
               />
-              <T style={{ color: C.muted, fontSize: 12 }}>
+              <T
+                style={{
+                  flex: 1,
+                  color: C.muted,
+                  fontSize: 12,
+                  lineHeight: 18,
+                }}
+              >
                 {group.privacy === "private"
                   ? "Private circle"
                   : "Public circle"}{" "}
@@ -175,7 +192,7 @@ export default function CircleScreen() {
                   : ""}
               </T>
             </View>
-            <T style={{ color: C.muted, fontSize: 13, lineHeight: 21 }}>
+            <T style={{ color: C.muted, fontSize: 14, lineHeight: 22 }}>
               {group.description}
             </T>
             <View style={[s.row, { gap: 9, marginTop: 5 }]}>
@@ -222,7 +239,14 @@ export default function CircleScreen() {
               />
             )}
           </View>
-          <View style={[s.row, { gap: 8, marginBottom: 22 }]}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator
+            accessibilityLabel="Circle sections"
+            accessibilityHint="Swipe sideways to find all circle sections"
+            style={{ marginBottom: 22 }}
+            contentContainerStyle={{ gap: 8, paddingRight: 20 }}
+          >
             {["Feed", "Members", "About", ...(isAdmin ? ["Manage"] : [])].map(
               (item) => (
                 <Pill
@@ -233,7 +257,7 @@ export default function CircleScreen() {
                 />
               ),
             )}
-          </View>
+          </ScrollView>
           {tab === "Feed" &&
             (group.privacy === "private" && !group.joined ? (
               <Empty
@@ -288,11 +312,17 @@ export default function CircleScreen() {
                         name={member.user.name}
                         size={42}
                       />
-                      <View style={{ flex: 1 }}>
+                      <View style={{ flex: 1, minWidth: 0 }}>
                         <T style={{ fontWeight: "700", fontSize: 13 }}>
                           {member.user.name}
                         </T>
-                        <T style={{ fontSize: 11, color: C.muted }}>
+                        <T
+                          style={{
+                            fontSize: 12,
+                            lineHeight: 18,
+                            color: C.muted,
+                          }}
+                        >
                           @{member.user.handle}
                         </T>
                       </View>
@@ -324,12 +354,39 @@ export default function CircleScreen() {
               <T style={{ fontSize: 19, fontWeight: "700" }}>
                 A space for good company.
               </T>
-              <T style={{ color: C.muted }}>{group.description}</T>
-              <T style={s.eyebrow}>THE HOUSE RULES</T>
-              <T style={{ color: C.muted, fontSize: 13, lineHeight: 24 }}>
-                Be kind and make room for others.\nShare things that belong
-                here.\nRespect privacy.\nKeep the conversation welcoming.
+              <T style={{ color: C.muted, fontSize: 14, lineHeight: 22 }}>
+                {group.description}
               </T>
+              <T style={s.eyebrow}>THE HOUSE RULES</T>
+              <View style={{ gap: 10 }}>
+                {[
+                  "Be kind and make room for others.",
+                  "Share things that belong here.",
+                  "Respect privacy.",
+                  "Keep the conversation welcoming.",
+                ].map((rule) => (
+                  <View
+                    key={rule}
+                    style={[s.row, { alignItems: "flex-start", gap: 9 }]}
+                  >
+                    <Icon
+                      name="checkmark-circle-outline"
+                      size={18}
+                      color={C.green}
+                    />
+                    <T
+                      style={{
+                        flex: 1,
+                        color: C.muted,
+                        fontSize: 14,
+                        lineHeight: 21,
+                      }}
+                    >
+                      {rule}
+                    </T>
+                  </View>
+                ))}
+              </View>
               {group.joined && group.role !== "owner" && (
                 <Button
                   title="Leave this circle"
@@ -339,7 +396,7 @@ export default function CircleScreen() {
                 />
               )}
               {group.role === "owner" && (
-                <T style={{ fontSize: 12, color: C.green }}>
+                <T style={{ fontSize: 12, lineHeight: 18, color: C.green }}>
                   You own this circle. Appoint moderators in Manage to help care
                   for your community.
                 </T>
@@ -351,7 +408,7 @@ export default function CircleScreen() {
               <T style={{ fontSize: 18, fontWeight: "700" }}>
                 Look after your people.
               </T>
-              <T style={{ color: C.muted, fontSize: 12 }}>
+              <T style={{ color: C.muted, fontSize: 14, lineHeight: 21 }}>
                 Owners appoint moderators. Owners and moderators keep the circle
                 welcoming.
               </T>
@@ -360,17 +417,25 @@ export default function CircleScreen() {
                   key={member.user.id}
                   style={[s.card, { padding: 15, gap: 12 }]}
                 >
-                  <View style={[s.row, { gap: 10 }]}>
+                  <View style={[s.row, { alignItems: "flex-start", gap: 10 }]}>
                     <Avatar
                       uri={member.user.avatar}
                       name={member.user.name}
                       size={35}
                     />
-                    <View style={{ flex: 1 }}>
-                      <T style={{ fontSize: 13, fontWeight: "700" }}>
+                    <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                      <T
+                        style={{
+                          fontSize: 14,
+                          lineHeight: 20,
+                          fontWeight: "700",
+                        }}
+                      >
                         {member.user.name}
                       </T>
-                      <T style={{ color: C.muted, fontSize: 11 }}>
+                      <T
+                        style={{ color: C.muted, fontSize: 12, lineHeight: 18 }}
+                      >
                         {member.role === "pending"
                           ? "Requesting to join"
                           : member.role}
@@ -378,7 +443,12 @@ export default function CircleScreen() {
                     </View>
                   </View>
                   {member.role !== "owner" && member.user.id !== user?.id && (
-                    <View style={[s.row, { gap: 8, flexWrap: "wrap" }]}>
+                    <View
+                      style={[
+                        s.row,
+                        { gap: 8, flexWrap: "wrap", alignItems: "stretch" },
+                      ]}
+                    >
                       {member.role === "pending" ? (
                         <Button
                           title="Approve request"
@@ -386,6 +456,10 @@ export default function CircleScreen() {
                           onPress={() =>
                             approve.mutate({ circleId, userId: member.user.id })
                           }
+                          style={{
+                            flexGrow: 1,
+                            flexBasis: narrowActions ? "100%" : 148,
+                          }}
                         />
                       ) : (
                         group.role === "owner" && (
@@ -406,7 +480,10 @@ export default function CircleScreen() {
                                     : "moderator",
                               })
                             }
-                            style={{ paddingVertical: 8 }}
+                            style={{
+                              flexGrow: 1,
+                              flexBasis: narrowActions ? "100%" : 148,
+                            }}
                           />
                         )
                       )}
@@ -423,7 +500,10 @@ export default function CircleScreen() {
                           onPress={() =>
                             remove.mutate({ circleId, userId: member.user.id })
                           }
-                          style={{ paddingVertical: 8 }}
+                          style={{
+                            flexGrow: 1,
+                            flexBasis: narrowActions ? "100%" : 148,
+                          }}
                         />
                       )}
                     </View>
@@ -435,10 +515,15 @@ export default function CircleScreen() {
               </T>
               {feed.data?.map((post) => (
                 <View key={post.id} style={[s.card, { padding: 14, gap: 10 }]}>
-                  <T style={{ fontWeight: "600", fontSize: 12 }}>
+                  <T
+                    style={{ fontWeight: "600", fontSize: 14, lineHeight: 20 }}
+                  >
                     {post.author.name}
                   </T>
-                  <T numberOfLines={2} style={{ fontSize: 12, color: C.muted }}>
+                  <T
+                    numberOfLines={2}
+                    style={{ fontSize: 14, lineHeight: 21, color: C.muted }}
+                  >
                     {post.text}
                   </T>
                   <Button
@@ -446,7 +531,6 @@ export default function CircleScreen() {
                     secondary
                     icon="trash-outline"
                     onPress={() => deletePost.mutate({ postId: post.id })}
-                    style={{ paddingVertical: 8 }}
                   />
                 </View>
               ))}

@@ -48,15 +48,19 @@ export default function HomeScreen() {
           Your world, a little closer
           <T style={{ color: C.coral, fontSize: 31 }}>.</T>
         </T>
-        <T style={{ color: C.muted, fontSize: 12, marginTop: 2 }}>
+        <T
+          style={{ color: C.muted, fontSize: 14, lineHeight: 21, marginTop: 2 }}
+        >
           Good people. Shared passions. Real moments.
         </T>
       </View>
       <ScrollView
         horizontal
-        showsHorizontalScrollIndicator={false}
+        showsHorizontalScrollIndicator
+        accessibilityLabel="Moments from people you may know"
+        accessibilityHint="Swipe sideways to browse more moments"
         style={{ marginTop: 23, marginBottom: 21 }}
-        contentContainerStyle={{ gap: 17, paddingRight: 4 }}
+        contentContainerStyle={{ gap: 17, paddingRight: 20 }}
       >
         <Pressable
           onPress={() => requireAuth(() => router.push("/create"))}
@@ -104,8 +108,10 @@ export default function HomeScreen() {
       <View style={[s.divider, { marginBottom: 19 }]} />
       <ScrollView
         horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ gap: 7, paddingBottom: 20 }}
+        showsHorizontalScrollIndicator
+        accessibilityLabel="Feed filters"
+        accessibilityHint="Swipe sideways to choose another feed filter"
+        contentContainerStyle={{ gap: 7, paddingBottom: 20, paddingRight: 20 }}
       >
         <Pill
           title="For you"
@@ -125,7 +131,15 @@ export default function HomeScreen() {
         />
         <Pressable
           onPress={() => router.push("/live")}
-          style={[s.row, { paddingHorizontal: 11, gap: 6 }]}
+          style={[
+            s.row,
+            {
+              minHeight: 44,
+              paddingHorizontal: 11,
+              gap: 6,
+              justifyContent: "center",
+            },
+          ]}
         >
           <View
             style={{
@@ -135,7 +149,7 @@ export default function HomeScreen() {
               borderRadius: 4,
             }}
           />
-          <T style={{ fontSize: 11, fontWeight: "600" }}>
+          <T style={{ fontSize: 12, lineHeight: 18, fontWeight: "600" }}>
             Live now{lives.data?.length ? ` · ${lives.data.length}` : ""}
           </T>
         </Pressable>
