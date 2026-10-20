@@ -1,0 +1,494 @@
+import React from "react";
+import { Pressable, ScrollView, useWindowDimensions, View } from "react-native";
+import { usePathname, useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { trpc } from "@/lib/trpc";
+import { useCircles } from "@/hooks/circles-context";
+import {
+  Avatar,
+  Button,
+  C,
+  Icon,
+  IconButton,
+  Logo,
+  photo,
+  s,
+  T,
+  Wordmark,
+  type IconName,
+} from "./circles-ui";
+import { Image } from "@/components/media-image";
+
+export const navigation: {
+  label: string;
+  path: string;
+  icon: IconName;
+  active: IconName;
+}[] = [
+  { label: "Home", path: "/", icon: "home-outline", active: "home" },
+  {
+    label: "Discover",
+    path: "/discover",
+    icon: "compass-outline",
+    active: "compass",
+  },
+  {
+    label: "My circles",
+    path: "/circles",
+    icon: "ellipse-outline",
+    active: "ellipse",
+  },
+  {
+    label: "Messages",
+    path: "/messages",
+    icon: "chatbubble-ellipses-outline",
+    active: "chatbubble-ellipses",
+  },
+  {
+    label: "Profile",
+    path: "/profile",
+    icon: "person-outline",
+    active: "person",
+  },
+];
+export function AppShell({
+  children,
+  scroll = true,
+  sidebar = true,
+}: {
+  children: React.ReactNode;
+  scroll?: boolean;
+  sidebar?: boolean;
+}) {
+  const { width } = useWindowDimensions();
+  const wide = width >= 900;
+  const gutter = wide ? 30 : width <= 360 ? 16 : 20;
+  const router = useRouter();
+  const path = usePathname();
+  const { user, requireAuth, showLogin } = useCircles();
+  const insets = useSafeAreaInsets();
+  const myProfile = trpc.social.profile.useQuery({}, { enabled: !!user });
+  return (
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: C.bg,
+        paddingTop: wide ? 0 : insets.top,
+      }}
+    >
+      <View
+        style={{
+          borderBottomWidth: 1,
+          borderBottomColor: C.border,
+          backgroundColor: C.bg,
+        }}
+      >
+        <View
+          style={{
+            width: "100%",
+            maxWidth: 1270,
+            alignSelf: "center",
+            height: wide ? 86 : 70,
+            paddingHorizontal: wide ? 32 : gutter,
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Circles home"
+            onPress={() => router.push("/")}
+            style={{ minHeight: 44, justifyContent: "center" }}
+          >
+            <Wordmark />
+          </Pressable>
+          {wide && (
+            <Pressable
+              onPress={() => router.push("/discover")}
+              style={{
+                width: 370,
+                borderWidth: 1,
+                borderColor: C.border,
+                backgroundColor: "#F1F2EB",
+                borderRadius: 30,
+                paddingHorizontal: 17,
+                paddingVertical: 11,
+                flexDirection: "row",
+                gap: 12,
+                alignItems: "center",
+                minHeight: 44,
+              }}
+            >
+              <Icon name="search-outline" size={18} color={C.muted} />
+              <T style={{ fontSize: 12, color: C.muted }}>
+                Find your people, circles, and inspiration
+              </T>
+              <View
+                style={{
+                  marginLeft: "auto",
+                  borderWidth: 1,
+                  borderColor: "#DCDDDA",
+                  borderRadius: 5,
+                  paddingHorizontal: 5,
+                }}
+              >
+                <T style={{ fontSize: 10, color: C.muted }}>⌘ K</T>
+              </View>
+            </Pressable>
+          )}
+          <View style={[s.row, { gap: wide ? 13 : 6 }]}>
+            {!wide && (
+              <IconButton
+                icon="search-outline"
+                onPress={() => router.push("/discover")}
+                label="Search Circles"
+              />
+            )}
+            <IconButton
+              icon="chatbubble-ellipses-outline"
+              onPress={() => router.push("/messages")}
+              label="Open messages"
+            />
+            {wide && (
+              <>
+                <View
+                  style={{
+                    width: 1,
+                    height: 25,
+                    backgroundColor: C.border,
+                    marginHorizontal: 6,
+                  }}
+                />
+                <Pressable
+                  onPress={() => (user ? router.push("/profile") : showLogin())}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open your profile"
+                  style={{
+                    minWidth: 44,
+                    minHeight: 44,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Avatar
+                    uri={myProfile.data?.avatar}
+                    name={user?.name || "You"}
+                    size={35}
+                  />
+                </Pressable>
+              </>
+            )}
+          </View>
+        </View>
+      </View>
+      <View
+        style={{
+          flex: 1,
+          width: "100%",
+          maxWidth: 1270,
+          alignSelf: "center",
+          flexDirection: "row",
+        }}
+      >
+        {wide && (
+          <View
+            style={{
+              width: 226,
+              borderRightWidth: 1,
+              borderColor: C.border,
+              paddingHorizontal: 25,
+              paddingTop: 30,
+              paddingBottom: 24,
+            }}
+          >
+            <T style={[s.eyebrow, { marginBottom: 22, paddingLeft: 14 }]}>
+              YOUR SPACE
+            </T>
+            <View style={{ gap: 7 }}>
+              {navigation.map((item) => {
+                const selected =
+                  item.path === "/" ? path === "/" : path.startsWith(item.path);
+                return (
+                  <Pressable
+                    key={item.path}
+                    onPress={() => router.push(item.path as any)}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 15,
+                      paddingVertical: 14,
+                      paddingHorizontal: 15,
+                      borderRadius: 12,
+                      backgroundColor: selected ? C.soft : "transparent",
+                    }}
+                  >
+                    <Icon
+                      name={selected ? item.active : item.icon}
+                      color={selected ? C.coral : C.muted}
+                      size={22}
+                    />
+                    <T
+                      style={{
+                        fontWeight: selected ? "700" : "500",
+                        color: selected ? C.coral : C.ink,
+                        fontSize: 13,
+                      }}
+                    >
+                      {item.label}
+                    </T>
+                    {selected && (
+                      <View
+                        style={{
+                          marginLeft: "auto",
+                          width: 5,
+                          height: 5,
+                          borderRadius: 3,
+                          backgroundColor: C.coral,
+                        }}
+                      />
+                    )}
+                  </Pressable>
+                );
+              })}
+              <Pressable
+                onPress={() => router.push("/live")}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 15,
+                  paddingVertical: 14,
+                  paddingHorizontal: 15,
+                }}
+              >
+                <Icon name="radio-outline" color={C.muted} />
+                <T style={{ fontSize: 13 }}>Live now</T>
+                <View
+                  style={{
+                    width: 6,
+                    height: 6,
+                    backgroundColor: C.coral,
+                    borderRadius: 3,
+                    marginLeft: "auto",
+                  }}
+                />
+              </Pressable>
+            </View>
+            <Button
+              title="Create a post"
+              icon="add"
+              onPress={() => requireAuth(() => router.push("/create"))}
+              style={{ marginTop: 29 }}
+            />
+            <View style={{ marginTop: "auto", paddingTop: 35, gap: 15 }}>
+              <View style={s.divider} />
+              <T style={{ color: C.muted, fontSize: 11, lineHeight: 19 }}>
+                Less scrolling. More belonging.
+              </T>
+              <View style={[s.row, { gap: 7 }]}>
+                <Logo size={17} color="#A8ADA1" />
+                <T style={{ fontSize: 10, color: "#A3A79C" }}>© 2026 Circles</T>
+              </View>
+            </View>
+          </View>
+        )}
+        <View style={{ flex: 1, minWidth: 0 }}>
+          {scroll ? (
+            <ScrollView
+              showsHorizontalScrollIndicator={false}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              automaticallyAdjustKeyboardInsets
+              contentContainerStyle={{
+                padding: gutter,
+                paddingBottom: Math.max(32, insets.bottom + 16),
+                width: "100%",
+                maxWidth: 760,
+                alignSelf: "center",
+              }}
+            >
+              {children}
+            </ScrollView>
+          ) : (
+            <View
+              style={{
+                flex: 1,
+                width: "100%",
+                maxWidth: 760,
+                alignSelf: "center",
+              }}
+            >
+              {children}
+            </View>
+          )}
+        </View>
+        {wide && width > 1130 && sidebar && (
+          <ScrollView
+            showsHorizontalScrollIndicator={false}
+            style={{
+              width: 296,
+              maxWidth: 296,
+              borderLeftWidth: 1,
+              borderLeftColor: C.border,
+            }}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{
+              paddingHorizontal: 24,
+              paddingVertical: 30,
+            }}
+          >
+            <CommunitySidebar />
+          </ScrollView>
+        )}
+      </View>
+    </View>
+  );
+}
+export function CommunitySidebar() {
+  const router = useRouter();
+  const circles = trpc.social.circles.useQuery({});
+  const { requireAuth, notify } = useCircles();
+  const utils = trpc.useUtils();
+  const join = trpc.social.joinCircle.useMutation({
+    onSuccess: () => {
+      void utils.social.circles.invalidate();
+      notify("You’re a little closer. Circle joined!");
+    },
+    onError: (e) => notify(e.message),
+  });
+  return (
+    <View style={{ gap: 27 }}>
+      <View style={{ gap: 16 }}>
+        <View style={s.between}>
+          <T style={{ fontSize: 16, fontWeight: "700", letterSpacing: -0.3 }}>
+            Find your circles
+          </T>
+          <Icon name="sparkles-outline" size={18} color={C.coral} />
+        </View>
+        <T style={{ color: C.muted, fontSize: 12, lineHeight: 19 }}>
+          Small communities. Big connections.
+        </T>
+        {(circles.data || []).slice(0, 3).map((circle) => (
+          <View key={circle.id} style={[s.row, { gap: 10 }]}>
+            <Pressable onPress={() => router.push(`/circle/${circle.id}`)}>
+              <Image
+                source={{ uri: circle.image }}
+                style={{ width: 46, height: 46, borderRadius: 13 }}
+                contentFit="cover"
+              />
+            </Pressable>
+            <Pressable
+              onPress={() => router.push(`/circle/${circle.id}`)}
+              style={{ flex: 1 }}
+            >
+              <T style={{ fontSize: 12, fontWeight: "700" }}>{circle.name}</T>
+              <T style={{ fontSize: 10, color: C.muted }}>
+                {circle.memberCount}{" "}
+                {circle.memberCount === 1 ? "member" : "members"} ·{" "}
+                {circle.category}
+              </T>
+            </Pressable>
+            <Pressable
+              onPress={() =>
+                circle.joined
+                  ? router.push(`/circle/${circle.id}`)
+                  : requireAuth(() => join.mutate({ circleId: circle.id }))
+              }
+              style={{
+                backgroundColor: circle.joined ? C.sage : C.soft,
+                paddingHorizontal: 10,
+                paddingVertical: 10,
+                minWidth: 48,
+                minHeight: 44,
+                alignItems: "center",
+                justifyContent: "center",
+                borderRadius: 7,
+              }}
+            >
+              <T
+                style={{
+                  fontSize: 10,
+                  fontWeight: "700",
+                  color: circle.joined ? C.green : C.coral,
+                }}
+              >
+                {circle.joined ? "Open" : "Join"}
+              </T>
+            </Pressable>
+          </View>
+        ))}
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => router.push("/circles")}
+          style={{ minHeight: 44, justifyContent: "center" }}
+        >
+          <T style={{ color: C.coral, fontWeight: "600", fontSize: 12 }}>
+            Explore all circles ↗
+          </T>
+        </Pressable>
+      </View>
+      <View style={s.divider} />
+      <View
+        style={{
+          borderRadius: 17,
+          backgroundColor: C.sage,
+          padding: 19,
+          overflow: "hidden",
+          gap: 12,
+        }}
+      >
+        <View
+          style={{
+            alignSelf: "flex-start",
+            backgroundColor: "#FAFCF7",
+            borderRadius: 8,
+            padding: 8,
+          }}
+        >
+          <Icon name="leaf-outline" color={C.green} size={21} />
+        </View>
+        <T
+          style={{
+            fontSize: 20,
+            fontWeight: "700",
+            lineHeight: 26,
+            letterSpacing: -0.6,
+          }}
+        >
+          {"Good things start\nwith a circle."}
+        </T>
+        <T style={{ color: "#75816E", fontSize: 12, lineHeight: 19 }}>
+          A space for your people, your passions, and everything in between.
+        </T>
+        <Button
+          title="Make it yours"
+          secondary
+          icon="add"
+          onPress={() => requireAuth(() => router.push("/create?mode=circle"))}
+          style={{
+            backgroundColor: "transparent",
+            borderColor: "#BAC6B3",
+            borderRadius: 10,
+            paddingVertical: 10,
+          }}
+        />
+      </View>
+      <View style={{ gap: 13 }}>
+        <T style={s.eyebrow}>THE CIRCLES WAY</T>
+        <T style={{ color: C.muted, fontSize: 12, lineHeight: 20 }}>
+          {"Be yourself. Be kind.\nMake room for someone new."}
+        </T>
+        <Image
+          source={{ uri: photo.coffee }}
+          style={{ height: 118, width: "100%", borderRadius: 13 }}
+          contentFit="cover"
+        />
+        <T style={{ color: "#A0A497", fontSize: 10, lineHeight: 17 }}>
+          Community preview · Example creator profiles and curated starter
+          posts.
+        </T>
+      </View>
+    </View>
+  );
+}
