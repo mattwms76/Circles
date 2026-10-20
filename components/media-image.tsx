@@ -1,13 +1,15 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Image as ExpoImage, type ImageProps } from "expo-image";
 import { Platform } from "react-native";
-import { getApiBaseUrl } from "@/constants/oauth";
+import { getApiBaseUrl, getApiRequestUrl } from "@/constants/oauth";
 import { getSessionToken } from "@/lib/_core/auth";
 import { useCircles } from "@/hooks/circles-context";
 
 export function resolveMediaUrl(uri: string): string {
   if (uri.startsWith("/manus-storage/social-encrypted/")) {
-    return `${getApiBaseUrl()}/api/media/${uri.slice("/manus-storage/".length)}`;
+    return getApiRequestUrl(
+      `/api/media/${uri.slice("/manus-storage/".length)}`,
+    );
   }
   // Ordinary managed web assets are resolved by the stable Preview gateway.
   return Platform.OS !== "web" && uri.startsWith("/manus-storage/")

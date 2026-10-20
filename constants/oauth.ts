@@ -44,24 +44,30 @@ type NativeOAuthPreparation = {
 };
 
 /**
- * Get the API base URL, deriving from current hostname if not set.
- * Metro runs on 8081, API server runs on 3000.
- * URL pattern: https://PORT-sandboxid.region.domain
+ * Web uses its own origin through Metro's fixed /api proxy. Native devices
+ * retain the injected API endpoint; they cannot use browser-relative URLs.
  */
 export function getApiBaseUrl(): string {
-  if (API_BASE_URL) return API_BASE_URL.replace(/\/$/, "");
-
   if (
     ReactNative.Platform.OS === "web" &&
     typeof window !== "undefined" &&
     window.location
   ) {
-    const { protocol, hostname } = window.location;
-    const apiHostname = hostname.replace(/^8081-/, "3000-");
-    if (apiHostname !== hostname) return `${protocol}//${apiHostname}`;
+    return window.location.origin;
   }
 
-  return "";
+  return API_BASE_URL.replace(/\/$/, "");
+}
+
+/** Browser requests are relative; OAuth redirect construction uses an origin. */
+export function getApiRequestUrl(pathname: string): string {
+  if (!pathname.startsWith("/") || pathname.startsWith("//")) {
+    throw new Error("API paths must be root-relative");
+  }
+  if (ReactNative.Platform.OS === "web" && typeof window !== "undefined") {
+    return pathname;
+  }
+  return `${getApiBaseUrl()}${pathname}`;
 }
 
 function apiUrl(pathname: string): string {
