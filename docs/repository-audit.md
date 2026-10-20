@@ -27,3 +27,13 @@ GitHub Actions is enabled for the repository. The new workflow runs environment 
 The CI platform jobs produce app bundles, not signed APK/AAB/IPA or TestFlight releases. Signed mobile builds still use the current Manus Dashboard build setup. Native live video needs the WebRTC native module in an actual development or release build; Expo Go cannot validate it. Production OAuth, object storage, TURN connectivity, device permissions, and the app's shared database remain runtime concerns rather than CI credentials.
 
 The GitHub repository remains a separate source copy. CI configuration does not change the Manus-managed mobile repository or silently establish bidirectional synchronization.
+
+## Clean-runner integration finding
+
+The first real GitHub CI run passed all 63 tests, API compilation, and iOS/Android bundle compilation, but failed web export. The same failure reproduced in a separate local checkout: Metro could not compute the SHA-1 of NativeWind's generated `.cache/web.css`. The installed NativeWind adapter pre-creates native cache files before the file map is built, but creates its web stylesheet later; non-watching CI did not discover that late file.
+
+`prepare-nativewind-cache.cjs`, invoked by `metro.config.js` before Metro initialization, now creates the web cache file only if it is absent. NativeWind still generates and replaces its contents during compilation; an existing compiled stylesheet is never truncated. Three regression tests cover cold initialization, repeated initialization preserving CSS, and real filesystem failures. The installed dependencies, supported disk-output workaround, web styling, and API proxy are unchanged. The final local suite passes 66 tests with no skipped tests. The corrected local web export succeeded with 9,711 bytes of real compiled CSS, preserved hidden-scrollbar rules, and all static routes. The corrected GitHub integration run also succeeded.
+
+## Delivered CI result
+
+[GitHub run 39429140276](https://github.com/mattwms76/Circles/actions/runs/39429140276), for code commit `9bbaa073eacbf518494323a1309580e0d2d75b81`, completed successfully. Environment and TypeScript checks, all 66 tests, API compilation, and separate web/iOS/Android bundle builds passed. JUnit results and all four build outputs were uploaded as five artifacts. The completed repository contains 165 tracked files: the original 155-file baseline plus 10 intentional configuration, test, CI, and audit additions. A final documentation-only result commit does not alter the tested code.
