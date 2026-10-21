@@ -20,39 +20,43 @@ The old Metro process ran out of Node heap and the first replacement exposed ins
 
 ## Applied-source validation
 
-| Check | Actual result |
-| --- | --- |
-| TypeScript | Passed. |
-| Full unit suite | 11files /92tests passed with real credentials removed. |
-| ESLint | 116files scanned; zero errors /16warnings. The earlier private candidate scan had15warnings; these are distinct recorded scans. |
-| API build | Passed; reported124.5kBbundle. |
-| Workflow syntax | actionlint passed. |
-| Native/web source exports | The exact reviewed frontend candidate previously passed iOS, Android and web export. Subsequent local support changes are package scripts, CI, README/TODO and skill sources, not mobile screen/media code. This is not a signed store build or physical-device test. |
-| Read-only integration review | No source-level logout/schema/recovery/CI crosswiring regression found; documentation/count/status follow-ups were closed. |
+| Check                        | Actual result                                                                                                                                                                                                                                                         |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| TypeScript                   | Passed.                                                                                                                                                                                                                                                               |
+| Full unit suite              | 11files /92tests passed with real credentials removed.                                                                                                                                                                                                                |
+| ESLint                       | 116files scanned; zero errors /16warnings. The earlier private candidate scan had15warnings; these are distinct recorded scans.                                                                                                                                       |
+| API build                    | Passed; reported124.5kBbundle.                                                                                                                                                                                                                                        |
+| Workflow syntax              | actionlint passed.                                                                                                                                                                                                                                                    |
+| Native/web source exports    | The exact reviewed frontend candidate previously passed iOS, Android and web export. Subsequent local support changes are package scripts, CI, README/TODO and skill sources, not mobile screen/media code. This is not a signed store build or physical-device test. |
+| Read-only integration review | No source-level logout/schema/recovery/CI crosswiring regression found; documentation/count/status follow-ups were closed.                                                                                                                                            |
 
 ## Current read-only API verification
 
 The utility derived all14current query procedures with no definition/access-classification drift. Actual current public Preview verification completed **nine positive query reads**, **two separate anonymous checks**, **zero failed checks**, and **five incomplete protected/context-dependent positive checks**. Existing public IDs were discovered through public lists only; no user/session/conversation/stream fixture or mutation was created for verification.
 
-| Procedure | Positive coverage |
-| --- | --- |
-| social.feed | Passed |
-| social.circles | Passed |
-| social.circle | Passed using existing public circle |
-| social.profiles | Passed |
-| social.profile | Passed using existing public profile |
-| social.members | Passed using existing public circle |
-| social.comments | Passed using existing public post |
-| live.list | Passed |
-| system.health | Passed; supplementary, not sole readiness proof |
-| auth.me | Authorized positive check incomplete; anonymous-null state passed |
-| social.conversations | Authorized positive check incomplete; anonymous denial passed |
-| social.messages | Incomplete without authorized conversation context |
-| live.signals | Incomplete without authorized existing stream/viewer context |
-| live.chat | Incomplete without authorized existing stream/viewer context |
+| Procedure            | Positive coverage                                                 |
+| -------------------- | ----------------------------------------------------------------- |
+| social.feed          | Passed                                                            |
+| social.circles       | Passed                                                            |
+| social.circle        | Passed using existing public circle                               |
+| social.profiles      | Passed                                                            |
+| social.profile       | Passed using existing public profile                              |
+| social.members       | Passed using existing public circle                               |
+| social.comments      | Passed using existing public post                                 |
+| live.list            | Passed                                                            |
+| system.health        | Passed; supplementary, not sole readiness proof                   |
+| auth.me              | Authorized positive check incomplete; anonymous-null state passed |
+| social.conversations | Authorized positive check incomplete; anonymous denial passed     |
+| social.messages      | Incomplete without authorized conversation context                |
+| live.signals         | Incomplete without authorized existing stream/viewer context      |
+| live.chat            | Incomplete without authorized existing stream/viewer context      |
 
 Strict full-coverage status is deliberately **incomplete**, not falsely successful. Protected/provider/cookie/native/multi-instance and active-live end-to-end validation still require real authorized context. Durable session code paths have synthetic regression coverage; no test session was minted in the shared database. Production-scale streaming, TURN and store submission remain outside this rollout.
 
 ## Source synchronization
 
-The Manus-managed mobile repository remains canonical and the separate `mattwms76/Circles` copy will receive the matching source tree through ordinary non-force commits. Commit references and the actual GitHub run result are recorded after push completion; pending synchronization or CI must not be confused with successful publication. The current app is available in Preview; no signed release/store publication is implied.
+The Manus-managed mobile repository remains canonical. The implementation was saved at `535aafd` and the identical source tree was pushed to the separate `mattwms76/Circles` repository at `52ee563f92fd435df639f360377a2f56e32defda`, using ordinary non-force commits. Both source copies and the copied skill utility bytes were verified equal. No repository ownership/visibility transition or store publication occurred.
+
+All four jobs in [GitHub run39624391424](https://github.com/mattwms76/Circles/actions/runs/39624391424) are confirmed completed successfully: environment/TypeScript/ESLint/tests/API build, Android export, iOS export and web export. Five non-expired test/API/platform artifacts were verified. GitHub's aggregate run status was still `in_progress` at the last inspection despite every listed job having passed; no completed aggregate conclusion is claimed. The local watcher was stopped after recording all job results, leaving the GitHub run untouched.
+
+The final follow-up commit restores prior TODO history and records these implementation results; it changes only Markdown and skips CI, rather than rerunning unchanged application code. Current app/health/data are available in Preview. Five protected/active-context query checks and real provider/native/multi-instance logout validation remain incomplete, and users with legacy sessions must sign in again.
