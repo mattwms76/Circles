@@ -17,34 +17,15 @@ type Signal = {
   payload: string;
 };
 
-type LiveApi = {
-  live: {
-    join: { mutate(input: { streamId: number }): Promise<{ hostId: number }> };
-    leave: { mutate(input: { streamId: number }): Promise<{ success: true }> };
-    end: { mutate(input: { streamId: number }): Promise<{ success: true }> };
-    heartbeat: {
-      mutate(input: {
-        streamId: number;
-        ready?: boolean;
-      }): Promise<{ success: true }>;
-    };
-    signals: {
-      query(input: { streamId: number; afterId?: number }): Promise<Signal[]>;
-    };
-    signal: {
-      mutate(input: {
-        streamId: number;
-        toId: number;
-        kind: "offer" | "answer" | "ice";
-        payload: string;
-      }): Promise<{ success: true }>;
-    };
-  };
-};
-
 type PeerState = {
   connection: RTCPeerConnection;
   pendingIce: RTCIceCandidateInit[];
+};
+
+type DeferredTeardown = {
+  streamId: number;
+  host: boolean;
+  controller: AbortController;
 };
 
 const ICE_CONFIGURATION: RTCConfiguration = {
@@ -96,25 +77,32 @@ export default function LiveMedia({
   const localStreamRef = useRef<MediaStream | null>(null);
   const peersRef = useRef<Map<number, PeerState>>(new Map());
   const callbackRef = useRef({ onError, onReady });
-  const lifecycleRef = useRef(0);
-  const clientRef = useRef<LiveApi | null>(null);
+  const deferredTeardownRef = useRef<DeferredTeardown | null>(null);
+  const [api] = useState(createTRPCClient);
   const [status, setStatus] = useState(
     host ? "Preparing camera…" : "Joining live stream…",
   );
-
-  if (!clientRef.current) {
-    clientRef.current = createTRPCClient() as unknown as LiveApi;
-  }
 
   useEffect(() => {
     callbackRef.current = { onError, onReady };
   }, [onError, onReady]);
 
   useEffect(() => {
-    const api = clientRef.current;
-    if (!api) return;
-
-    const lifecycle = ++lifecycleRef.current;
+    const previousTeardown = deferredTeardownRef.current;
+    if (
+      previousTeardown?.streamId === streamId &&
+      previousTeardown.host === host
+    ) {
+      previousTeardown.controller.abort();
+    }
+    const teardownController = new AbortController();
+    deferredTeardownRef.current = {
+      streamId,
+      host,
+      controller: teardownController,
+    };
+    const localVideo = localVideoRef.current;
+    const remoteVideo = remoteVideoRef.current;
     let active = true;
     let joined = false;
     let polling = false;
@@ -207,9 +195,9 @@ export default function LiveMedia({
       connection.ontrack = (event) => {
         const stream = event.streams[0];
         if (!stream || !event.track) return;
-        if (remoteVideoRef.current) {
-          remoteVideoRef.current.srcObject = stream;
-          void remoteVideoRef.current.play().catch(() => undefined);
+        if (remoteVideo) {
+          remoteVideo.srcObject = stream;
+          void remoteVideo.play().catch(() => undefined);
         }
         if (active && !viewerMediaReady) {
           viewerMediaReady = true;
@@ -307,6 +295,13 @@ export default function LiveMedia({
       }
     };
 
+    let hostedStreamEnded = false;
+    const endHostedStream = () => {
+      if (hostedStreamEnded) return;
+      hostedStreamEnded = true;
+      void api.live.end.mutate({ streamId }).catch(() => undefined);
+    };
+
     const initialise = async () => {
       try {
         await api.live.join.mutate({ streamId });
@@ -323,9 +318,9 @@ export default function LiveMedia({
             return;
           }
           localStreamRef.current = stream;
-          if (localVideoRef.current) {
-            localVideoRef.current.srcObject = stream;
-            void localVideoRef.current.play().catch(() => undefined);
+          if (localVideo) {
+            localVideo.srcObject = stream;
+            void localVideo.play().catch(() => undefined);
           }
           // Do not expose this stream to viewers until camera capture has really
           // completed and the server has accepted the host heartbeat.
@@ -346,16 +341,13 @@ export default function LiveMedia({
         }
       } catch (error) {
         report(error);
-        if (host) {
-          void api.live.end.mutate({ streamId }).catch(() => undefined);
+        if (host && !teardownController.signal.aborted) {
+          endHostedStream();
         }
       }
     };
 
     const initialisePromise = initialise();
-    const endHostedStream = () => {
-      void api.live.end.mutate({ streamId }).catch(() => undefined);
-    };
     const onPageHide = () => {
       if (host) endHostedStream();
     };
@@ -373,27 +365,25 @@ export default function LiveMedia({
       const localStream = localStreamRef.current;
       localStreamRef.current = null;
       localStream?.getTracks().forEach((track) => track.stop());
-      if (localVideoRef.current) localVideoRef.current.srcObject = null;
-      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+      if (localVideo) localVideo.srcObject = null;
+      if (remoteVideo) remoteVideo.srcObject = null;
 
-      // Defer leave until join settles. In React strict-mode's effect replay, a
-      // newer lifecycle adopts the same durable membership rather than racing a
-      // stale leave against its fresh join.
+      // Wait for an in-flight join before leaving. A matching Strict Mode replay
+      // aborts this effect-owned teardown during its next setup; a true unmount
+      // or stream change still releases the membership after join settles.
       if (!host) {
         void initialisePromise.then(async () => {
-          if (joined && lifecycleRef.current === lifecycle) {
+          if (joined && !teardownController.signal.aborted) {
             await api.live.leave.mutate({ streamId }).catch(() => undefined);
           }
         });
       } else {
-        // A new strict-mode setup increments the lifecycle before this deferred
-        // task executes. A real unmount still ends even if getUserMedia is pending.
-        setTimeout(() => {
-          if (lifecycleRef.current === lifecycle) endHostedStream();
-        }, 0);
+        void initialisePromise.then(() => {
+          if (!teardownController.signal.aborted) endHostedStream();
+        });
       }
     };
-  }, [host, streamId]);
+  }, [api, host, streamId]);
 
   return (
     <div>

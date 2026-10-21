@@ -1,6 +1,6 @@
 import "@/global.css";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Stack } from "expo-router";
+import { router, Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -69,6 +69,16 @@ export default function RootLayout() {
   );
   const [trpcClient] = useState(() => createTRPCClient());
 
+  const resetProtectedNavigation = useCallback(() => {
+    try {
+      if (router.canDismiss()) router.dismissAll();
+      router.replace("/");
+    } catch {
+      // The route tree may still be mounting; cache and credential cleanup has
+      // already established the local guest boundary.
+    }
+  }, []);
+
   // Ensure minimum 8px padding for top and bottom on mobile
   const providerInitialMetrics = useMemo(() => {
     const metrics = initialWindowMetrics ?? {
@@ -89,7 +99,10 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <trpc.Provider client={trpcClient} queryClient={queryClient}>
         <QueryClientProvider client={queryClient}>
-          <CirclesProvider>
+          <CirclesProvider
+            queryClient={queryClient}
+            resetProtectedNavigation={resetProtectedNavigation}
+          >
             {/* Default to hiding native headers so raw route segments don't appear (e.g. "(tabs)", "products/[id]"). */}
             {/* If a screen needs the native header, explicitly enable it and set a human title via Stack.Screen options. */}
             {/* in order for ios apps tab switching to work properly, use presentation: "fullScreenModal" for login page, whenever you decide to use presentation: "modal*/}

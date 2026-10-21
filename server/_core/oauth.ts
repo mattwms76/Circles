@@ -1,13 +1,16 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { parse as parseCookieHeader } from "cookie";
-import { ONE_YEAR_MS } from "../../shared/const.js";
+import { APPLICATION_SESSION_TTL_MS } from "../../shared/const.js";
 import type { Express, Request, Response } from "express";
 import { getUserByOpenId, upsertUser } from "../db";
-import { getSessionCookieOptions } from "./cookies";
+import {
+  APPLICATION_SESSION_COOKIE_NAME,
+  clearAcceptedSessionCookies,
+  getSessionCookieOptions,
+} from "./cookies";
 import { ENV } from "./env";
 import { sdk } from "./sdk";
 
-const APPLICATION_SESSION_COOKIE = "webdev_app_session";
 const OAUTH_STATE_COOKIE = "manus_oauth_state";
 const OAUTH_CALLBACK_PATH = "/api/oauth/callback";
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
@@ -426,7 +429,7 @@ async function completeOAuthLogin(code: string, state: string) {
   const user = await syncUser(userInfo);
   const sessionToken = await sdk.createSessionToken(userInfo.openId!, {
     name: userInfo.name || "",
-    expiresInMs: ONE_YEAR_MS,
+    expiresInMs: APPLICATION_SESSION_TTL_MS,
   });
   return { sessionToken, user };
 }
@@ -436,9 +439,9 @@ function setApplicationSession(
   res: Response,
   sessionToken: string,
 ) {
-  res.cookie(APPLICATION_SESSION_COOKIE, sessionToken, {
+  res.cookie(APPLICATION_SESSION_COOKIE_NAME, sessionToken, {
     ...getSessionCookieOptions(req),
-    maxAge: ONE_YEAR_MS,
+    maxAge: APPLICATION_SESSION_TTL_MS,
   });
 }
 
@@ -538,12 +541,17 @@ export function registerOAuthRoutes(app: Express) {
     }
   });
 
-  app.post("/api/auth/logout", (req: Request, res: Response) => {
-    res.clearCookie(APPLICATION_SESSION_COOKIE, {
-      ...getSessionCookieOptions(req),
-      maxAge: -1,
-    });
-    res.json({ success: true });
+  app.post("/api/auth/logout", async (req: Request, res: Response) => {
+    try {
+      await sdk.revokeRequestSessions(req);
+      clearAcceptedSessionCookies(req, res);
+      res.json({ success: true });
+    } catch {
+      // Clear this browser's accepted authorities even when durable revocation
+      // fails, but never report success for a copied credential we could not revoke.
+      clearAcceptedSessionCookies(req, res);
+      res.status(503).json({ error: "Logout is temporarily unavailable" });
+    }
   });
 
   // Get current authenticated user - works with web session cookies and native Bearer tokens.

@@ -1,9 +1,12 @@
 import { parse as parseCookieHeader } from "cookie";
-import type { CookieOptions, Request, RequestHandler } from "express";
+import type { CookieOptions, Request, RequestHandler, Response } from "express";
 import {
   LEGACY_COOKIE_NAME,
   SESSION_COOKIE_SUFFIX,
 } from "../../shared/const.js";
+
+/** The application cookie accepted before the context-specific SDK session cookie. */
+export const APPLICATION_SESSION_COOKIE_NAME = "webdev_app_session";
 
 function isSecureRequest(req: Request) {
   if (req.protocol === "https") return true;
@@ -11,7 +14,9 @@ function isSecureRequest(req: Request) {
   const forwardedProto = req.headers["x-forwarded-proto"];
   if (!forwardedProto) return false;
 
-  const protoList = Array.isArray(forwardedProto) ? forwardedProto : forwardedProto.split(",");
+  const protoList = Array.isArray(forwardedProto)
+    ? forwardedProto
+    : forwardedProto.split(",");
 
   return protoList.some((proto) => proto.trim().toLowerCase() === "https");
 }
@@ -51,6 +56,20 @@ export function getSessionCookieName(req: Request): string {
   return isSecureRequest(req)
     ? `__Host-manus_session_${SESSION_COOKIE_SUFFIX}`
     : `manus_local_session_${SESSION_COOKIE_SUFFIX}`;
+}
+
+/**
+ * Expires every cookie name that authenticateRequest accepts for this request.
+ *
+ * Cookie attributes must match the original host-only secure Preview cookie or
+ * the HTTP-local cookie for browsers to replace it. This deliberately leaves
+ * non-session platform/access-gate cookies alone.
+ */
+export function clearAcceptedSessionCookies(req: Request, res: Response): void {
+  const options = getSessionCookieOptions(req);
+
+  res.clearCookie(APPLICATION_SESSION_COOKIE_NAME, options);
+  res.clearCookie(getSessionCookieName(req), options);
 }
 
 export function getLegacySessionCookieOptions(

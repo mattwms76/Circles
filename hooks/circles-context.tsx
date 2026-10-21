@@ -1,8 +1,19 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import type { QueryClient } from "@tanstack/react-query";
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
 import { Modal, Pressable, View } from "react-native";
 import { trpc } from "@/lib/trpc";
 import { startOAuthLogin } from "@/constants/oauth";
 import { Button, C, IconButton, Logo, T } from "@/components/circles-ui";
+import * as Api from "@/lib/_core/api";
+import * as Auth from "@/lib/_core/auth";
+import { logoutAndPurgeClientSession } from "@/lib/client-session";
+import { clearPrivateImageCaches } from "@/lib/media-cache";
 
 type State = {
   user: { id: number; name: string | null } | null;
@@ -11,9 +22,18 @@ type State = {
   notify: (message: string) => void;
   refresh: () => void;
   showLogin: () => void;
+  logout: () => Promise<void>;
 };
 const Context = createContext<State | null>(null);
-export function CirclesProvider({ children }: { children: React.ReactNode }) {
+export function CirclesProvider({
+  children,
+  queryClient,
+  resetProtectedNavigation,
+}: {
+  children: React.ReactNode;
+  queryClient: QueryClient;
+  resetProtectedNavigation: () => void;
+}) {
   const auth = trpc.auth.me.useQuery(undefined, {
     refetchInterval: 15000,
     retry: false,
@@ -21,14 +41,39 @@ export function CirclesProvider({ children }: { children: React.ReactNode }) {
   const [login, setLogin] = useState(false);
   const [notice, setNotice] = useState("");
   const [signing, setSigning] = useState(false);
+  const loginVisible = login && !auth.data;
+  const refetchAuth = auth.refetch;
   useEffect(() => {
     if (!notice) return;
     const timer = setTimeout(() => setNotice(""), 4000);
     return () => clearTimeout(timer);
   }, [notice]);
-  useEffect(() => {
-    if (auth.data) setLogin(false);
-  }, [auth.data]);
+
+  const refresh = useCallback(() => {
+    void refetchAuth();
+  }, [refetchAuth]);
+
+  const logout = useCallback(async () => {
+    // Capture the native bearer before SecureStore deletion. Api.logout uses this
+    // explicit value instead of reading local storage after the purge starts.
+    const nativeBearer = await Auth.getSessionToken();
+    setLogin(false);
+    await logoutAndPurgeClientSession(
+      () => Api.logout(nativeBearer),
+      queryClient,
+      {
+        clearLocalCredentials: async () => {
+          await Promise.allSettled([
+            Auth.removeSessionToken(),
+            Auth.clearUserInfo(),
+          ]);
+        },
+        clearPrivateImageCaches,
+        resetProtectedNavigation,
+      },
+    );
+  }, [queryClient, resetProtectedNavigation]);
+
   const requireAuth = (action?: () => void) => {
     if (!auth.data) {
       setLogin(true);
@@ -44,10 +89,9 @@ export function CirclesProvider({ children }: { children: React.ReactNode }) {
         authLoading: auth.isLoading,
         requireAuth,
         notify: setNotice,
-        refresh: () => {
-          void auth.refetch();
-        },
+        refresh,
         showLogin: () => setLogin(true),
+        logout,
       }}
     >
       {children}
@@ -78,7 +122,7 @@ export function CirclesProvider({ children }: { children: React.ReactNode }) {
       )}
       <Modal
         transparent
-        visible={login}
+        visible={loginVisible}
         animationType="fade"
         onRequestClose={() => setLogin(false)}
       >

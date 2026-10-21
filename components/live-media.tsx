@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { createTRPCClient } from "@/lib/trpc";
 
@@ -13,15 +13,7 @@ export type LiveMediaProps = {
 export default function LiveMedia({ streamId, host, onError }: LiveMediaProps) {
   const message = "Live video is not supported on this platform.";
   const callbackRef = useRef({ onError });
-  const clientRef = useRef<{
-    live: { end: { mutate(input: { streamId: number }): Promise<unknown> } };
-  } | null>(null);
-
-  if (!clientRef.current) {
-    clientRef.current = createTRPCClient() as unknown as NonNullable<
-      typeof clientRef.current
-    >;
-  }
+  const [client] = useState(createTRPCClient);
 
   useEffect(() => {
     callbackRef.current = { onError };
@@ -30,12 +22,10 @@ export default function LiveMedia({ streamId, host, onError }: LiveMediaProps) {
   useEffect(() => {
     callbackRef.current.onError?.(message);
     if (host) {
-      void clientRef.current?.live.end
-        .mutate({ streamId })
-        .catch(() => undefined);
+      void client.live.end.mutate({ streamId }).catch(() => undefined);
     }
     // Callback identities intentionally do not restart this lifecycle.
-  }, [host, streamId]);
+  }, [client, host, streamId]);
 
   return (
     <View style={styles.frame} accessibilityRole="alert">

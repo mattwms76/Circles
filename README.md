@@ -22,6 +22,21 @@ The [GitHub CI workflow](.github/workflows/ci.yml) runs on `main` pushes, pull r
 
 The [repository audit](docs/repository-audit.md) records the verified original 155-file upload and the environment/CI improvements added afterward.
 
+## Durable sessions and API recovery
+
+Authentication requires a durable session row bound to the user, application and expiry. The session identifier is random, only its fingerprint is stored, and the maximum lifetime is12hours. Missing/revoked/expired rows or unavailable storage fail closed. REST and tRPC logout revoke every valid credential presented in that request; client logout captures the native bearer before clearing local credentials and account caches. Remote revocation failure is reported honestly after local cleanup. This is not account-wide logout or cancellation of requests already authorized.
+
+Apply and verify `drizzle/0003_application_sessions.sql` before serving this auth build. Existing stateless credentials must sign in again. Keep the app identity and signing key stable: encrypted media currently derives from that key. Do not rotate it as a logout workaround, and do not run unrelated historical remediation migrations over this source.
+
+The [API recovery guide](docs/api-recovery.md) documents `pnpm recover:api`, including guarded local-manager dry-run/apply and DB-free `--verify-only` after a Manus-controlled runtime refresh/restart. The utility discovers14reviewed query procedures, never invokes mutations to fabricate test context and fails strict mode on missing real authentication, existing IDs or viewer context. Example public verification (replace the origin with the current configured result):
+
+```sh
+pnpm recover:api --verify-only --project-dir /absolute/path/to/Circles \
+  --api-base-url https://current-api-origin.example --strict
+```
+
+The versioned [Expo/tRPC Recovery and Security skill](skills/expo-trpc-recovery-security/SKILL.md) contains the reusable workflow, tested utility and safe manifest template. Use its SKILL.md attachment with Manus's Add to My Skills action when installing it into another session/account; saving the source folder is not an account-installation claim. Its bundled script needs an explicit current app `--project-dir` and reviewed definitions if adapted to another app.
+
 ## Product areas
 
 `app/(tabs)/` contains Home, Discover, Circles, Messages and Profile. `app/circle/[id].tsx` connects circle feeds, membership and governance. `app/chat/[id].tsx` connects private and group conversations. `app/create.tsx` handles text/photo/video posts, circle creation and broadcast setup. `app/live/` contains actual live discovery, WebRTC video and audience chat.
@@ -46,6 +61,7 @@ Uploads accept JPEG, PNG, WebP and MP4 up to 20 MB. Other native media formats r
 
 ```sh
 pnpm check
+pnpm lint:ci
 pnpm test
 pnpm build
 ```

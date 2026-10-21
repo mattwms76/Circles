@@ -2,30 +2,25 @@ import { Platform } from "react-native";
 import { getApiRequestUrl } from "@/constants/oauth";
 import * as Auth from "./auth";
 
-type ApiResponse<T> = {
-  data?: T;
-  error?: string;
-};
-
 export async function apiCall<T>(
   endpoint: string,
   options: RequestInit = {},
 ): Promise<T> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...((options.headers as Record<string, string>) || {}),
-  };
+  const headers = new Headers(options.headers);
+  if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
 
   // Determine the auth method:
   // - Native platform: use stored session token as Bearer auth
   // - Web (including iframe): use cookie-based auth (browser handles automatically)
   //   Cookie is set on backend domain via POST /api/auth/session after receiving token via postMessage
   if (Platform.OS !== "web") {
-    const sessionToken = await Auth.getSessionToken();
     console.log("[API] Native request prepared");
-    if (sessionToken) {
-      headers["Authorization"] = `Bearer ${sessionToken}`;
-      console.log("[API] Authorization header added");
+    if (!headers.has("Authorization")) {
+      const sessionToken = await Auth.getSessionToken();
+      if (sessionToken) {
+        headers.set("Authorization", `Bearer ${sessionToken}`);
+        console.log("[API] Authorization header added");
+      }
     }
   } else {
     console.log("[API] Web request prepared");
@@ -100,9 +95,12 @@ export async function exchangeOAuthCode(
 }
 
 // Logout
-export async function logout(): Promise<void> {
+export async function logout(nativeBearer?: string | null): Promise<void> {
   await apiCall<void>("/api/auth/logout", {
     method: "POST",
+    headers: nativeBearer
+      ? { Authorization: `Bearer ${nativeBearer}` }
+      : undefined,
   });
 }
 

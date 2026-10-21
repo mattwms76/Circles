@@ -59,6 +59,9 @@ jobs:
       - name: TypeScript check
         run: pnpm check
 
+      - name: ESLint error check
+        run: pnpm lint:ci
+
       - name: Run unit and regression tests
         run: |
           mkdir -p artifacts/test-results

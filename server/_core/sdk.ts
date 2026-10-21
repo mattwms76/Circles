@@ -1,4 +1,8 @@
-import { AXIOS_TIMEOUT_MS, ONE_YEAR_MS } from "../../shared/const.js";
+import { randomBytes } from "node:crypto";
+import {
+  APPLICATION_SESSION_TTL_MS,
+  AXIOS_TIMEOUT_MS,
+} from "../../shared/const.js";
 import { ForbiddenError } from "../../shared/_core/errors.js";
 import axios, { type AxiosInstance } from "axios";
 import { parse as parseCookieHeader } from "cookie";
@@ -6,8 +10,16 @@ import type { Request } from "express";
 import { SignJWT, jwtVerify } from "jose";
 import type { User } from "../../drizzle/schema";
 import * as db from "../db";
+import {
+  applicationSessionStore,
+  type ApplicationSessionBinding,
+  type ApplicationSessionStore,
+} from "./application-sessions";
 import { ENV } from "./env";
-import { currentSessionCookie } from "./cookies";
+import {
+  APPLICATION_SESSION_COOKIE_NAME,
+  currentSessionCookie,
+} from "./cookies";
 import type {
   ExchangeTokenRequest,
   ExchangeTokenResponse,
@@ -24,6 +36,10 @@ export type SessionPayload = {
   appId: string;
   name: string;
 };
+
+type VerifiedApplicationSession = SessionPayload & ApplicationSessionBinding;
+
+const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{32,128}$/;
 
 const EXCHANGE_TOKEN_PATH = `/webdev.v1.WebDevAuthPublicService/ExchangeToken`;
 const GET_USER_INFO_PATH = `/webdev.v1.WebDevAuthPublicService/GetUserInfo`;
@@ -100,11 +116,14 @@ const createOAuthHttpClient = (): AxiosInstance =>
     timeout: AXIOS_TIMEOUT_MS,
   });
 
-class SDKServer {
+export class SDKServer {
   private readonly client: AxiosInstance;
   private readonly oauthService: OAuthService;
 
-  constructor(client: AxiosInstance = createOAuthHttpClient()) {
+  constructor(
+    client: AxiosInstance = createOAuthHttpClient(),
+    private readonly sessionStore: ApplicationSessionStore = applicationSessionStore,
+  ) {
     this.client = client;
     this.oauthService = new OAuthService(this.client);
   }
@@ -192,46 +211,59 @@ class SDKServer {
     options: { expiresInMs?: number } = {},
   ): Promise<string> {
     const issuedAt = Date.now();
-    const expiresInMs = options.expiresInMs ?? ONE_YEAR_MS;
+    const requestedLifetime = options.expiresInMs ?? APPLICATION_SESSION_TTL_MS;
+    if (!Number.isFinite(requestedLifetime) || requestedLifetime <= 0) {
+      throw new Error("Application session lifetime must be positive");
+    }
+    const expiresInMs = Math.min(requestedLifetime, APPLICATION_SESSION_TTL_MS);
     const expirationSeconds = Math.floor((issuedAt + expiresInMs) / 1000);
+    const sessionId = randomBytes(32).toString("base64url");
     const secretKey = this.getSessionSecret();
 
-    return new SignJWT({
+    const token = await new SignJWT({
       openId: payload.openId,
       appId: payload.appId,
       name: payload.name,
     })
       .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+      .setIssuedAt(Math.floor(issuedAt / 1000))
+      .setJti(sessionId)
       .setExpirationTime(expirationSeconds)
       .sign(secretKey);
+    // A token is returned only after durable authority exists. If the store is
+    // absent (including before its migration), login fails rather than issuing
+    // another self-contained, non-revocable credential.
+    await this.sessionStore.create({
+      sessionId,
+      openId: payload.openId,
+      appId: payload.appId,
+      expiresAt: new Date(expirationSeconds * 1000),
+    });
+    return token;
   }
 
-  async verifySession(
-    cookieValue: string | undefined | null,
-  ): Promise<{ openId: string; appId: string; name: string } | null> {
-    if (!cookieValue) {
-      console.warn("[Auth] Missing session cookie");
-      return null;
-    }
-
+  private async verifySignedSession(
+    token: string | undefined | null,
+  ): Promise<VerifiedApplicationSession | null> {
+    if (!token) return null;
     try {
       const secretKey = this.getSessionSecret();
-      const { payload } = await jwtVerify(cookieValue, secretKey, {
+      const { payload } = await jwtVerify(token, secretKey, {
         algorithms: ["HS256"],
       });
-      const { openId, appId, name } = payload as Record<string, unknown>;
+      const { openId, appId, name, jti } = payload as Record<string, unknown>;
 
       if (
         !isNonEmptyString(openId) ||
         !isNonEmptyString(appId) ||
-        !isNonEmptyString(name)
+        typeof name !== "string" ||
+        !isNonEmptyString(jti) ||
+        !SESSION_ID_PATTERN.test(jti)
       ) {
-        console.warn("[Auth] Session payload missing required fields");
         return null;
       }
 
       if (appId !== ENV.appId) {
-        console.warn("[Auth] Session payload app mismatch");
         return null;
       }
 
@@ -239,10 +271,70 @@ class SDKServer {
         openId,
         appId,
         name,
+        sessionId: jti,
       };
     } catch {
+      return null;
+    }
+  }
+
+  async verifySession(
+    cookieValue: string | undefined | null,
+  ): Promise<{ openId: string; appId: string; name: string } | null> {
+    const session = await this.verifySignedSession(cookieValue);
+    if (!session) {
       console.warn("[Auth] Session verification failed");
       return null;
+    }
+
+    try {
+      const persisted = await this.sessionStore.findActive(session, new Date());
+      if (
+        !persisted ||
+        persisted.sessionId !== session.sessionId ||
+        persisted.openId !== session.openId ||
+        persisted.appId !== session.appId ||
+        persisted.revokedAt !== null ||
+        persisted.expiresAt <= new Date()
+      ) {
+        console.warn("[Auth] Session is inactive");
+        return null;
+      }
+      return {
+        openId: session.openId,
+        appId: session.appId,
+        name: session.name,
+      };
+    } catch {
+      // Database errors and a missing pre-cutover table are authentication
+      // failures; SDK/OAuth fallback must never restore JWT-only authority.
+      console.warn("[Auth] Persistent session validation unavailable");
+      return null;
+    }
+  }
+
+  /** Revokes each distinct valid app credential presented on a logout request. */
+  async revokeRequestSessions(req: Request): Promise<void> {
+    const authHeader = req.headers.authorization || req.headers.Authorization;
+    const bearer =
+      typeof authHeader === "string" && authHeader.startsWith("Bearer ")
+        ? authHeader.slice("Bearer ".length).trim()
+        : undefined;
+    const parsedCookies = req.headers.cookie
+      ? parseCookieHeader(req.headers.cookie)
+      : {};
+    const candidates = [
+      bearer,
+      parsedCookies[APPLICATION_SESSION_COOKIE_NAME],
+      currentSessionCookie(req),
+    ];
+
+    const seen = new Set<string>();
+    for (const candidate of candidates) {
+      if (!candidate || seen.has(candidate)) continue;
+      seen.add(candidate);
+      const session = await this.verifySignedSession(candidate);
+      if (session) await this.sessionStore.revoke(session, new Date());
     }
   }
 
@@ -279,7 +371,7 @@ class SDKServer {
     }
 
     const exactApplicationCookie = req.headers.cookie
-      ? parseCookieHeader(req.headers.cookie).webdev_app_session
+      ? parseCookieHeader(req.headers.cookie)[APPLICATION_SESSION_COOKIE_NAME]
       : undefined;
     const sessionCookie =
       token || exactApplicationCookie || currentSessionCookie(req);
