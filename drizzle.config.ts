@@ -6,7 +6,11 @@ if (!connectionString) {
 }
 
 export default defineConfig({
-  schema: ["./drizzle/schema.ts", "./drizzle/live-schema.ts"],
+  schema: [
+    "./drizzle/schema.ts",
+    "./drizzle/live-schema.ts",
+    "./drizzle/session-schema.ts",
+  ],
   out: "./drizzle",
   dialect: "mysql",
   dbCredentials: {

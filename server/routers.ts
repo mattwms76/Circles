@@ -1,4 +1,5 @@
-import { getSessionCookieName, getSessionCookieOptions } from "./_core/cookies";
+import { clearAcceptedSessionCookies } from "./_core/cookies";
+import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
 import { socialRouter } from "./social-router";
@@ -11,19 +12,17 @@ export const appRouter = router({
   system: systemRouter,
   auth: router({
     me: publicProcedure.query((opts) => opts.ctx.user),
-    logout: publicProcedure.mutation(({ ctx }) => {
-      const cookieOptions = getSessionCookieOptions(ctx.req);
-      ctx.res.clearCookie("webdev_app_session", {
-        ...cookieOptions,
-        maxAge: -1,
-      });
-      ctx.res.clearCookie(getSessionCookieName(ctx.req), {
-        ...cookieOptions,
-        maxAge: -1,
-      });
-      return {
-        success: true,
-      } as const;
+    logout: publicProcedure.mutation(async ({ ctx }) => {
+      try {
+        await sdk.revokeRequestSessions(ctx.req);
+        return {
+          success: true,
+        } as const;
+      } finally {
+        // Browser authority is removed even when persistent revocation fails;
+        // the thrown failure prevents a false successful logout response.
+        clearAcceptedSessionCookies(ctx.req, ctx.res);
+      }
     }),
   }),
 

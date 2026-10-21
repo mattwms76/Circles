@@ -112,6 +112,46 @@ function messageFor(error: unknown): string {
     : "Unable to connect to the live stream.";
 }
 
+function isNativeWebRTC(value: unknown): value is NativeWebRTC {
+  if (!value || typeof value !== "object") return false;
+  const mediaDevices = Reflect.get(value, "mediaDevices");
+  return (
+    typeof Reflect.get(value, "RTCPeerConnection") === "function" &&
+    typeof Reflect.get(value, "RTCIceCandidate") === "function" &&
+    typeof Reflect.get(value, "RTCSessionDescription") === "function" &&
+    typeof Reflect.get(value, "RTCView") === "function" &&
+    !!mediaDevices &&
+    typeof mediaDevices === "object" &&
+    typeof Reflect.get(mediaDevices, "getUserMedia") === "function"
+  );
+}
+
+type LifecycleCoordinator = {
+  begin: () => symbol;
+  isCurrent: (token: symbol) => boolean;
+  complete: (token: symbol) => void;
+};
+
+/**
+ * Coordinates an asynchronous setup/teardown pair without reading a React ref
+ * during render. A replacement effect adopts the active live membership before
+ * a previous setup has settled (including React strict-mode effect replay).
+ */
+function createLifecycleCoordinator(): LifecycleCoordinator {
+  let current: symbol | null = null;
+  return {
+    begin: () => {
+      const token = Symbol("live-media-lifecycle");
+      current = token;
+      return token;
+    },
+    isCurrent: (token) => current === token,
+    complete: (token) => {
+      if (current === token) current = null;
+    },
+  };
+}
+
 function parseDescription(
   payload: string,
   type: "offer" | "answer",
@@ -151,57 +191,39 @@ export default function LiveMedia({
   const localStreamRef = useRef<NativeStream | null>(null);
   const peersRef = useRef<Map<number, PeerState>>(new Map());
   const callbackRef = useRef({ onError, onReady });
-  const lifecycleRef = useRef(0);
-  const clientRef = useRef<LiveApi | null>(null);
+  const [api] = useState<LiveApi>(
+    () => createTRPCClient() as unknown as LiveApi,
+  );
+  const [lifecycle] = useState(createLifecycleCoordinator);
   const [RTCView, setRTCView] =
     useState<React.ComponentType<RTCViewProps> | null>(null);
   const [streamURL, setStreamURL] = useState<string | null>(null);
   const [status, setStatus] = useState(
     host ? "Preparing camera…" : "Joining live stream…",
   );
-
-  if (!clientRef.current) {
-    clientRef.current = createTRPCClient() as unknown as LiveApi;
-  }
+  const expoGoMessage =
+    Constants.appOwnership === "expo" ||
+    Constants.executionEnvironment === "storeClient"
+      ? "Live video needs a development or release build; Expo Go cannot load react-native-webrtc."
+      : null;
+  const displayedStatus = expoGoMessage ?? status;
 
   useEffect(() => {
     callbackRef.current = { onError, onReady };
   }, [onError, onReady]);
 
   useEffect(() => {
-    const api = clientRef.current;
-    if (!api) return;
-
-    const isExpoGo =
-      Constants.appOwnership === "expo" ||
-      Constants.executionEnvironment === "storeClient";
-    if (isExpoGo) {
-      const message =
-        "Live video needs a development or release build; Expo Go cannot load react-native-webrtc.";
-      setStatus(message);
-      callbackRef.current.onError?.(message);
+    if (expoGoMessage) {
+      callbackRef.current.onError?.(expoGoMessage);
       if (host) void api.live.end.mutate({ streamId }).catch(() => undefined);
       return;
     }
 
     let webRtc: NativeWebRTC;
-    try {
-      // Requiring only after the Expo Go guard prevents an unlinked native module
-      // from being evaluated by the stock Expo client.
-      webRtc = require("react-native-webrtc") as NativeWebRTC;
-      setRTCView(() => webRtc.RTCView);
-    } catch {
-      const message =
-        "Live video native support is unavailable. Rebuild the app with the WebRTC config plugin.";
-      setStatus(message);
-      callbackRef.current.onError?.(message);
-      if (host) void api.live.end.mutate({ streamId }).catch(() => undefined);
-      return;
-    }
-
-    const lifecycle = ++lifecycleRef.current;
+    const lifecycleToken = lifecycle.begin();
     let active = true;
     let joined = false;
+    let nativeModuleUnavailable = false;
     let polling = false;
     let pollTimer: ReturnType<typeof setInterval> | undefined;
     let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
@@ -436,7 +458,28 @@ export default function LiveMedia({
       }
     };
 
-    const initialisePromise = initialise();
+    const initialisePromise = (async () => {
+      try {
+        // Dynamic loading remains behind the Expo Go guard, so the stock Expo
+        // client never evaluates an unlinked react-native-webrtc module.
+        const nativeModule: unknown = await import("react-native-webrtc");
+        if (!isNativeWebRTC(nativeModule)) {
+          throw new Error("The native WebRTC module is incomplete.");
+        }
+        webRtc = nativeModule;
+        if (!active) return;
+        setRTCView(() => webRtc.RTCView);
+        await initialise();
+      } catch {
+        if (!active) return;
+        nativeModuleUnavailable = true;
+        const message =
+          "Live video native support is unavailable. Rebuild the app with the WebRTC config plugin.";
+        setStatus(message);
+        callbackRef.current.onError?.(message);
+        if (host) void api.live.end.mutate({ streamId }).catch(() => undefined);
+      }
+    })();
     return () => {
       active = false;
       if (pollTimer) clearInterval(pollTimer);
@@ -447,23 +490,22 @@ export default function LiveMedia({
       localStream?.getTracks().forEach((track) => track.stop());
       setStreamURL(null);
 
-      if (!host) {
-        void initialisePromise.then(async () => {
-          if (joined && lifecycleRef.current === lifecycle) {
-            await api.live.leave.mutate({ streamId }).catch(() => undefined);
-          }
-        });
-      } else {
-        // A new strict-mode setup increments the lifecycle before this deferred
-        // task executes. A real unmount still ends if camera startup is pending.
-        setTimeout(() => {
-          if (lifecycleRef.current === lifecycle) {
-            void api.live.end.mutate({ streamId }).catch(() => undefined);
-          }
-        }, 0);
-      }
+      // Setup must settle before a joined viewer can leave. If another effect
+      // took over meanwhile, it owns the membership and no stale cleanup can
+      // terminate the replacement session.
+      void initialisePromise.then(async () => {
+        if (!lifecycle.isCurrent(lifecycleToken)) return;
+        if (nativeModuleUnavailable) {
+          lifecycle.complete(lifecycleToken);
+        } else if (!host && joined) {
+          await api.live.leave.mutate({ streamId }).catch(() => undefined);
+        } else if (host) {
+          await api.live.end.mutate({ streamId }).catch(() => undefined);
+        }
+        lifecycle.complete(lifecycleToken);
+      });
     };
-  }, [host, streamId]);
+  }, [api, expoGoMessage, host, lifecycle, streamId]);
 
   return (
     <View>
@@ -476,9 +518,9 @@ export default function LiveMedia({
             mirror={host}
           />
         ) : null}
-        {status !== "Live" ? (
+        {displayedStatus !== "Live" ? (
           <View style={styles.overlay}>
-            <Text style={styles.status}>{status}</Text>
+            <Text style={styles.status}>{displayedStatus}</Text>
           </View>
         ) : null}
       </View>

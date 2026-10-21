@@ -25,37 +25,48 @@ function toAuthUser(apiUser: {
   };
 }
 
+async function resolveAuthenticatedUser(): Promise<Auth.User | null> {
+  // Native SecureStore holds only a bearer token. The identity is always
+  // resolved by /api/auth/me, which verifies its JWT and app binding.
+  if (Platform.OS !== "web" && !(await Auth.getSessionToken())) {
+    await Auth.clearUserInfo();
+    return null;
+  }
+
+  const apiUser = await Api.getMe();
+  if (!apiUser) {
+    // A cached profile never establishes an authenticated native session.
+    await Auth.clearUserInfo();
+    return null;
+  }
+
+  return toAuthUser(apiUser);
+}
+
 export function useAuth(options?: UseAuthOptions) {
   const { autoFetch = true } = options ?? {};
   const [user, setUser] = useState<Auth.User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(autoFetch);
   const [error, setError] = useState<Error | null>(null);
+  const [previousAutoFetch, setPreviousAutoFetch] = useState(autoFetch);
+
+  // Derive loading directly from an option transition instead of scheduling a
+  // synchronous state change in the effect that starts validation.
+  if (previousAutoFetch !== autoFetch) {
+    setPreviousAutoFetch(autoFetch);
+    setLoading(autoFetch);
+    if (autoFetch) setError(null);
+  }
 
   const fetchUser = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Native SecureStore holds only a bearer token. The identity is always
-      // resolved by /api/auth/me, which verifies its JWT and app binding.
-      if (Platform.OS !== "web" && !(await Auth.getSessionToken())) {
-        setUser(null);
-        await Auth.clearUserInfo();
-        return;
-      }
-
-      const apiUser = await Api.getMe();
-      if (!apiUser) {
-        setUser(null);
-        // A cached profile never establishes an authenticated native session.
-        await Auth.clearUserInfo();
-        return;
-      }
-
-      const validatedUser = toAuthUser(apiUser);
+      const validatedUser = await resolveAuthenticatedUser();
       setUser(validatedUser);
       // Cache is display-only and is refreshed only after server validation.
-      await Auth.setUserInfo(validatedUser);
+      if (validatedUser) await Auth.setUserInfo(validatedUser);
     } catch (err) {
       setUser(null);
       setError(
@@ -82,12 +93,43 @@ export function useAuth(options?: UseAuthOptions) {
   const isAuthenticated = useMemo(() => Boolean(user), [user]);
 
   useEffect(() => {
-    if (autoFetch) {
-      void fetchUser();
-    } else {
-      setLoading(false);
+    if (!autoFetch) return;
+
+    let active = true;
+
+    async function validateInitialSession() {
+      try {
+        const validatedUser = await resolveAuthenticatedUser();
+
+        if (!active) {
+          // Keep the display-only cache in sync after server validation even
+          // if this hook has unmounted before the response arrives.
+          if (validatedUser) await Auth.setUserInfo(validatedUser);
+          return;
+        }
+
+        setUser(validatedUser);
+        // Cache is display-only and is refreshed only after server validation.
+        if (validatedUser) await Auth.setUserInfo(validatedUser);
+        setError(null);
+      } catch (err) {
+        if (!active) return;
+
+        setUser(null);
+        setError(
+          err instanceof Error ? err : new Error("Failed to validate session"),
+        );
+      } finally {
+        if (active) setLoading(false);
+      }
     }
-  }, [autoFetch, fetchUser]);
+
+    void validateInitialSession();
+
+    return () => {
+      active = false;
+    };
+  }, [autoFetch]);
 
   return {
     user,

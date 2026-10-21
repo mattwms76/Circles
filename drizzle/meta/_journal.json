@@ -22,6 +22,13 @@
       "when": 1792494881232,
       "tag": "0002_dapper_odin",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1792514357000,
+      "tag": "0003_application_sessions",
+      "breakpoints": true
     }
   ]
 }

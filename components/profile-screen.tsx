@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import {
   KeyboardAvoidingView,
   Modal,
@@ -11,8 +11,6 @@ import { Image } from "@/components/media-image";
 import { useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
-import * as Api from "@/lib/_core/api";
-import * as Auth from "@/lib/_core/auth";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppShell } from "./app-shell";
 import { PostCard } from "./post-card";
@@ -30,9 +28,99 @@ import {
   T,
 } from "./circles-ui";
 
+function ProfileEditModal({
+  profile,
+  editorOuterPadding,
+  topInset,
+  bottomInset,
+  saving,
+  onClose,
+  onSave,
+}: {
+  profile: { name: string; handle: string; bio?: string | null };
+  editorOuterPadding: number;
+  topInset: number;
+  bottomInset: number;
+  saving: boolean;
+  onClose: () => void;
+  onSave: (draft: { name: string; handle: string; bio: string }) => void;
+}) {
+  const [name, setName] = useState(profile.name);
+  const [handle, setHandle] = useState(profile.handle);
+  const [bio, setBio] = useState(profile.bio ?? "");
+
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: "#19201B88",
+            justifyContent: "center",
+            alignItems: "center",
+            paddingHorizontal: editorOuterPadding,
+            paddingVertical: Math.max(16, topInset),
+          }}
+        >
+          <ScrollView
+            showsHorizontalScrollIndicator={false}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+            style={{
+              width: "100%",
+              maxWidth: 420,
+              maxHeight: "100%",
+              backgroundColor: C.paper,
+              borderRadius: 23,
+            }}
+            contentContainerStyle={{
+              padding: 20,
+              gap: 16,
+              paddingBottom: Math.max(20, bottomInset + 20),
+            }}
+          >
+            <View style={s.between}>
+              <T style={{ fontWeight: "700", fontSize: 20 }}>Make it you.</T>
+              <IconButton icon="close" onPress={onClose} />
+            </View>
+            <Input label="YOUR NAME" value={name} onChangeText={setName} />
+            <Input
+              label="YOUR HANDLE"
+              value={handle}
+              onChangeText={setHandle}
+              placeholder="letters, numbers, underscores"
+            />
+            <Input
+              label="A LITTLE ABOUT YOU"
+              value={bio}
+              onChangeText={setBio}
+              multiline
+            />
+            <Button
+              title="Save profile"
+              onPress={() =>
+                onSave({
+                  name: name.trim(),
+                  handle: handle.trim(),
+                  bio: bio.trim(),
+                })
+              }
+              loading={saving}
+            />
+          </ScrollView>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
 export default function ProfileScreen({ personId }: { personId?: number }) {
   const router = useRouter();
-  const { user, requireAuth, notify, showLogin, refresh } = useCircles();
+  const { user, requireAuth, notify, showLogin, logout } = useCircles();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const editorOuterPadding = width <= 360 ? 16 : 24;
@@ -50,16 +138,6 @@ export default function ProfileScreen({ personId }: { personId?: number }) {
     { enabled: !!profile.data },
   );
   const [edit, setEdit] = useState(false);
-  const [name, setName] = useState("");
-  const [handle, setHandle] = useState("");
-  const [bio, setBio] = useState("");
-  useEffect(() => {
-    if (profile.data) {
-      setName(profile.data.name);
-      setHandle(profile.data.handle);
-      setBio(profile.data.bio);
-    }
-  }, [profile.data]);
   const utils = trpc.useUtils();
   const update = trpc.social.updateProfile.useMutation({
     onSuccess: () => {
@@ -119,15 +197,12 @@ export default function ProfileScreen({ personId }: { personId?: number }) {
                 icon="log-out-outline"
                 onPress={async () => {
                   try {
-                    await Api.logout();
-                    await Auth.removeSessionToken();
-                    await Auth.clearUserInfo();
-                    utils.auth.me.setData(undefined, null);
-                    void utils.invalidate();
-                    refresh();
+                    await logout();
                     notify("You’re signed out. See you soon.");
                   } catch {
-                    notify("Could not sign out. Try again.");
+                    notify(
+                      "Signed out locally, but remote session revocation could not be confirmed.",
+                    );
                   }
                 }}
                 label="Sign out"
@@ -245,76 +320,17 @@ export default function ProfileScreen({ personId }: { personId?: number }) {
           )}
         </>
       )}
-      <Modal
-        visible={edit}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setEdit(false)}
-      >
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-        >
-          <View
-            style={{
-              flex: 1,
-              backgroundColor: "#19201B88",
-              justifyContent: "center",
-              alignItems: "center",
-              paddingHorizontal: editorOuterPadding,
-              paddingVertical: Math.max(16, insets.top),
-            }}
-          >
-            <ScrollView
-              showsHorizontalScrollIndicator={false}
-              showsVerticalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
-              keyboardDismissMode="interactive"
-              style={{
-                width: "100%",
-                maxWidth: 420,
-                maxHeight: "100%",
-                backgroundColor: C.paper,
-                borderRadius: 23,
-              }}
-              contentContainerStyle={{
-                padding: 20,
-                gap: 16,
-                paddingBottom: Math.max(20, insets.bottom + 20),
-              }}
-            >
-              <View style={s.between}>
-                <T style={{ fontWeight: "700", fontSize: 20 }}>Make it you.</T>
-                <IconButton icon="close" onPress={() => setEdit(false)} />
-              </View>
-              <Input label="YOUR NAME" value={name} onChangeText={setName} />
-              <Input
-                label="YOUR HANDLE"
-                value={handle}
-                onChangeText={setHandle}
-                placeholder="letters, numbers, underscores"
-              />
-              <Input
-                label="A LITTLE ABOUT YOU"
-                value={bio}
-                onChangeText={setBio}
-                multiline
-              />
-              <Button
-                title="Save profile"
-                onPress={() =>
-                  update.mutate({
-                    name: name.trim(),
-                    handle: handle.trim(),
-                    bio: bio.trim(),
-                  })
-                }
-                loading={update.isPending}
-              />
-            </ScrollView>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+      {edit && p && (
+        <ProfileEditModal
+          profile={p}
+          editorOuterPadding={editorOuterPadding}
+          topInset={insets.top}
+          bottomInset={insets.bottom}
+          saving={update.isPending}
+          onClose={() => setEdit(false)}
+          onSave={(draft) => update.mutate(draft)}
+        />
+      )}
     </AppShell>
   );
 }

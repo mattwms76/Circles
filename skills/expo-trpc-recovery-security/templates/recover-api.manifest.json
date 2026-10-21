@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "endpoints": {
+    "social.feed": {
+      "input": {
+        "filter": "for-you"
+      }
+    },
+    "social.circles": {
+      "input": {}
+    },
+    "social.profiles": {
+      "input": {}
+    },
+    "live.list": {
+      "input": {}
+    },
+    "system.health": {
+      "input": {
+        "timestamp": 0
+      }
+    }
+  }
+}

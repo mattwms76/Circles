@@ -20,25 +20,25 @@ export function useMediaSource(uri: string) {
   const { user } = useCircles();
   const [token, setToken] = useState<string | null>(null);
   const encrypted = uri.startsWith("/manus-storage/social-encrypted/");
+  const requiresNativeAuthorization = Platform.OS !== "web" && encrypted;
   useEffect(() => {
+    if (!requiresNativeAuthorization) return;
     let active = true;
-    if (Platform.OS !== "web" && encrypted) {
-      void getSessionToken().then((value) => {
-        if (active) setToken(value);
-      });
-    } else setToken(null);
+    void getSessionToken().then((value) => {
+      if (active) setToken(value);
+    });
     return () => {
       active = false;
     };
-  }, [encrypted, user?.id]);
+  }, [requiresNativeAuthorization, user?.id]);
   return useMemo(
     () => ({
       uri: resolveMediaUrl(uri),
-      ...(token && encrypted
+      ...(token && requiresNativeAuthorization
         ? { headers: { Authorization: `Bearer ${token}` } }
         : {}),
     }),
-    [uri, token, encrypted],
+    [uri, token, requiresNativeAuthorization],
   );
 }
 export function Image(props: ImageProps) {
