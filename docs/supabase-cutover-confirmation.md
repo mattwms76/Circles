@@ -30,7 +30,7 @@ Authenticated account actions, actual logout/revocation over the new database, p
 
 ## Source and operational follow-up
 
-The PostgreSQL schema/driver/services, finite importer, environment/recovery tooling and versioned recovery skill are included in the source change. GitHub CI uses no production credentials and performs tests plus web/iOS/Android JavaScript bundle builds; its actual new run result is tracked separately after the push.
+The PostgreSQL schema/driver/services, finite importer, environment/recovery tooling and versioned recovery skill were saved to the Manus-managed source (`47d9b41`) and synchronized with an identical GitHub source tree (`63f2168`), preserving both histories. [GitHub CI run 39823115232](https://github.com/mattwms76/Circles/actions/runs/39823115232) completed successfully: environment/TypeScript/zero-warning lint/tests/API compilation and all web/iOS/Android JavaScript bundle jobs passed. CI uses no production credentials or database writes. These are bundle builds, not signed native releases. A subsequent documentation-only commit records this evidence without changing tested application code.
 
 Do not rerun generic `db:push`, archived MySQL migrations, seeding or a destructive import. After PostgreSQL accepts new writes, the old database is stale: switching back requires reconciliation. Use the [private migration guide](private-supabase-migration.md) and [finite transfer guide](supabase-data-transfer.md) for the explicit reviewed modes.
 
