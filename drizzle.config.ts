@@ -1,19 +1,17 @@
 import { defineConfig } from "drizzle-kit";
 
-const connectionString = process.env.DATABASE_URL;
-if (!connectionString) {
-  throw new Error("DATABASE_URL is required to run drizzle commands");
-}
-
+/**
+ * Offline schema-artifact configuration. It intentionally has no database
+ * credentials: generation is reviewed as an artifact and parent-controlled
+ * Supabase apply_migration performs any real DDL execution.
+ */
 export default defineConfig({
   schema: [
     "./drizzle/schema.ts",
     "./drizzle/live-schema.ts",
     "./drizzle/session-schema.ts",
   ],
-  out: "./drizzle",
-  dialect: "mysql",
-  dbCredentials: {
-    url: connectionString,
-  },
+  out: "./drizzle/postgres",
+  dialect: "postgresql",
+  schemaFilter: "circles_app",
 });

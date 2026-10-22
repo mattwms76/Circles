@@ -5,9 +5,12 @@ import { spawnSync } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
+  APPLICATION_RUNTIME_ROLE,
   PROJECT_ROOT,
+  REQUIRED_APPLICATION_COLUMNS,
+  REQUIRED_APPLICATION_TABLES,
   callReadOnlyQuery,
-  checkApplicationSessionSchema,
+  checkApplicationSchema,
   checkDatabaseReady,
   deriveEndpointInventory,
   loadEndpointManifest,
@@ -39,6 +42,9 @@ function configuration() {
     MANUS_OAUTH_PORTAL_URL: "https://oauth.example.test",
     MANUS_OAUTH_API_URL: "https://oauth-api.example.test",
     MANUS_JWT_SECRET: "s".repeat(32),
+    SUPABASE_DATABASE_URL:
+      "postgresql://postgres.vvclcsqletcxzoaayqzq:synthetic-password@aws-0-eu-west-1.pooler.supabase.com:5432/postgres",
+    // Retained only to prove recovery never uses this managed MySQL source at runtime.
     DATABASE_URL: "mysql://synthetic.example.test/circles",
     BUILT_IN_FORGE_API_URL: "https://storage.example.test",
     BUILT_IN_FORGE_API_KEY: "synthetic-storage-key",
@@ -421,7 +427,7 @@ describe("guarded API recovery", () => {
     });
 
     expect(report.ok).toBe(false);
-    expect(report.sessionSchema).toEqual({ required: true, ok: false });
+    expect(report.applicationSchema).toEqual({ required: true, ok: false });
     expect(restarted).toBe(false);
   });
 
@@ -459,72 +465,124 @@ describe("guarded API recovery", () => {
     expect(restarts).toBe(0);
   });
 
-  it("uses bounded read-only database queries and closes both readiness and schema connections", async () => {
-    const readinessQueries: { sql: string; timeout: number }[] = [];
-    let readinessClosed = false;
-    const ready = await checkDatabaseReady("mysql://synthetic.example.test/circles", {
-      projectRoot: PROJECT_ROOT,
-      mysqlModule: {
-        createConnection: async (options: { connectTimeout: number }) => {
-          expect(options.connectTimeout).toBe(8_000);
-          return {
-            query: async (query: { sql: string; timeout: number }) => {
-              readinessQueries.push(query);
-              return [[{ ready: 1 }], []];
-            },
-            end: async () => {
-              readinessClosed = true;
-            },
-          };
-        },
+  it("uses project-local pg and bounded catalog-only PostgreSQL readiness checks", async () => {
+    type Query = { text: string; values: unknown[]; query_timeout: number };
+    const makePgModule = (
+      onQuery: (query: Query) => { rows: unknown[] },
+      onEnd: () => void,
+    ) => ({
+      Client: class {
+        constructor(readonly options: Record<string, unknown>) {
+          expect(options.connectionTimeoutMillis).toBe(8_000);
+          expect(options.query_timeout).toBe(8_000);
+          expect(options.host).toBe("aws-0-eu-west-1.pooler.supabase.com");
+          expect(options.database).toBe("postgres");
+          expect(options.user).toBe("postgres.vvclcsqletcxzoaayqzq");
+          expect(options.ssl).toMatchObject({ rejectUnauthorized: true });
+        }
+        async connect() {}
+        async query(query: Query) {
+          return onQuery(query);
+        }
+        async end() {
+          onEnd();
+        }
       },
+    });
+    const readinessQueries: Query[] = [];
+    let readinessClosed = false;
+    const ready = await checkDatabaseReady(configuration(), {
+      projectRoot: PROJECT_ROOT,
+      pgModule: makePgModule((query) => {
+        readinessQueries.push(query);
+        return { rows: [{ database_name: "postgres" }] };
+      }, () => {
+        readinessClosed = true;
+      }),
     });
     expect(ready).toBe(true);
     expect(readinessQueries).toEqual([
-      { sql: "SELECT 1 AS ready", timeout: 8_000, values: [] },
+      expect.objectContaining({ text: "SELECT current_database() AS database_name", values: [] }),
     ]);
+    expect(readinessQueries.every((query) => query.text.startsWith("SELECT"))).toBe(true);
     expect(readinessClosed).toBe(true);
 
-    const schemaQueries: { sql: string; timeout: number }[] = [];
-    let schemaClosed = false;
-    const schema = await checkApplicationSessionSchema(
-      "mysql://synthetic.example.test/circles",
-      {
-        projectRoot: PROJECT_ROOT,
-        mysqlModule: {
-          createConnection: async () => ({
-            query: async (query: { sql: string; timeout: number }) => {
-              schemaQueries.push(query);
-              if (query.sql.includes("information_schema.tables")) {
-                return [[{ TABLE_NAME: "applicationSessions" }], []];
-              }
-              if (query.sql.includes("information_schema.columns")) {
-                return [[{ COLUMN_NAME: "sessionFingerprint" }], []];
-              }
-              return [[
-                { INDEX_NAME: "application_sessions_user_app_idx" },
-                { INDEX_NAME: "application_sessions_expiry_idx" },
-              ], []];
-            },
-            end: async () => {
-              schemaClosed = true;
-            },
-          }),
-        },
-      },
+    const columns = Object.entries(REQUIRED_APPLICATION_COLUMNS).flatMap(([table, names]) =>
+      names.map((column) => ({ table_name: table, column_name: column })),
     );
+    const tableRows = REQUIRED_APPLICATION_TABLES.map((table) => ({
+      table_name: table,
+      rls_enabled: true,
+      can_select: true,
+      can_insert: table !== "_dataMigrations",
+      can_update: table !== "_dataMigrations",
+      can_delete: table !== "_dataMigrations",
+    }));
+    const schemaQueries: Query[] = [];
+    let schemaClosed = false;
+    const schema = await checkApplicationSchema(configuration(), {
+      projectRoot: PROJECT_ROOT,
+      pgModule: makePgModule((query) => {
+        schemaQueries.push(query);
+        if (query.text.includes("FROM pg_roles")) {
+          return {
+            rows: [{
+              rolname: APPLICATION_RUNTIME_ROLE,
+              rolcanlogin: false,
+              rolinherit: false,
+              rolbypassrls: false,
+              rolsuper: false,
+            }],
+          };
+        }
+        if (query.text.includes("has_schema_privilege")) {
+          return { rows: [{ can_use_schema: true }] };
+        }
+        if (query.text.includes("information_schema.columns")) return { rows: columns };
+        if (query.text.includes("c.relkind IN")) return { rows: tableRows };
+        if (query.text.includes("FROM pg_indexes")) {
+          return { rows: [
+            { indexname: "application_sessions_user_app_idx" },
+            { indexname: "application_sessions_expiry_idx" },
+          ] };
+        }
+        if (query.text.includes("c.relkind = 'S'")) {
+          return { rows: [{ sequence_name: "users_id_seq", can_use_sequence: true }] };
+        }
+        throw new Error("unexpected synthetic catalog query");
+      }, () => {
+        schemaClosed = true;
+      }),
+    });
     expect(schema).toBe(true);
-    expect(schemaQueries).toHaveLength(3);
-    expect(schemaQueries.every((query) => query.sql.startsWith("SELECT"))).toBe(true);
-    expect(schemaQueries.every((query) => query.timeout === 8_000)).toBe(true);
+    expect(schemaQueries).toHaveLength(6);
+    expect(schemaQueries.every((query) => query.text.startsWith("SELECT"))).toBe(true);
+    expect(schemaQueries.every((query) => query.query_timeout === 8_000)).toBe(true);
+    expect(schemaQueries.some((query) => query.text.includes("SELECT 1"))).toBe(false);
     expect(schemaClosed).toBe(true);
   });
 
-  it("reports missing project-local mysql2 resolution as a preflight failure without connecting", async () => {
+  it("fails closed when private-schema catalog evidence or project-local pg is unavailable", async () => {
+    const noRls = await checkApplicationSchema(configuration(), {
+      projectRoot: PROJECT_ROOT,
+      connectionOptions: () => ({ host: "synthetic", database: "postgres", user: "synthetic" }),
+      pgModule: {
+        Client: class {
+          async connect() {}
+          async query() {
+            return { rows: [] };
+          }
+          async end() {}
+        },
+      },
+    });
+    expect(noRls).toBe(false);
+
     const absentProject = path.join(temporaryDirectory(), "no-dependencies");
     await expect(
-      checkDatabaseReady("mysql://synthetic.example.test/circles", {
+      checkDatabaseReady(configuration(), {
         projectRoot: absentProject,
+        connectionOptions: () => ({ host: "synthetic", database: "postgres", user: "synthetic" }),
       }),
     ).resolves.toBe(false);
   });
@@ -547,6 +605,8 @@ describe("guarded API recovery", () => {
     expect(preserved.ok).toBe(true);
     expect(spawnOptions?.env.HOME).toBe("/home/synthetic-operator");
     expect(spawnOptions?.env.PM2_HOME).toBe("/home/synthetic-operator/.pm2-existing");
+    expect(spawnOptions?.env.SUPABASE_DATABASE_URL).toContain("pooler.supabase.com");
+    expect(spawnOptions?.env.DATABASE_URL).toBeUndefined();
 
     let spawned = false;
     const ambiguous = restartKnownApiService({
@@ -591,7 +651,7 @@ describe("guarded API recovery", () => {
     expect(report.ok).toBe(true);
     expect(report.configuration.ok).toBe(true);
     expect(report.database).toEqual({ required: false, ok: null });
-    expect(report.sessionSchema).toEqual({ required: false, ok: true });
+    expect(report.applicationSchema).toEqual({ required: false, ok: null });
     expect(report.restart.attempted).toBe(false);
     expect(databaseChecks).toBe(0);
     expect(schemaChecks).toBe(0);

@@ -6,13 +6,13 @@ Circles is an Expo / React Native / TypeScript mobile social app for iOS and And
 
 The fixed mobile starter uses Metro on port **8081** and the API on **3000**. Project runtime addresses and credentials are supplied by Manus; do not copy development hostnames into app code.
 
+The primary datastore is now Supabase PostgreSQL project `vvclcsqletcxzoaayqzq`, private schema `circles_app`. The API uses the server-only `SUPABASE_DATABASE_URL`, certificate-verified session pooling and restricted `circles_app_runtime` role. Current Manus OAuth, numeric user IDs and durable session revocation are retained; existing Supabase public/auth/private/storage schemas are separate and untouched.
+
 ```sh
-pnpm db:push
-pnpm exec tsx scripts/seed-social.ts
 pnpm dev
 ```
 
-The database migration and starter-content script are finite, repeatable preparation commands. The seed creates explicitly fictional public creator profiles and curated example content, not a fake logged-in account. All personal actions require real Manus OAuth. Development and production share the same managed database, so test writes affect the same stored data.
+The private schema and original app data have already been migrated. Do not rerun generic `db:push`, archived MySQL migrations or seeding as setup or recovery. The original managed `DATABASE_URL` remains only an administrative transfer/rollback source and must not be passed to the API. See [the migration guide](docs/private-supabase-migration.md) and [applied cutover record](docs/supabase-cutover-confirmation.md). Development and published API instances use the same selected database; test writes affect stored data. All personal actions still require real Manus OAuth.
 
 ## Environment configuration and GitHub CI
 
@@ -26,7 +26,7 @@ The [repository audit](docs/repository-audit.md) records the verified original 1
 
 Authentication requires a durable session row bound to the user, application and expiry. The session identifier is random, only its fingerprint is stored, and the maximum lifetime is12hours. Missing/revoked/expired rows or unavailable storage fail closed. REST and tRPC logout revoke every valid credential presented in that request; client logout captures the native bearer before clearing local credentials and account caches. Remote revocation failure is reported honestly after local cleanup. This is not account-wide logout or cancellation of requests already authorized.
 
-Apply and verify `drizzle/0003_application_sessions.sql` before serving this auth build. Existing stateless credentials must sign in again. Keep the app identity and signing key stable: encrypted media currently derives from that key. Do not rotate it as a logout workaround, and do not run unrelated historical remediation migrations over this source.
+The applied PostgreSQL baseline includes the private durable-session table and indexes; original MySQL migrations are archived provenance, not PostgreSQL instructions. Existing stateless credentials must sign in again. Keep the app identity and signing key stable: encrypted media currently derives from that key. Do not rotate it as a logout workaround, and do not run unrelated historical remediation migrations over this source.
 
 The [API recovery guide](docs/api-recovery.md) documents `pnpm recover:api`, including guarded local-manager dry-run/apply and DB-free `--verify-only` after a Manus-controlled runtime refresh/restart. The utility discovers14reviewed query procedures, never invokes mutations to fabricate test context and fails strict mode on missing real authentication, existing IDs or viewer context. Example public verification (replace the origin with the current configured result):
 

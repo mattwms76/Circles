@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, count, desc, eq, gt, isNull, like, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, gt, ilike, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 import {
   activeHostLeases,
@@ -245,12 +245,13 @@ async function lockActiveHostLease(
   tx: LiveTransaction,
   hostId: number,
 ): Promise<ActiveHostLease> {
-  await tx
-    .insert(activeHostLeases)
-    .values({ hostId })
-    .onDuplicateKeyUpdate({
-      set: { hostId: sql`${activeHostLeases.hostId}` },
-    });
+  await tx.insert(activeHostLeases).values({ hostId }).onConflictDoUpdate({
+    // A no-op conflict update acquires the existing primary-key row lock before
+    // the SELECT FOR UPDATE below. DO NOTHING would leave first-use creators
+    // able to race between the insert and locked read.
+    target: activeHostLeases.hostId,
+    set: { hostId },
+  });
   const [lease] = await tx
     .select()
     .from(activeHostLeases)
@@ -546,7 +547,7 @@ export const liveRouter = router({
           search
             ? and(
                 eq(streams.status, "live"),
-                like(streams.title, `%${search}%`),
+                ilike(streams.title, `%${search}%`),
               )
             : eq(streams.status, "live"),
         )
@@ -602,27 +603,24 @@ export const liveRouter = router({
         );
         if (active) return null;
 
-        const inserted = await tx.insert(streams).values({
-          hostId: ctx.user.id,
-          title: input.title,
-          circleId,
-          thumbnail: input.thumbnail ?? "",
-          // The initial lease gives camera startup time without publishing a fake
-          // broadcast. The client makes it ready only after capture succeeds.
-          lastHeartbeatAt: now,
-          readyAt: null,
-        });
-        const streamId = Number(inserted[0].insertId);
+        const [created] = await tx
+          .insert(streams)
+          .values({
+            hostId: ctx.user.id,
+            title: input.title,
+            circleId,
+            thumbnail: input.thumbnail ?? "",
+            // The initial lease gives camera startup time without publishing a fake
+            // broadcast. The client makes it ready only after capture succeeds.
+            lastHeartbeatAt: now,
+            readyAt: null,
+          })
+          .returning();
+        if (!created) throw new Error("Created live stream was not returned.");
         await tx
           .update(activeHostLeases)
-          .set({ streamId, lastHeartbeatAt: now })
+          .set({ streamId: created.id, lastHeartbeatAt: now })
           .where(eq(activeHostLeases.hostId, ctx.user.id));
-        const [created] = await tx
-          .select()
-          .from(streams)
-          .where(eq(streams.id, streamId))
-          .limit(1);
-        if (!created) throw new Error("Created live stream was not found.");
         return created;
       });
 
@@ -760,7 +758,8 @@ export const liveRouter = router({
         generation,
         leftAt: null,
       })
-      .onDuplicateKeyUpdate({
+      .onConflictDoUpdate({
+        target: [liveViewers.streamId, liveViewers.userId],
         set: { joinedAt: now, lastSeenAt: now, generation, leftAt: null },
       });
     if (existingViewer) {

@@ -4,8 +4,8 @@ import {
   desc,
   eq,
   gt,
+  ilike,
   inArray,
-  like,
   lt,
   ne,
   or,
@@ -53,14 +53,16 @@ import {
   MESSAGE_PAGE_DEFAULT_LIMIT,
   MESSAGE_PAGE_MAX_LIMIT,
 } from "../shared/message-pagination";
-import { getDb } from "./db";
+import {
+  getDb,
+  type CirclesDatabase,
+  type CirclesTransaction,
+} from "./db";
 
 export type CircleRole = "owner" | "moderator" | "member" | "pending";
 type ApprovedCircleRole = Exclude<CircleRole, "pending">;
-type Database = NonNullable<Awaited<ReturnType<typeof getDb>>>;
-type ConversationMutationTransaction = Parameters<
-  Parameters<Database["transaction"]>[0]
->[0];
+type Database = CirclesDatabase;
+type ConversationMutationTransaction = CirclesTransaction;
 type FeedFilter = "for-you" | "following" | "circles" | "saved";
 
 const APPROVED_ROLES: readonly ApprovedCircleRole[] = [
@@ -154,6 +156,15 @@ function countValue(value: unknown): number {
 
 function toIso(value: Date): string {
   return value.toISOString();
+}
+
+function isPostgresUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "23505"
+  );
 }
 
 /** Pure role predicate used by every private-circle gate. */
@@ -316,17 +327,17 @@ async function ensureProfileWithDb(
   if (!user) socialError("NOT_FOUND", "User not found");
 
   const name = user.name?.trim() || "Circles member";
-  try {
-    await db.insert(profiles).values({
+  await db
+    .insert(profiles)
+    .values({
       userId,
       name,
       handle: `member-${userId}`,
       bio: "",
       avatar: DEFAULT_AVATAR,
-    });
-  } catch {
-    // A parallel authenticated request may have created the unique profile first.
-  }
+    })
+    // A parallel authenticated action may have materialized the same profile first.
+    .onConflictDoNothing({ target: profiles.userId });
 
   const profile = await findProfileWithDb(db, userId, userId);
   if (!profile)
@@ -334,13 +345,12 @@ async function ensureProfileWithDb(
   return profile;
 }
 
-/**
- * Returns a stable display shape without creating a social row. Live discovery uses this for
- * historic or orphaned streams so a public read cannot materialize a host profile.
- */
-export async function getDisplayProfile(userId: number): Promise<Profile> {
-  const db = await requireDb();
-  const existing = await findProfileWithDb(db, userId);
+async function displayProfileWithDb(
+  db: Database,
+  userId: number,
+  viewerId: number | null = null,
+): Promise<Profile> {
+  const existing = await findProfileWithDb(db, userId, viewerId);
   if (existing) return existing;
 
   const userRows = await db
@@ -357,7 +367,17 @@ export async function getDisplayProfile(userId: number): Promise<Profile> {
     avatar: DEFAULT_AVATAR,
     followers: 0,
     following: 0,
+    ...(viewerId ? { isFollowing: false } : {}),
   };
+}
+
+/**
+ * Returns a stable display shape without creating a social row. Live discovery uses this for
+ * historic or orphaned streams so a public read cannot materialize a host profile.
+ */
+export async function getDisplayProfile(userId: number): Promise<Profile> {
+  const db = await requireDb();
+  return displayProfileWithDb(db, userId);
 }
 
 /**
@@ -430,11 +450,11 @@ export async function listCircles(
   if (filters.search?.trim()) {
     const needle = `%${filters.search.trim()}%`;
     clauses.push(
-      or(like(circles.name, needle), like(circles.description, needle))!,
+      or(ilike(circles.name, needle), ilike(circles.description, needle))!,
     );
   }
   if (filters.category?.trim())
-    clauses.push(eq(circles.category, filters.category.trim()));
+    clauses.push(ilike(circles.category, filters.category.trim()));
   const rows = await db
     .select()
     .from(circles)
@@ -466,8 +486,8 @@ export async function listProfiles(
     .where(
       term
         ? or(
-            like(profiles.name, `%${term}%`),
-            like(profiles.handle, `%${term}%`),
+            ilike(profiles.name, `%${term}%`),
+            ilike(profiles.handle, `%${term}%`),
           )
         : undefined,
     )
@@ -534,7 +554,7 @@ async function postOutputWithDb(
     : [];
   const [author, likesResult, commentsResult, likedRows, savedRows] =
     await Promise.all([
-      ensureProfileWithDb(db, post.authorId),
+      displayProfileWithDb(db, post.authorId, post.authorId),
       db
         .select({ total: sql<number>`count(*)` })
         .from(reactions)
@@ -788,11 +808,12 @@ export async function updateProfile(
         name: input.name.trim(),
         handle: input.handle.trim().replace(/^@+/, "").toLowerCase(),
         bio: input.bio.trim(),
+        updatedAt: new Date(),
         ...(input.avatar !== undefined ? { avatar: input.avatar } : {}),
       })
       .where(eq(profiles.userId, userId));
   } catch (error) {
-    if ((error as { code?: string }).code === "ER_DUP_ENTRY") {
+    if (isPostgresUniqueViolation(error)) {
       socialError("CONFLICT", "That handle is already in use");
     }
     throw error;
@@ -850,16 +871,20 @@ export async function createCircle(
   await ensureProfileWithDb(db, userId);
   await assertMediaOwnership(db, userId, input.image);
   const circleId = await db.transaction(async (tx) => {
-    const result = await tx.insert(circles).values({
-      ownerId: userId,
-      name: input.name.trim(),
-      description: input.description.trim(),
-      category: input.category.trim(),
-      privacy: input.privacy,
-      image: input.image?.trim() || "",
-      color: input.color?.trim() || "#ED604A",
-    });
-    const id = Number(result[0].insertId);
+    const created = await tx
+      .insert(circles)
+      .values({
+        ownerId: userId,
+        name: input.name.trim(),
+        description: input.description.trim(),
+        category: input.category.trim(),
+        privacy: input.privacy,
+        image: input.image?.trim() || "",
+        color: input.color?.trim() || "#ED604A",
+      })
+      .returning({ id: circles.id });
+    const id = created[0]?.id;
+    if (!id) socialError("INTERNAL_SERVER_ERROR", "Unable to create circle");
     await tx
       .insert(memberships)
       .values({ circleId: id, userId, role: "owner" });
@@ -877,13 +902,13 @@ export async function joinCircle(
   const requestedRole: CircleRole =
     circle.privacy === "private" ? "pending" : "member";
 
-  // MySQL has no DO NOTHING variant. Assigning the primary key to itself retains an existing
-  // membership without changing its role, so simultaneous joins cannot surface the unique-index
-  // error or promote an existing pending/privileged member.
+  // Preserve an existing pending or privileged role when concurrent join requests collide.
   await db
     .insert(memberships)
     .values({ circleId, userId, role: requestedRole })
-    .onDuplicateKeyUpdate({ set: { id: sql`id` } });
+    .onConflictDoNothing({
+      target: [memberships.circleId, memberships.userId],
+    });
 
   const persistedRole = await membershipRoleWithDb(db, userId, circleId);
   if (!persistedRole) {
@@ -939,7 +964,7 @@ export async function listMembers(
     .orderBy(asc(memberships.createdAt));
   const output = await Promise.all(
     rows.map(async (row) => {
-      const user = await ensureProfileWithDb(db, row.userId);
+      const user = await displayProfileWithDb(db, row.userId, row.userId);
       return { user, role: row.role as CircleRole };
     }),
   );
@@ -983,7 +1008,7 @@ export async function setMemberRole(
   }
   await db
     .update(memberships)
-    .set({ role })
+    .set({ role, updatedAt: new Date() })
     .where(
       and(
         eq(memberships.circleId, circleId),
@@ -1039,7 +1064,7 @@ export async function approveMember(
   }
   await db
     .update(memberships)
-    .set({ role: "member" })
+    .set({ role: "member", updatedAt: new Date() })
     .where(
       and(
         eq(memberships.circleId, circleId),
@@ -1071,14 +1096,19 @@ export async function createPost(
     }
   }
   await assertMediaOwnership(db, userId, input.media);
-  const result = await db.insert(posts).values({
-    authorId: userId,
-    circleId: input.circleId ?? null,
-    text: input.text.trim(),
-    media: input.media?.trim() || null,
-    mediaType: input.mediaType,
-  });
-  return postOutputWithDb(db, Number(result[0].insertId), userId);
+  const created = await db
+    .insert(posts)
+    .values({
+      authorId: userId,
+      circleId: input.circleId ?? null,
+      text: input.text.trim(),
+      media: input.media?.trim() || null,
+      mediaType: input.mediaType,
+    })
+    .returning({ id: posts.id });
+  const postId = created[0]?.id;
+  if (!postId) socialError("INTERNAL_SERVER_ERROR", "Unable to create post");
+  return postOutputWithDb(db, postId, userId);
 }
 
 export async function toggleLike(
@@ -1133,7 +1163,7 @@ export async function listComments(
   return Promise.all(
     rows.map(async (row) => ({
       id: row.id,
-      author: await ensureProfileWithDb(db, row.authorId),
+      author: await displayProfileWithDb(db, row.authorId, row.authorId),
       text: row.text,
       createdAt: toIso(row.createdAt),
     })),
@@ -1148,21 +1178,21 @@ export async function createComment(
   const db = await requireDb();
   await assertPostAccess(db, userId, postId);
   await ensureProfileWithDb(db, userId);
-  const result = await db
+  const created = await db
     .insert(comments)
-    .values({ authorId: userId, postId, text: text.trim() });
-  const id = Number(result[0].insertId);
-  const row = await db
-    .select()
-    .from(comments)
-    .where(eq(comments.id, id))
-    .limit(1);
-  if (!row[0]) socialError("INTERNAL_SERVER_ERROR", "Unable to create comment");
+    .values({ authorId: userId, postId, text: text.trim() })
+    .returning({
+      id: comments.id,
+      text: comments.text,
+      createdAt: comments.createdAt,
+    });
+  const row = created[0];
+  if (!row) socialError("INTERNAL_SERVER_ERROR", "Unable to create comment");
   return {
-    id,
+    id: row.id,
     author: await ensureProfileWithDb(db, userId),
-    text: row[0].text,
-    createdAt: toIso(row[0].createdAt),
+    text: row.text,
+    createdAt: toIso(row.createdAt),
   };
 }
 
@@ -1192,7 +1222,10 @@ export async function reportPost(
   await db
     .insert(reports)
     .values({ postId, reporterId: userId, reason: reason.trim() })
-    .onDuplicateKeyUpdate({ set: { reason: reason.trim() } });
+    .onConflictDoUpdate({
+      target: [reports.postId, reports.reporterId],
+      set: { reason: reason.trim(), updatedAt: new Date() },
+    });
   return { success: true };
 }
 
@@ -1201,21 +1234,15 @@ async function ensureConversationParticipant(
   conversationId: number,
   userId: number,
 ) {
-  const existing = await db
-    .select({ id: conversationParticipants.id })
-    .from(conversationParticipants)
-    .where(
-      and(
-        eq(conversationParticipants.conversationId, conversationId),
-        eq(conversationParticipants.userId, userId),
-      ),
-    )
-    .limit(1);
-  if (!existing.length) {
-    await db
-      .insert(conversationParticipants)
-      .values({ conversationId, userId });
-  }
+  await db
+    .insert(conversationParticipants)
+    .values({ conversationId, userId })
+    .onConflictDoNothing({
+      target: [
+        conversationParticipants.conversationId,
+        conversationParticipants.userId,
+      ],
+    });
 }
 
 async function conversationRowOrThrow(db: Database, conversationId: number) {
@@ -1250,6 +1277,7 @@ async function assertConversationAccess(
   db: Database,
   userId: number,
   conversationId: number,
+  options: { ensureCircleParticipant?: boolean } = {},
 ) {
   const conversation = await conversationRowOrThrow(db, conversationId);
   if (conversation.kind === "direct") {
@@ -1283,7 +1311,9 @@ async function assertConversationAccess(
       "You must be an approved circle member to access this conversation",
     );
   }
-  await ensureConversationParticipant(db, conversation.id, userId);
+  if (options.ensureCircleParticipant) {
+    await ensureConversationParticipant(db, conversation.id, userId);
+  }
   return conversation;
 }
 
@@ -1344,7 +1374,11 @@ async function conversationOutputWithDb(
     (participant) => participant.userId !== userId,
   );
   const other = otherParticipant
-    ? await ensureProfileWithDb(db, otherParticipant.userId)
+    ? await displayProfileWithDb(
+        db,
+        otherParticipant.userId,
+        otherParticipant.userId,
+      )
     : null;
   return {
     id: conversation.id,
@@ -1438,22 +1472,27 @@ export async function openDirect(
     return { id };
   }
 
-  await db
+  const created = await db
     .insert(conversations)
     .values({ kind: "direct", directKey })
-    .onDuplicateKeyUpdate({ set: { directKey } });
-  const created = await db
-    .select({ id: conversations.id })
-    .from(conversations)
-    .where(eq(conversations.directKey, directKey))
-    .limit(1);
-  if (!created[0])
+    .onConflictDoNothing({ target: conversations.directKey })
+    .returning({ id: conversations.id });
+  const createdId =
+    created[0]?.id ??
+    (
+      await db
+        .select({ id: conversations.id })
+        .from(conversations)
+        .where(eq(conversations.directKey, directKey))
+        .limit(1)
+    )[0]?.id;
+  if (!createdId)
     socialError("INTERNAL_SERVER_ERROR", "Unable to open direct conversation");
   await Promise.all([
-    ensureConversationParticipant(db, created[0].id, userId),
-    ensureConversationParticipant(db, created[0].id, targetUserId),
+    ensureConversationParticipant(db, createdId, userId),
+    ensureConversationParticipant(db, createdId, targetUserId),
   ]);
-  return { id: created[0].id };
+  return { id: createdId };
 }
 
 export async function openCircleChat(
@@ -1476,19 +1515,24 @@ export async function openCircleChat(
     return { id };
   }
 
-  await db
+  const created = await db
     .insert(conversations)
     .values({ kind: "circle", circleId })
-    .onDuplicateKeyUpdate({ set: { circleId } });
-  const created = await db
-    .select({ id: conversations.id })
-    .from(conversations)
-    .where(eq(conversations.circleId, circleId))
-    .limit(1);
-  if (!created[0])
+    .onConflictDoNothing({ target: conversations.circleId })
+    .returning({ id: conversations.id });
+  const createdId =
+    created[0]?.id ??
+    (
+      await db
+        .select({ id: conversations.id })
+        .from(conversations)
+        .where(eq(conversations.circleId, circleId))
+        .limit(1)
+    )[0]?.id;
+  if (!createdId)
     socialError("INTERNAL_SERVER_ERROR", "Unable to open circle conversation");
-  await ensureConversationParticipant(db, created[0].id, userId);
-  return { id: created[0].id };
+  await ensureConversationParticipant(db, createdId, userId);
+  return { id: createdId };
 }
 
 export type ReadReceiptParticipant = {
@@ -1650,7 +1694,7 @@ export async function listMessages(
     rows.map(async (row) => ({
       id: row.id,
       conversationId: row.conversationId,
-      author: await ensureProfileWithDb(db, row.authorId),
+      author: await displayProfileWithDb(db, row.authorId, row.authorId),
       text: row.text,
       media: row.media,
       createdAt: toIso(row.createdAt),
@@ -1681,30 +1725,30 @@ export async function sendMessage(
   if (!hasMessageContent(text, media))
     socialError("BAD_REQUEST", "A message needs text or media");
   const db = await requireDb();
-  await assertConversationAccess(db, userId, conversationId);
+  await assertConversationAccess(db, userId, conversationId, {
+    ensureCircleParticipant: true,
+  });
   await assertMediaOwnership(db, userId, media);
   const row = await db.transaction(async (tx) => {
     await lockConversationForMessageMutation(tx, conversationId);
-    const result = await tx.insert(messages).values({
-      conversationId,
-      authorId: userId,
-      text,
-      media: media ?? null,
-    });
+    const created = await tx
+      .insert(messages)
+      .values({
+        conversationId,
+        authorId: userId,
+        text,
+        media: media ?? null,
+      })
+      .returning();
+    const message = created[0];
+    if (!message)
+      socialError("INTERNAL_SERVER_ERROR", "Unable to send message");
     // Keep message allocation and list recency in the same transaction and conversation lock.
     await tx
       .update(conversations)
       .set({ updatedAt: new Date() })
       .where(eq(conversations.id, conversationId));
-    const id = Number(result[0].insertId);
-    const rows = await tx
-      .select()
-      .from(messages)
-      .where(eq(messages.id, id))
-      .limit(1);
-    if (!rows[0])
-      socialError("INTERNAL_SERVER_ERROR", "Unable to send message");
-    return rows[0];
+    return message;
   });
   return {
     id: row.id,
@@ -1724,7 +1768,9 @@ export async function markConversationRead(
   throughMessageId: number,
 ): Promise<{ success: true }> {
   const db = await requireDb();
-  await assertConversationAccess(db, userId, conversationId);
+  await assertConversationAccess(db, userId, conversationId, {
+    ensureCircleParticipant: true,
+  });
   await db.transaction(async (tx) => {
     await lockConversationForMessageMutation(tx, conversationId);
     const delivered = await tx
@@ -1766,7 +1812,11 @@ export async function markConversationRead(
       if (nextMessageId > existing[0].lastReadMessageId) {
         await tx
           .update(conversationParticipants)
-          .set({ lastReadMessageId: nextMessageId, lastReadAt: now })
+          .set({
+            lastReadMessageId: nextMessageId,
+            lastReadAt: now,
+            updatedAt: now,
+          })
           .where(eq(conversationParticipants.id, existing[0].id));
       }
     } else {

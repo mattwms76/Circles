@@ -10,7 +10,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { Buffer } from "node:buffer";
 import { createRequire } from "node:module";
 
@@ -25,18 +25,189 @@ export const DATABASE_CONNECT_TIMEOUT_MS = 8_000;
 export const DATABASE_QUERY_TIMEOUT_MS = 8_000;
 export const READINESS_ATTEMPTS = 3;
 export const READINESS_RETRY_DELAY_MS = 500;
+export const APPLICATION_SCHEMA = "circles_app";
+export const APPLICATION_RUNTIME_ROLE = "circles_app_runtime";
 export const SESSION_TABLE = "applicationSessions";
 export const SESSION_INDEXES = Object.freeze([
   "application_sessions_user_app_idx",
   "application_sessions_expiry_idx",
 ]);
 
+/** Exact private app table/column contract; catalog reads never select user rows. */
+export const REQUIRED_APPLICATION_COLUMNS = Object.freeze({
+  users: Object.freeze([
+    "id",
+    "openId",
+    "name",
+    "email",
+    "loginMethod",
+    "role",
+    "createdAt",
+    "updatedAt",
+    "lastSignedIn",
+  ]),
+  profiles: Object.freeze([
+    "id",
+    "userId",
+    "name",
+    "handle",
+    "bio",
+    "avatar",
+    "cover",
+    "createdAt",
+    "updatedAt",
+  ]),
+  circles: Object.freeze([
+    "id",
+    "ownerId",
+    "name",
+    "description",
+    "category",
+    "privacy",
+    "image",
+    "color",
+    "createdAt",
+    "updatedAt",
+  ]),
+  memberships: Object.freeze([
+    "id",
+    "circleId",
+    "userId",
+    "role",
+    "createdAt",
+    "updatedAt",
+  ]),
+  posts: Object.freeze([
+    "id",
+    "authorId",
+    "circleId",
+    "text",
+    "media",
+    "mediaType",
+    "createdAt",
+    "updatedAt",
+  ]),
+  reactions: Object.freeze(["id", "postId", "userId", "type", "createdAt"]),
+  bookmarks: Object.freeze(["id", "postId", "userId", "createdAt"]),
+  comments: Object.freeze([
+    "id",
+    "postId",
+    "authorId",
+    "text",
+    "createdAt",
+    "updatedAt",
+  ]),
+  conversations: Object.freeze([
+    "id",
+    "kind",
+    "directKey",
+    "circleId",
+    "createdAt",
+    "updatedAt",
+  ]),
+  conversationParticipants: Object.freeze([
+    "id",
+    "conversationId",
+    "userId",
+    "lastReadMessageId",
+    "lastReadAt",
+    "createdAt",
+    "updatedAt",
+  ]),
+  messages: Object.freeze([
+    "id",
+    "conversationId",
+    "authorId",
+    "text",
+    "media",
+    "createdAt",
+  ]),
+  follows: Object.freeze(["id", "followerId", "followingId", "createdAt"]),
+  reports: Object.freeze([
+    "id",
+    "postId",
+    "reporterId",
+    "reason",
+    "createdAt",
+    "updatedAt",
+  ]),
+  socialUploads: Object.freeze([
+    "id",
+    "userId",
+    "storageKey",
+    "url",
+    "mimeType",
+    "bytes",
+    "createdAt",
+  ]),
+  socialSeedMarkers: Object.freeze(["key", "completedAt"]),
+  _dataMigrations: Object.freeze([
+    "key",
+    "sourceTree",
+    "completedAt",
+    "summary",
+  ]),
+  applicationSessions: Object.freeze([
+    "sessionFingerprint",
+    "userOpenId",
+    "appId",
+    "expiresAt",
+    "revokedAt",
+    "createdAt",
+  ]),
+  streams: Object.freeze([
+    "id",
+    "hostId",
+    "title",
+    "circleId",
+    "thumbnail",
+    "status",
+    "readyAt",
+    "lastHeartbeatAt",
+    "hostGeneration",
+    "createdAt",
+    "endedAt",
+  ]),
+  activeHostLeases: Object.freeze(["hostId", "streamId", "lastHeartbeatAt"]),
+  liveViewers: Object.freeze([
+    "streamId",
+    "userId",
+    "joinedAt",
+    "lastSeenAt",
+    "generation",
+    "leftAt",
+  ]),
+  liveSignals: Object.freeze([
+    "id",
+    "streamId",
+    "fromId",
+    "toId",
+    "kind",
+    "fromGeneration",
+    "toGeneration",
+    "payload",
+    "createdAt",
+  ]),
+  liveChat: Object.freeze([
+    "id",
+    "streamId",
+    "userId",
+    "userName",
+    "avatar",
+    "text",
+    "createdAt",
+  ]),
+});
+export const REQUIRED_APPLICATION_TABLES = Object.freeze(
+  Object.keys(REQUIRED_APPLICATION_COLUMNS),
+);
+
 const REQUIRED_RUNTIME_KEYS = Object.freeze([
   "MANUS_PROJECT_ID",
   "MANUS_OAUTH_PORTAL_URL",
   "MANUS_OAUTH_API_URL",
   "MANUS_JWT_SECRET",
-  "DATABASE_URL",
+  "SUPABASE_DATABASE_URL",
   "BUILT_IN_FORGE_API_URL",
   "BUILT_IN_FORGE_API_KEY",
   "EXPO_PUBLIC_API_BASE_URL",
@@ -48,7 +219,7 @@ const SAFE_RUNTIME_KEYS = new Set([
   "API_ORIGIN",
   "BUILT_IN_FORGE_API_KEY",
   "BUILT_IN_FORGE_API_URL",
-  "DATABASE_URL",
+  "SUPABASE_DATABASE_URL",
   "EXPO_PACKAGER_PROXY_URL",
   "EXPO_PUBLIC_API_BASE_URL",
   "EXPO_PUBLIC_APP_ID",
@@ -191,10 +362,15 @@ export function parseEnvironmentText(text) {
   return result;
 }
 
-function assertTrustedFile(filePath, fsModule = fs, { privateFile = false } = {}) {
+function assertTrustedFile(
+  filePath,
+  fsModule = fs,
+  { privateFile = false } = {},
+) {
   const absolute = path.resolve(filePath);
   const stat = fsModule.lstatSync(absolute);
-  const currentUid = typeof process.getuid === "function" ? process.getuid() : null;
+  const currentUid =
+    typeof process.getuid === "function" ? process.getuid() : null;
   const notOwnedByCurrentUser = currentUid !== null && stat.uid !== currentUid;
   const unsafePermissions = privateFile
     ? (stat.mode & 0o077) !== 0
@@ -252,7 +428,9 @@ export function loadTrustedEnvironment({
   }
 
   if (envFile) {
-    const trustedPath = assertTrustedFile(envFile, fsModule, { privateFile: true });
+    const trustedPath = assertTrustedFile(envFile, fsModule, {
+      privateFile: true,
+    });
     return {
       source: "file",
       values: parseEnvironmentText(fsModule.readFileSync(trustedPath, "utf8")),
@@ -372,14 +550,19 @@ export function validateRefreshConfiguration(
     hasValue(configuration.MANUS_JWT_SECRET) &&
     Array.from(configuration.MANUS_JWT_SECRET).length < 32
   ) {
-    errors.push(issue("MANUS_JWT_SECRET", "must contain at least 32 characters"));
+    errors.push(
+      issue("MANUS_JWT_SECRET", "must contain at least 32 characters"),
+    );
   }
   for (const key of [
     "MANUS_OAUTH_PORTAL_URL",
     "MANUS_OAUTH_API_URL",
     "BUILT_IN_FORGE_API_URL",
   ]) {
-    if (hasValue(configuration[key]) && !safeHttpOrigin(configuration[key].trim())) {
+    if (
+      hasValue(configuration[key]) &&
+      !safeHttpOrigin(configuration[key].trim())
+    ) {
       errors.push(issue(key, "must be a credential-free HTTP(S) origin"));
     }
   }
@@ -396,12 +579,40 @@ export function validateRefreshConfiguration(
     }
   }
 
-  const selectedBaseUrl = operatorBaseUrl || configuration.EXPO_PUBLIC_API_BASE_URL;
-  const apiOrigin = hasValue(selectedBaseUrl) ? safeHttpOrigin(selectedBaseUrl.trim()) : null;
+  const selectedBaseUrl =
+    operatorBaseUrl || configuration.EXPO_PUBLIC_API_BASE_URL;
+  const apiOrigin = hasValue(selectedBaseUrl)
+    ? safeHttpOrigin(selectedBaseUrl.trim())
+    : null;
   if (!apiOrigin || !hasFixedPort(apiOrigin, API_PORT)) {
-    errors.push(issue("API_BASE_URL", `must be a credential-free HTTP(S) origin on ${API_PORT}`));
+    errors.push(
+      issue(
+        "API_BASE_URL",
+        `must be a credential-free HTTP(S) origin on ${API_PORT}`,
+      ),
+    );
   } else if (isTemporarySandboxHost(apiOrigin)) {
-    errors.push(issue("API_BASE_URL", "must not use a temporary Manus session hostname"));
+    errors.push(
+      issue("API_BASE_URL", "must not use a temporary Manus session hostname"),
+    );
+  }
+
+  if (hasValue(configuration.DATABASE_URL)) {
+    try {
+      const legacySource = new URL(configuration.DATABASE_URL);
+      if (!["mysql:", "mysql2:"].includes(legacySource.protocol)) {
+        errors.push(
+          issue(
+            "DATABASE_URL",
+            "is reserved for a read-only MySQL migration or rollback source",
+          ),
+        );
+      }
+    } catch {
+      errors.push(
+        issue("DATABASE_URL", "must be a MySQL connection URL when supplied"),
+      );
+    }
   }
 
   for (const key of ["MANUS_PROJECT_ID", "MANUS_JWT_SECRET"]) {
@@ -437,8 +648,7 @@ function extractProcedureBlocks(sourceText, namespace, indent) {
       if (!/\.query\s*\(/.test(chunk)) return null;
       return {
         name: `${namespace}.${match[1]}`,
-        sourceAccess:
-          match[2] === "publicProcedure" ? "public" : "protected",
+        sourceAccess: match[2] === "publicProcedure" ? "public" : "protected",
       };
     })
     .filter(Boolean);
@@ -458,10 +668,16 @@ function extractAuthQueries(sourceText) {
  * configure only safe read inputs/response shapes; missing/new source routes are
  * reported as drift rather than being assumed safe.
  */
-export function deriveEndpointInventory(projectRoot = PROJECT_ROOT, fsModule = fs) {
+export function deriveEndpointInventory(
+  projectRoot = PROJECT_ROOT,
+  fsModule = fs,
+) {
   const discovered = [];
   for (const source of SOURCE_ROUTERS) {
-    const sourceText = fsModule.readFileSync(path.join(projectRoot, source.file), "utf8");
+    const sourceText = fsModule.readFileSync(
+      path.join(projectRoot, source.file),
+      "utf8",
+    );
     discovered.push(
       ...extractProcedureBlocks(sourceText, source.namespace, source.indent),
     );
@@ -477,14 +693,24 @@ export function deriveEndpointInventory(projectRoot = PROJECT_ROOT, fsModule = f
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((discoveredEndpoint) => {
       if (names.has(discoveredEndpoint.name)) {
-        return { ...discoveredEndpoint, supported: false, drift: "duplicate_route" };
+        return {
+          ...discoveredEndpoint,
+          supported: false,
+          drift: "duplicate_route",
+        };
       }
       names.add(discoveredEndpoint.name);
       const definition = ENDPOINT_DEFINITIONS[discoveredEndpoint.name];
       if (!definition) {
-        return { ...discoveredEndpoint, supported: false, drift: "missing_definition" };
+        return {
+          ...discoveredEndpoint,
+          supported: false,
+          drift: "missing_definition",
+        };
       }
-      const requiresAuth = Boolean(definition.requiresAuth) || discoveredEndpoint.sourceAccess === "protected";
+      const requiresAuth =
+        Boolean(definition.requiresAuth) ||
+        discoveredEndpoint.sourceAccess === "protected";
       return {
         ...discoveredEndpoint,
         ...cloneJson(definition),
@@ -542,14 +768,22 @@ export function loadEndpointManifest(manifestPath, inventory, fsModule = fs) {
   if (!manifestPath) return {};
   let parsed;
   try {
-    parsed = JSON.parse(fsModule.readFileSync(path.resolve(manifestPath), "utf8"));
+    parsed = JSON.parse(
+      fsModule.readFileSync(path.resolve(manifestPath), "utf8"),
+    );
   } catch {
     throw new Error("endpoint_manifest_invalid");
   }
-  if (!plainObject(parsed) || parsed.version !== 1 || !plainObject(parsed.endpoints)) {
+  if (
+    !plainObject(parsed) ||
+    parsed.version !== 1 ||
+    !plainObject(parsed.endpoints)
+  ) {
     throw new Error("endpoint_manifest_invalid");
   }
-  const discovered = new Set(inventory.endpoints.map((endpoint) => endpoint.name));
+  const discovered = new Set(
+    inventory.endpoints.map((endpoint) => endpoint.name),
+  );
   const overrides = {};
   for (const [name, override] of Object.entries(parsed.endpoints)) {
     if (
@@ -571,14 +805,20 @@ export function loadEndpointManifest(manifestPath, inventory, fsModule = fs) {
 /** Reads an explicit, local bearer + existing-ID file without ever reporting it. */
 export function loadVerificationAuth(authFile, fsModule = fs) {
   if (!authFile) return { bearerToken: null, ids: {} };
-  const trustedPath = assertTrustedFile(authFile, fsModule, { privateFile: true });
+  const trustedPath = assertTrustedFile(authFile, fsModule, {
+    privateFile: true,
+  });
   let parsed;
   try {
     parsed = JSON.parse(fsModule.readFileSync(trustedPath, "utf8"));
   } catch {
     throw new Error("verification_auth_invalid");
   }
-  if (!plainObject(parsed) || !hasValue(parsed.bearerToken) || parsed.bearerToken.length > 16_384) {
+  if (
+    !plainObject(parsed) ||
+    !hasValue(parsed.bearerToken) ||
+    parsed.bearerToken.length > 16_384
+  ) {
     throw new Error("verification_auth_invalid");
   }
   const ids = plainObject(parsed.ids) ? parsed.ids : {};
@@ -598,8 +838,10 @@ function endpointInput(endpoint, ids, manifest) {
   const manifestInput = plainObject(manifest?.[endpoint.name]?.input)
     ? manifest[endpoint.name].input
     : undefined;
-  const identifiers = endpoint.identifiers ?? (endpoint.identifier ? [endpoint.identifier] : []);
-  let input = endpoint.input === undefined ? undefined : cloneJson(endpoint.input);
+  const identifiers =
+    endpoint.identifiers ?? (endpoint.identifier ? [endpoint.identifier] : []);
+  let input =
+    endpoint.input === undefined ? undefined : cloneJson(endpoint.input);
   if (manifestInput) input = cloneJson(manifestInput);
   const identifierInput = {};
   for (const identifier of identifiers) {
@@ -611,9 +853,10 @@ function endpointInput(endpoint, ids, manifest) {
       ? manifestInput[identifier.field]
       : knownIds[identifier.source];
     if (!positiveInteger(value)) {
-      const reason = value === undefined
-        ? identifier.missingReason ?? "missing_existing_identifier"
-        : identifier.invalidReason ?? "missing_existing_identifier";
+      const reason =
+        value === undefined
+          ? (identifier.missingReason ?? "missing_existing_identifier")
+          : (identifier.invalidReason ?? "missing_existing_identifier");
       return { ok: false, reason };
     }
     identifierInput[identifier.field] = value;
@@ -626,7 +869,10 @@ function endpointInput(endpoint, ids, manifest) {
   return { ok: true, input };
 }
 
-async function readBoundedResponse(response, limit = RESPONSE_BODY_LIMIT_BYTES) {
+async function readBoundedResponse(
+  response,
+  limit = RESPONSE_BODY_LIMIT_BYTES,
+) {
   if (!response.body) return { ok: true, text: "" };
   let reader;
   try {
@@ -658,7 +904,11 @@ async function readBoundedResponse(response, limit = RESPONSE_BODY_LIMIT_BYTES) 
 function trpcPayload(text) {
   try {
     const parsed = JSON.parse(text);
-    if (!plainObject(parsed) || !plainObject(parsed.result) || !plainObject(parsed.result.data)) {
+    if (
+      !plainObject(parsed) ||
+      !plainObject(parsed.result) ||
+      !plainObject(parsed.result.data)
+    ) {
       return { ok: false, reason: "invalid_trpc_response" };
     }
     if (!("json" in parsed.result.data)) {
@@ -673,7 +923,8 @@ function trpcPayload(text) {
 function expectedShape(value, expected) {
   if (expected === "array") return Array.isArray(value);
   if (expected === "object") return plainObject(value);
-  if (expected === "object-or-null") return value === null || plainObject(value);
+  if (expected === "object-or-null")
+    return value === null || plainObject(value);
   if (expected === "authenticated-object") return plainObject(value);
   if (expected === "health") return plainObject(value) && value.ok === true;
   return false;
@@ -755,7 +1006,9 @@ export async function verifyReadOnlyEndpoints({
 
   for (const endpoint of ordered) {
     if (!endpoint.supported) {
-      checks.push(result(endpoint.name, "positive", "skipped", "inventory_drift"));
+      checks.push(
+        result(endpoint.name, "positive", "skipped", "inventory_drift"),
+      );
       continue;
     }
     const inputResult = endpointInput(endpoint, auth.ids, manifest);
@@ -773,27 +1026,57 @@ export async function verifyReadOnlyEndpoints({
         checks.push(
           anonymous.ok && payload?.ok && payload.value === null
             ? result(endpoint.name, "anonymous_state", "passed")
-            : result(endpoint.name, "anonymous_state", "failed", "anonymous_state_unexpected"),
+            : result(
+                endpoint.name,
+                "anonymous_state",
+                "failed",
+                "anonymous_state_unexpected",
+              ),
         );
       } else {
         checks.push(
           isExpectedAnonymousDenial(anonymous.status, anonymous.text)
             ? result(endpoint.name, "anonymous_denial", "passed")
-            : result(endpoint.name, "anonymous_denial", "failed", "anonymous_gate_unexpected"),
+            : result(
+                endpoint.name,
+                "anonymous_denial",
+                "failed",
+                "anonymous_gate_unexpected",
+              ),
         );
       }
     }
 
     if (!inputResult.ok) {
-      checks.push(result(endpoint.name, "positive", "skipped", inputResult.reason));
+      checks.push(
+        result(endpoint.name, "positive", "skipped", inputResult.reason),
+      );
       continue;
     }
     if (requiresAuth && !auth.bearerToken) {
-      checks.push(result(endpoint.name, "positive", "skipped", "missing_verification_auth"));
+      checks.push(
+        result(
+          endpoint.name,
+          "positive",
+          "skipped",
+          "missing_verification_auth",
+        ),
+      );
       continue;
     }
-    if (requiresAuth && endpoint.name !== "auth.me" && authenticatedContext !== true) {
-      checks.push(result(endpoint.name, "positive", "skipped", "no_active_viewer_context"));
+    if (
+      requiresAuth &&
+      endpoint.name !== "auth.me" &&
+      authenticatedContext !== true
+    ) {
+      checks.push(
+        result(
+          endpoint.name,
+          "positive",
+          "skipped",
+          "no_active_viewer_context",
+        ),
+      );
       continue;
     }
 
@@ -805,13 +1088,20 @@ export async function verifyReadOnlyEndpoints({
       fetchImpl,
     });
     const payload = positive.ok ? trpcPayload(positive.text) : null;
-    const shapeMatches = payload?.ok && expectedShape(payload.value, endpoint.expected);
+    const shapeMatches =
+      payload?.ok && expectedShape(payload.value, endpoint.expected);
     checks.push(
       shapeMatches
         ? result(endpoint.name, "positive", "passed")
-        : result(endpoint.name, "positive", "failed", "query_failed_or_shape_invalid"),
+        : result(
+            endpoint.name,
+            "positive",
+            "failed",
+            "query_failed_or_shape_invalid",
+          ),
     );
-    if (endpoint.name === "auth.me") authenticatedContext = Boolean(shapeMatches);
+    if (endpoint.name === "auth.me")
+      authenticatedContext = Boolean(shapeMatches);
   }
 
   const positive = checks.filter((check) => check.check === "positive");
@@ -820,7 +1110,9 @@ export async function verifyReadOnlyEndpoints({
     failed: checks.filter((check) => check.status === "failed").length,
     skipped: checks.filter((check) => check.status === "skipped").length,
     declaredQueries: inventory.endpoints.length,
-    completedPositiveQueries: positive.filter((check) => check.status === "passed").length,
+    completedPositiveQueries: positive.filter(
+      (check) => check.status === "passed",
+    ).length,
   };
   return {
     checks,
@@ -865,7 +1157,10 @@ export async function waitForApiReadiness({
 }
 
 /** True only when current source references the reviewed durable session authority. */
-export function authBuildRequiresSessionSchema(projectRoot = PROJECT_ROOT, fsModule = fs) {
+export function authBuildRequiresSessionSchema(
+  projectRoot = PROJECT_ROOT,
+  fsModule = fs,
+) {
   const candidates = [
     "server/_core/application-sessions.ts",
     "server/_core/sdk.ts",
@@ -873,50 +1168,163 @@ export function authBuildRequiresSessionSchema(projectRoot = PROJECT_ROOT, fsMod
   ];
   return candidates.some((relativePath) => {
     const filename = path.join(projectRoot, relativePath);
-    return fsModule.existsSync(filename) && /applicationSessions/.test(fsModule.readFileSync(filename, "utf8"));
+    return (
+      fsModule.existsSync(filename) &&
+      /applicationSessions/.test(fsModule.readFileSync(filename, "utf8"))
+    );
   });
 }
 
-async function openReadOnlyDatabaseConnection(databaseUrl, projectRoot, mysqlModule) {
-  const mysql =
-    mysqlModule ??
-    createRequire(path.join(projectRoot, "package.json"))("mysql2/promise");
-  return mysql.createConnection({
-    uri: databaseUrl,
-    connectTimeout: DATABASE_CONNECT_TIMEOUT_MS,
+function privateCatalogQuery(text, values = []) {
+  return { text, values, query_timeout: DATABASE_QUERY_TIMEOUT_MS };
+}
+
+/** @typedef {{ text: string, values: unknown[], query_timeout: number }} PrivateCatalogQuery */
+/** @typedef {{ rows: unknown[] }} PrivateCatalogResult */
+/**
+ * @typedef {{
+ *   connect: () => Promise<unknown>,
+ *   query: (query: PrivateCatalogQuery) => Promise<PrivateCatalogResult> | PrivateCatalogResult,
+ *   end: () => Promise<unknown>
+ * }} ReadOnlyPostgresClient
+ */
+/** @typedef {{ Client: new (options: Record<string, unknown>) => ReadOnlyPostgresClient }} ReadOnlyPgModule */
+/** @typedef {(configuration: Record<string, string | undefined>, projectRoot: string) => Record<string, unknown>} ConnectionOptionsFactory */
+/** @typedef {{ projectRoot?: string, pgModule?: ReadOnlyPgModule, connectionOptions?: ConnectionOptionsFactory }} DatabaseReadinessOptions */
+
+function applicationColumnsAreComplete(rows) {
+  if (!Array.isArray(rows)) return false;
+  const discovered = new Map();
+  for (const row of rows) {
+    if (
+      typeof row?.table_name !== "string" ||
+      typeof row?.column_name !== "string"
+    )
+      return false;
+    const columns = discovered.get(row.table_name) ?? new Set();
+    columns.add(row.column_name);
+    discovered.set(row.table_name, columns);
+  }
+  return Object.entries(REQUIRED_APPLICATION_COLUMNS).every(
+    ([table, columns]) => {
+      const actual = discovered.get(table);
+      return actual && columns.every((column) => actual.has(column));
+    },
+  );
+}
+
+function applicationTablesAreSecured(rows) {
+  if (
+    !Array.isArray(rows) ||
+    rows.length !== REQUIRED_APPLICATION_TABLES.length
+  )
+    return false;
+  const discovered = new Map(rows.map((row) => [row?.table_name, row]));
+  return REQUIRED_APPLICATION_TABLES.every((table) => {
+    const row = discovered.get(table);
+    if (row?.rls_enabled !== true || row?.can_select !== true) return false;
+    // Import completion markers are visible to runtime for state awareness but
+    // remain administrator/importer-owned and cannot be changed by the API role.
+    if (table === "_dataMigrations") {
+      return (
+        row?.can_insert === false &&
+        row?.can_update === false &&
+        row?.can_delete === false
+      );
+    }
+    return (
+      row?.can_insert === true &&
+      row?.can_update === true &&
+      row?.can_delete === true
+    );
   });
 }
 
-async function readOnlyDatabaseQuery(connection, sql, values = []) {
-  return connection.query({
-    sql,
-    values,
-    timeout: DATABASE_QUERY_TIMEOUT_MS,
-  });
+function runtimeRoleIsRestricted(rows) {
+  const row = Array.isArray(rows) ? rows[0] : undefined;
+  return Boolean(
+    row &&
+    row.rolname === APPLICATION_RUNTIME_ROLE &&
+    row.rolcanlogin === false &&
+    row.rolinherit === false &&
+    row.rolbypassrls === false &&
+    row.rolsuper === false,
+  );
 }
 
+async function getSharedPostgresConnectionOptions(configuration, projectRoot) {
+  const helperPath = pathToFileURL(
+    path.join(projectRoot, "server", "_core", "postgres-config.mjs"),
+  ).href;
+  const helper = await import(helperPath);
+  if (
+    helper.PRIVATE_SCHEMA !== APPLICATION_SCHEMA ||
+    helper.RUNTIME_ROLE !== APPLICATION_RUNTIME_ROLE ||
+    typeof helper.getPostgresConnectionOptions !== "function"
+  ) {
+    throw new Error("postgres_helper_contract_invalid");
+  }
+  return helper.getPostgresConnectionOptions(configuration, projectRoot);
+}
+
+/**
+ * @param {Record<string, string | undefined>} configuration
+ * @param {string} projectRoot
+ * @param {DatabaseReadinessOptions} [options]
+ */
+async function openReadOnlyPostgresConnection(
+  configuration,
+  projectRoot,
+  { pgModule, connectionOptions } = {},
+) {
+  const pg =
+    pgModule ?? createRequire(path.join(projectRoot, "package.json"))("pg");
+  const options = connectionOptions
+    ? connectionOptions(configuration, projectRoot)
+    : await getSharedPostgresConnectionOptions(configuration, projectRoot);
+  const client = new pg.Client({
+    ...options,
+    connectionTimeoutMillis: DATABASE_CONNECT_TIMEOUT_MS,
+    query_timeout: DATABASE_QUERY_TIMEOUT_MS,
+  });
+  await client.connect();
+  return client;
+}
+
+/** @param {ReadOnlyPostgresClient | undefined} connection */
 async function closeDatabaseConnection(connection) {
   if (connection) await connection.end().catch(() => undefined);
 }
 
 /**
- * Opens one bounded connection and issues only SELECT 1 before any restart.
- * @param {string} databaseUrl
- * @param {{ projectRoot?: string, mysqlModule?: any }} [options]
+ * Confirms the shared PostgreSQL configuration reaches database postgres. No
+ * managed MySQL URL is read or accepted as a runtime fallback.
+ *
+ * @param {Record<string, string | undefined>} configuration
+ * @param {DatabaseReadinessOptions} [options]
  */
 export async function checkDatabaseReady(
-  databaseUrl,
-  { projectRoot = PROJECT_ROOT, mysqlModule } = {},
+  configuration,
+  { projectRoot = PROJECT_ROOT, pgModule, connectionOptions } = {},
 ) {
   let connection;
   try {
-    connection = await openReadOnlyDatabaseConnection(
-      databaseUrl,
+    connection = await openReadOnlyPostgresConnection(
+      configuration,
       projectRoot,
-      mysqlModule,
+      {
+        pgModule,
+        connectionOptions,
+      },
     );
-    const [rows] = await readOnlyDatabaseQuery(connection, "SELECT 1 AS ready");
-    return Array.isArray(rows) && rows.length === 1 && Number(rows[0]?.ready) === 1;
+    const result = await connection.query(
+      privateCatalogQuery("SELECT current_database() AS database_name"),
+    );
+    return (
+      Array.isArray(result?.rows) &&
+      result.rows.length === 1 &&
+      result.rows[0]?.database_name === "postgres"
+    );
   } catch {
     return false;
   } finally {
@@ -925,46 +1333,85 @@ export async function checkDatabaseReady(
 }
 
 /**
- * Uses bounded read-only information_schema reads and always closes the connection.
- * @param {string} databaseUrl
- * @param {{ projectRoot?: string, mysqlModule?: any }} [options]
+ * Verifies role, schema use, every required table/column, RLS/DML grants,
+ * session indexes, and sequence USAGE with bounded catalog reads only. It never
+ * reads app data, performs DDL, or mutates the target.
+ *
+ * @param {Record<string, string | undefined>} configuration
+ * @param {DatabaseReadinessOptions} [options]
  */
-export async function checkApplicationSessionSchema(
-  databaseUrl,
-  { projectRoot = PROJECT_ROOT, mysqlModule } = {},
+export async function checkApplicationSchema(
+  configuration,
+  { projectRoot = PROJECT_ROOT, pgModule, connectionOptions } = {},
 ) {
   let connection;
   try {
-    connection = await openReadOnlyDatabaseConnection(
-      databaseUrl,
+    connection = await openReadOnlyPostgresConnection(
+      configuration,
       projectRoot,
-      mysqlModule,
+      {
+        pgModule,
+        connectionOptions,
+      },
     );
-    const [tableRows] = await readOnlyDatabaseQuery(
-      connection,
-      "SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ? LIMIT 1",
-      [SESSION_TABLE],
+    const role = await connection.query(
+      privateCatalogQuery(
+        "SELECT rolname, rolcanlogin, rolinherit, rolbypassrls, rolsuper FROM pg_roles WHERE rolname = $1 LIMIT 1",
+        [APPLICATION_RUNTIME_ROLE],
+      ),
     );
-    if (!Array.isArray(tableRows) || tableRows.length !== 1) return false;
-    const [primaryKeyRows] = await readOnlyDatabaseQuery(
-      connection,
-      "SELECT COLUMN_NAME FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? AND COLUMN_KEY = 'PRI' LIMIT 1",
-      [SESSION_TABLE],
+    if (!runtimeRoleIsRestricted(role?.rows)) return false;
+
+    const schema = await connection.query(
+      privateCatalogQuery(
+        "SELECT has_schema_privilege($1, $2, 'USAGE') AS can_use_schema",
+        [APPLICATION_RUNTIME_ROLE, APPLICATION_SCHEMA],
+      ),
     );
-    if (
-      !Array.isArray(primaryKeyRows) ||
-      primaryKeyRows.length !== 1 ||
-      primaryKeyRows[0]?.COLUMN_NAME !== "sessionFingerprint"
-    ) {
-      return false;
-    }
-    const [indexRows] = await readOnlyDatabaseQuery(
-      connection,
-      "SELECT DISTINCT INDEX_NAME FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = ?",
-      [SESSION_TABLE],
+    if (schema?.rows?.[0]?.can_use_schema !== true) return false;
+
+    const columns = await connection.query(
+      privateCatalogQuery(
+        "SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = ANY($2::text[]) ORDER BY table_name, ordinal_position",
+        [APPLICATION_SCHEMA, REQUIRED_APPLICATION_TABLES],
+      ),
     );
-    const indexes = new Set(indexRows.map((row) => row.INDEX_NAME));
-    return SESSION_INDEXES.every((name) => indexes.has(name));
+    if (!applicationColumnsAreComplete(columns?.rows)) return false;
+
+    const tables = await connection.query(
+      privateCatalogQuery(
+        "SELECT c.relname AS table_name, c.relrowsecurity AS rls_enabled, has_table_privilege($2, c.oid, 'SELECT') AS can_select, has_table_privilege($2, c.oid, 'INSERT') AS can_insert, has_table_privilege($2, c.oid, 'UPDATE') AS can_update, has_table_privilege($2, c.oid, 'DELETE') AS can_delete FROM pg_class AS c JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND c.relkind IN ('r', 'p') AND c.relname = ANY($3::text[]) ORDER BY c.relname",
+        [
+          APPLICATION_SCHEMA,
+          APPLICATION_RUNTIME_ROLE,
+          REQUIRED_APPLICATION_TABLES,
+        ],
+      ),
+    );
+    if (!applicationTablesAreSecured(tables?.rows)) return false;
+
+    const indexes = await connection.query(
+      privateCatalogQuery(
+        "SELECT indexname FROM pg_indexes WHERE schemaname = $1 AND tablename = $2",
+        [APPLICATION_SCHEMA, SESSION_TABLE],
+      ),
+    );
+    const indexNames = new Set(
+      (indexes?.rows ?? []).map((row) => row?.indexname),
+    );
+    if (!SESSION_INDEXES.every((name) => indexNames.has(name))) return false;
+
+    const sequences = await connection.query(
+      privateCatalogQuery(
+        "SELECT c.relname AS sequence_name, has_sequence_privilege($2, c.oid, 'USAGE') AS can_use_sequence FROM pg_class AS c JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND c.relkind = 'S'",
+        [APPLICATION_SCHEMA, APPLICATION_RUNTIME_ROLE],
+      ),
+    );
+    return (
+      Array.isArray(sequences?.rows) &&
+      sequences.rows.length > 0 &&
+      sequences.rows.every((row) => row?.can_use_sequence === true)
+    );
   } catch {
     return false;
   } finally {
@@ -972,10 +1419,14 @@ export async function checkApplicationSessionSchema(
   }
 }
 
+/** Compatibility export; durable-session verification is now part of full app readiness. */
+export const checkApplicationSessionSchema = checkApplicationSchema;
+
 function restrictedRuntimeEnvironment(referenceEnvironment, configuration) {
   const runtime = { PATH: referenceEnvironment.PATH ?? "/usr/bin:/bin" };
   for (const key of SAFE_RUNTIME_KEYS) {
-    if (hasValue(referenceEnvironment[key])) runtime[key] = referenceEnvironment[key];
+    if (hasValue(referenceEnvironment[key]))
+      runtime[key] = referenceEnvironment[key];
     if (hasValue(configuration[key])) runtime[key] = configuration[key];
   }
   runtime.PORT = String(API_PORT);
@@ -1010,24 +1461,36 @@ function finiteSpawn(command, args, environment, spawn = spawnSync) {
  * Restarts the only accepted API service name. No shell, wildcard process kill,
  * arbitrary PID, Metro process, detached child, or secret-bearing argv is used.
  */
-export function restartKnownApiService(/** @type {any} */ {
-  serviceName,
-  serviceManager,
-  restartAdapter,
-  configuration,
-  referenceEnvironment = process.env,
-  spawn = spawnSync,
-}) {
-  if (serviceName !== ALLOWED_SERVICE_NAME) return { ok: false, reason: "unsafe_service_target" };
-  const environment = restrictedRuntimeEnvironment(referenceEnvironment, configuration);
+export function restartKnownApiService(
+  /** @type {any} */ {
+    serviceName,
+    serviceManager,
+    restartAdapter,
+    configuration,
+    referenceEnvironment = process.env,
+    spawn = spawnSync,
+  },
+) {
+  if (serviceName !== ALLOWED_SERVICE_NAME)
+    return { ok: false, reason: "unsafe_service_target" };
+  const environment = restrictedRuntimeEnvironment(
+    referenceEnvironment,
+    configuration,
+  );
   if (serviceManager === "systemd" && !restartAdapter) {
     return {
-      ok: finiteSpawn("systemctl", ["restart", serviceName], environment, spawn),
+      ok: finiteSpawn(
+        "systemctl",
+        ["restart", serviceName],
+        environment,
+        spawn,
+      ),
       reason: "restart_failed",
     };
   }
   if (serviceManager === "pm2" && !restartAdapter) {
-    const pm2ManagerEnvironment = trustedPm2ManagerEnvironment(referenceEnvironment);
+    const pm2ManagerEnvironment =
+      trustedPm2ManagerEnvironment(referenceEnvironment);
     if (!pm2ManagerEnvironment) {
       return { ok: false, reason: "pm2_manager_context_required" };
     }
@@ -1080,7 +1543,12 @@ function dryRunVerification(inventory, manifest, auth) {
       return result(endpoint.name, "positive", "skipped", input.reason);
     }
     if (endpoint.requiresAuth && !auth.bearerToken) {
-      return result(endpoint.name, "positive", "skipped", "missing_verification_auth");
+      return result(
+        endpoint.name,
+        "positive",
+        "skipped",
+        "missing_verification_auth",
+      );
     }
     return result(endpoint.name, "positive", "skipped", "dry_run_not_verified");
   });
@@ -1101,54 +1569,76 @@ function dryRunVerification(inventory, manifest, auth) {
  * Orchestrates a single guarded run. Dependency injection keeps tests synthetic:
  * no test needs a real DB, service manager, browser, provider, or .env file.
  */
-export async function runRecovery(/** @type {any} */ {
-  mode = "dry-run",
-  configuration,
-  environmentSource,
-  envFile,
-  envCommand,
-  envCommandArgs,
-  operatorBaseUrl,
-  auth,
-  authFile,
-  endpointManifest,
-  manifest,
-  projectRoot = PROJECT_ROOT,
-  projectDir,
-  referenceEnvironment = process.env,
-  strict = false,
-  checkAnonymousGates = true,
-  serviceName,
-  serviceManager,
-  restartAdapter,
-  forceSessionSchemaCheck = false,
-  databaseReady = checkDatabaseReady,
-  schemaCheck = checkApplicationSessionSchema,
-  restart = restartKnownApiService,
-  readinessCheck = waitForApiReadiness,
-  sleep = delay,
-  fetchImpl = fetch,
-  fsModule = fs,
-}) {
+export async function runRecovery(
+  /** @type {any} */ {
+    mode = "dry-run",
+    configuration,
+    environmentSource,
+    envFile,
+    envCommand,
+    envCommandArgs,
+    operatorBaseUrl,
+    auth,
+    authFile,
+    endpointManifest,
+    manifest,
+    projectRoot = PROJECT_ROOT,
+    projectDir,
+    referenceEnvironment = process.env,
+    strict = false,
+    checkAnonymousGates = true,
+    serviceName,
+    serviceManager,
+    restartAdapter,
+    forceSessionSchemaCheck = false,
+    databaseReady = checkDatabaseReady,
+    schemaCheck = checkApplicationSchema,
+    restart = restartKnownApiService,
+    readinessCheck = waitForApiReadiness,
+    sleep = delay,
+    fetchImpl = fetch,
+    fsModule = fs,
+  },
+) {
   const report = {
     mode,
     ok: false,
     configuration: { ok: false, errors: [] },
-    database: { required: mode !== "verify-only", ok: mode === "verify-only" ? null : false },
-    sessionSchema: { required: false, ok: true },
+    database: {
+      required: mode !== "verify-only",
+      ok: mode === "verify-only" ? null : false,
+    },
+    applicationSchema: {
+      required: mode !== "verify-only",
+      ok: mode === "verify-only" ? null : false,
+    },
     restart: { attempted: false, ok: null },
     readiness: { attempted: false, ok: null, attempts: 0 },
-    inventory: { declaredQueries: 0, drift: { missingConfigured: [], unsupported: [], classificationMismatch: [] } },
+    inventory: {
+      declaredQueries: 0,
+      drift: {
+        missingConfigured: [],
+        unsupported: [],
+        classificationMismatch: [],
+      },
+    },
     verification: emptyVerification(),
   };
   if (mode !== "dry-run" && mode !== "apply" && mode !== "verify-only") {
-    report.configuration.errors = [issue("mode", "must be dry-run, apply or verify-only")];
+    report.configuration.errors = [
+      issue("mode", "must be dry-run, apply or verify-only"),
+    ];
     return report;
   }
 
   const selectedProjectRoot = projectDir ?? projectRoot;
-  if (typeof selectedProjectRoot !== "string" || !path.isAbsolute(selectedProjectRoot)) {
-    report.configuration.errors = [issue("projectDir", "must be an absolute source repository path")];
+  if (
+    typeof selectedProjectRoot !== "string" ||
+    !path.isAbsolute(selectedProjectRoot)
+  ) {
+    report.configuration.errors = [
+      issue("projectDir", "must be an absolute source repository path"),
+    ];
     return report;
   }
 
@@ -1167,13 +1657,20 @@ export async function runRecovery(/** @type {any} */ {
               fsModule,
             });
   } catch (error) {
-    report.configuration.errors = [issue("environment", error instanceof Error ? error.message : "environment_source_invalid")];
+    report.configuration.errors = [
+      issue(
+        "environment",
+        error instanceof Error ? error.message : "environment_source_invalid",
+      ),
+    ];
     return report;
   }
 
   const preflight =
     mode === "verify-only"
-      ? validateVerificationConfiguration(selectedEnvironment.values, { operatorBaseUrl })
+      ? validateVerificationConfiguration(selectedEnvironment.values, {
+          operatorBaseUrl,
+        })
       : validateRefreshConfiguration(selectedEnvironment.values, {
           referenceEnvironment,
           operatorBaseUrl,
@@ -1189,24 +1686,36 @@ export async function runRecovery(/** @type {any} */ {
       drift: discovered.drift,
     };
   } catch {
-    report.configuration = { ok: false, errors: [issue("inventory", "source_inventory_unavailable")] };
+    report.configuration = {
+      ok: false,
+      errors: [issue("inventory", "source_inventory_unavailable")],
+    };
     return report;
   }
 
   let selectedManifest;
   let selectedAuth;
   try {
-    selectedManifest = manifest ?? loadEndpointManifest(endpointManifest, discovered, fsModule);
+    selectedManifest =
+      manifest ?? loadEndpointManifest(endpointManifest, discovered, fsModule);
     selectedAuth = auth ?? loadVerificationAuth(authFile, fsModule);
   } catch (error) {
-    report.configuration = { ok: false, errors: [issue("verification", error instanceof Error ? error.message : "verification_input_invalid")] };
+    report.configuration = {
+      ok: false,
+      errors: [
+        issue(
+          "verification",
+          error instanceof Error ? error.message : "verification_input_invalid",
+        ),
+      ],
+    };
     return report;
   }
 
   if (mode !== "verify-only") {
     try {
       report.database.ok = Boolean(
-        await databaseReady(selectedEnvironment.values.DATABASE_URL, {
+        await databaseReady(selectedEnvironment.values, {
           projectRoot: selectedProjectRoot,
         }),
       );
@@ -1215,21 +1724,19 @@ export async function runRecovery(/** @type {any} */ {
     }
     if (!report.database.ok) return report;
 
-    const needsSessionSchema =
-      forceSessionSchemaCheck || authBuildRequiresSessionSchema(selectedProjectRoot, fsModule);
-    report.sessionSchema.required = needsSessionSchema;
-    if (needsSessionSchema) {
-      try {
-        report.sessionSchema.ok = Boolean(
-          await schemaCheck(selectedEnvironment.values.DATABASE_URL, {
-            projectRoot: selectedProjectRoot,
-          }),
-        );
-      } catch {
-        report.sessionSchema.ok = false;
-      }
-      if (!report.sessionSchema.ok) return report;
+    // Durable sessions are part of the complete application catalog contract.
+    // The retained CLI flag cannot weaken the now-mandatory private-schema check.
+    void forceSessionSchemaCheck;
+    try {
+      report.applicationSchema.ok = Boolean(
+        await schemaCheck(selectedEnvironment.values, {
+          projectRoot: selectedProjectRoot,
+        }),
+      );
+    } catch {
+      report.applicationSchema.ok = false;
     }
+    if (!report.applicationSchema.ok) return report;
   }
 
   const hasInventoryDrift =
@@ -1310,7 +1817,8 @@ export function parseCliArguments(argv) {
   const options = { mode: "dry-run", strict: false, checkAnonymousGates: true };
   let explicitMode;
   const setMode = (mode) => {
-    if (explicitMode && explicitMode !== mode) throw new Error("recovery_mode_ambiguous");
+    if (explicitMode && explicitMode !== mode)
+      throw new Error("recovery_mode_ambiguous");
     explicitMode = mode;
     options.mode = mode;
   };
@@ -1320,18 +1828,33 @@ export function parseCliArguments(argv) {
     else if (argument === "--dry-run") setMode("dry-run");
     else if (argument === "--verify-only") setMode("verify-only");
     else if (argument === "--strict") options.strict = true;
-    else if (argument === "--no-anonymous-gates") options.checkAnonymousGates = false;
-    else if (argument === "--require-session-schema") options.forceSessionSchemaCheck = true;
+    else if (argument === "--no-anonymous-gates")
+      options.checkAnonymousGates = false;
+    else if (argument === "--require-session-schema")
+      options.forceSessionSchemaCheck = true;
     else if (argument === "--env-command-arg") {
       const value = argv[index + 1];
-      if (!value || value.startsWith("--")) throw new Error("argument_value_missing");
+      if (!value || value.startsWith("--"))
+        throw new Error("argument_value_missing");
       options.envCommandArgs ??= [];
       options.envCommandArgs.push(value);
       index += 1;
-    }
-    else if (["--env-file", "--env-command", "--api-base-url", "--auth-file", "--endpoint-manifest", "--service-name", "--service-manager", "--restart-adapter", "--project-dir"].includes(argument)) {
+    } else if (
+      [
+        "--env-file",
+        "--env-command",
+        "--api-base-url",
+        "--auth-file",
+        "--endpoint-manifest",
+        "--service-name",
+        "--service-manager",
+        "--restart-adapter",
+        "--project-dir",
+      ].includes(argument)
+    ) {
       const value = argv[index + 1];
-      if (!value || value.startsWith("--")) throw new Error("argument_value_missing");
+      if (!value || value.startsWith("--"))
+        throw new Error("argument_value_missing");
       const key = {
         "--env-file": "envFile",
         "--env-command": "envCommand",
@@ -1351,7 +1874,10 @@ export function parseCliArguments(argv) {
       throw new Error("argument_invalid");
     }
   }
-  if (options.serviceManager && !["systemd", "pm2"].includes(options.serviceManager)) {
+  if (
+    options.serviceManager &&
+    !["systemd", "pm2"].includes(options.serviceManager)
+  ) {
     throw new Error("service_manager_invalid");
   }
   if (options.projectDir && !path.isAbsolute(options.projectDir)) {
@@ -1399,6 +1925,9 @@ async function main() {
   return report.ok ? 0 : 1;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
   process.exitCode = await main();
 }
