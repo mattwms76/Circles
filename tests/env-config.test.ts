@@ -19,6 +19,8 @@ function canonicalRuntimeEnvironment(): Record<string, string> {
     MANUS_OAUTH_PORTAL_URL: "https://oauth.example.test",
     MANUS_OAUTH_API_URL: "https://oauth-api.example.test",
     MANUS_JWT_SECRET: "x".repeat(32),
+    SUPABASE_DATABASE_URL:
+      "postgresql://postgres.vvclcsqletcxzoaayqzq:synthetic-password@aws-0-eu-west-1.pooler.supabase.com:5432/postgres",
     DATABASE_URL: "mysql://local.example.test/circles",
     BUILT_IN_FORGE_API_URL: "https://storage.example.test",
     BUILT_IN_FORGE_API_KEY: "test-only-key",
@@ -81,12 +83,33 @@ describe("environment configuration contract", () => {
     );
   });
 
-  it("accepts the complete canonical OAuth and media runtime contract", () => {
+  it("accepts the complete canonical OAuth, Supabase, and media runtime contract", () => {
     const result = validateEnvironment(
       canonicalRuntimeEnvironment(),
       "runtime",
     );
     expect(result).toMatchObject({ ok: true, errors: [] });
+  });
+
+  it("requires server-only Supabase PostgreSQL and rejects DATABASE_URL as a runtime substitute", () => {
+    const environment = canonicalRuntimeEnvironment();
+    delete environment.SUPABASE_DATABASE_URL;
+    const result = validateEnvironment(environment, "runtime");
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContainEqual(
+      expect.objectContaining({ name: "SUPABASE_DATABASE_URL" }),
+    );
+  });
+
+  it("only accepts a MySQL URL when the optional managed source is retained", () => {
+    const secret = "postgresql://private-secret-must-not-appear@example.test/postgres";
+    const result = validateEnvironment(
+      { ...canonicalRuntimeEnvironment(), DATABASE_URL: secret },
+      "runtime",
+    );
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContainEqual(expect.objectContaining({ name: "DATABASE_URL" }));
+    expect(JSON.stringify(result.errors)).not.toContain(secret);
   });
 
   it("rejects credential-bearing browser-safe endpoints without echoing values", () => {

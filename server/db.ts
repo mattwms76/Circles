@@ -1,92 +1,120 @@
 import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
+import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
+import * as coreSchema from "../drizzle/schema";
+import * as liveSchema from "../drizzle/live-schema";
+import * as sessionSchema from "../drizzle/session-schema";
+import { type InsertUser, users } from "../drizzle/schema";
 import { ENV } from "./_core/env";
+import { getPostgresConnectionOptions } from "./_core/postgres-config.mjs";
+import { createRuntimeRolePool, type RuntimeRolePool } from "./runtime-role-pool";
 
-let _db: ReturnType<typeof drizzle> | null = null;
+const databaseSchema = {
+  ...coreSchema,
+  ...liveSchema,
+  ...sessionSchema,
+};
 
-// Lazily create the drizzle instance so local tooling can run without a DB.
-export async function getDb() {
-  if (!_db && process.env.DATABASE_URL) {
-    try {
-      _db = drizzle(process.env.DATABASE_URL);
-    } catch {
-      console.warn("[Database] Failed to connect");
-      _db = null;
-    }
+export type CirclesDatabase = NodePgDatabase<typeof databaseSchema> & {
+  /** Drizzle's client is always RuntimeRolePool, never a privileged raw Pool. */
+  $client: RuntimeRolePool;
+};
+export type CirclesTransaction = Parameters<Parameters<CirclesDatabase["transaction"]>[0]>[0];
+
+let pool: RuntimeRolePool | null = null;
+let database: CirclesDatabase | null = null;
+
+/** Database errors are intentionally generic so connection material cannot reach API logs or clients. */
+export class PostgreSqlDatabaseUnavailableError extends Error {
+  constructor() {
+    super("PostgreSQL database is unavailable");
+    this.name = "PostgreSqlDatabaseUnavailableError";
   }
-  return _db;
 }
 
+/**
+ * Lazily creates the PostgreSQL-only application database. There is deliberately
+ * no DATABASE_URL/MySQL fallback: callers either use the private Supabase schema
+ * through the runtime role or receive null and fail closed at their boundary.
+ */
+export async function getDb(): Promise<CirclesDatabase | null> {
+  if (database) return database;
+
+  try {
+    const options = getPostgresConnectionOptions(process.env, process.cwd());
+    const runtimePool = createRuntimeRolePool(options);
+    const runtimeDatabase = drizzle(runtimePool, { schema: databaseSchema });
+    pool = runtimePool;
+    database = runtimeDatabase;
+    return database;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Retain existing Manus OAuth user-upsert semantics using PostgreSQL's explicit
+ * unique conflict target. The OAuth provider, session signing, and user IDs are
+ * otherwise untouched.
+ */
 export async function upsertUser(user: InsertUser): Promise<void> {
   if (!user.openId) {
     throw new Error("User openId is required for upsert");
   }
 
   const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot upsert user: database not available");
-    return;
+  if (!db) throw new PostgreSqlDatabaseUnavailableError();
+
+  const now = new Date();
+  const values: InsertUser = {
+    openId: user.openId,
+    lastSignedIn: user.lastSignedIn ?? now,
+  };
+  const updateSet: Partial<Omit<InsertUser, "id" | "openId">> = {
+    lastSignedIn: user.lastSignedIn ?? now,
+    updatedAt: now,
+  };
+
+  const textFields = ["name", "email", "loginMethod"] as const;
+  for (const field of textFields) {
+    if (user[field] === undefined) continue;
+    values[field] = user[field];
+    updateSet[field] = user[field];
+  }
+
+  if (user.role !== undefined) {
+    values.role = user.role;
+    updateSet.role = user.role;
+  } else if (user.openId === ENV.ownerOpenId) {
+    values.role = "admin";
+    updateSet.role = "admin";
   }
 
   try {
-    const values: InsertUser = {
-      openId: user.openId,
-    };
-    const updateSet: Record<string, unknown> = {};
-
-    const textFields = ["name", "email", "loginMethod"] as const;
-    type TextField = (typeof textFields)[number];
-
-    const assignNullable = (field: TextField) => {
-      const value = user[field];
-      if (value === undefined) return;
-      const normalized = value ?? null;
-      values[field] = normalized;
-      updateSet[field] = normalized;
-    };
-
-    textFields.forEach(assignNullable);
-
-    if (user.lastSignedIn !== undefined) {
-      values.lastSignedIn = user.lastSignedIn;
-      updateSet.lastSignedIn = user.lastSignedIn;
-    }
-    if (user.role !== undefined) {
-      values.role = user.role;
-      updateSet.role = user.role;
-    } else if (user.openId === ENV.ownerOpenId) {
-      values.role = "admin";
-      updateSet.role = "admin";
-    }
-
-    if (!values.lastSignedIn) {
-      values.lastSignedIn = new Date();
-    }
-
-    if (Object.keys(updateSet).length === 0) {
-      updateSet.lastSignedIn = new Date();
-    }
-
-    await db.insert(users).values(values).onDuplicateKeyUpdate({
+    await db.insert(users).values(values).onConflictDoUpdate({
+      target: users.openId,
       set: updateSet,
     });
-  } catch (error) {
-    console.error("[Database] Failed to upsert user");
-    throw error;
+  } catch {
+    throw new PostgreSqlDatabaseUnavailableError();
   }
 }
 
 export async function getUserByOpenId(openId: string) {
   const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot get user: database not available");
-    return undefined;
+  if (!db) return undefined;
+
+  try {
+    const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
+    return result[0];
+  } catch {
+    throw new PostgreSqlDatabaseUnavailableError();
   }
-
-  const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
-
-  return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+/** Visible for graceful server shutdown only; the privileged Pool is never exported. */
+export async function closePostgresPool(): Promise<void> {
+  const activePool = pool;
+  pool = null;
+  database = null;
+  if (activePool) await activePool.end();
+}

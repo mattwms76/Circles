@@ -37,7 +37,7 @@ export const ENVIRONMENT_CONTRACT = Object.freeze({
       "MANUS_OAUTH_PORTAL_URL",
       "MANUS_OAUTH_API_URL",
       "MANUS_JWT_SECRET",
-      "DATABASE_URL",
+      "SUPABASE_DATABASE_URL",
       "BUILT_IN_FORGE_API_URL",
       "BUILT_IN_FORGE_API_KEY",
       "EXPO_PUBLIC_API_BASE_URL",
@@ -58,6 +58,7 @@ export const ENVIRONMENT_CONTRACT = Object.freeze({
     "BUILT_IN_FORGE_API_KEY",
     "BUILT_IN_FORGE_API_URL",
     "DATABASE_URL",
+    "SUPABASE_DATABASE_URL",
     "EXPO_PACKAGER_PROXY_URL",
     "EXPO_PUBLIC_API_BASE_URL",
     "EXPO_PUBLIC_APP_ID",
@@ -89,6 +90,7 @@ export const ENVIRONMENT_CONTRACT = Object.freeze({
     "BUILT_IN_FORGE_API_KEY",
     "BUILT_IN_FORGE_API_URL",
     "DATABASE_URL",
+    "SUPABASE_DATABASE_URL",
     "EXPO_PACKAGER_PROXY_URL",
     "EXPO_PUBLIC_API_BASE_URL",
     "EXPO_PUBLIC_APP_ID",
@@ -134,6 +136,7 @@ export const ENV_REFERENCE_SOURCE_FILES = Object.freeze([
   "server/_core/env.ts",
   "server/_core/index.ts",
   "server/_core/oauth.ts",
+  "server/_core/postgres-config.mjs",
 ]);
 
 const PUBLIC_URL_KEYS = new Set([
@@ -232,6 +235,20 @@ export function validateEnvironment(env = process.env, mode = "runtime") {
       );
     }
 
+    if (hasValue(env.DATABASE_URL)) {
+      try {
+        const legacySource = new URL(env.DATABASE_URL);
+        if (!["mysql:", "mysql2:"].includes(legacySource.protocol)) {
+          errors.push(issue(
+            "DATABASE_URL",
+            "is reserved for a read-only MySQL migration or rollback source",
+          ));
+        }
+      } catch {
+        errors.push(issue("DATABASE_URL", "must be a MySQL connection URL when supplied"));
+      }
+    }
+
     const configuredFrontendOrigin =
       ENVIRONMENT_CONTRACT.runtime.trustedFrontendOrigins.some((name) =>
         hasValue(env[name]),
@@ -257,8 +274,8 @@ export function validateEnvironment(env = process.env, mode = "runtime") {
  */
 export function extractEnvironmentNames(sourceText) {
   const names = new Set();
-  const direct = /\bprocess\.env\.([A-Z][A-Z0-9_]*)\b/g;
-  const literalBracket = /\bprocess\.env\[\s*["']([A-Z][A-Z0-9_]*)["']\s*\]/g;
+  const direct = /\b(?:process\.env|env|environment)\.([A-Z][A-Z0-9_]*)\b/g;
+  const literalBracket = /\b(?:process\.env|env|environment)\[\s*["']([A-Z][A-Z0-9_]*)["']\s*\]/g;
   let match;
 
   while ((match = direct.exec(sourceText))) names.add(match[1]);

@@ -1,90 +1,89 @@
 import {
-  int,
-  mysqlEnum,
-  mysqlTable,
+  integer,
+  pgSchema,
   primaryKey,
   text,
   timestamp,
   varchar,
-} from "drizzle-orm/mysql-core";
+} from "drizzle-orm/pg-core";
+
+const circlesApp = pgSchema("circles_app");
+const streamStatus = circlesApp.enum("stream_status", ["live", "ended"]);
+const liveSignalKind = circlesApp.enum("live_signal_kind", [
+  "join",
+  "offer",
+  "answer",
+  "ice",
+  "leave",
+]);
+const generatedId = (name = "id") => integer(name).generatedByDefaultAsIdentity().primaryKey();
+const createdAt = (name = "createdAt") => timestamp(name, { withTimezone: true }).defaultNow().notNull();
 
 /** A host-owned broadcast session. A stream stays queryable after it has ended. */
-export const streams = mysqlTable("streams", {
-  id: int("id").autoincrement().primaryKey(),
-  hostId: int("hostId").notNull(),
+export const streams = circlesApp.table("streams", {
+  id: generatedId(),
+  hostId: integer("hostId").notNull(),
   title: varchar("title", { length: 160 }).notNull(),
-  circleId: int("circleId"),
+  circleId: integer("circleId"),
   thumbnail: varchar("thumbnail", { length: 2048 }).notNull().default(""),
-  status: mysqlEnum("status", ["live", "ended"]).notNull().default("live"),
+  status: streamStatus("status").notNull().default("live"),
   /** Set only after the host has captured local camera media. */
-  readyAt: timestamp("readyAt"),
+  readyAt: timestamp("readyAt", { withTimezone: true }),
   /** Host lease renewed by authenticated heartbeat calls. */
-  lastHeartbeatAt: timestamp("lastHeartbeatAt").notNull().defaultNow(),
+  lastHeartbeatAt: timestamp("lastHeartbeatAt", { withTimezone: true }).notNull().defaultNow(),
   /** Bumped whenever the host starts a fresh media transport for this stream. */
-  hostGeneration: int("hostGeneration").notNull().default(1),
-  createdAt: timestamp("createdAt").notNull().defaultNow(),
-  endedAt: timestamp("endedAt"),
+  hostGeneration: integer("hostGeneration").notNull().default(1),
+  createdAt: createdAt(),
+  endedAt: timestamp("endedAt", { withTimezone: true }),
 });
 
-/**
- * One durable lock row per host. A non-null streamId owns that host's current
- * broadcast slot; ended broadcasts stay in streams as historical records.
- */
-export const activeHostLeases = mysqlTable("activeHostLeases", {
-  hostId: int("hostId").primaryKey(),
-  streamId: int("streamId"),
-  lastHeartbeatAt: timestamp("lastHeartbeatAt"),
+/** One durable lock row per host, retaining historical streams independently. */
+export const activeHostLeases = circlesApp.table("activeHostLeases", {
+  hostId: integer("hostId").primaryKey(),
+  streamId: integer("streamId"),
+  lastHeartbeatAt: timestamp("lastHeartbeatAt", { withTimezone: true }),
 });
 
-/**
- * Durable viewer presence. Only rows with a null leftAt count as viewers or
- * participants; this avoids client-maintained/fake viewer counters.
- */
-export const liveViewers = mysqlTable(
+/** Durable viewer presence; rows with null leftAt count as viewers or participants. */
+export const liveViewers = circlesApp.table(
   "liveViewers",
   {
-    streamId: int("streamId").notNull(),
-    userId: int("userId").notNull(),
-    joinedAt: timestamp("joinedAt").notNull().defaultNow(),
+    streamId: integer("streamId").notNull(),
+    userId: integer("userId").notNull(),
+    joinedAt: createdAt("joinedAt"),
     /** Viewer lease renewed by authenticated heartbeat calls after joining. */
-    lastSeenAt: timestamp("lastSeenAt").notNull().defaultNow(),
+    lastSeenAt: timestamp("lastSeenAt", { withTimezone: true }).notNull().defaultNow(),
     /** Bumped for every fresh viewer media transport, including a rejoin. */
-    generation: int("generation").notNull().default(1),
-    leftAt: timestamp("leftAt"),
+    generation: integer("generation").notNull().default(1),
+    leftAt: timestamp("leftAt", { withTimezone: true }),
   },
   (table) => [primaryKey({ columns: [table.streamId, table.userId] })],
 );
 
 /** Authenticated, persisted WebRTC signaling messages. */
-export const liveSignals = mysqlTable("liveSignals", {
-  id: int("id").autoincrement().primaryKey(),
-  streamId: int("streamId").notNull(),
-  fromId: int("fromId").notNull(),
-  toId: int("toId"),
-  kind: mysqlEnum("kind", [
-    "join",
-    "offer",
-    "answer",
-    "ice",
-    "leave",
-  ]).notNull(),
+export const liveSignals = circlesApp.table("liveSignals", {
+  id: generatedId(),
+  streamId: integer("streamId").notNull(),
+  fromId: integer("fromId").notNull(),
+  toId: integer("toId"),
+  kind: liveSignalKind("kind").notNull(),
   /** Sender media lifecycle that produced this signal. */
-  fromGeneration: int("fromGeneration").notNull().default(1),
+  fromGeneration: integer("fromGeneration").notNull().default(1),
   /** Recipient media lifecycle allowed to consume this signal. */
-  toGeneration: int("toGeneration").notNull().default(1),
+  toGeneration: integer("toGeneration").notNull().default(1),
   payload: text("payload").notNull(),
-  createdAt: timestamp("createdAt").notNull().defaultNow(),
+  createdAt: createdAt(),
 });
 
 /** Persisted live chat. Heart reactions are represented as normal ❤ messages. */
-export const liveChat = mysqlTable("liveChat", {
-  id: int("id").autoincrement().primaryKey(),
-  streamId: int("streamId").notNull(),
-  userId: int("userId").notNull(),
+export const liveChat = circlesApp.table("liveChat", {
+  id: generatedId(),
+  streamId: integer("streamId").notNull(),
+  userId: integer("userId").notNull(),
   userName: varchar("userName", { length: 160 }).notNull(),
   avatar: varchar("avatar", { length: 2048 }).notNull().default(""),
   text: varchar("text", { length: 500 }).notNull(),
-  createdAt: timestamp("createdAt").notNull().defaultNow(),
+  createdAt: createdAt(),
 });
 
 export type Stream = typeof streams.$inferSelect;

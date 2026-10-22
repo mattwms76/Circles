@@ -17,12 +17,12 @@ const SYNTHETIC_CIRCLE_ID = 41;
 const SYNTHETIC_USER_ID = 99;
 
 /**
- * A deliberately small in-memory Drizzle-shaped fixture. Its duplicate-key method yields once so
- * both join calls reach the write before one insert wins and the other is retained.
+ * A deliberately small in-memory Drizzle-shaped fixture. Its conflict-target method yields once
+ * so both join calls reach the write before one insert wins and the other is retained.
  */
 function createSyntheticConcurrentJoinFixture(privacy: SyntheticCirclePrivacy) {
   let membershipRole: SyntheticJoinRole | undefined;
-  let duplicateKeyWrites = 0;
+  let conflictWrites = 0;
 
   const db = {
     select: () => ({
@@ -48,9 +48,17 @@ function createSyntheticConcurrentJoinFixture(privacy: SyntheticCirclePrivacy) {
         }
 
         return {
-          onDuplicateKeyUpdate: async (config: { set: { id: unknown } }) => {
-            if (!("id" in config.set)) throw new Error("Expected duplicate-key retention");
-            duplicateKeyWrites += 1;
+          onConflictDoNothing: async (config: { target?: unknown | unknown[] }) => {
+            const target = Array.isArray(config.target)
+              ? config.target
+              : [config.target];
+            if (
+              !target.includes(memberships.circleId) ||
+              !target.includes(memberships.userId)
+            ) {
+              throw new Error("Expected the circle/user membership conflict target");
+            }
+            conflictWrites += 1;
             await Promise.resolve();
             membershipRole ??= value.role;
           },
@@ -61,7 +69,7 @@ function createSyntheticConcurrentJoinFixture(privacy: SyntheticCirclePrivacy) {
 
   return {
     db,
-    duplicateKeyWrites: () => duplicateKeyWrites,
+    conflictWrites: () => conflictWrites,
     membershipRole: () => membershipRole,
   };
 }
@@ -82,7 +90,7 @@ describe("SOC-003 idempotent circle joins", () => {
 
     expect(joined).toEqual([{ role: "member" }, { role: "member" }]);
     expect(fixture.membershipRole()).toBe("member");
-    expect(fixture.duplicateKeyWrites()).toBe(2);
+    expect(fixture.conflictWrites()).toBe(2);
   });
 
   it("returns one pending role when two synthetic private joins overlap", async () => {
@@ -96,6 +104,6 @@ describe("SOC-003 idempotent circle joins", () => {
 
     expect(joined).toEqual([{ role: "pending" }, { role: "pending" }]);
     expect(fixture.membershipRole()).toBe("pending");
-    expect(fixture.duplicateKeyWrites()).toBe(2);
+    expect(fixture.conflictWrites()).toBe(2);
   });
 });
