@@ -21,3 +21,9 @@ Serve the converted API on port 3000 after schema/data parity, with Metro remain
 ## Design and interaction continuity
 
 Reuse the approved warm editorial Circles design and existing React Native navigation. This is a backend migration, not a redesign. Preserve screen layouts, identity, media URLs, current OAuth callbacks, local/native credential handling, error/retry states and one-handed interaction. No decorative assets or new fonts are needed.
+
+## Production operations extension — 22 October 2026
+
+Keep app data and authorization unchanged. Implement a reusable, read-only catalog/permission audit for `circles_app`; retain evidence and a report outside the public repository. Add a distinct private `circles_ops` namespace containing sanitized operational health history and an admin-only, fixed-search-path function. Use existing Supabase `pg_cron` for a daily 03:15 UTC migration/schema/RLS health job; never automatically migrate, repair, restore or modify app rows. Version the reviewed SQL and operator instructions in source, but apply DDL through Supabase migration management and verify the actual deployed job separately. The operations check is not a backup or an external outage alert.
+
+The current Supabase Free project has no included automatic provider backups. Backup setup remains pending the user's authorized choice between a separately approved paid provider option and encrypted exports to a selected off-site destination. Do not upload production exports elsewhere or copy database credentials into a new service before that choice. Real native/live E2E requires accessible iOS/Android development/release builds, test accounts and approved host/viewer fixtures; available browser/API observations remain clearly labeled partial, with no fictitious sessions or native compatibility claims.
