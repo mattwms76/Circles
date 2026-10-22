@@ -130,6 +130,7 @@ export const ENV_REFERENCE_SOURCE_FILES = Object.freeze([
   "server/storage.ts",
   "server/_core/cookies.ts",
   "server/_core/cors.ts",
+  "server/_core/frontend-origins.ts",
   "server/_core/env.ts",
   "server/_core/index.ts",
   "server/_core/oauth.ts",
@@ -248,7 +249,12 @@ export function validateEnvironment(env = process.env, mode = "runtime") {
   return { ok: errors.length === 0, errors, warnings };
 }
 
-/** Extract direct process.env access plus literal-name dynamic access (e.g. CORS name unions). */
+/**
+ * Extract direct process.env access plus literal-name dynamic access. Some
+ * helpers accept an injected `environment` for testability but default it to
+ * process.env, so that explicit source-level access is part of the same
+ * runtime contract.
+ */
 export function extractEnvironmentNames(sourceText) {
   const names = new Set();
   const direct = /\bprocess\.env\.([A-Z][A-Z0-9_]*)\b/g;
@@ -258,9 +264,14 @@ export function extractEnvironmentNames(sourceText) {
   while ((match = direct.exec(sourceText))) names.add(match[1]);
   while ((match = literalBracket.exec(sourceText))) names.add(match[1]);
 
-  // The source has a dynamic process.env[name] access. Its allowed literal key set is declared
-  // beside it (typed union, array, or mapping), so include those uppercase environment literals.
-  if (/\bprocess\.env\[\s*[A-Za-z_$][A-Za-z0-9_$]*\s*\]/.test(sourceText)) {
+  // The source has a dynamic process.env[name] or injected environment[name]
+  // access. Its allowed literal key set is declared beside it (typed union,
+  // array, or mapping), so include those uppercase environment literals.
+  if (
+    /\b(?:process\.env|environment)\[\s*[A-Za-z_$][A-Za-z0-9_$]*\s*\]/.test(
+      sourceText,
+    )
+  ) {
     const environmentLiteral = /["']([A-Z][A-Z0-9_]*_[A-Z0-9_]+)["']/g;
     while ((match = environmentLiteral.exec(sourceText))) names.add(match[1]);
   }

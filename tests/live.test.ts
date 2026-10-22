@@ -4,7 +4,9 @@ import {
   canSendSignal,
   hasActiveHostLease,
   hasActiveViewerLease,
+  hasCurrentLiveSignalGeneration,
   HOST_LEASE_MS,
+  isLiveSignalVisibleToSession,
   VIEWER_LEASE_MS,
 } from "../server/live-router";
 
@@ -74,6 +76,54 @@ describe("live signaling permissions", () => {
         kind: "offer",
       }),
     ).toBe(false);
+  });
+});
+
+describe("live signaling session boundaries", () => {
+  it("does not replay historical rows into a reloaded media lifecycle", () => {
+    const reloadedSession = { generation: 2, cursor: 40 };
+    const syntheticSignals = [
+      { id: 12, toGeneration: 1 },
+      { id: 40, toGeneration: 2 },
+      { id: 41, toGeneration: 1 },
+      { id: 42, toGeneration: 2 },
+    ];
+
+    expect(
+      syntheticSignals
+        .filter((signal) =>
+          isLiveSignalVisibleToSession(signal, reloadedSession),
+        )
+        .map((signal) => signal.id),
+    ).toEqual([42]);
+  });
+
+  it("rejects a rejoined viewer's superseded generation", () => {
+    const rejoinedViewerGeneration = 3;
+
+    expect(
+      hasCurrentLiveSignalGeneration(2, rejoinedViewerGeneration),
+    ).toBe(false);
+    expect(
+      hasCurrentLiveSignalGeneration(3, rejoinedViewerGeneration),
+    ).toBe(true);
+  });
+
+  it("requires a cursor to advance past the join high-water mark", () => {
+    const joinedSession = { generation: 4, cursor: 99 };
+
+    expect(
+      isLiveSignalVisibleToSession(
+        { id: 99, toGeneration: 4 },
+        joinedSession,
+      ),
+    ).toBe(false);
+    expect(
+      isLiveSignalVisibleToSession(
+        { id: 100, toGeneration: 4 },
+        joinedSession,
+      ),
+    ).toBe(true);
   });
 });
 

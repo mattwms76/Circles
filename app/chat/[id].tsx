@@ -1,4 +1,4 @@
-import { useMediaSource } from "@/components/media-image";
+import { Image, useMediaSource } from "@/components/media-image";
 import React, { useEffect, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
@@ -9,7 +9,6 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-import { Image } from "@/components/media-image";
 import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -29,6 +28,11 @@ import {
 } from "@/components/circles-ui";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { assetBase64, supportedMime } from "@/lib/media";
+import {
+  mergeMessageHistoryPages,
+  MESSAGE_PAGE_DEFAULT_LIMIT,
+  olderMessagePageCursor,
+} from "@/shared/message-pagination";
 
 function ChatVideo({ uri, width }: { uri: string; width: number }) {
   const source = useMediaSource(uri);
@@ -57,12 +61,20 @@ export default function ChatScreen() {
     220,
     Math.max(120, Math.floor((windowWidth - 44) * 0.8) - 26),
   );
-  const messages = trpc.social.messages.useQuery(
-    { conversationId },
-    { enabled: !!user, refetchInterval: 2000 },
+  const messages = trpc.social.messages.useInfiniteQuery(
+    { conversationId, limit: MESSAGE_PAGE_DEFAULT_LIMIT },
+    {
+      enabled: !!user,
+      refetchInterval: 2000,
+      getNextPageParam: (lastPage) => olderMessagePageCursor(lastPage),
+    },
   );
-  const read = trpc.social.markRead.useMutation();
+  const { mutate: markRead } = trpc.social.markRead.useMutation();
   const utils = trpc.useUtils();
+  const loadedMessages = mergeMessageHistoryPages(messages.data?.pages ?? []);
+  const newestLivePage = messages.data?.pages[0] ?? [];
+  const newestDeliveredMessageId = newestLivePage.at(-1)?.id;
+  const userId = user?.id;
   const send = trpc.social.sendMessage.useMutation({
     onSuccess: () => {
       setText("");
@@ -74,11 +86,23 @@ export default function ChatScreen() {
   });
   const upload = trpc.social.upload.useMutation();
   useEffect(() => {
-    if (messages.data && user) read.mutate({ conversationId });
-  }, [messages.data?.length, conversationId, user?.id]);
+    if (!userId || !newestDeliveredMessageId) return;
+    // MSG-002 owns the durable markRead router input. This isolated MSG-001 workspace sends the
+    // required delivered ID now; its current archived router strips it until that API patch lands.
+    const acknowledgement = {
+      conversationId,
+      throughMessageId: newestDeliveredMessageId,
+    };
+    markRead(acknowledgement);
+  }, [conversationId, markRead, newestDeliveredMessageId, userId]);
   useEffect(() => {
     scroll.current?.scrollToEnd({ animated: true });
-  }, [messages.data?.length]);
+  }, [newestDeliveredMessageId]);
+
+  function loadEarlierMessages() {
+    void messages.fetchNextPage();
+  }
+
   async function selectMedia() {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -172,9 +196,10 @@ export default function ChatScreen() {
               showsVerticalScrollIndicator={false}
               ref={scroll}
               style={{ flex: 1 }}
-              onContentSizeChange={() =>
-                scroll.current?.scrollToEnd({ animated: false })
-              }
+              onContentSizeChange={() => {
+                if (!messages.isFetchingNextPage)
+                  scroll.current?.scrollToEnd({ animated: false });
+              }}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="interactive"
               contentContainerStyle={{ padding: 22, gap: 20, flexGrow: 1 }}
@@ -182,14 +207,46 @@ export default function ChatScreen() {
               <View style={{ alignItems: "center", marginBottom: 15 }}>
                 <T style={s.eyebrow}>GOOD CONVERSATIONS START WITH KINDNESS</T>
               </View>
-              {!messages.data?.length && (
+              {messages.hasNextPage && (
+                <Pressable
+                  disabled={messages.isFetchingNextPage}
+                  onPress={loadEarlierMessages}
+                  accessibilityLabel="Load earlier messages"
+                  style={{
+                    alignSelf: "center",
+                    opacity: messages.isFetchingNextPage ? 0.5 : 1,
+                  }}
+                >
+                  <T
+                    style={{ color: C.green, fontSize: 12, fontWeight: "700" }}
+                  >
+                    {messages.isFetchingNextPage
+                      ? "Loading earlier messages…"
+                      : "Load earlier messages"}
+                  </T>
+                </Pressable>
+              )}
+              {messages.isFetchNextPageError && (
+                <Pressable
+                  onPress={loadEarlierMessages}
+                  accessibilityLabel="Retry loading earlier messages"
+                  style={{ alignSelf: "center" }}
+                >
+                  <T
+                    style={{ color: C.coral, fontSize: 12, fontWeight: "700" }}
+                  >
+                    Could not load earlier messages. Try again.
+                  </T>
+                </Pressable>
+              )}
+              {!loadedMessages.length && (
                 <Empty
                   icon="chatbubble-outline"
                   title="A hello goes a long way."
                   text="You’re connected. Start the conversation."
                 />
               )}
-              {messages.data?.map((message) => {
+              {loadedMessages.map((message) => {
                 const own = message.author.id === user.id;
                 return (
                   <View

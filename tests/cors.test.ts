@@ -4,6 +4,7 @@ import type { Server } from "node:http";
 import {
   createCorsMiddleware,
   isLoopbackApiHost,
+  trustedFrontendWebOrigins,
   trustedExpoWebOrigins,
 } from "../server/_core/cors";
 import {
@@ -17,14 +18,22 @@ import {
   LEGACY_COOKIE_NAME,
   SESSION_COOKIE_SUFFIX,
 } from "../shared/const";
+import { isTrustedFrontendOrigin } from "../server/_core/oauth";
 
 let server: Server | null = null;
+const CUSTOM_FRONTEND_ORIGIN_ENV_NAMES = [
+  "FRONTEND_ORIGIN",
+  "WEB_ORIGIN",
+  "EXPO_PUBLIC_WEB_URL",
+  "PUBLIC_URL",
+] as const;
 
 beforeEach(() => {
   // The real Mobile runtime injects both values. Each test owns its complete origin input so
   // a platform URL cannot leak into a case that intentionally exercises only loopback data.
   vi.stubEnv("EXPO_PACKAGER_PROXY_URL", "");
   vi.stubEnv("EXPO_WEB_PREVIEW_URL", "");
+  for (const name of CUSTOM_FRONTEND_ORIGIN_ENV_NAMES) vi.stubEnv(name, "");
 });
 
 afterEach(async () => {
@@ -38,10 +47,7 @@ afterEach(async () => {
 
 async function testServer(
   localApi = true,
-  allowedOrigins = new Set([
-    "https://8081-sandbox.example.test",
-    "https://8328-sandbox.example.test",
-  ]),
+  allowedOrigins?: Set<string>,
 ): Promise<string> {
   const app = express();
   app.use(
@@ -104,6 +110,8 @@ describe("Mobile API origin and cookie isolation", () => {
     "https://8081-sandbox.example.test",
     "https://8328-sandbox.example.test",
   ])("allows a paired Expo Web origin: %s", async (origin) => {
+    vi.stubEnv("EXPO_PACKAGER_PROXY_URL", "https://8081-sandbox.example.test");
+    vi.stubEnv("EXPO_WEB_PREVIEW_URL", "https://8328-sandbox.example.test");
     const base = await testServer();
     const web = await fetch(`${base}/read`, {
       headers: { Origin: origin },
@@ -113,6 +121,22 @@ describe("Mobile API origin and cookie isolation", () => {
     expect(web.headers.get("access-control-allow-credentials")).toBe("true");
     expect(web.headers.get("vary")).toContain("Origin");
   });
+
+  it.each(CUSTOM_FRONTEND_ORIGIN_ENV_NAMES)(
+    "allows the exact custom frontend origin configured through %s in OAuth and CORS",
+    async (name) => {
+      const origin = `https://${name.toLowerCase().replaceAll("_", "-")}.customer.example.test`;
+      vi.stubEnv(name, origin);
+
+      expect(isTrustedFrontendOrigin(origin)).toBe(true);
+      expect([...trustedFrontendWebOrigins()]).toEqual([origin]);
+
+      const base = await testServer(false);
+      const response = await fetch(`${base}/read`, { headers: { Origin: origin } });
+      expect(response.status).toBe(200);
+      expect(response.headers.get("access-control-allow-origin")).toBe(origin);
+    },
+  );
 
   it("allows only the exact dynamic packager and Dashboard origins for a loopback API", async () => {
     vi.stubEnv("EXPO_PACKAGER_PROXY_URL", "http://localhost:48081");
@@ -144,6 +168,19 @@ describe("Mobile API origin and cookie isolation", () => {
       expect(remote.status).toBe(403);
     }
   });
+
+  it.each(CUSTOM_FRONTEND_ORIGIN_ENV_NAMES)(
+    "rejects the loopback %s origin from a remote API",
+    async (name) => {
+      const origin = "http://localhost:48081";
+      vi.stubEnv(name, origin);
+      expect([...trustedFrontendWebOrigins()]).toEqual([]);
+
+      const base = await testServer(false);
+      const remote = await fetch(`${base}/read`, { headers: { Origin: origin } });
+      expect(remote.status).toBe(403);
+    },
+  );
 
   it.each([
     "http://localhost.:8081",
@@ -231,7 +268,7 @@ describe("Mobile API origin and cookie isolation", () => {
     const previousPackager = process.env.EXPO_PACKAGER_PROXY_URL;
     process.env.EXPO_PACKAGER_PROXY_URL =
       "https://8081-sandbox.preview.example.test";
-    const cleared: Array<{ name: string; options: unknown }> = [];
+    const cleared: { name: string; options: unknown }[] = [];
     try {
       const middleware = clearLegacySessionCookie();
       middleware(

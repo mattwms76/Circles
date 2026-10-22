@@ -59,8 +59,8 @@ jobs:
       - name: TypeScript check
         run: pnpm check
 
-      - name: ESLint error check
-        run: pnpm lint:ci
+      - name: ESLint zero-error and zero-warning check
+        run: pnpm lint:ci --max-warnings=0
 
       - name: Run unit and regression tests
         run: |

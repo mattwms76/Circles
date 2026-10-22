@@ -4,6 +4,7 @@ import { Image } from "@/components/media-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
+import { resolveFnd001QueryDisplayState } from "@/lib/fnd001-query-display-state";
 import { AppShell } from "@/components/app-shell";
 import { PostCard } from "@/components/post-card";
 import {
@@ -12,7 +13,6 @@ import {
   C,
   Empty,
   Icon,
-  IconButton,
   Loading,
   Pill,
   s,
@@ -30,6 +30,11 @@ export default function CircleScreen() {
   const [tab, setTab] = useState("Feed");
   const circle = trpc.social.circle.useQuery({ id: circleId });
   const group = circle.data;
+  const circleDisplayState = resolveFnd001QueryDisplayState({
+    isLoading: circle.isLoading,
+    isError: circle.isError,
+    hasContent: !!group,
+  });
   const members = trpc.social.members.useQuery(
     { circleId },
     { enabled: !!group && (group.privacy === "public" || !!group.joined) },
@@ -38,6 +43,16 @@ export default function CircleScreen() {
     { filter: "for-you", circleId },
     { enabled: !!group && (group.privacy === "public" || !!group.joined) },
   );
+  const membersDisplayState = resolveFnd001QueryDisplayState({
+    isLoading: members.isLoading,
+    isError: members.isError,
+    hasContent: !!members.data?.length,
+  });
+  const feedDisplayState = resolveFnd001QueryDisplayState({
+    isLoading: feed.isLoading,
+    isError: feed.isError,
+    hasContent: !!feed.data?.length,
+  });
   const utils = trpc.useUtils();
   const refresh = () => {
     void circle.refetch();
@@ -100,12 +115,19 @@ export default function CircleScreen() {
   const isAdmin = group?.role === "owner" || group?.role === "moderator";
   return (
     <AppShell>
-      {circle.isLoading ? (
+      {circleDisplayState === "loading" ? (
         <Loading />
-      ) : circle.error || !group ? (
+      ) : circleDisplayState === "error" ? (
+        <Empty
+          title="We couldn’t load this circle."
+          text="Check your connection and try again."
+          action="Try again"
+          onAction={() => void circle.refetch()}
+        />
+      ) : !group ? (
         <Empty
           title="This circle couldn’t be opened."
-          text={circle.error?.message || "It may no longer be available."}
+          text="It may no longer be available."
           action="Find circles"
           onAction={() => router.replace("/circles")}
         />
@@ -266,9 +288,17 @@ export default function CircleScreen() {
                 title="A little space, just for members."
                 text="Request to join this circle to see its moments and join the conversation."
               />
-            ) : feed.isLoading ? (
+            ) : feedDisplayState === "loading" ? (
               <Loading />
-            ) : !feed.data?.length ? (
+            ) : feedDisplayState === "error" ? (
+              <Empty
+                icon="images-outline"
+                title="We couldn’t load this circle’s moments."
+                text="Check your connection and try again."
+                action="Try again"
+                onAction={() => void feed.refetch()}
+              />
+            ) : feedDisplayState === "empty" ? (
               <Empty
                 icon="images-outline"
                 title="Make the first connection."
@@ -279,7 +309,9 @@ export default function CircleScreen() {
                 }
               />
             ) : (
-              feed.data.map((post) => <PostCard key={post.id} post={post} />)
+              (feed.data ?? []).map((post) => (
+                <PostCard key={post.id} post={post} />
+              ))
             ))}
           {tab === "Members" &&
             (group.privacy === "private" && !group.joined ? (
@@ -288,8 +320,16 @@ export default function CircleScreen() {
                 title="Members only."
                 text="Join the circle to meet its people."
               />
-            ) : members.isLoading ? (
+            ) : membersDisplayState === "loading" ? (
               <Loading />
+            ) : membersDisplayState === "error" ? (
+              <Empty
+                icon="people-outline"
+                title="We couldn’t load the members."
+                text="Check your connection and try again."
+                action="Try again"
+                onAction={() => void members.refetch()}
+              />
             ) : (
               <View style={{ gap: 16 }}>
                 {members.data

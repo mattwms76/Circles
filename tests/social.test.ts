@@ -1,16 +1,19 @@
 import { describe, expect, it } from "vitest";
 import type { TrpcContext } from "../server/_core/context";
-import { sendMessageInput, socialRouter } from "../server/social-router";
+import { markReadInput, sendMessageInput, socialRouter } from "../server/social-router";
 import {
+  advanceMessageReadWatermark,
   canModerateCircle,
   canReadCircleContent,
   canRemoveCircleMember,
   canSetCircleRole,
   canViewPendingMembers,
+  collectEligibleFeedPostIds,
   decryptSocialMedia,
   encryptSocialMedia,
   hasMessageContent,
   isApprovedCircleRole,
+  messageIsReadThroughWatermark,
   messageReadForViewer,
 } from "../server/social-service";
 
@@ -52,6 +55,43 @@ describe("circle role policy", () => {
   });
 });
 
+describe("SOC-002 feed visibility scanning", () => {
+  it("continues past a private candidate batch and retains compound-cursor ordering", async () => {
+    const sharedCreatedAt = new Date("2026-10-22T12:00:00.000Z");
+    const inaccessiblePrivatePosts = Array.from({ length: 200 }, (_, index) => ({
+      id: 300 - index,
+      circleId: 900,
+      createdAt: sharedCreatedAt,
+    }));
+    const olderPublicPosts = Array.from({ length: 100 }, (_, index) => ({
+      id: 100 - index,
+      circleId: null,
+      createdAt: sharedCreatedAt,
+    }));
+    const newestFirstCandidates = [...inaccessiblePrivatePosts, ...olderPublicPosts];
+    const requestedCursorIds: (number | null)[] = [];
+
+    const ids = await collectEligibleFeedPostIds(
+      async (cursor) => {
+        requestedCursorIds.push(cursor?.id ?? null);
+        const start = cursor
+          ? newestFirstCandidates.findIndex(
+              (candidate) =>
+                candidate.createdAt.getTime() < cursor.createdAt.getTime() ||
+                (candidate.createdAt.getTime() === cursor.createdAt.getTime() &&
+                  candidate.id < cursor.id),
+            )
+          : 0;
+        return start === -1 ? [] : newestFirstCandidates.slice(start, start + 200);
+      },
+      async (candidate) => candidate.circleId === null,
+    );
+
+    expect(ids).toEqual(olderPublicPosts.map((post) => post.id));
+    expect(requestedCursorIds).toEqual([null, 101]);
+  });
+});
+
 describe("encrypted social upload frames", () => {
   const secret = "test-only-media-secret";
 
@@ -76,10 +116,6 @@ describe("encrypted social upload frames", () => {
 });
 
 describe("message content and read-receipt policy", () => {
-  const createdAt = new Date("2026-01-01T00:00:00.000Z");
-  const after = new Date("2026-01-01T00:00:01.000Z");
-  const before = new Date("2025-12-31T23:59:59.000Z");
-
   it("accepts a media-only message but not an empty/whitespace one", () => {
     expect(hasMessageContent("", "/manus-storage/social-encrypted/1/a.jpg.enc")).toBe(true);
     expect(hasMessageContent("  ", " ")).toBe(false);
@@ -88,7 +124,7 @@ describe("message content and read-receipt policy", () => {
       sendMessageInput.safeParse({
         conversationId: 1,
         text: "  ",
-        media: "/manus-storage/social-encrypted/1/a.jpg.enc",
+        media: "/manus-storage/social-encrypted/1/123e4567-e89b-42d3-a456-426614174000.jpg.enc",
       }).success,
     ).toBe(true);
     expect(sendMessageInput.safeParse({ conversationId: 1, text: "  " }).success).toBe(false);
@@ -100,11 +136,11 @@ describe("message content and read-receipt policy", () => {
         authorId: 1,
         viewerId: 1,
         kind: "direct",
-        createdAt,
-        viewerLastReadAt: after,
+        messageId: 17,
+        viewerLastReadMessageId: 17,
         participants: [
-          { userId: 1, lastReadAt: after },
-          { userId: 2, lastReadAt: null },
+          { userId: 1, lastReadMessageId: 17 },
+          { userId: 2, lastReadMessageId: 16 },
         ],
       }),
     ).toBe(false);
@@ -113,9 +149,9 @@ describe("message content and read-receipt policy", () => {
         authorId: 1,
         viewerId: 1,
         kind: "direct",
-        createdAt,
-        viewerLastReadAt: null,
-        participants: [{ userId: 2, lastReadAt: after }],
+        messageId: 17,
+        viewerLastReadMessageId: 0,
+        participants: [{ userId: 2, lastReadMessageId: 17 }],
       }),
     ).toBe(true);
   });
@@ -125,27 +161,60 @@ describe("message content and read-receipt policy", () => {
       authorId: 1,
       viewerId: 1,
       kind: "circle" as const,
-      createdAt,
-      viewerLastReadAt: null,
+      messageId: 17,
+      viewerLastReadMessageId: 0,
     };
     expect(
       messageReadForViewer({
         ...base,
-        participants: [{ userId: 2, lastReadAt: after, approved: false }],
+        participants: [{ userId: 2, lastReadMessageId: 17, approved: false }],
       }),
     ).toBe(false);
     expect(
       messageReadForViewer({
         ...base,
-        participants: [{ userId: 2, lastReadAt: before, approved: true }],
+        participants: [{ userId: 2, lastReadMessageId: 16, approved: true }],
       }),
     ).toBe(false);
     expect(
       messageReadForViewer({
         ...base,
-        participants: [{ userId: 2, lastReadAt: after, approved: true }],
+        participants: [{ userId: 2, lastReadMessageId: 17, approved: true }],
       }),
     ).toBe(true);
+  });
+
+  it("MSG-002 keeps a same-timestamp insertion unread when acking only the listed page", () => {
+    const tiedTimestamp = new Date("2026-01-01T00:00:00.000Z");
+    const deliveredPageLastMessage = { id: 120, createdAt: tiedTimestamp };
+    const insertedAfterList = { id: 121, createdAt: tiedTimestamp };
+    const watermark = advanceMessageReadWatermark(0, deliveredPageLastMessage.id);
+
+    expect(deliveredPageLastMessage.createdAt).toEqual(insertedAfterList.createdAt);
+    expect(messageIsReadThroughWatermark(deliveredPageLastMessage.id, watermark)).toBe(true);
+    expect(
+      messageReadForViewer({
+        authorId: 2,
+        viewerId: 1,
+        kind: "direct",
+        messageId: insertedAfterList.id,
+        viewerLastReadMessageId: watermark,
+        participants: [],
+      }),
+    ).toBe(false);
+  });
+
+  it("MSG-002 never moves a delivered watermark backward for delayed acknowledgements", () => {
+    const newestDeliveredId = advanceMessageReadWatermark(120, 121);
+    expect(advanceMessageReadWatermark(newestDeliveredId, 120)).toBe(121);
+    expect(messageIsReadThroughWatermark(121, newestDeliveredId)).toBe(true);
+    expect(messageIsReadThroughWatermark(122, newestDeliveredId)).toBe(false);
+  });
+
+  it("MSG-002 requires an explicit positive delivered message id for mark-read", () => {
+    expect(markReadInput.safeParse({ conversationId: 1 }).success).toBe(false);
+    expect(markReadInput.safeParse({ conversationId: 1, throughMessageId: 0 }).success).toBe(false);
+    expect(markReadInput.safeParse({ conversationId: 1, throughMessageId: 120 }).success).toBe(true);
   });
 });
 

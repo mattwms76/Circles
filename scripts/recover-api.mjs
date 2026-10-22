@@ -121,7 +121,22 @@ const ENDPOINT_DEFINITIONS = Object.freeze({
   "live.signals": {
     expected: "array",
     requiresAuth: true,
-    identifier: { source: "streamId", field: "streamId" },
+    identifiers: [
+      {
+        source: "streamId",
+        field: "streamId",
+        missingReason: "missing_existing_stream_id",
+        invalidReason: "invalid_existing_stream_id",
+      },
+      {
+        source: "liveGeneration",
+        field: "generation",
+        manifestOverride: true,
+        missingReason: "missing_current_live_generation",
+        invalidReason: "invalid_current_live_generation",
+      },
+    ],
+    exactIdentifierInput: true,
   },
   "live.chat": {
     expected: "array",
@@ -567,23 +582,46 @@ export function loadVerificationAuth(authFile, fsModule = fs) {
     throw new Error("verification_auth_invalid");
   }
   const ids = plainObject(parsed.ids) ? parsed.ids : {};
-  for (const value of Object.values(ids)) {
-    if (!positiveInteger(value)) throw new Error("verification_auth_invalid");
+  for (const [name, value] of Object.entries(ids)) {
+    // Keep the live-signals generation value for its route-specific verifier
+    // result. It is validated below, where an invalid current generation is
+    // reported as incomplete instead of being turned into an opaque file error.
+    if (name !== "liveGeneration" && !positiveInteger(value)) {
+      throw new Error("verification_auth_invalid");
+    }
   }
   return { bearerToken: parsed.bearerToken, ids: cloneJson(ids) };
 }
 
 function endpointInput(endpoint, ids, manifest) {
-  if (endpoint.identifier && !positiveInteger(ids[endpoint.identifier.source])) {
-    return { ok: false, reason: "missing_existing_identifier" };
-  }
+  const knownIds = plainObject(ids) ? ids : {};
+  const manifestInput = plainObject(manifest?.[endpoint.name]?.input)
+    ? manifest[endpoint.name].input
+    : undefined;
+  const identifiers = endpoint.identifiers ?? (endpoint.identifier ? [endpoint.identifier] : []);
   let input = endpoint.input === undefined ? undefined : cloneJson(endpoint.input);
-  if (manifest[endpoint.name]) input = cloneJson(manifest[endpoint.name].input);
-  if (endpoint.identifier) {
-    input = {
-      ...(input ?? {}),
-      [endpoint.identifier.field]: ids[endpoint.identifier.source],
-    };
+  if (manifestInput) input = cloneJson(manifestInput);
+  const identifierInput = {};
+  for (const identifier of identifiers) {
+    const useManifestOverride =
+      identifier.manifestOverride &&
+      manifestInput &&
+      Object.hasOwn(manifestInput, identifier.field);
+    const value = useManifestOverride
+      ? manifestInput[identifier.field]
+      : knownIds[identifier.source];
+    if (!positiveInteger(value)) {
+      const reason = value === undefined
+        ? identifier.missingReason ?? "missing_existing_identifier"
+        : identifier.invalidReason ?? "missing_existing_identifier";
+      return { ok: false, reason };
+    }
+    identifierInput[identifier.field] = value;
+  }
+  if (identifiers.length) {
+    input = endpoint.exactIdentifierInput
+      ? identifierInput
+      : { ...(input ?? {}), ...identifierInput };
   }
   return { ok: true, input };
 }

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Modal,
@@ -10,7 +10,9 @@ import {
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
+import { createSingleFlightSubmitter } from "@/lib/single-flight-submit";
 import { useCircles } from "@/hooks/circles-context";
+import { resolveFnd001QueryDisplayState } from "@/lib/fnd001-query-display-state";
 import { AppShell } from "@/components/app-shell";
 import {
   Avatar,
@@ -31,6 +33,8 @@ export default function LiveScreen() {
   const router = useRouter();
   const { user, showLogin, notify } = useCircles();
   const [text, setText] = useState("");
+  const liveChatSubmitter = useRef(createSingleFlightSubmitter()).current;
+  const [isLiveChatSubmitting, setIsLiveChatSubmitting] = useState(false);
   const [mediaError, setMediaError] = useState("");
   const [ready, setReady] = useState(false);
   const [endConfirm, setEndConfirm] = useState(false);
@@ -38,11 +42,21 @@ export default function LiveScreen() {
   const wide = width >= 900;
   const lives = trpc.live.list.useQuery({}, { refetchInterval: 4000 });
   const live = lives.data?.find((item) => item.id === streamId);
+  const livesDisplayState = resolveFnd001QueryDisplayState({
+    isLoading: lives.isLoading,
+    isError: lives.isError,
+    hasContent: !!lives.data,
+  });
   const host = !!user && live?.host.id === user.id;
   const chat = trpc.live.chat.useQuery(
     { streamId },
     { enabled: !!user && !!live, refetchInterval: 2000, retry: false },
   );
+  const chatDisplayState = resolveFnd001QueryDisplayState({
+    isLoading: chat.isLoading,
+    isError: chat.isError,
+    hasContent: !!chat.data?.length,
+  });
   const send = trpc.live.sendChat.useMutation({
     onSuccess: () => {
       setText("");
@@ -50,6 +64,24 @@ export default function LiveScreen() {
     },
     onError: (e) => notify(e.message),
   });
+  const submitLiveChatMessage = useCallback(() => {
+    const message = text.trim();
+    if (!message || liveChatSubmitter.isBusy) {
+      return;
+    }
+
+    void liveChatSubmitter.run(async () => {
+      setIsLiveChatSubmitting(true);
+      try {
+        await send
+          .mutateAsync({ streamId, text: message })
+          // The mutation's onError already gives the user the failure feedback.
+          .catch(() => undefined);
+      } finally {
+        setIsLiveChatSubmitting(false);
+      }
+    });
+  }, [liveChatSubmitter, send, streamId, text]);
   const react = trpc.live.react.useMutation({
     onSuccess: () => {
       void chat.refetch();
@@ -100,8 +132,16 @@ export default function LiveScreen() {
               action="Sign in"
               onAction={showLogin}
             />
-          ) : lives.isLoading ? (
+          ) : livesDisplayState === "loading" ? (
             <Loading />
+          ) : livesDisplayState === "error" ? (
+            <Empty
+              icon="radio-outline"
+              title="We couldn’t load this live moment."
+              text="Check your connection and try again."
+              action="Try again"
+              onAction={() => void lives.refetch()}
+            />
           ) : !live ? (
             <Empty
               icon="radio-outline"
@@ -218,8 +258,18 @@ export default function LiveScreen() {
                   nestedScrollEnabled
                   keyboardShouldPersistTaps="handled"
                 >
-                  {chat.data?.length ? (
-                    chat.data.map((message) => (
+                  {chatDisplayState === "loading" ? (
+                    <Loading />
+                  ) : chatDisplayState === "error" ? (
+                    <Empty
+                      icon="chatbubble-ellipses-outline"
+                      title="We couldn’t load the conversation."
+                      text="Check your connection and try again."
+                      action="Try again"
+                      onAction={() => void chat.refetch()}
+                    />
+                  ) : chatDisplayState === "content" ? (
+                    (chat.data ?? []).map((message) => (
                       <View
                         key={message.id}
                         style={[s.row, { gap: 9, alignItems: "flex-start" }]}
@@ -272,6 +322,7 @@ export default function LiveScreen() {
                   <TextInput
                     value={text}
                     onChangeText={setText}
+                    editable={!isLiveChatSubmitting}
                     placeholder="Join the conversation…"
                     placeholderTextColor={C.muted}
                     multiline
@@ -289,20 +340,20 @@ export default function LiveScreen() {
                       paddingVertical: 12,
                       textAlignVertical: "top",
                     }}
-                    onSubmitEditing={() =>
-                      text.trim() &&
-                      send.mutate({ streamId, text: text.trim() })
-                    }
+                    onSubmitEditing={submitLiveChatMessage}
                   />
                   <IconButton
                     icon="arrow-up-circle"
                     size={30}
                     color={C.coral}
-                    onPress={() =>
-                      text.trim() &&
-                      send.mutate({ streamId, text: text.trim() })
+                    disabled={isLiveChatSubmitting}
+                    loading={isLiveChatSubmitting}
+                    onPress={submitLiveChatMessage}
+                    label={
+                      isLiveChatSubmitting
+                        ? "Sending live chat message"
+                        : "Send live chat message"
                     }
-                    label="Send live chat message"
                   />
                 </View>
               </View>

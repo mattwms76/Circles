@@ -9,6 +9,10 @@ import {
   getSessionCookieOptions,
 } from "./cookies";
 import { ENV } from "./env";
+import {
+  configuredFrontendOrigins,
+  parseExactFrontendOrigin,
+} from "./frontend-origins";
 import { sdk } from "./sdk";
 
 const OAUTH_STATE_COOKIE = "manus_oauth_state";
@@ -111,7 +115,9 @@ export function validateOAuthState(
   );
 }
 
-function normalizeConfiguredOrigin(value: string | undefined): string | null {
+function normalizeConfiguredCallbackOrigin(
+  value: string | undefined,
+): string | null {
   if (!value) return null;
   try {
     const url = new URL(value);
@@ -131,31 +137,12 @@ function normalizeConfiguredOrigin(value: string | undefined): string | null {
   }
 }
 
-function suppliedOrigin(value: string): string | null {
-  const normalized = normalizeConfiguredOrigin(value);
-  return normalized === value ? normalized : null;
-}
-
-function configuredFrontendOrigins(): Set<string> {
-  const origins = [
-    process.env.EXPO_PACKAGER_PROXY_URL,
-    process.env.EXPO_WEB_PREVIEW_URL,
-    process.env.FRONTEND_ORIGIN,
-    process.env.WEB_ORIGIN,
-    process.env.EXPO_PUBLIC_WEB_URL,
-    process.env.PUBLIC_URL,
-  ]
-    .map(normalizeConfiguredOrigin)
-    .filter((origin): origin is string => origin !== null);
-  return new Set(origins);
-}
-
 /** True only for the actual origin supplied by the app when it is configured for this project. */
 export function isTrustedFrontendOrigin(
   frontendOrigin: string,
   configuredOrigins: Iterable<string> = configuredFrontendOrigins(),
 ): boolean {
-  const origin = suppliedOrigin(frontendOrigin);
+  const origin = parseExactFrontendOrigin(frontendOrigin);
   return origin !== null && new Set(configuredOrigins).has(origin);
 }
 
@@ -166,14 +153,14 @@ function configuredCallbackOrigins(): Set<string> {
     process.env.API_BASE_URL,
     process.env.EXPO_PUBLIC_API_BASE_URL,
   ]
-    .map(normalizeConfiguredOrigin)
+    .map(normalizeConfiguredCallbackOrigin)
     .filter((origin): origin is string => origin !== null);
 
   for (const frontendUrl of [
     process.env.EXPO_PACKAGER_PROXY_URL,
     process.env.EXPO_WEB_PREVIEW_URL,
   ]) {
-    const origin = normalizeConfiguredOrigin(frontendUrl);
+    const origin = normalizeConfiguredCallbackOrigin(frontendUrl);
     if (!origin) continue;
     const url = new URL(origin);
     if (url.hostname.startsWith("8081-")) {

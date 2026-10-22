@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
+import { z } from "zod";
 import {
   PROJECT_ROOT,
   callReadOnlyQuery,
@@ -60,10 +61,26 @@ const existingIds = {
   postId: 13,
   conversationId: 14,
   streamId: 15,
+  liveGeneration: 16,
 };
 
+type MockCall = {
+  route: string;
+  method: string;
+  authenticated: boolean;
+  input?: unknown;
+};
+
+// Equivalent to the current server/live-router.ts live.signals input boundary.
+const liveSignalsInput = z
+  .object({
+    streamId: z.number().int().positive(),
+    generation: z.number().int().positive(),
+  })
+  .strict();
+
 function mockTrpcFetch(
-  calls: { route: string; method: string; authenticated: boolean }[],
+  calls: MockCall[],
 ) {
   return async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(
@@ -72,7 +89,16 @@ function mockTrpcFetch(
     const route = url.pathname.replace("/api/trpc/", "");
     const headers = new Headers(init?.headers);
     const authenticated = headers.has("Authorization");
-    calls.push({ route, method: init?.method ?? "GET", authenticated });
+    const encodedInput = url.searchParams.get("input");
+    const queryInput = encodedInput
+      ? (JSON.parse(encodedInput) as { json?: unknown }).json
+      : undefined;
+    calls.push({ route, method: init?.method ?? "GET", authenticated, input: queryInput });
+    if (route === "live.signals" && !liveSignalsInput.safeParse(queryInput).success) {
+      return new Response(JSON.stringify({ error: { data: { code: "BAD_REQUEST" } } }), {
+        status: 400,
+      });
+    }
     const protectedRoute = [
       "auth.me",
       "social.conversations",
@@ -104,7 +130,7 @@ function mockTrpcFetch(
 
 describe("guarded API recovery", () => {
   it("restarts only the named API and verifies every current query with synthetic responses", async () => {
-    const calls: { route: string; method: string; authenticated: boolean }[] = [];
+    const calls: MockCall[] = [];
     let restartCalls = 0;
 
     const report = await runRecovery({
@@ -132,6 +158,102 @@ describe("guarded API recovery", () => {
     });
     expect(calls.every((call) => call.method === "GET")).toBe(true);
     expect(calls.some((call) => /create|join|send|update|delete|logout|react/.test(call.route))).toBe(false);
+    const signalInputs = calls
+      .filter((call) => call.route === "live.signals")
+      .map((call) => call.input);
+    expect(signalInputs).toEqual([
+      { streamId: existingIds.streamId, generation: existingIds.liveGeneration },
+      { streamId: existingIds.streamId, generation: existingIds.liveGeneration },
+    ]);
+    expect(signalInputs.every((input) => liveSignalsInput.safeParse(input).success)).toBe(true);
+  });
+
+  it("uses a reviewed live.signals manifest generation when no auth-file generation is supplied", async () => {
+    const directory = temporaryDirectory();
+    const endpointManifest = path.join(directory, "recover-api.manifest.json");
+    fs.writeFileSync(
+      endpointManifest,
+      JSON.stringify({
+        version: 1,
+        endpoints: { "live.signals": { input: { generation: 27 } } },
+      }),
+    );
+    const calls: MockCall[] = [];
+    const { liveGeneration: _liveGeneration, ...idsWithoutGeneration } = existingIds;
+
+    const report = await runRecovery({
+      mode: "verify-only",
+      strict: true,
+      projectDir: PROJECT_ROOT,
+      operatorBaseUrl: "https://current-preview.manus.computer",
+      endpointManifest,
+      auth: { bearerToken: "synthetic-bearer", ids: idsWithoutGeneration },
+      fetchImpl: mockTrpcFetch(calls),
+    });
+
+    expect(report.ok).toBe(true);
+    expect(
+      calls.filter((call) => call.route === "live.signals").map((call) => call.input),
+    ).toEqual([
+      { streamId: existingIds.streamId, generation: 27 },
+      { streamId: existingIds.streamId, generation: 27 },
+    ]);
+  });
+
+  it("skips live.signals without a current generation, makes no signals request, and fails strict coverage", async () => {
+    const calls: MockCall[] = [];
+    const { liveGeneration: _liveGeneration, ...idsWithoutGeneration } = existingIds;
+
+    const report = await runRecovery({
+      mode: "verify-only",
+      strict: true,
+      projectDir: PROJECT_ROOT,
+      operatorBaseUrl: "https://current-preview.manus.computer",
+      auth: { bearerToken: "synthetic-bearer", ids: idsWithoutGeneration },
+      fetchImpl: mockTrpcFetch(calls),
+    });
+
+    expect(report.ok).toBe(false);
+    expect(report.verification.complete).toBe(false);
+    expect(report.verification.checks).toContainEqual({
+      name: "live.signals",
+      check: "positive",
+      status: "skipped",
+      reason: "missing_current_live_generation",
+    });
+    expect(calls.some((call) => call.route === "live.signals")).toBe(false);
+  });
+
+  it("reports an invalid trusted auth-file live generation as incomplete without issuing live.signals", async () => {
+    const directory = temporaryDirectory();
+    const authFile = path.join(directory, "verify-auth.json");
+    fs.writeFileSync(
+      authFile,
+      JSON.stringify({
+        bearerToken: "synthetic-bearer",
+        ids: { ...existingIds, liveGeneration: 0 },
+      }),
+    );
+    fs.chmodSync(authFile, 0o600);
+    const calls: MockCall[] = [];
+
+    const report = await runRecovery({
+      mode: "verify-only",
+      strict: true,
+      projectDir: PROJECT_ROOT,
+      operatorBaseUrl: "https://current-preview.manus.computer",
+      authFile,
+      fetchImpl: mockTrpcFetch(calls),
+    });
+
+    expect(report.ok).toBe(false);
+    expect(report.verification.checks).toContainEqual({
+      name: "live.signals",
+      check: "positive",
+      status: "skipped",
+      reason: "invalid_current_live_generation",
+    });
+    expect(calls.some((call) => call.route === "live.signals")).toBe(false);
   });
 
   it("rejects stale configuration before any restart or query", async () => {

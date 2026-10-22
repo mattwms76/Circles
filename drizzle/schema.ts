@@ -210,6 +210,8 @@ export const conversationParticipants = mysqlTable(
     userId: int("userId")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    /** Exact, monotonic message watermark delivered to this participant; timestamps are display-only. */
+    lastReadMessageId: int("lastReadMessageId").notNull().default(0),
     lastReadAt: timestamp("lastReadAt"),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

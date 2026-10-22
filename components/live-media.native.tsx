@@ -8,6 +8,8 @@ import {
   type ViewStyle,
 } from "react-native";
 import { createTRPCClient } from "@/lib/trpc";
+import { hostGenerationFromRestartSignal } from "@/shared/live-generation-restart";
+import { terminateLiveTransportForError } from "./live-media-terminal";
 
 export type LiveMediaProps = {
   streamId: number;
@@ -27,7 +29,14 @@ type Signal = {
 
 type LiveApi = {
   live: {
-    join: { mutate(input: { streamId: number }): Promise<{ hostId: number }> };
+    join: {
+      mutate(input: { streamId: number }): Promise<{
+        hostId: number;
+        generation: number;
+        hostGeneration: number;
+        signalCursor: number;
+      }>;
+    };
     leave: { mutate(input: { streamId: number }): Promise<{ success: true }> };
     end: { mutate(input: { streamId: number }): Promise<{ success: true }> };
     heartbeat: {
@@ -37,13 +46,18 @@ type LiveApi = {
       }): Promise<{ success: true }>;
     };
     signals: {
-      query(input: { streamId: number; afterId?: number }): Promise<Signal[]>;
+      query(input: {
+        streamId: number;
+        generation: number;
+        afterId?: number;
+      }): Promise<Signal[]>;
     };
     signal: {
       mutate(input: {
         streamId: number;
         toId: number;
         kind: "offer" | "answer" | "ice";
+        generation: number;
         payload: string;
       }): Promise<{ success: true }>;
     };
@@ -228,9 +242,15 @@ export default function LiveMedia({
     let pollTimer: ReturnType<typeof setInterval> | undefined;
     let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
     let cursor = 0;
+    let generation: number | null = null;
+    let hostId: number | null = null;
+    let hostGeneration: number | null = null;
+    let viewerRestarting = false;
     let viewerMediaReady = false;
+    let terminal = false;
 
     const report = (error: unknown) => {
+      if (terminateLiveTransportForError(error, terminate)) return;
       const message = messageFor(error);
       if (active) setStatus(message);
       callbackRef.current.onError?.(message);
@@ -241,6 +261,7 @@ export default function LiveMedia({
       if (!peer) return;
       peer.connection.onicecandidate = null;
       peer.connection.ontrack = null;
+      peer.connection.onconnectionstatechange = null;
       peer.connection.close();
       peersRef.current.delete(participantId);
     };
@@ -248,6 +269,25 @@ export default function LiveMedia({
     const stopAllPeers = () => {
       for (const participantId of [...peersRef.current.keys()])
         closePeer(participantId);
+    };
+
+    const stopTransport = () => {
+      if (pollTimer) clearInterval(pollTimer);
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+      stopAllPeers();
+      const localStream = localStreamRef.current;
+      localStreamRef.current = null;
+      localStream?.getTracks().forEach((track) => track.stop());
+      setStreamURL(null);
+    };
+
+    const terminate = (state: { message: string }) => {
+      if (terminal) return;
+      terminal = true;
+      active = false;
+      stopTransport();
+      setStatus(state.message);
+      callbackRef.current.onError?.(state.message);
     };
 
     const addQueuedIce = async (peer: PeerState) => {
@@ -271,13 +311,21 @@ export default function LiveMedia({
       );
     };
 
+    const requireGeneration = (): number => {
+      if (generation === null)
+        throw new Error("Live media session is not ready.");
+      return generation;
+    };
+
     const signalIce = (participantId: number, candidate: NativeCandidate) => {
+      if (!active || generation === null) return;
       const serialized = candidate.toJSON ? candidate.toJSON() : candidate;
       void api.live.signal
         .mutate({
           streamId,
           toId: participantId,
           kind: "ice",
+          generation,
           payload: JSON.stringify(serialized),
         })
         .catch(report);
@@ -332,7 +380,55 @@ export default function LiveMedia({
       return peer;
     };
 
+    /**
+     * Server resets are recoverable: close the old direct peer and replace the
+     * viewer media lifecycle with exactly one fresh, generation-bound join.
+     */
+    const restartViewer = async (
+      restartedHostId: number,
+      restartedHostGeneration: number,
+    ) => {
+      if (
+        host ||
+        !active ||
+        viewerRestarting ||
+        (hostGeneration !== null && restartedHostGeneration <= hostGeneration)
+      ) {
+        return;
+      }
+      viewerRestarting = true;
+      closePeer(restartedHostId);
+      viewerMediaReady = false;
+      setStreamURL(null);
+      setStatus("Rejoining live stream…");
+      try {
+        const session = await api.live.join.mutate({ streamId });
+        if (!active) return;
+        generation = session.generation;
+        hostId = session.hostId;
+        hostGeneration = session.hostGeneration;
+        cursor = session.signalCursor;
+      } catch (error) {
+        report(error);
+      } finally {
+        viewerRestarting = false;
+      }
+    };
+
     const handleSignal = async (signal: Signal) => {
+      if (!host && hostId !== null) {
+        const restartedHostGeneration = hostGenerationFromRestartSignal({
+          kind: signal.kind,
+          fromId: signal.fromId,
+          expectedHostId: hostId,
+          payload: signal.payload,
+        });
+        if (restartedHostGeneration !== null) {
+          await restartViewer(hostId, restartedHostGeneration);
+          return;
+        }
+      }
+
       if (host) {
         if (signal.kind === "join") {
           const peer = hostPeer(signal.fromId);
@@ -340,12 +436,18 @@ export default function LiveMedia({
           if (!active) return;
           await peer.connection.setLocalDescription(offer);
           if (!active || !peer.connection.localDescription) return;
-          await api.live.signal.mutate({
-            streamId,
-            toId: signal.fromId,
-            kind: "offer",
-            payload: JSON.stringify(peer.connection.localDescription),
-          });
+          try {
+            await api.live.signal.mutate({
+              streamId,
+              toId: signal.fromId,
+              kind: "offer",
+              generation: requireGeneration(),
+              payload: JSON.stringify(peer.connection.localDescription),
+            });
+          } catch (error) {
+            closePeer(signal.fromId);
+            throw error;
+          }
           return;
         }
         if (signal.kind === "answer") {
@@ -384,6 +486,7 @@ export default function LiveMedia({
           streamId,
           toId: signal.fromId,
           kind: "answer",
+          generation: requireGeneration(),
           payload: JSON.stringify(peer.connection.localDescription),
         });
         return;
@@ -398,6 +501,7 @@ export default function LiveMedia({
       try {
         const signals = await api.live.signals.query({
           streamId,
+          generation: requireGeneration(),
           afterId: cursor,
         });
         for (const signal of signals) {
@@ -418,7 +522,11 @@ export default function LiveMedia({
 
     const initialise = async () => {
       try {
-        await api.live.join.mutate({ streamId });
+        const session = await api.live.join.mutate({ streamId });
+        generation = session.generation;
+        hostId = session.hostId;
+        hostGeneration = session.hostGeneration;
+        cursor = session.signalCursor;
         joined = true;
         if (!active) return;
 
@@ -452,7 +560,7 @@ export default function LiveMedia({
         }
       } catch (error) {
         report(error);
-        if (host) {
+        if (host && !terminal) {
           void api.live.end.mutate({ streamId }).catch(() => undefined);
         }
       }
@@ -482,20 +590,14 @@ export default function LiveMedia({
     })();
     return () => {
       active = false;
-      if (pollTimer) clearInterval(pollTimer);
-      if (heartbeatTimer) clearInterval(heartbeatTimer);
-      stopAllPeers();
-      const localStream = localStreamRef.current;
-      localStreamRef.current = null;
-      localStream?.getTracks().forEach((track) => track.stop());
-      setStreamURL(null);
+      stopTransport();
 
       // Setup must settle before a joined viewer can leave. If another effect
       // took over meanwhile, it owns the membership and no stale cleanup can
       // terminate the replacement session.
       void initialisePromise.then(async () => {
         if (!lifecycle.isCurrent(lifecycleToken)) return;
-        if (nativeModuleUnavailable) {
+        if (terminal || nativeModuleUnavailable) {
           lifecycle.complete(lifecycleToken);
         } else if (!host && joined) {
           await api.live.leave.mutate({ streamId }).catch(() => undefined);

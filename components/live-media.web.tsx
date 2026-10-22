@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createTRPCClient } from "@/lib/trpc";
+import { hostGenerationFromRestartSignal } from "@/shared/live-generation-restart";
+import { terminateLiveTransportForError } from "./live-media-terminal";
 
 export type LiveMediaProps = {
   streamId: number;
@@ -109,9 +111,15 @@ export default function LiveMedia({
     let pollTimer: ReturnType<typeof setInterval> | undefined;
     let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
     let cursor = 0;
+    let generation: number | null = null;
+    let hostId: number | null = null;
+    let hostGeneration: number | null = null;
+    let viewerRestarting = false;
     let viewerMediaReady = false;
+    let terminal = false;
 
     const report = (error: unknown) => {
+      if (terminateLiveTransportForError(error, terminate)) return;
       const message = messageFor(error);
       if (active) setStatus(message);
       callbackRef.current.onError?.(message);
@@ -122,6 +130,7 @@ export default function LiveMedia({
       if (!peer) return;
       peer.connection.onicecandidate = null;
       peer.connection.ontrack = null;
+      peer.connection.onconnectionstatechange = null;
       peer.connection.close();
       peersRef.current.delete(participantId);
     };
@@ -129,6 +138,26 @@ export default function LiveMedia({
     const stopAllPeers = () => {
       for (const participantId of [...peersRef.current.keys()])
         closePeer(participantId);
+    };
+
+    const stopTransport = () => {
+      if (pollTimer) clearInterval(pollTimer);
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+      stopAllPeers();
+      const localStream = localStreamRef.current;
+      localStreamRef.current = null;
+      localStream?.getTracks().forEach((track) => track.stop());
+      if (localVideo) localVideo.srcObject = null;
+      if (remoteVideo) remoteVideo.srcObject = null;
+    };
+
+    const terminate = (state: { message: string }) => {
+      if (terminal) return;
+      terminal = true;
+      active = false;
+      stopTransport();
+      setStatus(state.message);
+      callbackRef.current.onError?.(state.message);
     };
 
     const addQueuedIce = async (peer: PeerState) => {
@@ -148,13 +177,21 @@ export default function LiveMedia({
       await peer.connection.addIceCandidate(new RTCIceCandidate(candidate));
     };
 
+    const requireGeneration = (): number => {
+      if (generation === null)
+        throw new Error("Live media session is not ready.");
+      return generation;
+    };
+
     const signalIce = (participantId: number, candidate: RTCIceCandidate) => {
+      if (!active || generation === null) return;
       const serialized = candidate.toJSON ? candidate.toJSON() : candidate;
       void api.live.signal
         .mutate({
           streamId,
           toId: participantId,
           kind: "ice",
+          generation,
           payload: JSON.stringify(serialized),
         })
         .catch(report);
@@ -213,7 +250,57 @@ export default function LiveMedia({
       return peer;
     };
 
+    /**
+     * A host reload is not a terminal access failure. The server first sends a
+     * generation-bound restart to each active viewer; closing the old peer
+     * before join makes the new viewer generation and its single join atomic
+     * from this transport's perspective.
+     */
+    const restartViewer = async (
+      restartedHostId: number,
+      restartedHostGeneration: number,
+    ) => {
+      if (
+        host ||
+        !active ||
+        viewerRestarting ||
+        (hostGeneration !== null && restartedHostGeneration <= hostGeneration)
+      ) {
+        return;
+      }
+      viewerRestarting = true;
+      closePeer(restartedHostId);
+      viewerMediaReady = false;
+      if (remoteVideo) remoteVideo.srcObject = null;
+      setStatus("Rejoining live stream…");
+      try {
+        const session = await api.live.join.mutate({ streamId });
+        if (!active) return;
+        generation = session.generation;
+        hostId = session.hostId;
+        hostGeneration = session.hostGeneration;
+        cursor = session.signalCursor;
+      } catch (error) {
+        report(error);
+      } finally {
+        viewerRestarting = false;
+      }
+    };
+
     const handleSignal = async (signal: Signal) => {
+      if (!host && hostId !== null) {
+        const restartedHostGeneration = hostGenerationFromRestartSignal({
+          kind: signal.kind,
+          fromId: signal.fromId,
+          expectedHostId: hostId,
+          payload: signal.payload,
+        });
+        if (restartedHostGeneration !== null) {
+          await restartViewer(hostId, restartedHostGeneration);
+          return;
+        }
+      }
+
       if (host) {
         if (signal.kind === "join") {
           const peer = await hostPeer(signal.fromId);
@@ -221,12 +308,18 @@ export default function LiveMedia({
           if (!active) return;
           await peer.connection.setLocalDescription(offer);
           if (!active || !peer.connection.localDescription) return;
-          await api.live.signal.mutate({
-            streamId,
-            toId: signal.fromId,
-            kind: "offer",
-            payload: JSON.stringify(peer.connection.localDescription),
-          });
+          try {
+            await api.live.signal.mutate({
+              streamId,
+              toId: signal.fromId,
+              kind: "offer",
+              generation: requireGeneration(),
+              payload: JSON.stringify(peer.connection.localDescription),
+            });
+          } catch (error) {
+            closePeer(signal.fromId);
+            throw error;
+          }
           return;
         }
         if (signal.kind === "answer") {
@@ -261,6 +354,7 @@ export default function LiveMedia({
           streamId,
           toId: signal.fromId,
           kind: "answer",
+          generation: requireGeneration(),
           payload: JSON.stringify(peer.connection.localDescription),
         });
         return;
@@ -276,6 +370,7 @@ export default function LiveMedia({
       try {
         const signals = await api.live.signals.query({
           streamId,
+          generation: requireGeneration(),
           afterId: cursor,
         });
         for (const signal of signals) {
@@ -304,7 +399,11 @@ export default function LiveMedia({
 
     const initialise = async () => {
       try {
-        await api.live.join.mutate({ streamId });
+        const session = await api.live.join.mutate({ streamId });
+        generation = session.generation;
+        hostId = session.hostId;
+        hostGeneration = session.hostGeneration;
+        cursor = session.signalCursor;
         joined = true;
         if (!active) return;
 
@@ -341,7 +440,7 @@ export default function LiveMedia({
         }
       } catch (error) {
         report(error);
-        if (host && !teardownController.signal.aborted) {
+        if (host && !terminal && !teardownController.signal.aborted) {
           endHostedStream();
         }
       }
@@ -349,35 +448,28 @@ export default function LiveMedia({
 
     const initialisePromise = initialise();
     const onPageHide = () => {
-      if (host) endHostedStream();
+      if (host && !terminal) endHostedStream();
     };
     if (typeof window !== "undefined") {
       window.addEventListener("pagehide", onPageHide);
     }
     return () => {
       active = false;
-      if (pollTimer) clearInterval(pollTimer);
-      if (heartbeatTimer) clearInterval(heartbeatTimer);
       if (typeof window !== "undefined") {
         window.removeEventListener("pagehide", onPageHide);
       }
-      stopAllPeers();
-      const localStream = localStreamRef.current;
-      localStreamRef.current = null;
-      localStream?.getTracks().forEach((track) => track.stop());
-      if (localVideo) localVideo.srcObject = null;
-      if (remoteVideo) remoteVideo.srcObject = null;
+      stopTransport();
 
       // Wait for an in-flight join before leaving. A matching Strict Mode replay
       // aborts this effect-owned teardown during its next setup; a true unmount
       // or stream change still releases the membership after join settles.
-      if (!host) {
+      if (!terminal && !host) {
         void initialisePromise.then(async () => {
           if (joined && !teardownController.signal.aborted) {
             await api.live.leave.mutate({ streamId }).catch(() => undefined);
           }
         });
-      } else {
+      } else if (!terminal) {
         void initialisePromise.then(() => {
           if (!teardownController.signal.aborted) endHostedStream();
         });
