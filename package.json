@@ -13,6 +13,8 @@
     "lint": "expo lint",
     "lint:ci": "eslint .",
     "recover:api": "node scripts/recover-api.mjs",
+    "audit:database": "node scripts/circles-supabase-security-audit.mjs --project-dir .",
+    "test:database-audit": "node --test operations/tests/security-audit.node.mjs",
     "format": "prettier --write .",
     "test": "vitest run",
     "test:ci": "vitest run --reporter=default --reporter=junit --outputFile=artifacts/test-results/junit.xml",
