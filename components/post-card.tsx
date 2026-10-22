@@ -1,5 +1,5 @@
-import { useMediaSource } from "@/components/media-image";
-import React, { useState } from "react";
+import { Image, useMediaSource } from "@/components/media-image";
+import React, { useCallback, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Modal,
@@ -10,18 +10,20 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { Image } from "@/components/media-image";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { trpc } from "@/lib/trpc";
+import { createSingleFlightSubmitter } from "@/lib/single-flight-submit";
 import type { Post } from "@/shared/social";
 import { useCircles } from "@/hooks/circles-context";
+import { resolveFnd001QueryDisplayState } from "@/lib/fnd001-query-display-state";
 import {
   ago,
   Avatar,
   Button,
   C,
+  Empty,
   Icon,
   IconButton,
   Loading,
@@ -51,6 +53,8 @@ export function PostCard({ post }: { post: Post }) {
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [menu, setMenu] = useState(false);
   const [commentText, setCommentText] = useState("");
+  const commentSubmitter = useRef(createSingleFlightSubmitter()).current;
+  const [isCommentSubmitting, setIsCommentSubmitting] = useState(false);
   const [overrideLike, setOverrideLike] = useState<boolean | null>(null);
   const [overrideSave, setOverrideSave] = useState<boolean | null>(null);
   const liked = overrideLike ?? post.liked;
@@ -78,6 +82,11 @@ export function PostCard({ post }: { post: Post }) {
     { postId: post.id },
     { enabled: commentsOpen },
   );
+  const commentsDisplayState = resolveFnd001QueryDisplayState({
+    isLoading: comments.isLoading,
+    isError: comments.isError,
+    hasContent: !!comments.data?.length,
+  });
   const addComment = trpc.social.comment.useMutation({
     onSuccess: () => {
       setCommentText("");
@@ -86,6 +95,26 @@ export function PostCard({ post }: { post: Post }) {
     },
     onError: (e) => notify(e.message),
   });
+  const submitComment = useCallback(() => {
+    const text = commentText.trim();
+    if (!text || commentSubmitter.isBusy) {
+      return;
+    }
+
+    requireAuth(() => {
+      void commentSubmitter.run(async () => {
+        setIsCommentSubmitting(true);
+        try {
+          await addComment
+            .mutateAsync({ postId: post.id, text })
+            // The mutation's onError already gives the user the failure feedback.
+            .catch(() => undefined);
+        } finally {
+          setIsCommentSubmitting(false);
+        }
+      });
+    });
+  }, [addComment, commentSubmitter, commentText, post.id, requireAuth]);
   const report = trpc.social.report.useMutation({
     onSuccess: () => {
       setMenu(false);
@@ -290,9 +319,17 @@ export function PostCard({ post }: { post: Post }) {
                   onPress={() => setCommentsOpen(false)}
                 />
               </View>
-              {comments.isLoading ? (
+              {commentsDisplayState === "loading" ? (
                 <Loading />
-              ) : !comments.data?.length ? (
+              ) : commentsDisplayState === "error" ? (
+                <Empty
+                  icon="chatbubble-ellipses-outline"
+                  title="We couldn’t load the comments."
+                  text="Check your connection and try again."
+                  action="Try again"
+                  onAction={() => void comments.refetch()}
+                />
+              ) : commentsDisplayState === "empty" ? (
                 <T
                   style={{
                     color: C.muted,
@@ -311,7 +348,7 @@ export function PostCard({ post }: { post: Post }) {
                   keyboardDismissMode="interactive"
                   showsVerticalScrollIndicator={false}
                 >
-                  {comments.data.map((comment) => (
+                  {(comments.data ?? []).map((comment) => (
                     <View
                       key={comment.id}
                       style={[s.row, { alignItems: "flex-start", gap: 12 }]}
@@ -351,6 +388,7 @@ export function PostCard({ post }: { post: Post }) {
                 <TextInput
                   value={commentText}
                   onChangeText={setCommentText}
+                  editable={!isCommentSubmitting}
                   placeholder="Add to the conversation…"
                   placeholderTextColor={C.muted}
                   style={{
@@ -369,17 +407,12 @@ export function PostCard({ post }: { post: Post }) {
                   icon="arrow-up-circle"
                   color={C.coral}
                   size={32}
-                  onPress={() =>
-                    requireAuth(
-                      () =>
-                        commentText.trim() &&
-                        addComment.mutate({
-                          postId: post.id,
-                          text: commentText.trim(),
-                        }),
-                    )
+                  disabled={isCommentSubmitting}
+                  loading={isCommentSubmitting}
+                  onPress={submitComment}
+                  label={
+                    isCommentSubmitting ? "Sending comment" : "Send comment"
                   }
-                  label="Send comment"
                 />
               </View>
             </View>

@@ -14,6 +14,7 @@ import * as Api from "@/lib/_core/api";
 import * as Auth from "@/lib/_core/auth";
 import { logoutAndPurgeClientSession } from "@/lib/client-session";
 import { clearPrivateImageCaches } from "@/lib/media-cache";
+import { completeNativeLoginTransition } from "@/hooks/native-login-transition";
 
 type State = {
   user: { id: number; name: string | null } | null;
@@ -23,6 +24,7 @@ type State = {
   refresh: () => void;
   showLogin: () => void;
   logout: () => Promise<void>;
+  completeNativeLogin: () => Promise<boolean>;
 };
 const Context = createContext<State | null>(null);
 export function CirclesProvider({
@@ -38,6 +40,7 @@ export function CirclesProvider({
     refetchInterval: 15000,
     retry: false,
   });
+  const utils = trpc.useUtils();
   const [login, setLogin] = useState(false);
   const [notice, setNotice] = useState("");
   const [signing, setSigning] = useState(false);
@@ -74,6 +77,19 @@ export function CirclesProvider({
     );
   }, [queryClient, resetProtectedNavigation]);
 
+  const completeNativeLogin = useCallback(async () => {
+    const authenticatedUser = await completeNativeLoginTransition({
+      queryClient,
+      resetLoginModal: () => setLogin(false),
+      resetSigning: () => setSigning(false),
+      clearCachedUser: Auth.clearUserInfo,
+      clearPrivateImageCaches,
+      invalidateAuth: () => utils.auth.me.invalidate(),
+      refetchAuth,
+    });
+    return authenticatedUser !== null;
+  }, [queryClient, refetchAuth, utils]);
+
   const requireAuth = (action?: () => void) => {
     if (!auth.data) {
       setLogin(true);
@@ -92,6 +108,7 @@ export function CirclesProvider({
         refresh,
         showLogin: () => setLogin(true),
         logout,
+        completeNativeLogin,
       }}
     >
       {children}

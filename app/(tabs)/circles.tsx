@@ -7,7 +7,6 @@ import { useCircles } from "@/hooks/circles-context";
 import { AppShell } from "@/components/app-shell";
 import { CircleCard } from "@/components/circle-card";
 import {
-  Button,
   C,
   Empty,
   Icon,

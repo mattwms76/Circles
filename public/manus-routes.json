@@ -1,0 +1,17 @@
+{
+  "routes": [
+    { "path": "/", "title": "Home" },
+    { "path": "/discover", "title": "Discover" },
+    { "path": "/circles", "title": "Circles" },
+    { "path": "/circle/:id", "title": "Circle" },
+    { "path": "/messages", "title": "Messages" },
+    { "path": "/chat/:id", "title": "Conversation" },
+    { "path": "/profile", "title": "Your profile" },
+    { "path": "/person/:id", "title": "Creator profile" },
+    { "path": "/create", "title": "Create" },
+    { "path": "/live", "title": "Live" },
+    { "path": "/live/:id", "title": "Live session" },
+    { "path": "/oauth/callback", "title": "Sign-in return" },
+    { "path": "/dev/theme-lab", "title": "Theme lab" }
+  ]
+}

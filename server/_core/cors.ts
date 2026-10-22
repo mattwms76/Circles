@@ -1,23 +1,14 @@
 import type { RequestHandler } from "express";
 import { BlockList, isIP } from "node:net";
+import {
+  configuredFrontendOrigin,
+  configuredFrontendOrigins,
+} from "./frontend-origins";
 
 const LOOPBACK_IPS = new BlockList();
 LOOPBACK_IPS.addSubnet("127.0.0.0", 8, "ipv4");
 LOOPBACK_IPS.addAddress("::1", "ipv6");
 LOOPBACK_IPS.addSubnet("::ffff:127.0.0.0", 104, "ipv6");
-
-function configuredOrigin(name: "EXPO_PACKAGER_PROXY_URL" | "EXPO_WEB_PREVIEW_URL"): string | null {
-  const value = process.env[name];
-  if (!value) return null;
-  try {
-    const url = new URL(value);
-    return (url.protocol === "https:" || url.protocol === "http:") && url.origin === value
-      ? value
-      : null;
-  } catch {
-    return null;
-  }
-}
 
 function pairedPreviewOrigin(packagerOrigin: string): string | null {
   const url = new URL(packagerOrigin);
@@ -27,14 +18,13 @@ function pairedPreviewOrigin(packagerOrigin: string): string | null {
   return url.origin;
 }
 
-export function trustedExpoWebOrigins(): Set<string> {
+export function trustedFrontendWebOrigins(): Set<string> {
   const origins = new Set<string>();
-  const packager = configuredOrigin("EXPO_PACKAGER_PROXY_URL");
-  const preview = configuredOrigin("EXPO_WEB_PREVIEW_URL");
+  const packager = configuredFrontendOrigin("EXPO_PACKAGER_PROXY_URL");
   // Loopback origins are request-local below. Never put one in this process-wide set: the
   // same starter can also be reached through a remote API host.
-  for (const configured of [packager, preview]) {
-    if (configured && !originHasLoopbackHostname(configured)) origins.add(configured);
+  for (const configured of configuredFrontendOrigins()) {
+    if (!originHasLoopbackHostname(configured)) origins.add(configured);
   }
   // Backward-compatible production fallback while every runtime starts injecting the explicit
   // 8328 origin. Localhost cannot use hostname prefix derivation and is handled only by exact env.
@@ -44,6 +34,9 @@ export function trustedExpoWebOrigins(): Set<string> {
   }
   return origins;
 }
+
+/** @deprecated Kept as a compatibility export for existing Expo callers. */
+export const trustedExpoWebOrigins = trustedFrontendWebOrigins;
 
 export function isLoopbackApiHost(hostname: string): boolean {
   const normalized = hostname
@@ -67,19 +60,18 @@ function originHasLoopbackHostname(origin: string): boolean {
   }
 }
 
-function configuredLocalExpoWebOrigins(): Set<string> {
+function configuredLocalFrontendOrigins(): Set<string> {
   const origins = new Set<string>();
-  for (const name of ["EXPO_PACKAGER_PROXY_URL", "EXPO_WEB_PREVIEW_URL"] as const) {
-    const origin = configuredOrigin(name);
-    if (!origin) continue;
+  for (const origin of configuredFrontendOrigins()) {
     const url = new URL(origin);
-    if (url.protocol === "http:" && isLoopbackApiHost(url.hostname)) origins.add(origin);
+    if (url.protocol === "http:" && isLoopbackApiHost(url.hostname))
+      origins.add(origin);
   }
   return origins;
 }
 
 export function createCorsMiddleware(
-  allowedOrigins = trustedExpoWebOrigins(),
+  allowedOrigins = trustedFrontendWebOrigins(),
   localApiRequest = (hostname: string) => isLoopbackApiHost(hostname),
 ): RequestHandler {
   return (req, res, next) => {
@@ -93,7 +85,8 @@ export function createCorsMiddleware(
     }
     const loopbackOrigin = originHasLoopbackHostname(origin);
     const allowedLocalOrigin =
-      localApiRequest(req.hostname) && configuredLocalExpoWebOrigins().has(origin);
+      localApiRequest(req.hostname) &&
+      configuredLocalFrontendOrigins().has(origin);
     const allowedConfiguredOrigin =
       !loopbackOrigin && allowedOrigins.has(origin);
     if (!allowedConfiguredOrigin && !allowedLocalOrigin) {

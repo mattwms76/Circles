@@ -15,6 +15,9 @@
     "live.list": {
       "input": {}
     },
+    "live.signals": {
+      "input": {}
+    },
     "system.health": {
       "input": {
         "timestamp": 0

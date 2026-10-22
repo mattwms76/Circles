@@ -1,7 +1,8 @@
 import { TRPCError } from "@trpc/server";
-import { and, count, desc, eq, gt, isNull, like } from "drizzle-orm";
+import { and, count, desc, eq, gt, isNull, like, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
+  activeHostLeases,
   liveChat,
   liveSignals,
   liveViewers,
@@ -10,9 +11,14 @@ import {
 } from "../drizzle/live-schema";
 import { memberships } from "../drizzle/schema";
 import type { LiveStream } from "../shared/social";
+import { createHostGenerationRestartSignals } from "../shared/live-generation-restart";
 import { getDb } from "./db";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
-import { canAccessCircle, getProfile } from "./social-service";
+import {
+  canAccessCircle,
+  getDisplayProfile,
+  getProfile,
+} from "./social-service";
 
 const MAX_SIGNAL_BYTES = 32_768;
 const MAX_ICE_CANDIDATE_BYTES = 8_192;
@@ -26,6 +32,11 @@ const signalKind = z.enum(["offer", "answer", "ice"]);
 type SignalKind = z.infer<typeof signalKind>;
 type LiveSignalKind = SignalKind | "join" | "leave";
 type CircleMembershipRole = "owner" | "moderator" | "member" | "pending";
+type LiveDatabase = NonNullable<Awaited<ReturnType<typeof getDb>>>;
+type LiveTransaction = Parameters<
+  Parameters<LiveDatabase["transaction"]>[0]
+>[0];
+type ActiveHostLease = typeof activeHostLeases.$inferSelect;
 
 /** Strict boundary keeps an expired lease expired at exactly its cutoff. */
 export function hasActiveLease(
@@ -41,6 +52,14 @@ export function hasActiveHostLease(
   now = Date.now(),
 ): boolean {
   return hasActiveLease(lastHeartbeatAt, now, HOST_LEASE_MS);
+}
+
+/** The lease may be released only by the stream that currently owns it. */
+export function hostLeaseBelongsToStream(
+  leaseStreamId: number | null,
+  streamId: number,
+): boolean {
+  return leaseStreamId === streamId;
 }
 
 export function hasActiveViewerLease(
@@ -72,6 +91,7 @@ export function canSendSignal(input: {
   kind: SignalKind;
   recipientIsActiveViewer: boolean;
   senderIsActiveViewer: boolean;
+  senderHasJoinedCurrentHostGeneration?: boolean;
 }): boolean {
   if (!input.streamIsLive) return false;
 
@@ -85,8 +105,34 @@ export function canSendSignal(input: {
 
   return (
     input.senderIsActiveViewer &&
+    input.senderHasJoinedCurrentHostGeneration !== false &&
     input.recipientId === input.hostId &&
     (input.kind === "answer" || input.kind === "ice")
+  );
+}
+
+export type LiveSignalSession = {
+  generation: number;
+  cursor: number;
+};
+
+/** A replaced media lifecycle cannot read or write through its old generation. */
+export function hasCurrentLiveSignalGeneration(
+  presentedGeneration: number,
+  currentGeneration: number | null,
+): boolean {
+  return (
+    currentGeneration !== null && presentedGeneration === currentGeneration
+  );
+}
+
+/** Defense in depth for the SQL generation/cursor predicates in signals. */
+export function isLiveSignalVisibleToSession(
+  signal: { id: number; toGeneration: number },
+  session: LiveSignalSession,
+): boolean {
+  return (
+    signal.id > session.cursor && signal.toGeneration === session.generation
   );
 }
 
@@ -190,15 +236,176 @@ function streamIsReadyAndActive(stream: Stream, now = Date.now()): boolean {
   return streamHasActiveHostLease(stream, now) && stream.readyAt !== null;
 }
 
-async function isActiveViewer(
+/**
+ * Creates the per-host lease row if needed, then locks it for this transaction.
+ * The no-op duplicate update serializes first-use creators before SELECT FOR
+ * UPDATE reads the row.
+ */
+async function lockActiveHostLease(
+  tx: LiveTransaction,
+  hostId: number,
+): Promise<ActiveHostLease> {
+  await tx
+    .insert(activeHostLeases)
+    .values({ hostId })
+    .onDuplicateKeyUpdate({
+      set: { hostId: sql`${activeHostLeases.hostId}` },
+    });
+  const [lease] = await tx
+    .select()
+    .from(activeHostLeases)
+    .where(eq(activeHostLeases.hostId, hostId))
+    .for("update")
+    .limit(1);
+  if (!lease) throw new Error("Active host lease row was not created.");
+  return lease;
+}
+
+/**
+ * With the host lease row locked, terminate only expired live rows and return
+ * the deterministic active owner. This also backfills the lease table for a
+ * live stream that predates the additive migration.
+ */
+async function reconcileActiveHostLease(
+  tx: LiveTransaction,
+  lease: ActiveHostLease,
+  hostId: number,
+  now: Date,
+): Promise<Stream | null> {
+  const hostStreams = await tx
+    .select()
+    .from(streams)
+    .where(and(eq(streams.hostId, hostId), eq(streams.status, "live")))
+    .orderBy(desc(streams.createdAt), desc(streams.id))
+    .for("update");
+  const nowMs = now.getTime();
+  const active = hostStreams.find((stream) =>
+    streamHasActiveHostLease(stream, nowMs),
+  );
+
+  await Promise.all(
+    hostStreams
+      .filter((stream) => !streamHasActiveHostLease(stream, nowMs))
+      .map((stream) =>
+        tx
+          .update(streams)
+          .set({ status: "ended", endedAt: now })
+          .where(and(eq(streams.id, stream.id), eq(streams.status, "live"))),
+      ),
+  );
+
+  if (active) {
+    if (
+      !hostLeaseBelongsToStream(lease.streamId, active.id) ||
+      lease.lastHeartbeatAt?.getTime() !== active.lastHeartbeatAt.getTime()
+    ) {
+      await tx
+        .update(activeHostLeases)
+        .set({ streamId: active.id, lastHeartbeatAt: active.lastHeartbeatAt })
+        .where(eq(activeHostLeases.hostId, hostId));
+    }
+    return active;
+  }
+
+  if (lease.streamId !== null || lease.lastHeartbeatAt !== null) {
+    await tx
+      .update(activeHostLeases)
+      .set({ streamId: null, lastHeartbeatAt: null })
+      .where(eq(activeHostLeases.hostId, hostId));
+  }
+  return null;
+}
+
+async function endHostStreamAtomically(
+  db: LiveDatabase,
+  hostId: number,
+  streamId: number,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    const lease = await lockActiveHostLease(tx, hostId);
+    const [stream] = await tx
+      .select()
+      .from(streams)
+      .where(eq(streams.id, streamId))
+      .for("update")
+      .limit(1);
+    if (!stream || stream.status !== "live") notFound();
+    if (stream.hostId !== hostId)
+      forbidden("Only the host can end this live stream.");
+
+    const active = await reconcileActiveHostLease(
+      tx,
+      lease,
+      hostId,
+      new Date(),
+    );
+    await tx
+      .update(streams)
+      .set({ status: "ended", endedAt: new Date() })
+      .where(and(eq(streams.id, stream.id), eq(streams.status, "live")));
+    await tx.delete(liveSignals).where(eq(liveSignals.streamId, stream.id));
+
+    if (
+      hostLeaseBelongsToStream(lease.streamId, stream.id) ||
+      active?.id === stream.id
+    ) {
+      await tx
+        .update(activeHostLeases)
+        .set({ streamId: null, lastHeartbeatAt: null })
+        .where(eq(activeHostLeases.hostId, hostId));
+    }
+  });
+}
+
+async function renewHostLeaseAtomically(
+  db: LiveDatabase,
+  hostId: number,
+  streamId: number,
+  ready: boolean | undefined,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    const lease = await lockActiveHostLease(tx, hostId);
+    const [stream] = await tx
+      .select()
+      .from(streams)
+      .where(eq(streams.id, streamId))
+      .for("update")
+      .limit(1);
+    if (!stream || stream.status !== "live") notFound();
+    if (stream.hostId !== hostId) notFound();
+
+    const now = new Date();
+    const active = await reconcileActiveHostLease(tx, lease, hostId, now);
+    if (active?.id !== stream.id) notFound();
+
+    await tx
+      .update(streams)
+      .set({
+        lastHeartbeatAt: now,
+        ...(ready && stream.readyAt === null ? { readyAt: now } : {}),
+      })
+      .where(and(eq(streams.id, stream.id), eq(streams.status, "live")));
+    await tx
+      .update(activeHostLeases)
+      .set({ streamId: stream.id, lastHeartbeatAt: now })
+      .where(
+        and(
+          eq(activeHostLeases.hostId, hostId),
+          eq(activeHostLeases.streamId, stream.id),
+        ),
+      );
+  });
+}
+
+async function getActiveViewerGeneration(
   streamId: number,
   userId: number,
   now = Date.now(),
-): Promise<boolean> {
+): Promise<number | null> {
   const db = await getDb();
   if (!db) unavailable();
   const rows = await db
-    .select({ userId: liveViewers.userId })
+    .select({ generation: liveViewers.generation })
     .from(liveViewers)
     .where(
       and(
@@ -209,18 +416,29 @@ async function isActiveViewer(
       ),
     )
     .limit(1);
-  return rows.length === 1;
+  return rows[0]?.generation ?? null;
+}
+
+async function isActiveViewer(
+  streamId: number,
+  userId: number,
+  now = Date.now(),
+): Promise<boolean> {
+  return (await getActiveViewerGeneration(streamId, userId, now)) !== null;
 }
 
 async function assertActiveParticipant(
   stream: Stream,
   userId: number,
-): Promise<void> {
+): Promise<number> {
   if (!streamIsReadyAndActive(stream)) notFound();
   await assertCircleAccess(userId, stream.circleId);
-  if (stream.hostId !== userId && !(await isActiveViewer(stream.id, userId))) {
+  if (stream.hostId === userId) return stream.hostGeneration;
+  const generation = await getActiveViewerGeneration(stream.id, userId);
+  if (generation === null) {
     forbidden("Join this live stream before participating.");
   }
+  return generation;
 }
 
 async function viewerCount(streamId: number): Promise<number> {
@@ -242,7 +460,7 @@ async function viewerCount(streamId: number): Promise<number> {
 
 async function toLiveStream(stream: Stream): Promise<LiveStream> {
   const [host, viewers] = await Promise.all([
-    getProfile(stream.hostId),
+    getDisplayProfile(stream.hostId),
     viewerCount(stream.id),
   ]);
   return {
@@ -257,11 +475,52 @@ async function toLiveStream(stream: Stream): Promise<LiveStream> {
   };
 }
 
+async function signalHighWaterMark(streamId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) unavailable();
+  const [latest] = await db
+    .select({ id: liveSignals.id })
+    .from(liveSignals)
+    .where(eq(liveSignals.streamId, streamId))
+    .orderBy(desc(liveSignals.id))
+    .limit(1);
+  return latest?.id ?? 0;
+}
+
+/** Remove only messages belonging to the media lifecycle that was superseded. */
+async function purgeParticipantGenerationSignals(input: {
+  streamId: number;
+  participantId: number;
+  generation: number;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) unavailable();
+  await db
+    .delete(liveSignals)
+    .where(
+      and(
+        eq(liveSignals.streamId, input.streamId),
+        or(
+          and(
+            eq(liveSignals.fromId, input.participantId),
+            eq(liveSignals.fromGeneration, input.generation),
+          ),
+          and(
+            eq(liveSignals.toId, input.participantId),
+            eq(liveSignals.toGeneration, input.generation),
+          ),
+        ),
+      ),
+    );
+}
+
 async function insertSystemSignal(input: {
   streamId: number;
   fromId: number;
   toId: number;
   kind: "join" | "leave";
+  fromGeneration: number;
+  toGeneration: number;
 }): Promise<void> {
   const db = await getDb();
   if (!db) unavailable();
@@ -333,58 +592,55 @@ export const liveRouter = router({
       await assertApprovedCircleHost(ctx.user.id, circleId);
 
       const now = new Date();
-      const existing = await db
-        .select()
-        .from(streams)
-        .where(and(eq(streams.hostId, ctx.user.id), eq(streams.status, "live")))
-        .limit(100);
-      const expired = existing.filter(
-        (stream) => !streamHasActiveHostLease(stream, now.getTime()),
-      );
-      await Promise.all(
-        expired.map((stream) =>
-          db
-            .update(streams)
-            .set({ status: "ended", endedAt: now })
-            .where(and(eq(streams.id, stream.id), eq(streams.status, "live"))),
-        ),
-      );
-      const active = existing.filter((stream) =>
-        streamHasActiveHostLease(stream, now.getTime()),
-      );
-      if (active.length > 0) {
+      const stream = await db.transaction(async (tx) => {
+        const lease = await lockActiveHostLease(tx, ctx.user.id);
+        const active = await reconcileActiveHostLease(
+          tx,
+          lease,
+          ctx.user.id,
+          now,
+        );
+        if (active) return null;
+
+        const inserted = await tx.insert(streams).values({
+          hostId: ctx.user.id,
+          title: input.title,
+          circleId,
+          thumbnail: input.thumbnail ?? "",
+          // The initial lease gives camera startup time without publishing a fake
+          // broadcast. The client makes it ready only after capture succeeds.
+          lastHeartbeatAt: now,
+          readyAt: null,
+        });
+        const streamId = Number(inserted[0].insertId);
+        await tx
+          .update(activeHostLeases)
+          .set({ streamId, lastHeartbeatAt: now })
+          .where(eq(activeHostLeases.hostId, ctx.user.id));
+        const [created] = await tx
+          .select()
+          .from(streams)
+          .where(eq(streams.id, streamId))
+          .limit(1);
+        if (!created) throw new Error("Created live stream was not found.");
+        return created;
+      });
+
+      if (!stream) {
         throw new TRPCError({
           code: "CONFLICT",
           message: "End your current live stream before starting another one.",
         });
       }
-
-      const inserted = await db.insert(streams).values({
-        hostId: ctx.user.id,
-        title: input.title,
-        circleId,
-        thumbnail: input.thumbnail ?? "",
-        // The initial lease gives camera startup time without publishing a fake
-        // broadcast. The client makes it ready only after capture succeeds.
-        lastHeartbeatAt: now,
-        readyAt: null,
-      });
-      const stream = await getStreamOrThrow(Number(inserted[0].insertId));
+      // Profile creation belongs to the authenticated host action, never a public formatter.
+      await getProfile(ctx.user.id);
       return toLiveStream(stream);
     }),
 
   end: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {
     const db = await getDb();
     if (!db) unavailable();
-    const stream = await getStreamOrThrow(input.streamId);
-    if (stream.hostId !== ctx.user.id)
-      forbidden("Only the host can end this live stream.");
-    if (stream.status !== "live") notFound();
-
-    await db
-      .update(streams)
-      .set({ status: "ended", endedAt: new Date() })
-      .where(and(eq(streams.id, stream.id), eq(streams.status, "live")));
+    await endHostStreamAtomically(db, ctx.user.id, input.streamId);
     return { success: true } as const;
   }),
 
@@ -399,14 +655,7 @@ export const liveRouter = router({
       if (stream.hostId === ctx.user.id) {
         // An expired lease cannot be revived: create() will release it and lets
         // the host make a fresh session instead of resurrecting stale metadata.
-        if (!streamHasActiveHostLease(stream, now.getTime())) notFound();
-        await db
-          .update(streams)
-          .set({
-            lastHeartbeatAt: now,
-            ...(input.ready && stream.readyAt === null ? { readyAt: now } : {}),
-          })
-          .where(and(eq(streams.id, stream.id), eq(streams.status, "live")));
+        await renewHostLeaseAtomically(db, ctx.user.id, stream.id, input.ready);
         return { success: true } as const;
       }
 
@@ -442,15 +691,65 @@ export const liveRouter = router({
     if (!streamHasActiveHostLease(stream, now.getTime())) notFound();
     await assertCircleAccess(ctx.user.id, stream.circleId);
 
-    // The host is already a participant and must not inflate viewer counts.
-    if (stream.hostId === ctx.user.id) return { hostId: stream.hostId };
+    // The host does not inflate viewer counts, but a reload is a fresh media
+    // lifecycle. Its new generation rejects old answers and ICE immediately.
+    if (stream.hostId === ctx.user.id) {
+      const signalCursor = await signalHighWaterMark(stream.id);
+      const generation = stream.hostGeneration + 1;
+      await db
+        .update(streams)
+        .set({ hostGeneration: generation })
+        .where(and(eq(streams.id, stream.id), eq(streams.status, "live")));
+      await purgeParticipantGenerationSignals({
+        streamId: stream.id,
+        participantId: stream.hostId,
+        generation: stream.hostGeneration,
+      });
+      const activeViewers = await db
+        .select({
+          userId: liveViewers.userId,
+          generation: liveViewers.generation,
+        })
+        .from(liveViewers)
+        .where(
+          and(
+            eq(liveViewers.streamId, stream.id),
+            isNull(liveViewers.leftAt),
+            gt(
+              liveViewers.lastSeenAt,
+              new Date(now.getTime() - VIEWER_LEASE_MS),
+            ),
+          ),
+        );
+      const restartSignals = createHostGenerationRestartSignals({
+        streamId: stream.id,
+        hostId: stream.hostId,
+        hostGeneration: generation,
+        viewers: activeViewers,
+      });
+      if (restartSignals.length > 0) {
+        await db.insert(liveSignals).values(restartSignals);
+      }
+      return {
+        hostId: stream.hostId,
+        generation,
+        hostGeneration: generation,
+        signalCursor,
+      };
+    }
     if (stream.readyAt === null) notFound();
 
-    const wasActive = await isActiveViewer(
-      stream.id,
-      ctx.user.id,
-      now.getTime(),
-    );
+    const [existingViewer] = await db
+      .select({ generation: liveViewers.generation })
+      .from(liveViewers)
+      .where(
+        and(
+          eq(liveViewers.streamId, stream.id),
+          eq(liveViewers.userId, ctx.user.id),
+        ),
+      )
+      .limit(1);
+    const generation = (existingViewer?.generation ?? 0) + 1;
     await db
       .insert(liveViewers)
       .values({
@@ -458,20 +757,34 @@ export const liveRouter = router({
         userId: ctx.user.id,
         joinedAt: now,
         lastSeenAt: now,
+        generation,
         leftAt: null,
       })
       .onDuplicateKeyUpdate({
-        set: { joinedAt: now, lastSeenAt: now, leftAt: null },
+        set: { joinedAt: now, lastSeenAt: now, generation, leftAt: null },
       });
-    if (!wasActive) {
-      await insertSystemSignal({
+    if (existingViewer) {
+      await purgeParticipantGenerationSignals({
         streamId: stream.id,
-        fromId: ctx.user.id,
-        toId: stream.hostId,
-        kind: "join",
+        participantId: ctx.user.id,
+        generation: existingViewer.generation,
       });
     }
-    return { hostId: stream.hostId };
+    const signalCursor = await signalHighWaterMark(stream.id);
+    await insertSystemSignal({
+      streamId: stream.id,
+      fromId: ctx.user.id,
+      toId: stream.hostId,
+      kind: "join",
+      fromGeneration: generation,
+      toGeneration: stream.hostGeneration,
+    });
+    return {
+      hostId: stream.hostId,
+      generation,
+      hostGeneration: stream.hostGeneration,
+      signalCursor,
+    };
   }),
 
   leave: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {
@@ -484,7 +797,10 @@ export const liveRouter = router({
       forbidden("The host must end the live stream instead of leaving it.");
     }
     const [viewer] = await db
-      .select({ streamId: liveViewers.streamId })
+      .select({
+        streamId: liveViewers.streamId,
+        generation: liveViewers.generation,
+      })
       .from(liveViewers)
       .where(
         and(
@@ -510,12 +826,19 @@ export const liveRouter = router({
           isNull(liveViewers.leftAt),
         ),
       );
+    await purgeParticipantGenerationSignals({
+      streamId: stream.id,
+      participantId: ctx.user.id,
+      generation: viewer.generation,
+    });
     if (wasActive) {
       await insertSystemSignal({
         streamId: stream.id,
         fromId: ctx.user.id,
         toId: stream.hostId,
         kind: "leave",
+        fromGeneration: viewer.generation,
+        toGeneration: stream.hostGeneration,
       });
     }
     return { success: true } as const;
@@ -523,17 +846,29 @@ export const liveRouter = router({
 
   signals: protectedProcedure
     .input(
-      idInput.extend({ afterId: z.number().int().nonnegative().optional() }),
+      idInput.extend({
+        generation: z.number().int().positive(),
+        afterId: z.number().int().nonnegative().optional(),
+      }),
     )
     .query(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) unavailable();
       const stream = await getStreamOrThrow(input.streamId);
-      await assertActiveParticipant(stream, ctx.user.id);
+      const currentGeneration = await assertActiveParticipant(
+        stream,
+        ctx.user.id,
+      );
+      if (
+        !hasCurrentLiveSignalGeneration(input.generation, currentGeneration)
+      ) {
+        forbidden("This live media session has been replaced.");
+      }
 
       const conditions = [
         eq(liveSignals.streamId, stream.id),
         eq(liveSignals.toId, ctx.user.id),
+        eq(liveSignals.toGeneration, currentGeneration),
       ];
       if (input.afterId !== undefined)
         conditions.push(gt(liveSignals.id, input.afterId));
@@ -543,6 +878,7 @@ export const liveRouter = router({
           fromId: liveSignals.fromId,
           toId: liveSignals.toId,
           kind: liveSignals.kind,
+          toGeneration: liveSignals.toGeneration,
           payload: liveSignals.payload,
         })
         .from(liveSignals)
@@ -550,11 +886,20 @@ export const liveRouter = router({
         .orderBy(liveSignals.id)
         .limit(100);
 
-      return rows.map((row) => ({
-        ...row,
-        toId: row.toId,
-        kind: row.kind as LiveSignalKind,
-      }));
+      return rows
+        .filter((row) =>
+          isLiveSignalVisibleToSession(row, {
+            generation: currentGeneration,
+            cursor: input.afterId ?? 0,
+          }),
+        )
+        .map((row) => ({
+          id: row.id,
+          fromId: row.fromId,
+          toId: row.toId,
+          kind: row.kind as LiveSignalKind,
+          payload: row.payload,
+        }));
     }),
 
   signal: protectedProcedure
@@ -562,6 +907,7 @@ export const liveRouter = router({
       idInput.extend({
         toId: z.number().int().positive(),
         kind: signalKind,
+        generation: z.number().int().positive(),
         payload: z.string().min(2).max(MAX_SIGNAL_BYTES),
       }),
     )
@@ -579,16 +925,50 @@ export const liveRouter = router({
       if (!streamIsReadyAndActive(stream)) notFound();
       await assertCircleAccess(ctx.user.id, stream.circleId);
 
-      const [senderIsActiveViewer, recipientIsActiveViewer] = await Promise.all(
-        [
-          ctx.user.id === stream.hostId
-            ? Promise.resolve(false)
-            : isActiveViewer(stream.id, ctx.user.id),
-          input.toId === stream.hostId
-            ? Promise.resolve(false)
-            : isActiveViewer(stream.id, input.toId),
-        ],
-      );
+      const [senderGeneration, recipientGeneration] = await Promise.all([
+        ctx.user.id === stream.hostId
+          ? Promise.resolve(stream.hostGeneration)
+          : getActiveViewerGeneration(stream.id, ctx.user.id),
+        input.toId === stream.hostId
+          ? Promise.resolve(stream.hostGeneration)
+          : getActiveViewerGeneration(stream.id, input.toId),
+      ]);
+      if (
+        senderGeneration === null ||
+        !hasCurrentLiveSignalGeneration(input.generation, senderGeneration)
+      ) {
+        forbidden("This live media session has been replaced.");
+      }
+      if (recipientGeneration === null) {
+        forbidden("This WebRTC signal is not allowed for these participants.");
+      }
+      const senderHasJoinedCurrentHostGeneration =
+        ctx.user.id === stream.hostId ||
+        !!(
+          await db
+            .select({ id: liveSignals.id })
+            .from(liveSignals)
+            .where(
+              and(
+                eq(liveSignals.streamId, stream.id),
+                eq(liveSignals.fromId, ctx.user.id),
+                eq(liveSignals.toId, stream.hostId),
+                eq(liveSignals.kind, "join"),
+                eq(liveSignals.fromGeneration, senderGeneration),
+                eq(liveSignals.toGeneration, stream.hostGeneration),
+              ),
+            )
+            .limit(1)
+        )[0];
+      if (!senderHasJoinedCurrentHostGeneration) {
+        throw new TRPCError({
+          // A stale peer can emit ICE while the viewer is waiting to consume the
+          // restart signal. This is intentionally non-terminal: the pending
+          // server-issued reset lets that still-authorized viewer rejoin.
+          code: "CONFLICT",
+          message: "The host media session restarted; waiting to rejoin.",
+        });
+      }
       if (
         !canSendSignal({
           streamIsLive: streamIsReadyAndActive(stream),
@@ -596,8 +976,11 @@ export const liveRouter = router({
           senderId: ctx.user.id,
           recipientId: input.toId,
           kind: input.kind,
-          recipientIsActiveViewer,
-          senderIsActiveViewer,
+          recipientIsActiveViewer:
+            input.toId !== stream.hostId && recipientGeneration !== null,
+          senderIsActiveViewer:
+            ctx.user.id !== stream.hostId && senderGeneration !== null,
+          senderHasJoinedCurrentHostGeneration,
         })
       ) {
         forbidden("This WebRTC signal is not allowed for these participants.");
@@ -609,6 +992,8 @@ export const liveRouter = router({
         fromId: ctx.user.id,
         toId: input.toId,
         kind: input.kind,
+        fromGeneration: senderGeneration,
+        toGeneration: recipientGeneration,
         payload: input.payload,
       });
       return { success: true } as const;

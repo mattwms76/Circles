@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import { isAllowedMediaAttachmentReference } from "../shared/media";
 import type {
   Circle,
   Comment,
@@ -10,6 +11,7 @@ import type {
   Post,
   Profile,
 } from "../shared/social";
+import { MESSAGE_PAGE_DEFAULT_LIMIT, MESSAGE_PAGE_MAX_LIMIT } from "../shared/message-pagination";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { storagePut } from "./storage";
 import {
@@ -47,9 +49,14 @@ import {
 
 const id = z.number().int().positive();
 const shortText = z.string().trim().min(1).max(10_000);
-const mediaUrl = z.string().trim().url().max(2_048);
-const managedRelativeMediaUrl = z.string().trim().startsWith("/manus-storage/").max(2_048);
-const optionalMediaUrl = z.union([mediaUrl, managedRelativeMediaUrl]).optional();
+const optionalMediaUrl = z
+  .string()
+  .trim()
+  .max(2_048)
+  .refine(isAllowedMediaAttachmentReference, {
+    message: "Media must be a canonical managed upload or an approved starter asset",
+  })
+  .optional();
 export const sendMessageInput = z
   .object({ conversationId: id, text: z.string().trim().max(10_000), media: optionalMediaUrl })
   .superRefine((value, issue) => {
@@ -57,6 +64,14 @@ export const sendMessageInput = z
       issue.addIssue({ code: "custom", message: "A message needs text or media", path: ["text"] });
     }
   });
+export const messagesInput = z.object({
+  conversationId: id,
+  /** Fetches messages strictly older than this immutable message ID. */
+  cursor: id.optional(),
+  limit: z.number().int().positive().max(MESSAGE_PAGE_MAX_LIMIT).default(MESSAGE_PAGE_DEFAULT_LIMIT),
+});
+/** Acknowledgements must name an actually delivered message, never infer a wall-clock cursor. */
+export const markReadInput = z.object({ conversationId: id, throughMessageId: id });
 const ALLOWED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp", "video/mp4"] as const;
 // Keep the client contract as `mimeType: string`, then reject every value outside this allowlist.
 // Expo's asset picker correctly exposes MIME values at runtime but types them as a general string.
@@ -254,8 +269,10 @@ export const socialRouter = router({
     .mutation(({ ctx, input }) => openCircleChat(ctx.user.id, input.circleId)),
 
   messages: protectedProcedure
-    .input(z.object({ conversationId: id }))
-    .query(({ ctx, input }): Promise<Message[]> => listMessages(ctx.user.id, input.conversationId)),
+    .input(messagesInput)
+    .query(({ ctx, input }): Promise<Message[]> =>
+      listMessages(ctx.user.id, input.conversationId, { cursor: input.cursor, limit: input.limit }),
+    ),
 
   sendMessage: protectedProcedure
     .input(sendMessageInput)
@@ -264,8 +281,10 @@ export const socialRouter = router({
     ),
 
   markRead: protectedProcedure
-    .input(z.object({ conversationId: id }))
-    .mutation(({ ctx, input }) => markConversationRead(ctx.user.id, input.conversationId)),
+    .input(markReadInput)
+    .mutation(({ ctx, input }) =>
+      markConversationRead(ctx.user.id, input.conversationId, input.throughMessageId),
+    ),
 
   upload: protectedProcedure
     .input(z.object({ base64: z.string().max(MAX_BASE64_CHARACTERS), mimeType }))

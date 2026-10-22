@@ -20,8 +20,20 @@ export const streams = mysqlTable("streams", {
   readyAt: timestamp("readyAt"),
   /** Host lease renewed by authenticated heartbeat calls. */
   lastHeartbeatAt: timestamp("lastHeartbeatAt").notNull().defaultNow(),
+  /** Bumped whenever the host starts a fresh media transport for this stream. */
+  hostGeneration: int("hostGeneration").notNull().default(1),
   createdAt: timestamp("createdAt").notNull().defaultNow(),
   endedAt: timestamp("endedAt"),
+});
+
+/**
+ * One durable lock row per host. A non-null streamId owns that host's current
+ * broadcast slot; ended broadcasts stay in streams as historical records.
+ */
+export const activeHostLeases = mysqlTable("activeHostLeases", {
+  hostId: int("hostId").primaryKey(),
+  streamId: int("streamId"),
+  lastHeartbeatAt: timestamp("lastHeartbeatAt"),
 });
 
 /**
@@ -36,6 +48,8 @@ export const liveViewers = mysqlTable(
     joinedAt: timestamp("joinedAt").notNull().defaultNow(),
     /** Viewer lease renewed by authenticated heartbeat calls after joining. */
     lastSeenAt: timestamp("lastSeenAt").notNull().defaultNow(),
+    /** Bumped for every fresh viewer media transport, including a rejoin. */
+    generation: int("generation").notNull().default(1),
     leftAt: timestamp("leftAt"),
   },
   (table) => [primaryKey({ columns: [table.streamId, table.userId] })],
@@ -54,6 +68,10 @@ export const liveSignals = mysqlTable("liveSignals", {
     "ice",
     "leave",
   ]).notNull(),
+  /** Sender media lifecycle that produced this signal. */
+  fromGeneration: int("fromGeneration").notNull().default(1),
+  /** Recipient media lifecycle allowed to consume this signal. */
+  toGeneration: int("toGeneration").notNull().default(1),
   payload: text("payload").notNull(),
   createdAt: timestamp("createdAt").notNull().defaultNow(),
 });

@@ -4,23 +4,22 @@ import { Platform } from "react-native";
 import { getApiBaseUrl, getApiRequestUrl } from "@/constants/oauth";
 import { getSessionToken } from "@/lib/_core/auth";
 import { useCircles } from "@/hooks/circles-context";
+import {
+  requiresNativeMediaAuthorization,
+  resolveMediaUrlForRenderer,
+} from "@/shared/media";
 
 export function resolveMediaUrl(uri: string): string {
-  if (uri.startsWith("/manus-storage/social-encrypted/")) {
-    return getApiRequestUrl(
-      `/api/media/${uri.slice("/manus-storage/".length)}`,
-    );
-  }
-  // Ordinary managed web assets are resolved by the stable Preview gateway.
-  return Platform.OS !== "web" && uri.startsWith("/manus-storage/")
-    ? `${getApiBaseUrl()}${uri}`
-    : uri;
+  return resolveMediaUrlForRenderer(uri, {
+    isWeb: Platform.OS === "web",
+    apiBaseUrl: getApiBaseUrl(),
+    apiRequestUrl: getApiRequestUrl,
+  });
 }
 export function useMediaSource(uri: string) {
   const { user } = useCircles();
   const [token, setToken] = useState<string | null>(null);
-  const encrypted = uri.startsWith("/manus-storage/social-encrypted/");
-  const requiresNativeAuthorization = Platform.OS !== "web" && encrypted;
+  const requiresNativeAuthorization = requiresNativeMediaAuthorization(uri, Platform.OS === "web");
   useEffect(() => {
     if (!requiresNativeAuthorization) return;
     let active = true;

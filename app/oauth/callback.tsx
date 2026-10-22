@@ -4,6 +4,7 @@ import {
   getApiBaseUrl,
   getNativeOAuthFlowToken,
 } from "@/constants/oauth";
+import { useCircles } from "@/hooks/circles-context";
 import * as Auth from "@/lib/_core/auth";
 import * as Linking from "expo-linking";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -13,14 +14,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 type MobileExchangeResponse = {
   app_session_id?: string;
-  user?: {
-    id: number;
-    openId: string;
-    name: string | null;
-    email: string | null;
-    loginMethod: string | null;
-    lastSignedIn: string;
-  };
   error?: string;
 };
 
@@ -87,6 +80,7 @@ async function exchangeNativeOAuthCode(
 
 export default function OAuthCallback() {
   const router = useRouter();
+  const { completeNativeLogin } = useCircles();
   const params = useLocalSearchParams<{
     code?: string;
     state?: string;
@@ -133,15 +127,9 @@ export default function OAuthCallback() {
         }
 
         await Auth.setSessionToken(result.app_session_id);
-        if (result.user) {
-          await Auth.setUserInfo({
-            id: result.user.id,
-            openId: result.user.openId,
-            name: result.user.name,
-            email: result.user.email,
-            loginMethod: result.user.loginMethod,
-            lastSignedIn: new Date(result.user.lastSignedIn || Date.now()),
-          });
+        const authenticated = await completeNativeLogin();
+        if (!authenticated) {
+          throw new Error("Unable to verify the new secure session");
         }
 
         setStatus("success");
@@ -155,7 +143,7 @@ export default function OAuthCallback() {
     };
 
     handleCallback();
-  }, [params.code, params.state, params.error, router]);
+  }, [completeNativeLogin, params.code, params.state, params.error, router]);
 
   return (
     <SafeAreaView

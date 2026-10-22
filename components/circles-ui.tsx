@@ -210,6 +210,8 @@ export function IconButton({
   badge,
   style,
   label,
+  disabled = false,
+  loading = false,
 }: {
   icon: IconName;
   onPress: () => void;
@@ -218,18 +220,24 @@ export function IconButton({
   badge?: boolean;
   style?: ViewStyle;
   label?: string;
+  disabled?: boolean;
+  loading?: boolean;
 }) {
+  const isDisabled = disabled || loading;
+
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label || icon}
+      accessibilityState={{ disabled: isDisabled, busy: loading }}
+      disabled={isDisabled}
       onPress={onPress}
       hitSlop={8}
       style={({ pressed }) => [
         {
           padding: 8,
           borderRadius: 30,
-          opacity: pressed ? 0.5 : 1,
+          opacity: isDisabled ? 0.5 : pressed ? 0.5 : 1,
           alignItems: "center",
           justifyContent: "center",
         },
@@ -237,7 +245,11 @@ export function IconButton({
         { minWidth: 44, minHeight: 44 },
       ]}
     >
-      <Icon name={icon} size={size} color={color} />
+      {loading ? (
+        <ActivityIndicator color={color} />
+      ) : (
+        <Icon name={icon} size={size} color={color} />
+      )}
       {badge && (
         <View
           style={{

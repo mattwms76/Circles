@@ -11,6 +11,7 @@ import { Image } from "@/components/media-image";
 import { useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
+import { resolveFnd001QueryDisplayState } from "@/lib/fnd001-query-display-state";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppShell } from "./app-shell";
 import { PostCard } from "./post-card";
@@ -167,6 +168,11 @@ export default function ProfileScreen({ personId }: { personId?: number }) {
     feed.data?.filter(
       (post) => (own && tab === "Saved") || post.author.id === p?.id,
     ) || [];
+  const feedDisplayState = resolveFnd001QueryDisplayState({
+    isLoading: feed.isLoading,
+    isError: feed.isError,
+    hasContent: !!posts.length,
+  });
   return (
     <AppShell>
       {!personId && !user ? (
@@ -179,10 +185,18 @@ export default function ProfileScreen({ personId }: { personId?: number }) {
         />
       ) : profile.isLoading ? (
         <Loading />
+      ) : profile.isError ? (
+        <Empty
+          icon="person-outline"
+          title="We couldn’t load this profile."
+          text="Check your connection and try again."
+          action="Try again"
+          onAction={() => void profile.refetch()}
+        />
       ) : !p ? (
         <Empty
           title="This person couldn’t be found."
-          text={profile.error?.message || "Try exploring other creators."}
+          text="Try exploring other creators."
           action="Discover people"
           onAction={() => router.push("/discover")}
         />
@@ -295,9 +309,21 @@ export default function ProfileScreen({ personId }: { personId?: number }) {
               />
             )}
           </View>
-          {feed.isLoading ? (
+          {feedDisplayState === "loading" ? (
             <Loading />
-          ) : !posts.length ? (
+          ) : feedDisplayState === "error" ? (
+            <Empty
+              icon="images-outline"
+              title={
+                tab === "Saved"
+                  ? "We couldn’t load your saved moments."
+                  : "We couldn’t load these moments."
+              }
+              text="Check your connection and try again."
+              action="Try again"
+              onAction={() => void feed.refetch()}
+            />
+          ) : feedDisplayState === "empty" ? (
             <Empty
               icon="images-outline"
               title={

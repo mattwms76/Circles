@@ -4,6 +4,7 @@ import { Image } from "@/components/media-image";
 import { useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
+import { resolveFnd001QueryDisplayState } from "@/lib/fnd001-query-display-state";
 import { AppShell } from "@/components/app-shell";
 import { CircleCard } from "@/components/circle-card";
 import { PostCard } from "@/components/post-card";
@@ -29,6 +30,21 @@ export default function DiscoverScreen() {
   const circles = trpc.social.circles.useQuery({ search });
   const feed = trpc.social.feed.useQuery({ filter: "for-you" });
   const lives = trpc.live.list.useQuery({ search });
+  const peopleDisplayState = resolveFnd001QueryDisplayState({
+    isLoading: people.isLoading,
+    isError: people.isError,
+    hasContent: !!people.data?.length,
+  });
+  const circlesDisplayState = resolveFnd001QueryDisplayState({
+    isLoading: circles.isLoading,
+    isError: circles.isError,
+    hasContent: !!circles.data?.length,
+  });
+  const livesDisplayState = resolveFnd001QueryDisplayState({
+    isLoading: lives.isLoading,
+    isError: lives.isError,
+    hasContent: !!lives.data?.length,
+  });
   const utils = trpc.useUtils();
   const follow = trpc.social.follow.useMutation({
     onSuccess: () => {
@@ -43,6 +59,11 @@ export default function DiscoverScreen() {
         .toLowerCase()
         .includes(search.toLowerCase()),
     ) || [];
+  const feedDisplayState = resolveFnd001QueryDisplayState({
+    isLoading: feed.isLoading,
+    isError: feed.isError,
+    hasContent: !!posts.length,
+  });
   const contentWidth = {
     width: "100%" as const,
     maxWidth: 680,
@@ -116,15 +137,23 @@ export default function DiscoverScreen() {
               MAKE A CONNECTION
             </T>
           </View>
-          {people.isLoading ? (
+          {peopleDisplayState === "loading" ? (
             <Loading />
-          ) : !people.data?.length ? (
+          ) : peopleDisplayState === "error" ? (
+            <Empty
+              icon="people-outline"
+              title="We couldn’t load people to know."
+              text="Check your connection and try again."
+              action="Try again"
+              onAction={() => void people.refetch()}
+            />
+          ) : peopleDisplayState === "empty" ? (
             <Empty
               title="No people found."
               text="Try another name or handle."
             />
           ) : (
-            people.data.map((person) => (
+            (people.data ?? []).map((person) => (
               <View
                 key={person.id}
                 style={[
@@ -182,15 +211,23 @@ export default function DiscoverScreen() {
           <T style={{ fontSize: 17, fontWeight: "700", marginBottom: 16 }}>
             A circle for your thing
           </T>
-          {circles.isLoading ? (
+          {circlesDisplayState === "loading" ? (
             <Loading />
-          ) : !circles.data?.length ? (
+          ) : circlesDisplayState === "error" ? (
+            <Empty
+              icon="ellipse-outline"
+              title="We couldn’t load circles."
+              text="Check your connection and try again."
+              action="Try again"
+              onAction={() => void circles.refetch()}
+            />
+          ) : circlesDisplayState === "empty" ? (
             <Empty
               title="No circles found."
               text="A new passion deserves a new circle."
             />
           ) : (
-            circles.data
+            (circles.data ?? [])
               .slice(0, tab === "For you" ? 2 : undefined)
               .map((circle) => <CircleCard key={circle.id} circle={circle} />)
           )}
@@ -198,9 +235,17 @@ export default function DiscoverScreen() {
       )}
       {tab === "Posts" && (
         <View style={[contentWidth, { marginTop: 24 }]}>
-          {feed.isLoading ? (
+          {feedDisplayState === "loading" ? (
             <Loading />
-          ) : !posts.length ? (
+          ) : feedDisplayState === "error" ? (
+            <Empty
+              icon="images-outline"
+              title="We couldn’t load moments."
+              text="Check your connection and try again."
+              action="Try again"
+              onAction={() => void feed.refetch()}
+            />
+          ) : feedDisplayState === "empty" ? (
             <Empty
               title="No moments found."
               text="Try another word or explore a circle."
@@ -212,8 +257,18 @@ export default function DiscoverScreen() {
       )}
       {tab === "Live" && (
         <View style={[contentWidth, { marginTop: 25 }]}>
-          {lives.data?.length ? (
-            lives.data.map((live) => (
+          {livesDisplayState === "loading" ? (
+            <Loading />
+          ) : livesDisplayState === "error" ? (
+            <Empty
+              icon="radio-outline"
+              title="We couldn’t load live moments."
+              text="Check your connection and try again."
+              action="Try again"
+              onAction={() => void lives.refetch()}
+            />
+          ) : livesDisplayState === "content" ? (
+            (lives.data ?? []).map((live) => (
               <Pressable
                 key={live.id}
                 onPress={() => router.push(`/live/${live.id}`)}

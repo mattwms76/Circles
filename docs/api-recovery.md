@@ -112,7 +112,7 @@ Use `--api-base-url http://127.0.0.1:3000` or another known **internal port-3000
 
 ## Verification inputs and coverage
 
-The optional manifest is a bounded input override for **already source-derived query routes only**; it cannot add an endpoint or turn a mutation into a test. See [`examples/recover-api.manifest.json`](../examples/recover-api.manifest.json). New router queries or changed public/protected classification are reported as inventory drift and are not invoked until the script gets a reviewed definition.
+The optional manifest is a bounded input override for **already source-derived query routes only**; it cannot add an endpoint or turn a mutation into a test. See [`examples/recover-api.manifest.json`](../examples/recover-api.manifest.json). Its checked-in `live.signals` entry intentionally has empty input: it demonstrates the supported route without committing a stale session generation. New router queries or changed public/protected classification are reported as inventory drift and are not invoked until the script gets a reviewed definition.
 
 For protected positive tests, supply an existing authorized bearer and IDs in a private local file:
 
@@ -124,12 +124,26 @@ For protected positive tests, supply an existing authorized bearer and IDs in a 
     "profileId": 102,
     "postId": 103,
     "conversationId": 104,
-    "streamId": 105
+    "streamId": 105,
+    "liveGeneration": 106
   }
 }
 ```
 
-Use a file such as `/secure/circles/verify-auth.json` with owner-only mode `0600`; do not commit it. The script never creates a user, circle, post, conversation, stream, or session. Missing auth, IDs, or active viewer context are **skipped/incomplete**, never passed. `--strict` exits nonzero for incomplete coverage or inventory drift. Protected procedures also receive a separately reported anonymous-denial gate check, so an expected unauthenticated denial is never confused with a positive authorized data read.
+Use a file such as `/secure/circles/verify-auth.json` with owner-only mode `0600`; do not commit it. The bearer makes the whole file private even though IDs and generation are non-secret metadata.
+
+`live.signals` always takes `streamId` from the trusted auth file and requires a **current positive integer** `ids.liveGeneration` for that stream and active caller session. A reviewed manifest may instead provide a current numeric positive `endpoints["live.signals"].input.generation`, which overrides `ids.liveGeneration` for that one run. The verifier constructs exactly this input and does not add a default generation or cursor:
+
+```json
+{
+  "streamId": 105,
+  "generation": 106
+}
+```
+
+Media generations change when participants join or reload. Therefore, no static checked-in manifest literal is a substitute for obtaining the caller's current generation; update a private auth file or a reviewed run-specific manifest immediately before the verify-only run. A missing generation yields `missing_current_live_generation`; a supplied non-positive/non-integer generation yields `invalid_current_live_generation`. Both skip the `live.signals` positive and anonymous checks without making a request, leave coverage incomplete, and cause `--strict` to exit nonzero rather than issue an incomplete request that could return `400`.
+
+The script never creates a user, circle, post, conversation, stream, or session. Missing auth, IDs, or active viewer context are **skipped/incomplete**, never passed. `--strict` exits nonzero for incomplete coverage or inventory drift. Protected procedures also receive a separately reported anonymous-denial gate check, so an expected unauthenticated denial is never confused with a positive authorized data read.
 
 Current-source query inventory is:
 
@@ -137,7 +151,7 @@ Current-source query inventory is:
 | --- | --- | --- |
 | `auth` | `me` | Bearer file; anonymous state is checked separately |
 | `social` | `feed`, `circles`, `circle`, `profiles`, `profile`, `members`, `comments`, `conversations`, `messages` | Safe defaults plus existing `circleId`/`profileId`/`postId`/`conversationId` as required |
-| `live` | `list`, `signals`, `chat` | Safe default plus existing `streamId` for protected reads |
+| `live` | `list`, `signals`, `chat` | Safe default; `chat` uses existing `streamId`; `signals` uses existing `streamId` plus current positive `liveGeneration` (or reviewed manifest generation override) |
 | `system` | `health` | Safe timestamp input; supplementary only |
 
 Each API request is a finite-timeout `GET /api/trpc/<query>` with `redirect: "error"` and a 64 KiB response limit. A redirect is never followed, so a bearer is never sent to a redirected origin. Network, malformed, truncated, and oversized responses become redacted result categories; response bodies, SQL diagnostics, cookies, DSNs, bearer tokens, config values, and private paths are not printed. `social.feed`, `social.circles`, and `live.list` are the final public data readiness checks.

@@ -29,6 +29,13 @@
       "when": 1792514357000,
       "tag": "0003_application_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1792677315647,
+      "tag": "0004_message_receipts_live_host_leases",
+      "breakpoints": true
     }
   ]
 }
