@@ -22,3 +22,5 @@ All listed normal-text pairs exceed 4.5:1. Shared inactive tab label/icon and se
 Pure helpers, actual Button element props with native primitives mocked, protected array/current-account behavior, callback/fallback intent and contrast math have deterministic regressions. The full current unit suite, TypeScript and zero-warning lint pass. These checks do not certify a mounted accessibility tree, real VoiceOver/TalkBack, signed iOS/Android rendering or authenticated media on a device.
 
 This addresses the shared mechanisms for I-01/I-02/I-03/I-04/I-10 and only the shared primary-control portion of I-35. Theme Lab/Messages/Live or other route-local status colors, shared header/safe-area Batch 1B and other historical layout findings remain open for their separately scoped work. No bottom navigation, native app identifier, font-scaling policy, hidden scrollbar behavior or media authorization was replaced.
+
+Exact-source remote verification: CI 39986196687 and container 39986196730 passed on the identical canonical/GitHub implementation tree. No native assistive-tech or mounted accessibility-tree proof is implied.
