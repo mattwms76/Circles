@@ -33,3 +33,9 @@ The fixture test context accepts the `x-circle-home-e2e-user` header only on its
 ## Covered behavior
 
 The suite checks default homes; guest/public and approved/private visibility; manager authority; scope conflicts; owner retry normalization; moderator edits; denials for non-managers and anonymous callers; scoped missing/foreign pin errors; pin replacement/clear retries independent of text; delete-driven FK clearing; Unicode/rule bounds; and a parent-lock serialized membership-removal denial.
+
+## Verified delivery — 23 October 2026
+
+The hardened suite passed all 8 real HTTP/PostgreSQL17 cases locally and removed its temporary fixture. The complete local regression pass reported 389 unit tests across 76 files, including the CI/safety wrappers; the Python runner guard suite separately reported 4 cases. TypeScript, zero-warning lint, database-audit tests, environment checks, API build and workflow lint also passed.
+
+The source-equivalent canonical commit `56c9a4f` and separate GitHub commit `1db3571` were saved with normal history. Exact-source CI run `39973753404` succeeded, including explicit PostgreSQL17 provisioning, the same isolated E2E command and iOS/Android/Web JavaScript exports. Container run `39973753400` succeeded. These results do not claim real OAuth/session verification, rendered native UI, device permissions, a signed native release or app publication. Existing API and Metro listeners remained unchanged and ready.
