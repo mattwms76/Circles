@@ -18,7 +18,7 @@ Verified native PostgreSQL Cron job:
 | Command  | `SELECT circles_ops.run_daily_migration_health();` |
 | Active   | true                                               |
 
-The first actual manual run at `2026-10-22T17:51:35.062106Z` returned `healthy=true`, with no error code. Every stored invariant was true. Future scheduled execution has not yet occurred; an enabled job is not evidence of a future successful run.
+The first actual manual run at `2026-10-22T17:51:35.062106Z` returned `healthy=true`, with no error code. Every stored invariant was true. The latest observed scheduled run at `2026-10-23T03:15:00.104436Z` also returned `healthy=true` with no error code. The existing job remains unchanged; these observed results do not guarantee future success.
 
 Checks cover the exact22 current app tables and ordered columns,17 identity sequences, enabled RLS, expected server-only policies, role/grant isolation, immutable import-marker match, durable-session indexes, and the private operations boundary. They do not compare historical row counts, automatically repair drift, rerun data import, validate every column type/foreign key, or establish native/live behavior. An intentionally approved future schema change must update this guard in a reviewed additive migration.
 
@@ -75,10 +75,12 @@ Production-database-backed guest web E2E has11effective passing checks,0failures
 
 Real iOS/Android authentication/deep-link/SecureStore/logout replay, private multi-account messaging/moderation/attachments, and two-party camera/audio/video/reconnect tests need approved accounts, fixtures, and authorized devices or simulators with custom development/release builds. Native WebRTC cannot be certified through Expo Go or a portrait browser.
 
-## Backup activation remains pending
+## Approved encrypted backups — delivery blocked by GitHub quota
 
-The verified organization is Supabase Free; its Dashboard confirms included automatic daily backups are unavailable. The user must approve either an eligible native-provider backup route or encrypted off-site exports with an approved private destination and encryption/access configuration. **No backup schedule, backup file, restore, paid upgrade or established RPO/RTO has been created or claimed.**
+The project remains on Supabase Free, without included native daily backups. The owner approved encrypted exports to the separate private repository [mattwms76/Circles-backups](https://github.com/mattwms76/Circles-backups). Its workflow is configured daily at 03:35 UTC plus manual invocation, with 30-day ciphertext-only artifact retention, strict TLS, read-only consistent production export and an isolated PostgreSQL 17 app/operations restore before encryption. The database URL is installed only as an Actions secret; the private recovery identity stays outside GitHub.
 
-Health history is not a backup. Database backups do not include Storage API object bytes or custom-role passwords, and existing managed app media needs a separate continuity policy. A real backup plan must include retention, access control, observed first backup, and an isolated non-production restore drill. Never use the live project for a restore test.
+All 14 synthetic safeguards and a real local export/restore/encryption/decryption drill passed for 22 app tables plus the operations health-history table. In [run 39919353951](https://github.com/mattwms76/Circles-backups/actions/runs/39919353951), remote export, isolated restore and encryption passed, but GitHub rejected artifact upload with `Artifact storage quota has been hit`. The private backup repository has zero artifacts. No off-site delivery, downloaded-backup decryption, actual artifact expiry or established RPO/RTO is claimed. No existing artifacts were deleted and no paid setting was enabled. Backup verification remains open until the quota or an owner-approved storage alternative is resolved and remote download/checksum/decryption succeeds.
+
+Health history is not a backup. The app/operations drill does not certify full managed Supabase recovery. Database backups exclude Storage API object bytes, custom-role passwords and application/provider encryption or signing secrets; managed media needs a separate continuity policy. GitHub schedules and quotas can delay or block execution. Save the separately delivered private restore-key file securely, and never use the live project as a restore-test target.
 
 Sources: [Supabase backups](https://supabase.com/docs/guides/platform/backups), [Supabase Cron](https://supabase.com/docs/guides/cron), [Circles Cron management](https://supabase.com/dashboard/project/vvclcsqletcxzoaayqzq/integrations/cron/jobs).
