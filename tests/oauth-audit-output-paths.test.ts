@@ -1,0 +1,57 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { describe, expect, it } from "vitest";
+import { validateOutputPaths } from "../scripts/circles-oauth-security-audit.mjs";
+
+const project = path.resolve(import.meta.dirname, "..");
+
+describe("private audit output path boundary", () => {
+  it("rejects a symlinked output parent pointing inside the actual Git tree", async () => {
+    const directory = await fs.mkdtemp(
+      path.join(os.tmpdir(), "circles-audit-path-"),
+    );
+    try {
+      await fs.chmod(directory, 0o700);
+      const linked = path.join(directory, "linked-project");
+      await fs.symlink(project, linked, "dir");
+      await expect(
+        validateOutputPaths({
+          projectDir: project,
+          jsonOutput: path.join(linked, "never-written.json"),
+          markdownOutput: path.join(directory, "report.md"),
+        }),
+      ).rejects.toThrow();
+      await expect(
+        fs.lstat(path.join(project, "never-written.json")),
+      ).rejects.toThrow();
+    } finally {
+      await fs.rm(directory, { recursive: true, force: true });
+    }
+  });
+  it("uses the Git root even when project-dir is a source subdirectory", async () => {
+    const directory = await fs.mkdtemp(
+      path.join(os.tmpdir(), "circles-audit-path-"),
+    );
+    try {
+      await fs.chmod(directory, 0o700);
+      await expect(
+        validateOutputPaths({
+          projectDir: path.join(project, "server"),
+          jsonOutput: path.join(project, "never-written.json"),
+          markdownOutput: path.join(directory, "report.md"),
+        }),
+      ).rejects.toThrow();
+      const paths = await validateOutputPaths({
+        projectDir: project,
+        jsonOutput: path.join(directory, "report.json"),
+        markdownOutput: path.join(directory, "report.md"),
+      });
+      expect(paths.jsonOutput).toBe(
+        path.join(await fs.realpath(directory), "report.json"),
+      );
+    } finally {
+      await fs.rm(directory, { recursive: true, force: true });
+    }
+  });
+});

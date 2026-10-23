@@ -8,7 +8,12 @@ export default defineConfig([
     // This is a stored Host MCP function body, not a JavaScript module. Its top-level
     // `return` is valid only when the Host evaluates the body.
     // Expo creates router declarations under .expo; they are generated, not source.
-    ignores: ["dist/*", ".expo/**", "scripts/design-audit-workflow.js"],
+    ignores: [
+      "dist/*",
+      ".expo/**",
+      "artifacts/**",
+      "scripts/design-audit-workflow.js",
+    ],
   },
   {
     // CORS is Node-only server code. It deliberately reads from a fixed allow-list of
