@@ -115,6 +115,7 @@ export default function RootLayout() {
               <Stack.Screen name="updates/index" />
               <Stack.Screen name="updates/preferences" />
               <Stack.Screen name="updates/[id]" />
+              <Stack.Screen name="moderation/[circleId]" />
             </Stack>
             <StatusBar style="dark" />
           </CirclesProvider>

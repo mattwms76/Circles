@@ -33,6 +33,9 @@ export const SESSION_INDEXES = Object.freeze([
   "application_sessions_expiry_idx",
 ]);
 export const REQUIRED_IDENTITY_SEQUENCES = Object.freeze({
+  moderationCases: "moderationCases_id_seq",
+  moderationActions: "moderationActions_id_seq",
+
   activityItems: "activityItems_id_seq",
   users: "users_id_seq",
   profiles: "profiles_id_seq",
@@ -58,6 +61,27 @@ export const REQUIRED_IDENTITY_TABLES = Object.freeze(
 
 /** Exact private app table/column contract; catalog reads never select user rows. */
 export const REQUIRED_APPLICATION_COLUMNS = Object.freeze({
+  moderationCases: Object.freeze([
+    "id",
+    "circleId",
+    "postId",
+    "sourcePostId",
+    "subjectUserId",
+    "status",
+    "reportCount",
+    "reasons",
+    "createdAt",
+    "lastReportedAt",
+    "resolvedAt",
+  ]),
+  moderationActions: Object.freeze([
+    "id",
+    "caseId",
+    "reviewerId",
+    "decision",
+    "note",
+    "createdAt",
+  ]),
   activityItems: Object.freeze([
     "id",
     "recipientId",
@@ -256,6 +280,14 @@ export const REQUIRED_APPLICATION_TABLES = Object.freeze(
   Object.keys(REQUIRED_APPLICATION_COLUMNS),
 );
 export const REQUIRED_RUNTIME_POLICIES = Object.freeze({
+  moderationCases: Object.freeze({
+    name: "runtime_moderation_cases_policy",
+    command: "*",
+  }),
+  moderationActions: Object.freeze({
+    name: "runtime_moderation_actions_policy",
+    command: "*",
+  }),
   activityItems: Object.freeze({
     name: "runtime_activity_items_policy",
     command: "*",
@@ -372,6 +404,7 @@ const SAFE_RUNTIME_KEYS = new Set([
 
 const ALLOWED_SERVICE_NAME = "circles-api";
 const SOURCE_ROUTERS = Object.freeze([
+  { file: "server/moderation-router.ts", namespace: "moderation", indent: 2 },
   { file: "server/activity-router.ts", namespace: "activity", indent: 2 },
   { file: "server/social-router.ts", namespace: "social", indent: 2 },
   { file: "server/onboarding-router.ts", namespace: "onboarding", indent: 2 },
@@ -387,6 +420,24 @@ const SOURCE_ROUTERS = Object.freeze([
  * never guessed or invoked.
  */
 const ENDPOINT_DEFINITIONS = Object.freeze({
+  "moderation.list": {
+    expected: "moderation-page",
+    requiresAuth: true,
+    input: { filter: "open", limit: 20 },
+    identifiers: [
+      { source: "circleId", field: "circleId" },
+      { source: "viewerId", field: "viewerScope" },
+    ],
+  },
+  "moderation.detail": {
+    expected: "moderation-detail",
+    requiresAuth: true,
+    identifiers: [
+      { source: "circleId", field: "circleId" },
+      { source: "viewerId", field: "viewerScope" },
+      { source: "moderationCaseId", field: "caseId" },
+    ],
+  },
   "activity.list": {
     expected: "activity-page",
     requiresAuth: true,
@@ -1222,8 +1273,135 @@ function trpcPayload(text) {
   }
 }
 
-function expectedShape(value, expected) {
+function expectedShape(value, expected, input) {
   if (expected === "array") return Array.isArray(value);
+  if (expected.startsWith("moderation-")) {
+    const id = (number) => positiveInteger(number) && number <= 2_147_483_647;
+    const exact = (object, fields) =>
+      plainObject(object) &&
+      fields.every((field) => field in object) &&
+      Object.keys(object).every((field) => fields.includes(field));
+    const timestamp = (text) =>
+      typeof text === "string" &&
+      text.length <= 64 &&
+      Number.isFinite(Date.parse(text));
+    const text = (value, maximum) =>
+      typeof value === "string" && Array.from(value).length <= maximum;
+    if (
+      !plainObject(input) ||
+      !plainObject(value) ||
+      !id(value.circleId) ||
+      !id(value.viewerScope) ||
+      value.circleId !== input.circleId ||
+      value.viewerScope !== input.viewerScope
+    )
+      return false;
+    const itemShape = (item) =>
+      exact(item, [
+        "id",
+        "circleId",
+        "postId",
+        "status",
+        "reportCount",
+        "createdAt",
+        "lastReportedAt",
+        "resolvedAt",
+        "canResolve",
+        "blockedReason",
+      ]) &&
+      id(item.id) &&
+      item.circleId === value.circleId &&
+      (item.postId === null || id(item.postId)) &&
+      ["open", "kept", "removed"].includes(item.status) &&
+      positiveInteger(item.reportCount) &&
+      item.reportCount <= 2_147_483_647 &&
+      timestamp(item.createdAt) &&
+      timestamp(item.lastReportedAt) &&
+      (item.resolvedAt === null || timestamp(item.resolvedAt)) &&
+      typeof item.canResolve === "boolean" &&
+      (item.status === "open"
+        ? item.resolvedAt === null &&
+          (item.canResolve
+            ? item.blockedReason === null
+            : item.blockedReason === "self_review")
+        : item.resolvedAt !== null &&
+          !item.canResolve &&
+          ["resolved", "self_review"].includes(item.blockedReason));
+    if (expected === "moderation-page") {
+      return (
+        exact(value, ["circleId", "viewerScope", "items", "nextCursor"]) &&
+        Array.isArray(value.items) &&
+        value.items.length <= 50 &&
+        value.items.every(
+          (item, index) =>
+            itemShape(item) &&
+            (index === 0 || value.items[index - 1].id > item.id) &&
+            (input.filter === "resolved"
+              ? item.status !== "open"
+              : item.status === "open"),
+        ) &&
+        (value.nextCursor === null ||
+          (exact(value.nextCursor, ["id"]) &&
+            id(value.nextCursor.id) &&
+            value.items.length > 0 &&
+            value.nextCursor.id === value.items[value.items.length - 1].id))
+      );
+    }
+    if (
+      expected !== "moderation-detail" ||
+      !exact(value, [
+        "circleId",
+        "viewerScope",
+        "item",
+        "post",
+        "reasons",
+        "history",
+      ]) ||
+      !itemShape(value.item) ||
+      value.item.id !== input.caseId
+    )
+      return false;
+    if (
+      !(
+        value.post === null ||
+        (plainObject(value.post) &&
+          value.post.id === value.item.postId &&
+          value.post.circleId === value.circleId &&
+          text(value.post.text, 10_000) &&
+          plainObject(value.post.author) &&
+          id(value.post.author.id))
+      )
+    )
+      return false;
+    if (
+      !Array.isArray(value.reasons) ||
+      value.reasons.length > 20 ||
+      !value.reasons.every(
+        (reason) =>
+          exact(reason, ["reason", "count"]) &&
+          text(reason.reason, 500) &&
+          positiveInteger(reason.count) &&
+          reason.count <= value.item.reportCount,
+      )
+    )
+      return false;
+    return (
+      Array.isArray(value.history) &&
+      value.history.length <= 20 &&
+      value.history.every(
+        (action) =>
+          exact(action, ["id", "decision", "note", "reviewer", "createdAt"]) &&
+          id(action.id) &&
+          ["keep", "remove"].includes(action.decision) &&
+          text(action.note, 500) &&
+          timestamp(action.createdAt) &&
+          (action.reviewer === null ||
+            (exact(action.reviewer, ["id", "name"]) &&
+              id(action.reviewer.id) &&
+              text(action.reviewer.name, 140))),
+      )
+    );
+  }
   if (expected.startsWith("activity-")) {
     const id = (number) => positiveInteger(number) && number <= 2_147_483_647;
     const exact = (object, fields) =>
@@ -1584,7 +1762,8 @@ export async function verifyReadOnlyEndpoints({
     });
     const payload = positive.ok ? trpcPayload(positive.text) : null;
     const shapeMatches =
-      payload?.ok && expectedShape(payload.value, endpoint.expected);
+      payload?.ok &&
+      expectedShape(payload.value, endpoint.expected, inputResult.input);
     checks.push(
       shapeMatches
         ? result(endpoint.name, "positive", "passed")
@@ -1729,6 +1908,13 @@ function applicationTablesAreSecured(rows) {
     if (table === "_dataMigrations") {
       return (
         row?.can_insert === false &&
+        row?.can_update === false &&
+        row?.can_delete === false
+      );
+    }
+    if (table === "moderationActions") {
+      return (
+        row?.can_insert === true &&
         row?.can_update === false &&
         row?.can_delete === false
       );

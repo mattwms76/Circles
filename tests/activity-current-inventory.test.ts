@@ -18,7 +18,7 @@ describe("active Activity Inbox schema inventory", () => {
     );
     expect(LEGACY_TABLE_NAMES).toHaveLength(21);
     expect(LEGACY_TABLE_NAMES).not.toContain("activityItems");
-    expect(current).toHaveLength(24);
+    expect(current).toHaveLength(26);
     expect(current).toEqual(
       expect.arrayContaining([
         "activityItems",

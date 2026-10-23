@@ -81,6 +81,8 @@ const existingIds = {
   streamId: 15,
   liveGeneration: 16,
   activityId: 17,
+  viewerId: 1,
+  moderationCaseId: 18,
 };
 
 type MockCall = {
@@ -132,6 +134,8 @@ function mockTrpcFetch(calls: MockCall[]) {
       );
     }
     const protectedRoute = [
+      "moderation.list",
+      "moderation.detail",
       "activity.list",
       "activity.unreadCount",
       "activity.preferences",
@@ -155,6 +159,31 @@ function mockTrpcFetch(calls: MockCall[]) {
       );
     }
     const activityValues: Record<string, unknown> = {
+      "moderation.list": {
+        circleId: 11,
+        viewerScope: 1,
+        items: [],
+        nextCursor: null,
+      },
+      "moderation.detail": {
+        circleId: 11,
+        viewerScope: 1,
+        item: {
+          id: 18,
+          circleId: 11,
+          postId: null,
+          status: "open",
+          reportCount: 1,
+          createdAt: "2026-10-23T10:00:00Z",
+          lastReportedAt: "2026-10-23T10:00:00Z",
+          resolvedAt: null,
+          canResolve: true,
+          blockedReason: null,
+        },
+        post: null,
+        reasons: [],
+        history: [],
+      },
       "activity.list": { viewerId: 1, items: [], nextCursor: null },
       "activity.unreadCount": { viewerId: 1, count: 0, throughId: 0 },
       "activity.preferences": {
@@ -165,37 +194,43 @@ function mockTrpcFetch(calls: MockCall[]) {
       },
       "activity.resolveTarget": { viewerId: 1, activityId: 17, target: null },
     };
-    const value = route.startsWith("activity.")
-      ? activityValues[route]
-      : route === "auth.me"
-        ? authenticated
-          ? { id: 1, openId: "synthetic" }
-          : null
-        : route === "circleHome.get"
-          ? {
-              circleId: 11,
-              viewerId: authenticated ? 1 : null,
-              welcomeMessage: "",
-              rules: [],
-              pinnedPost: null,
-              canManage: false,
-              updatedAt: "2026-10-23T10:00:00Z",
-            }
-          : route === "onboarding.status"
-            ? { userId: 1, interests: [], step: "interests", completedAt: null }
-            : route === "onboarding.introductionTarget"
-              ? { userId: 1, circleId: 11, eligible: false }
-              : route === "onboarding.recommendations"
-                ? { userId: 1, interests: [], items: [], basis: "explore" }
-                : route === "system.health"
-                  ? { ok: true }
-                  : route.endsWith("Page")
-                    ? { items: [], nextCursor: null, hasMore: false }
-                    : route === "live.relay"
-                      ? { ice: null }
-                      : ["social.circle", "social.profile"].includes(route)
-                        ? { id: 1 }
-                        : [];
+    const value =
+      route.startsWith("activity.") || route.startsWith("moderation.")
+        ? activityValues[route]
+        : route === "auth.me"
+          ? authenticated
+            ? { id: 1, openId: "synthetic" }
+            : null
+          : route === "circleHome.get"
+            ? {
+                circleId: 11,
+                viewerId: authenticated ? 1 : null,
+                welcomeMessage: "",
+                rules: [],
+                pinnedPost: null,
+                canManage: false,
+                updatedAt: "2026-10-23T10:00:00Z",
+              }
+            : route === "onboarding.status"
+              ? {
+                  userId: 1,
+                  interests: [],
+                  step: "interests",
+                  completedAt: null,
+                }
+              : route === "onboarding.introductionTarget"
+                ? { userId: 1, circleId: 11, eligible: false }
+                : route === "onboarding.recommendations"
+                  ? { userId: 1, interests: [], items: [], basis: "explore" }
+                  : route === "system.health"
+                    ? { ok: true }
+                    : route.endsWith("Page")
+                      ? { items: [], nextCursor: null, hasMore: false }
+                      : route === "live.relay"
+                        ? { ice: null }
+                        : ["social.circle", "social.profile"].includes(route)
+                          ? { id: 1 }
+                          : [];
     return new Response(JSON.stringify({ result: { data: { json: value } } }), {
       status: 200,
       headers: { "content-type": "application/json" },
@@ -232,11 +267,11 @@ describe("guarded API recovery", () => {
 
     expect(report.ok).toBe(true);
     expect(restartCalls).toBe(1);
-    expect(report.inventory.declaredQueries).toBe(27);
+    expect(report.inventory.declaredQueries).toBe(29);
     expect(report.verification.summary).toMatchObject({
       failed: 0,
       skipped: 0,
-      completedPositiveQueries: 27,
+      completedPositiveQueries: 29,
     });
     expect(calls.every((call) => call.method === "GET")).toBe(true);
     expect(
@@ -631,8 +666,8 @@ describe("guarded API recovery", () => {
       rls_enabled: true,
       can_select: true,
       can_insert: table !== "_dataMigrations",
-      can_update: table !== "_dataMigrations",
-      can_delete: table !== "_dataMigrations",
+      can_update: !["_dataMigrations", "moderationActions"].includes(table),
+      can_delete: !["_dataMigrations", "moderationActions"].includes(table),
     }));
     const schemaQueries: Query[] = [];
     let schemaClosed = false;
@@ -851,7 +886,7 @@ describe("guarded API recovery", () => {
     expect(databaseChecks).toBe(0);
     expect(schemaChecks).toBe(0);
     expect(restarts).toBe(0);
-    expect(report.inventory.declaredQueries).toBe(27);
+    expect(report.inventory.declaredQueries).toBe(29);
     expect(calls.every((call) => call.method === "GET")).toBe(true);
   });
 
@@ -884,7 +919,7 @@ describe("guarded API recovery", () => {
     expect(child.status).toBe(1);
     const report = JSON.parse(child.stdout);
     expect(report.configuration.ok).toBe(true);
-    expect(report.inventory.declaredQueries).toBe(27);
+    expect(report.inventory.declaredQueries).toBe(29);
     expect(report.restart.attempted).toBe(false);
     expect(report.database.required).toBe(false);
   });

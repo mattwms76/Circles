@@ -33,7 +33,8 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "qr": "node scripts/generate_qr.mjs",
-    "test:e2e:activity": "/usr/bin/python3 scripts/run-circle-home-e2e.py --suite activity"
+    "test:e2e:activity": "/usr/bin/python3 scripts/run-circle-home-e2e.py --suite activity",
+    "test:e2e:moderation": "/usr/bin/python3 scripts/run-circle-home-e2e.py --suite moderation"
   },
   "dependencies": {
     "@config-plugins/react-native-webrtc": "15.0.2",

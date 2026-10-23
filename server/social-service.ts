@@ -70,6 +70,7 @@ import {
   recordCommentActivity,
   recordMembershipApprovalActivity,
 } from "./activity-events";
+import { recordModerationReport } from "./moderation-events";
 
 export type CircleRole = "owner" | "moderator" | "member" | "pending";
 type ApprovedCircleRole = Exclude<CircleRole, "pending">;
@@ -869,6 +870,37 @@ export async function getActivityPostTarget(
       throw error;
     }
   });
+}
+
+/**
+ * Moderation detail has already locked and authorized its exact circle. Recheck the current
+ * resource against that same parent before mapping the ordinary Post DTO; stale/foreign/deleted
+ * targets deliberately appear as unavailable rather than leaking another post.
+ */
+export async function getModerationPostTarget(
+  tx: SocialTransaction,
+  viewerId: number,
+  postId: number,
+  expectedCircleId: number,
+): Promise<Post | null> {
+  const rows = await tx
+    .select({ id: posts.id, circleId: posts.circleId })
+    .from(posts)
+    .where(and(eq(posts.id, postId), eq(posts.circleId, expectedCircleId)))
+    .limit(1);
+  if (!rows[0] || rows[0].circleId !== expectedCircleId) return null;
+  try {
+    await assertPostAccess(tx, viewerId, postId);
+    return await postOutputWithDb(tx, postId, viewerId);
+  } catch (error) {
+    if (
+      error instanceof TRPCError &&
+      (error.code === "NOT_FOUND" || error.code === "FORBIDDEN")
+    ) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 async function circleHomeOutputWithDb(
@@ -2028,15 +2060,53 @@ export async function deletePost(
       userId,
       postId,
     );
-    if (post.authorId !== userId && !canModerateCircle(role)) {
-      socialError(
-        "FORBIDDEN",
-        "Only the author or a circle moderator can delete this post",
-      );
-    }
-    await tx.delete(posts).where(eq(posts.id, postId));
+    await deletePostWithAuthority(tx, userId, post, role);
   });
   return { success: true };
+}
+
+async function deletePostWithAuthority(
+  tx: SocialTransaction,
+  userId: number,
+  post: { id: number; authorId: number },
+  role: CircleRole | null,
+): Promise<void> {
+  if (post.authorId !== userId && !canModerateCircle(role)) {
+    socialError(
+      "FORBIDDEN",
+      "Only the author or a circle moderator can delete this post",
+    );
+  }
+  await tx.delete(posts).where(eq(posts.id, post.id));
+}
+
+/**
+ * A moderation removal reuses the ordinary authorized deletion operation in the caller's
+ * transaction. It locks the same circle before its scoped post lookup, never opens a nested
+ * transaction, and treats a vanished/foreign target as safely unavailable.
+ */
+export async function deleteCirclePostForModeration(
+  tx: SocialTransaction,
+  userId: number,
+  circleId: number,
+  postId: number,
+): Promise<boolean> {
+  const { role } = await lockCircleAccessForProtectedMutation(tx, userId, circleId);
+  if (!canModerateCircle(role)) {
+    socialError(
+      "FORBIDDEN",
+      "Only a current circle owner or moderator may remove reported posts",
+    );
+  }
+  const rows = await tx
+    .select({ id: posts.id, authorId: posts.authorId, circleId: posts.circleId })
+    .from(posts)
+    .where(and(eq(posts.id, postId), eq(posts.circleId, circleId)))
+    .limit(1);
+  const post = rows[0];
+  if (!post || post.circleId !== circleId) return false;
+  await deletePostWithAuthority(tx, userId, post, role);
+  return true;
 }
 
 export async function reportPost(
@@ -2046,7 +2116,7 @@ export async function reportPost(
 ): Promise<{ success: true }> {
   const db = await requireDb();
   await db.transaction(async (tx) => {
-    await assertPostAccessForProtectedMutation(tx, userId, postId);
+    const { post } = await assertPostAccessForProtectedMutation(tx, userId, postId);
     await tx
       .insert(reports)
       .values({ postId, reporterId: userId, reason: reason.trim() })
@@ -2054,6 +2124,11 @@ export async function reportPost(
         target: [reports.postId, reports.reporterId],
         set: { reason: reason.trim(), updatedAt: new Date() },
       });
+    await recordModerationReport(tx, {
+      circleId: post.circleId,
+      postId: post.id,
+      subjectUserId: post.authorId,
+    });
   });
   return { success: true };
 }
