@@ -55,6 +55,9 @@
     },
     "onboarding.introductionTarget": {
       "input": {}
+    },
+    "circleHome.get": {
+      "input": {}
     }
   }
 }

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Pressable, ScrollView, useWindowDimensions, View } from "react-native";
 import { Image } from "@/components/media-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -7,7 +7,16 @@ import { useCircles } from "@/hooks/circles-context";
 import { resolveFnd001QueryDisplayState } from "@/lib/fnd001-query-display-state";
 import { parsePositiveSafeId } from "@/lib/feed-ui-helpers";
 import { AppShell } from "@/components/app-shell";
+import {
+  CircleHomeEditor,
+  CircleHomePanel,
+} from "@/components/circle-home-panel";
 import { PostCard } from "@/components/post-card";
+import {
+  canReadCircleHome,
+  circleHomeScopeKey,
+  resolveCircleHomeUiState,
+} from "@/lib/circle-home-ui";
 import {
   Avatar,
   Button,
@@ -29,12 +38,45 @@ export default function CircleScreen() {
   const narrowActions = width < 390;
   const coverAspectRatio = width < 600 ? 16 / 10 : 3;
   const { user, requireAuth, notify } = useCircles();
-  const [tab, setTab] = useState("Feed");
+  const [tab, setTab] = useState("Home");
+  const [homeEditorScope, setHomeEditorScope] = useState<string | null>(null);
   const circle = trpc.social.circle.useQuery(
     { id: circleId },
     { enabled: !!routeCircleId },
   );
   const group = routeCircleId ? circle.data : undefined;
+  const homeScope = { circleId, viewerId: user?.id ?? null };
+  const homeScopeKey = circleHomeScopeKey(homeScope);
+  const canReadHome = !!group && canReadCircleHome(group);
+  const homeQueryEnabled =
+    !!routeCircleId &&
+    !!group &&
+    canReadHome &&
+    (group.privacy === "public" || !!user?.id);
+  const home = trpc.circleHome.get.useQuery(
+    { circleId, viewerScope: user?.id ?? null },
+    {
+      enabled: homeQueryEnabled,
+      refetchOnMount: "always",
+      retry: false,
+      staleTime: 0,
+    },
+  );
+  const homeUi = resolveCircleHomeUiState({
+    home: home.data,
+    scope: homeScope,
+    homeQueryEnabled,
+    isError: home.isError,
+    isFetchedAfterMount: home.isFetchedAfterMount,
+    isFetching: home.isFetching,
+  });
+  const currentHome = homeUi.home;
+  const refetchHome = home.refetch;
+
+  useEffect(() => {
+    if (homeQueryEnabled) void refetchHome();
+  }, [homeQueryEnabled, homeScopeKey, refetchHome]);
+
   const circleDisplayState = resolveFnd001QueryDisplayState({
     isLoading: circle.isLoading,
     isError: circle.isError,
@@ -77,6 +119,7 @@ export default function CircleScreen() {
     void circle.refetch();
     void members.refetch();
     void feed.refetch();
+    void utils.circleHome.get.invalidate({ circleId });
     void utils.social.circles.invalidate();
   };
   const membership = trpc.social.setMembership.useMutation({
@@ -123,11 +166,32 @@ export default function CircleScreen() {
   const deletePost = trpc.social.deletePost.useMutation({
     onSuccess: () => {
       void feed.refetch();
+      void utils.circleHome.get.invalidate({ circleId });
+      void utils.social.feedPage.invalidate({
+        filter: "for-you",
+        circleId,
+        limit: 20,
+      });
       notify("Post removed from the circle.");
     },
     onError: (e) => notify(e.message),
   });
   const isAdmin = group?.role === "owner" || group?.role === "moderator";
+  const canManageHome = homeUi.canEdit;
+  const homeManagementWasDenied =
+    homeUi.isAuthorityAvailable && currentHome?.canManage === false;
+  // A fresh server denial unmounts (and therefore clears) the draft. Errors and routine
+  // refetches retain it because authority is unavailable rather than explicitly denied.
+  const homeEditorIsOpen =
+    homeEditorScope === homeScopeKey && !homeManagementWasDenied;
+  const manageTabAvailable = isAdmin || canManageHome || homeEditorIsOpen;
+
+  // Adjust this component's own state once when fresh authority is explicitly denied.
+  // The guard converges immediately, clears the draft, and needs no deferred effect/timer.
+  if (homeManagementWasDenied && homeEditorScope !== null) {
+    setHomeEditorScope(null);
+  }
+
   return (
     <AppShell>
       {!routeCircleId ? (
@@ -296,17 +360,31 @@ export default function CircleScreen() {
             style={{ marginBottom: 22 }}
             contentContainerStyle={{ gap: 8, paddingRight: 20 }}
           >
-            {["Feed", "Members", "About", ...(isAdmin ? ["Manage"] : [])].map(
-              (item) => (
-                <Pill
-                  key={item}
-                  title={item}
-                  selected={tab === item}
-                  onPress={() => setTab(item)}
-                />
-              ),
-            )}
+            {[
+              "Home",
+              "Feed",
+              "Members",
+              "About",
+              ...(manageTabAvailable ? ["Manage"] : []),
+            ].map((item) => (
+              <Pill
+                key={item}
+                title={item}
+                selected={tab === item}
+                onPress={() => setTab(item)}
+              />
+            ))}
           </ScrollView>
+          {tab === "Home" && (
+            <CircleHomePanel
+              key={homeScopeKey}
+              canRead={canReadHome}
+              home={currentHome}
+              isLoading={homeUi.isLoading}
+              isError={homeUi.isError}
+              onRetry={() => void home.refetch()}
+            />
+          )}
           {tab === "Feed" &&
             (group.privacy === "private" && !group.joined ? (
               <Empty
@@ -335,9 +413,7 @@ export default function CircleScreen() {
                 }
               />
             ) : (
-              feedItems.map((post) => (
-                <PostCard key={post.id} post={post} />
-              ))
+              feedItems.map((post) => <PostCard key={post.id} post={post} />)
             ))}
           {tab === "Feed" &&
             (group.privacy === "public" || !!group.joined) &&
@@ -352,7 +428,12 @@ export default function CircleScreen() {
               />
             ) : (
               <T
-                style={{ color: C.muted, fontSize: 12, textAlign: "center", paddingVertical: 14 }}
+                style={{
+                  color: C.muted,
+                  fontSize: 12,
+                  textAlign: "center",
+                  paddingVertical: 14,
+                }}
               >
                 You’ve reached the end of these moments.
               </T>
@@ -447,7 +528,12 @@ export default function CircleScreen() {
               />
             ) : (
               <T
-                style={{ color: C.muted, fontSize: 12, textAlign: "center", paddingVertical: 14 }}
+                style={{
+                  color: C.muted,
+                  fontSize: 12,
+                  textAlign: "center",
+                  paddingVertical: 14,
+                }}
               >
                 You’ve reached the end of these members.
               </T>
@@ -460,36 +546,45 @@ export default function CircleScreen() {
               <T style={{ color: C.muted, fontSize: 14, lineHeight: 22 }}>
                 {group.description}
               </T>
-              <T style={s.eyebrow}>THE HOUSE RULES</T>
-              <View style={{ gap: 10 }}>
-                {[
-                  "Be kind and make room for others.",
-                  "Share things that belong here.",
-                  "Respect privacy.",
-                  "Keep the conversation welcoming.",
-                ].map((rule) => (
-                  <View
-                    key={rule}
-                    style={[s.row, { alignItems: "flex-start", gap: 9 }]}
-                  >
-                    <Icon
-                      name="checkmark-circle-outline"
-                      size={18}
-                      color={C.green}
-                    />
-                    <T
-                      style={{
-                        flex: 1,
-                        color: C.muted,
-                        fontSize: 14,
-                        lineHeight: 21,
-                      }}
+              <T style={s.eyebrow}>CIRCLE GUIDELINES</T>
+              {canReadHome && currentHome?.rules.length ? (
+                <View style={{ gap: 10 }}>
+                  {currentHome.rules.map((rule, index) => (
+                    <View
+                      key={`${index}:${rule}`}
+                      style={[s.row, { alignItems: "flex-start", gap: 9 }]}
                     >
-                      {rule}
-                    </T>
-                  </View>
-                ))}
-              </View>
+                      <Icon
+                        name="checkmark-circle-outline"
+                        size={18}
+                        color={C.green}
+                      />
+                      <T
+                        style={{
+                          flex: 1,
+                          color: C.muted,
+                          fontSize: 14,
+                          lineHeight: 21,
+                        }}
+                      >
+                        {rule}
+                      </T>
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <T style={{ color: C.muted, fontSize: 14, lineHeight: 21 }}>
+                  {!canReadHome
+                    ? "Circle guidelines are shared with approved members."
+                    : currentHome
+                      ? "This circle hasn’t configured any guidelines yet."
+                      : homeUi.isLoading
+                        ? "Checking this circle’s guidelines…"
+                        : homeUi.isError
+                          ? "We couldn’t confirm this circle’s guidelines right now."
+                          : "Circle guidelines aren’t available right now."}
+                </T>
+              )}
               {group.joined && group.role !== "owner" && (
                 <Button
                   title="Leave this circle"
@@ -506,7 +601,7 @@ export default function CircleScreen() {
               )}
             </View>
           )}
-          {tab === "Manage" && isAdmin && (
+          {tab === "Manage" && manageTabAvailable && (
             <View style={{ gap: 20 }}>
               <T style={{ fontSize: 18, fontWeight: "700" }}>
                 Look after your people.
@@ -515,6 +610,45 @@ export default function CircleScreen() {
                 Owners appoint moderators. Owners and moderators keep the circle
                 welcoming.
               </T>
+              <View style={{ gap: 12 }}>
+                <T style={{ fontSize: 17, fontWeight: "700" }}>Circle Home</T>
+                {homeEditorIsOpen ? (
+                  <CircleHomeEditor
+                    key={homeScopeKey}
+                    scopeKey={homeScopeKey}
+                    circleId={circleId}
+                    home={currentHome}
+                    canEdit={canManageHome}
+                    isAuthorityAvailable={homeUi.isAuthorityAvailable}
+                    feedItems={feedItems}
+                    hasNextFeedPage={!!feed.hasNextPage}
+                    isFetchingNextFeedPage={feed.isFetchingNextPage}
+                    onLoadMoreFeedItems={() => void feed.fetchNextPage()}
+                    onClose={() => setHomeEditorScope(null)}
+                  />
+                ) : canManageHome ? (
+                  <View style={[s.card, { padding: 16, gap: 10 }]}>
+                    <T style={{ color: C.muted, fontSize: 14, lineHeight: 21 }}>
+                      Set the welcome, circle guidelines, and one pinned
+                      existing moment.
+                    </T>
+                    <Button
+                      title="Edit Circle Home"
+                      secondary
+                      onPress={() => setHomeEditorScope(homeScopeKey)}
+                      style={{ alignSelf: "flex-start" }}
+                    />
+                  </View>
+                ) : (
+                  <T style={{ color: C.muted, fontSize: 13, lineHeight: 20 }}>
+                    {homeUi.isLoading
+                      ? "Checking Home editing permission…"
+                      : homeUi.isError
+                        ? "Home editing is unavailable until permissions can be confirmed."
+                        : "Home editing is unavailable until permissions can be confirmed."}
+                  </T>
+                )}
+              </View>
               {memberItems.map((member) => (
                 <View
                   key={member.user.id}

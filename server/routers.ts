@@ -7,8 +7,10 @@ import { TRPCError } from "@trpc/server";
 import { socialRouter } from "./social-router";
 import { liveRouter } from "./live-router";
 import { onboardingRouter } from "./onboarding-router";
+import { circleHomeRouter } from "./circle-home-router";
 
 export const appRouter = router({
+  circleHome: circleHomeRouter,
   onboarding: onboardingRouter,
   social: socialRouter,
   live: liveRouter,
