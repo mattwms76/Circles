@@ -42,11 +42,20 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: "22"
+          node-version: "22.23.4"
           package-manager-cache: false
           # Untrusted PRs never restore or write the trusted push-job dependency cache.
           cache: ${{ github.event_name != 'pull_request' && 'pnpm' || '' }}
           cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install and verify continuity encryption tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends age tar
+          command -v age
+          command -v tar
+          age --version
+          tar --version
 
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
@@ -113,7 +122,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: "22"
+          node-version: "22.23.4"
           package-manager-cache: false
           cache: ${{ github.event_name != 'pull_request' && 'pnpm' || '' }}
           cache-dependency-path: pnpm-lock.yaml

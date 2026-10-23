@@ -37,6 +37,10 @@ export default function LiveScreen() {
   const [isLiveChatSubmitting, setIsLiveChatSubmitting] = useState(false);
   const [mediaError, setMediaError] = useState("");
   const [ready, setReady] = useState(false);
+  const [hostMediaSession, setHostMediaSession] = useState<{
+    streamId: number;
+    generation: number;
+  } | null>(null);
   const [endConfirm, setEndConfirm] = useState(false);
   const { width } = useWindowDimensions();
   const wide = width >= 900;
@@ -48,6 +52,10 @@ export default function LiveScreen() {
     hasContent: !!lives.data,
   });
   const host = !!user && live?.host.id === user.id;
+  const hostGeneration =
+    host && hostMediaSession?.streamId === streamId
+      ? hostMediaSession.generation
+      : null;
   const chat = trpc.live.chat.useQuery(
     { streamId },
     { enabled: !!user && !!live, refetchInterval: 2000, retry: false },
@@ -163,7 +171,12 @@ export default function LiveScreen() {
                   streamId={streamId}
                   host={host}
                   onError={setMediaError}
-                  onReady={() => setReady(true)}
+                  onReady={(generation) => {
+                    setReady(true);
+                    if (host && generation !== undefined) {
+                      setHostMediaSession({ streamId, generation });
+                    }
+                  }}
                 />
                 <View
                   style={{
@@ -394,7 +407,12 @@ export default function LiveScreen() {
               </T>
               <Button
                 title="End live session"
-                onPress={() => end.mutate({ streamId })}
+                onPress={() => {
+                  if (hostGeneration !== null) {
+                    end.mutate({ streamId, generation: hostGeneration });
+                  }
+                }}
+                disabled={end.isPending || hostGeneration === null}
                 loading={end.isPending}
               />
               <Button

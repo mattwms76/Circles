@@ -14,10 +14,20 @@
  */
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { isAbsolute, resolve } from "node:path";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  parse,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { writeFile } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
+import { lstat, open, realpath, unlink } from "node:fs/promises";
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_PROJECT_DIR = "/home/ubuntu/circles";
@@ -25,6 +35,61 @@ const PROJECT_REF = "vvclcsqletcxzoaayqzq";
 const SCHEMA = "circles_app";
 const MARKER_TABLE = "_dataMigrations";
 const EXTERNAL_ROLES = Object.freeze(["anon", "authenticated", "service_role"]);
+const TABLE_PRIVILEGES = Object.freeze([
+  "can_select",
+  "can_insert",
+  "can_update",
+  "can_delete",
+  "can_truncate",
+  "can_references",
+  "can_trigger",
+  "can_maintain",
+]);
+const COLUMN_PRIVILEGES = Object.freeze([
+  "can_select",
+  "can_insert",
+  "can_update",
+  "can_references",
+]);
+const SEQUENCE_PRIVILEGES = Object.freeze([
+  "can_usage",
+  "can_select",
+  "can_update",
+]);
+const ROUTINE_PRIVILEGES = Object.freeze(["can_execute"]);
+const DEFAULT_OBJECT_TYPES = Object.freeze([
+  "tables",
+  "sequences",
+  "functions",
+  "types",
+]);
+// These are the reviewed database owner/admin actors that intentionally need
+// SET ROLE access to the restricted backend role. Do not infer trust from role
+// attributes, ownership, or a role-name pattern.
+const TRUSTED_RUNTIME_SET_ROLE_ACTORS = Object.freeze([
+  "postgres",
+  "supabase_admin",
+]);
+// These exact names are a narrowly reviewed provider/admin exception for
+// effective-capability reporting only. They are not API roles and do not make
+// an inherited has_*_privilege result proof of a row-returning RLS/API path.
+// Do not broaden this list from role attributes or a naming convention.
+const REVIEWED_BUILTIN_CAPABILITY_ROLES = Object.freeze([
+  "pg_read_all_data",
+  "pg_write_all_data",
+  "pg_maintain",
+]);
+const REVIEWED_PROVIDER_SUPERUSER_ROLES = Object.freeze(["supabase_admin"]);
+const REVIEWED_MANAGED_ADMIN_ROLES = Object.freeze([
+  "supabase_etl_admin",
+  "supabase_read_only_user",
+]);
+const TRUSTED_PRIVILEGED_ROLE_NAMES = Object.freeze([
+  "postgres",
+  ...REVIEWED_BUILTIN_CAPABILITY_ROLES,
+  ...REVIEWED_PROVIDER_SUPERUSER_ROLES,
+  ...REVIEWED_MANAGED_ADMIN_ROLES,
+]);
 const REQUIRED_RUNTIME_FLAGS = Object.freeze({
   can_login: false,
   inherits: false,
@@ -34,6 +99,36 @@ const REQUIRED_RUNTIME_FLAGS = Object.freeze({
 
 function absoluteOutputPath(value) {
   return isAbsolute(value) ? value : resolve(process.cwd(), value);
+}
+
+function pathIsWithin(childPath, parentPath) {
+  const pathRelation = relative(parentPath, childPath);
+  return (
+    pathRelation === "" ||
+    (!pathRelation.startsWith("..") && !isAbsolute(pathRelation))
+  );
+}
+
+async function rejectSymlinkPathComponents(pathname) {
+  const absolute = resolve(pathname);
+  const parsed = parse(absolute);
+  const components = relative(parsed.root, absolute).split(sep).filter(Boolean);
+  let current = parsed.root;
+  for (const component of components) {
+    current = join(current, component);
+    const entry = await lstat(current);
+    if (entry.isSymbolicLink())
+      throw new Error("Audit output paths must not traverse symbolic links");
+  }
+}
+
+async function gitRootForPath(pathname) {
+  const { stdout } = await execFileAsync(
+    "git",
+    ["-C", pathname, "rev-parse", "--show-toplevel"],
+    { timeout: 5_000, maxBuffer: 4_096 },
+  );
+  return realpath(stdout.trim());
 }
 
 export function parseArgs(argv) {
@@ -65,6 +160,112 @@ export function parseArgs(argv) {
     throw new Error("Invalid audit command arguments");
   }
   return options;
+}
+
+/**
+ * Validate new report destinations using metadata only. Output files themselves
+ * are never opened/read during validation, and must be distinct, private,
+ * non-Git-tree paths whose existing parent has no symlink component.
+ */
+export async function validateOutputPaths(options) {
+  if (!options?.jsonOutput || !options?.markdownOutput)
+    throw new Error("Both JSON and Markdown output paths are required");
+  const projectDir = await realpath(
+    resolve(options.projectDir ?? DEFAULT_PROJECT_DIR),
+  );
+  const gitRoot = await gitRootForPath(projectDir);
+  const canonicalOutputs = [];
+  for (const requested of [options.jsonOutput, options.markdownOutput]) {
+    const lexical = resolve(requested);
+    const lexicalParent = dirname(lexical);
+    await rejectSymlinkPathComponents(lexicalParent);
+    const parent = await realpath(lexicalParent);
+    const parentStat = await lstat(parent);
+    if (
+      !parentStat.isDirectory() ||
+      (parentStat.mode & 0o077) !== 0 ||
+      (typeof process.getuid === "function" &&
+        parentStat.uid !== process.getuid())
+    ) {
+      throw new Error(
+        "Audit output directory must be private and owner-controlled",
+      );
+    }
+    const output = resolve(parent, basename(lexical));
+    if (pathIsWithin(output, gitRoot))
+      throw new Error("Audit outputs must be outside the project Git tree");
+    const outputGitRoot = await gitRootForPath(parent).catch(() => null);
+    if (outputGitRoot && pathIsWithin(output, outputGitRoot))
+      throw new Error("Audit outputs must be outside every Git tree");
+    try {
+      await lstat(output);
+      throw new Error("Refusing to overwrite an existing audit output");
+    } catch (error) {
+      if (!error || typeof error !== "object" || error.code !== "ENOENT") {
+        throw new Error("Refusing an existing or unavailable audit output");
+      }
+    }
+    canonicalOutputs.push(output);
+  }
+  if (canonicalOutputs[0] === canonicalOutputs[1])
+    throw new Error("Output paths must be distinct");
+  return {
+    jsonOutput: canonicalOutputs[0],
+    markdownOutput: canonicalOutputs[1],
+  };
+}
+
+export async function writePrivateNewFile(outputPath, content) {
+  let handle;
+  let completed = false;
+  try {
+    handle = await open(
+      outputPath,
+      fsConstants.O_WRONLY |
+        fsConstants.O_CREAT |
+        fsConstants.O_EXCL |
+        fsConstants.O_NOFOLLOW,
+      0o600,
+    );
+    await handle.chmod(0o600);
+    const stat = await handle.stat();
+    if (
+      !stat.isFile() ||
+      (stat.mode & 0o077) !== 0 ||
+      (typeof process.getuid === "function" && stat.uid !== process.getuid())
+    ) {
+      throw new Error("Audit output is not a private owner-controlled file");
+    }
+    await handle.writeFile(content, { encoding: "utf8" });
+    completed = true;
+  } finally {
+    if (handle) await handle.close();
+    if (handle && !completed) {
+      try {
+        await unlink(outputPath);
+      } catch {
+        // The caller receives a safe generic write failure; no private content is read.
+      }
+    }
+  }
+}
+
+async function writePrivateReportPair(paths, json, markdown) {
+  let jsonWritten = false;
+  try {
+    await writePrivateNewFile(paths.jsonOutput, json);
+    jsonWritten = true;
+    await writePrivateNewFile(paths.markdownOutput, markdown);
+  } catch {
+    if (jsonWritten) {
+      try {
+        await unlink(paths.jsonOutput);
+      } catch {
+        // Best-effort cleanup is safer than reading or overwriting the report.
+      }
+    }
+    throw new Error("Private report output failed");
+  }
 }
 
 export function normalizeExpression(expression) {
@@ -197,58 +398,566 @@ export function evaluatePolicies(
   };
 }
 
-export function evaluateRuntimeRole(roleRow) {
+export function evaluateRuntimeRole(roleRow, memberships = []) {
   const violations = [];
   if (!roleRow) return { status: "fail", violations: ["runtime_role_missing"] };
+  if (roleRow.role_name !== "circles_app_runtime")
+    violations.push("runtime_role_identity");
   for (const [key, expected] of Object.entries(REQUIRED_RUNTIME_FLAGS)) {
     if (roleRow[key] !== expected) violations.push(key);
   }
-  return { status: violations.length === 0 ? "pass" : "fail", violations };
+  if (!Array.isArray(memberships)) {
+    violations.push("membership_evidence_unavailable");
+  } else if (
+    memberships.some(
+      (membership) =>
+        !membership ||
+        typeof membership.parent_role !== "string" ||
+        membership.parent_role.length === 0 ||
+        typeof membership.member_role !== "string" ||
+        membership.member_role.length === 0 ||
+        typeof membership.grantor_role !== "string" ||
+        membership.grantor_role.length === 0 ||
+        typeof membership.inherit_option !== "boolean" ||
+        typeof membership.set_option !== "boolean" ||
+        typeof membership.admin_option !== "boolean",
+    )
+  ) {
+    violations.push("membership_evidence_malformed");
+  } else {
+    const inboundRuntimeMemberships = new Map();
+    for (const membership of memberships) {
+      // The restricted runtime role must never be a member of another role.
+      if (membership.member_role === "circles_app_runtime")
+        violations.push("runtime_role_membership_elevation");
+      // A grant of the runtime role to a reviewed actor is the intentional
+      // server-side SET ROLE path. PostgreSQL 17 can retain independent grants
+      // for the same logical pair, so evaluate their effective SET option.
+      if (membership.parent_role === "circles_app_runtime") {
+        const entries =
+          inboundRuntimeMemberships.get(membership.member_role) ?? [];
+        entries.push(membership);
+        inboundRuntimeMemberships.set(membership.member_role, entries);
+      }
+    }
+    for (const [memberRole, entries] of inboundRuntimeMemberships) {
+      if (!TRUSTED_RUNTIME_SET_ROLE_ACTORS.includes(memberRole)) {
+        violations.push("runtime_role_membership_untrusted_set_role_actor");
+      } else if (!entries.some((membership) => membership.set_option)) {
+        violations.push("runtime_role_membership_set_role_not_permitted");
+      }
+    }
+  }
+  const distinctViolations = [...new Set(violations)];
+  return {
+    status: distinctViolations.length === 0 ? "pass" : "fail",
+    violations: distinctViolations,
+  };
 }
 
-export function evaluateExternalPrivileges(
-  schemaPrivileges,
-  tablePrivileges,
-  sequencePrivileges,
-) {
-  const schemaViolations = schemaPrivileges
-    .filter((row) => row.has_usage === true)
-    .map((row) => row.role_name);
-  const tableViolations = tablePrivileges.filter(
-    (row) =>
-      row.can_select || row.can_insert || row.can_update || row.can_delete,
+function uniqueRoleNames(roles) {
+  if (!Array.isArray(roles) || roles.length === 0) return null;
+  const names = roles.map((role) => role?.role_name);
+  if (!names.every((name) => typeof name === "string" && name.length > 0))
+    return null;
+  return new Set(names).size === names.length ? names : null;
+}
+
+function objectRowsAreValid(rows, nameKey) {
+  return (
+    Array.isArray(rows) &&
+    rows.every(
+      (row) =>
+        row &&
+        typeof row[nameKey] === "string" &&
+        row[nameKey].length > 0 &&
+        typeof row.owner === "string" &&
+        row.owner.length > 0,
+    )
   );
-  const sequenceViolations = sequencePrivileges.filter(
-    (row) => row.can_usage || row.can_select || row.can_update,
+}
+
+function membershipCoverage(rows, roleNames) {
+  if (!Array.isArray(rows))
+    return { complete: false, reason: "missing_membership_evidence" };
+  const knownRoles = new Set(roleNames);
+  const edges = new Set();
+  for (const row of rows) {
+    if (
+      !row ||
+      typeof row.parent_role !== "string" ||
+      typeof row.member_role !== "string" ||
+      typeof row.grantor_role !== "string" ||
+      !knownRoles.has(row.parent_role) ||
+      !knownRoles.has(row.member_role) ||
+      !knownRoles.has(row.grantor_role) ||
+      typeof row.inherit_option !== "boolean" ||
+      typeof row.set_option !== "boolean" ||
+      typeof row.admin_option !== "boolean"
+    ) {
+      return { complete: false, reason: "malformed_membership_evidence" };
+    }
+    // PostgreSQL 17 permits more than one grantor for one role/member pair.
+    // Preserve those independent option records; only an exact duplicate is
+    // evidence corruption or a collector defect.
+    const evidenceKey = `${row.parent_role}\u0000${row.member_role}\u0000${row.grantor_role}\u0000${row.inherit_option}\u0000${row.set_option}\u0000${row.admin_option}`;
+    if (edges.has(evidenceKey))
+      return { complete: false, reason: "duplicate_membership_evidence" };
+    edges.add(evidenceKey);
+  }
+  return { complete: true };
+}
+
+function reviewedRoleClassification(roleName, rolesByName) {
+  const role = rolesByName.get(roleName);
+  if (REVIEWED_BUILTIN_CAPABILITY_ROLES.includes(roleName)) {
+    // The collector records the catalog-object identity where PostgreSQL makes
+    // it available. A non-login role is required even if older fixture data
+    // lacks that optional catalog marker.
+    const catalogIdentityAvailable =
+      typeof role?.is_catalog_builtin === "boolean";
+    const valid =
+      role?.can_login === false &&
+      (!catalogIdentityAvailable || role.is_catalog_builtin === true);
+    return {
+      group: "builtin_non_login_capabilities",
+      classification: "reviewed_builtin_non_login_capability",
+      valid,
+      identity_check: valid
+        ? catalogIdentityAvailable
+          ? "catalog_builtin_and_nologin_confirmed"
+          : "catalog_builtin_identity_unavailable_nologin_confirmed"
+        : "builtin_identity_or_nologin_requirement_failed",
+    };
+  }
+  if (REVIEWED_PROVIDER_SUPERUSER_ROLES.includes(roleName)) {
+    const valid = role?.is_superuser === true;
+    return {
+      group: "provider_superuser",
+      classification: "reviewed_provider_superuser",
+      valid,
+      identity_check: valid
+        ? "provider_superuser_confirmed"
+        : "provider_superuser_requirement_failed",
+    };
+  }
+  if (REVIEWED_MANAGED_ADMIN_ROLES.includes(roleName)) {
+    return {
+      group: "managed_admin_roles",
+      classification: "reviewed_managed_admin_role",
+      valid: Boolean(role),
+      identity_check: role
+        ? "exact_reviewed_managed_admin_name"
+        : "reviewed_managed_admin_role_missing",
+    };
+  }
+  return null;
+}
+
+function unsafePrivilegedMembershipPaths(memberships) {
+  const trusted = new Set(TRUSTED_PRIVILEGED_ROLE_NAMES);
+  const childrenByParent = new Map();
+  for (const membership of memberships) {
+    const children = childrenByParent.get(membership.parent_role) ?? [];
+    children.push(membership);
+    childrenByParent.set(membership.parent_role, children);
+  }
+  const paths = [];
+  for (const privilegedRole of TRUSTED_PRIVILEGED_ROLE_NAMES) {
+    const queue = [
+      { role: privilegedRole, rolePath: [privilegedRole], edgePath: [] },
+    ];
+    const seen = new Set([`${privilegedRole}\u0000${privilegedRole}`]);
+    while (queue.length > 0) {
+      const current = queue.shift();
+      for (const membership of childrenByParent.get(current.role) ?? []) {
+        const rolePath = [...current.rolePath, membership.member_role];
+        const edgePath = [
+          ...current.edgePath,
+          {
+            parent_role: membership.parent_role,
+            member_role: membership.member_role,
+            inherit_option: membership.inherit_option,
+            set_option: membership.set_option,
+            admin_option: membership.admin_option,
+          },
+        ];
+        if (!trusted.has(membership.member_role)) {
+          // Do not treat NOINHERIT or a false SET option as a safe exception:
+          // the graph is checked for every inherit/SET combination and for
+          // transitive paths, so a later option change cannot hide a grant.
+          paths.push({
+            privileged_role: privilegedRole,
+            recipient_role: membership.member_role,
+            role_path: rolePath,
+            membership_path: edgePath,
+          });
+          continue;
+        }
+        const seenKey = `${privilegedRole}\u0000${membership.member_role}`;
+        if (!seen.has(seenKey)) {
+          seen.add(seenKey);
+          queue.push({ role: membership.member_role, rolePath, edgePath });
+        }
+      }
+    }
+  }
+  return paths;
+}
+
+function runtimeObjectCoverage(rows, objects, objectKey, privilegeKeys) {
+  if (!Array.isArray(rows) || !objectRowsAreValid(objects, objectKey))
+    return { complete: false, reason: "missing_or_malformed_runtime_matrix" };
+  const expected = new Set();
+  for (const object of objects) {
+    if (expected.has(object[objectKey]))
+      return { complete: false, reason: "duplicate_runtime_object_metadata" };
+    expected.add(object[objectKey]);
+  }
+  const seen = new Set();
+  for (const row of rows) {
+    if (
+      !row ||
+      typeof row[objectKey] !== "string" ||
+      !expected.has(row[objectKey]) ||
+      !privilegeKeys.every((key) => typeof row[key] === "boolean")
+    ) {
+      return { complete: false, reason: "malformed_runtime_privilege_row" };
+    }
+    if (seen.has(row[objectKey]))
+      return { complete: false, reason: "duplicate_runtime_privilege_row" };
+    seen.add(row[objectKey]);
+  }
+  if (seen.size !== expected.size)
+    return { complete: false, reason: "incomplete_runtime_privilege_matrix" };
+  return { complete: true };
+}
+
+function matrixCoverage(rows, objects, roleNames, objectKey, privilegeKeys) {
+  if (!Array.isArray(rows) || !objectRowsAreValid(objects, objectKey))
+    return { complete: false, reason: "missing_or_malformed_matrix" };
+  const objectByName = new Map();
+  for (const object of objects) {
+    if (objectByName.has(object[objectKey]))
+      return { complete: false, reason: "duplicate_object_metadata" };
+    objectByName.set(object[objectKey], object);
+  }
+  const expected = new Set();
+  for (const object of objects) {
+    for (const roleName of roleNames) {
+      if (roleName !== object.owner)
+        expected.add(`${object[objectKey]}\u0000${roleName}`);
+    }
+  }
+  const seen = new Set();
+  for (const row of rows) {
+    if (
+      !row ||
+      typeof row[objectKey] !== "string" ||
+      typeof row.role_name !== "string" ||
+      !privilegeKeys.every((key) => typeof row[key] === "boolean")
+    ) {
+      return { complete: false, reason: "malformed_privilege_row" };
+    }
+    const key = `${row[objectKey]}\u0000${row.role_name}`;
+    if (!expected.has(key) || seen.has(key))
+      return {
+        complete: false,
+        reason: "unexpected_or_duplicate_privilege_row",
+      };
+    seen.add(key);
+  }
+  if (seen.size !== expected.size)
+    return { complete: false, reason: "incomplete_privilege_matrix" };
+  return { complete: true };
+}
+
+function aclCoverage(rows, objects, objectKey) {
+  if (!Array.isArray(rows) || !objectRowsAreValid(objects, objectKey))
+    return { complete: false, reason: "missing_or_malformed_acl_metadata" };
+  const objectNames = new Set(objects.map((object) => object[objectKey]));
+  const violations = [];
+  for (const row of rows) {
+    if (
+      !row ||
+      typeof row[objectKey] !== "string" ||
+      !objectNames.has(row[objectKey]) ||
+      typeof row.grantee !== "string" ||
+      typeof row.privilege_type !== "string" ||
+      typeof row.is_grantable !== "boolean"
+    ) {
+      return { complete: false, reason: "malformed_acl_row" };
+    }
+    const owner = objects.find(
+      (object) => object[objectKey] === row[objectKey],
+    )?.owner;
+    if (row.grantee !== owner && row.grantee !== "circles_app_runtime") {
+      violations.push({
+        object_name: row[objectKey],
+        grantee: row.grantee,
+        privilege_type: row.privilege_type,
+        grantable: row.is_grantable,
+      });
+    } else if (row.grantee === "circles_app_runtime" && row.is_grantable) {
+      violations.push({
+        object_name: row[objectKey],
+        grantee: row.grantee,
+        privilege_type: row.privilege_type,
+        grantable: true,
+      });
+    }
+  }
+  return { complete: true, violations };
+}
+
+/**
+ * Fail closed unless every non-owner role has been evaluated for every current
+ * object. PostgreSQL has_*_privilege resolves PUBLIC and inherited membership,
+ * while direct ACL rows retain grant-option and PUBLIC attribution evidence.
+ */
+export function evaluateExternalPrivileges(evidence) {
+  if (!evidence || typeof evidence !== "object")
+    return { status: "fail", reason: "privilege_evidence_unavailable" };
+  const roleNames = uniqueRoleNames(evidence.roles);
+  const schemaObject = evidence.schema?.schema_name
+    ? [
+        {
+          schema_name: evidence.schema.schema_name,
+          owner: evidence.schema.owner,
+        },
+      ]
+    : null;
+  const tableObjects = evidence.tables;
+  const columnObjects = evidence.columns;
+  const sequenceObjects = evidence.sequences;
+  const routineObjects = evidence.routines;
+  if (
+    !roleNames ||
+    !schemaObject ||
+    !objectRowsAreValid(schemaObject, "schema_name")
+  ) {
+    return { status: "fail", reason: "role_or_schema_metadata_incomplete" };
+  }
+  const matrices = [
+    matrixCoverage(
+      evidence.schema_privileges,
+      schemaObject,
+      roleNames,
+      "schema_name",
+      ["has_usage", "has_create"],
+    ),
+    matrixCoverage(
+      evidence.table_privileges,
+      tableObjects,
+      roleNames,
+      "table_name",
+      TABLE_PRIVILEGES,
+    ),
+    matrixCoverage(
+      evidence.column_privileges,
+      columnObjects,
+      roleNames,
+      "column_key",
+      COLUMN_PRIVILEGES,
+    ),
+    matrixCoverage(
+      evidence.sequence_privileges,
+      sequenceObjects,
+      roleNames,
+      "sequence_name",
+      SEQUENCE_PRIVILEGES,
+    ),
+    matrixCoverage(
+      evidence.routine_privileges,
+      routineObjects,
+      roleNames,
+      "routine_name",
+      ROUTINE_PRIVILEGES,
+    ),
+  ];
+  const aclChecks = [
+    aclCoverage(evidence.schema_acl_privileges, schemaObject, "schema_name"),
+    aclCoverage(evidence.table_acl_privileges, tableObjects, "table_name"),
+    aclCoverage(evidence.column_acl_privileges, columnObjects, "column_key"),
+    aclCoverage(
+      evidence.sequence_acl_privileges,
+      sequenceObjects,
+      "sequence_name",
+    ),
+    aclCoverage(
+      evidence.routine_acl_privileges,
+      routineObjects,
+      "routine_name",
+    ),
+  ];
+  const membershipCheck = membershipCoverage(
+    evidence.role_memberships,
+    roleNames,
   );
+  const incomplete = [...matrices, ...aclChecks, membershipCheck].filter(
+    (check) => !check.complete,
+  );
+  if (incomplete.length > 0) {
+    return {
+      status: "fail",
+      reason: "privilege_evidence_incomplete",
+      incomplete_evidence: incomplete.map((check) => check.reason),
+    };
+  }
+  const rolesByName = new Map(
+    evidence.roles.map((role) => [role.role_name, role]),
+  );
+  const effectivePrivilegeRows = {
+    schema: evidence.schema_privileges.filter(
+      (row) =>
+        (row.role_name !== "circles_app_runtime" &&
+          (row.has_usage || row.has_create)) ||
+        (row.role_name === "circles_app_runtime" && row.has_create),
+    ),
+    tables: evidence.table_privileges.filter(
+      (row) =>
+        row.role_name !== "circles_app_runtime" &&
+        TABLE_PRIVILEGES.some((key) => row[key]),
+    ),
+    columns: evidence.column_privileges.filter(
+      (row) =>
+        row.role_name !== "circles_app_runtime" &&
+        COLUMN_PRIVILEGES.some((key) => row[key]),
+    ),
+    sequences: evidence.sequence_privileges.filter(
+      (row) =>
+        row.role_name !== "circles_app_runtime" &&
+        SEQUENCE_PRIVILEGES.some((key) => row[key]),
+    ),
+    routines: evidence.routine_privileges.filter(
+      (row) => row.role_name !== "circles_app_runtime" && row.can_execute,
+    ),
+  };
+  const unauthorized = {
+    schema: [],
+    tables: [],
+    columns: [],
+    sequences: [],
+    routines: [],
+    direct_acl: aclChecks.flatMap((check) => check.violations),
+  };
+  const reviewed_managed_capabilities = {
+    builtin_non_login_capabilities: [],
+    provider_superuser: [],
+    managed_admin_roles: [],
+  };
+  const reviewed_role_identity_violations = [];
+  for (const [category, rows] of Object.entries(effectivePrivilegeRows)) {
+    for (const row of rows) {
+      const classification = reviewedRoleClassification(
+        row.role_name,
+        rolesByName,
+      );
+      if (classification?.valid) {
+        reviewed_managed_capabilities[classification.group].push({
+          ...row,
+          privilege_category: category,
+          reviewed_role_classification: classification.classification,
+          role_identity_check: classification.identity_check,
+        });
+      } else {
+        unauthorized[category].push(row);
+        if (classification) {
+          reviewed_role_identity_violations.push({
+            role_name: row.role_name,
+            category,
+            identity_check: classification.identity_check,
+          });
+        }
+      }
+    }
+  }
+  const unsafe_privileged_membership_paths = unsafePrivilegedMembershipPaths(
+    evidence.role_memberships,
+  );
+  const unauthorizedCounts = Object.values(unauthorized).map(
+    (rows) => rows.length,
+  );
+  const reviewed_effective_privilege_counts = Object.fromEntries(
+    Object.keys(effectivePrivilegeRows).map((category) => [
+      category,
+      Object.values(reviewed_managed_capabilities).reduce(
+        (total, rows) =>
+          total +
+          rows.filter((row) => row.privilege_category === category).length,
+        0,
+      ),
+    ]),
+  );
+  const reviewed_effective_privilege_total = Object.values(
+    reviewed_effective_privilege_counts,
+  ).reduce((total, count) => total + count, 0);
   return {
     status:
-      schemaViolations.length === 0 &&
-      tableViolations.length === 0 &&
-      sequenceViolations.length === 0
+      unauthorizedCounts.every((count) => count === 0) &&
+      reviewed_role_identity_violations.length === 0 &&
+      unsafe_privileged_membership_paths.length === 0
         ? "pass"
         : "fail",
-    schema_usage_roles: schemaViolations,
-    table_grants: tableViolations.map((row) => ({
-      role_name: row.role_name,
-      table_name: row.table_name,
-      select: row.can_select,
-      insert: row.can_insert,
-      update: row.can_update,
-      delete: row.can_delete,
-    })),
-    sequence_grants: sequenceViolations.map((row) => ({
-      role_name: row.role_name,
-      sequence_name: row.sequence_name,
-      usage: row.can_usage,
-      select: row.can_select,
-      update: row.can_update,
-    })),
+    unauthorized,
+    reviewed_managed_capabilities,
+    reviewed_effective_privilege_counts,
+    reviewed_effective_privilege_total,
+    reviewed_role_identity_violations,
+    unsafe_privileged_membership_paths,
+    checked_role_count: roleNames.length,
+    checked_non_owner_effective_privilege_rows: matrices.reduce(
+      (total, check, index) =>
+        total +
+        [
+          evidence.schema_privileges,
+          evidence.table_privileges,
+          evidence.column_privileges,
+          evidence.sequence_privileges,
+          evidence.routine_privileges,
+        ][index].length,
+      0,
+    ),
   };
 }
 
 export function evaluateRuntimePrivileges(appNames, markerTable, runtimeRows) {
-  const rows = new Map(runtimeRows.map((row) => [row.table_name, row]));
+  if (
+    !Array.isArray(appNames) ||
+    !appNames.every((name) => typeof name === "string" && name.length > 0) ||
+    typeof markerTable !== "string" ||
+    markerTable.length === 0 ||
+    !Array.isArray(runtimeRows)
+  ) {
+    return {
+      status: "fail",
+      reason: "runtime_table_privilege_evidence_unavailable",
+    };
+  }
+  const expectedNames = new Set([...appNames, markerTable]);
+  if (expectedNames.size !== appNames.length + 1)
+    return { status: "fail", reason: "runtime_table_expectations_malformed" };
+  const rows = new Map();
+  for (const row of runtimeRows) {
+    if (
+      !row ||
+      typeof row.table_name !== "string" ||
+      !expectedNames.has(row.table_name) ||
+      !TABLE_PRIVILEGES.every((key) => typeof row[key] === "boolean") ||
+      rows.has(row.table_name)
+    ) {
+      return {
+        status: "fail",
+        reason: "runtime_table_privilege_matrix_incomplete",
+      };
+    }
+    rows.set(row.table_name, row);
+  }
+  if (rows.size !== expectedNames.size)
+    return {
+      status: "fail",
+      reason: "runtime_table_privilege_matrix_incomplete",
+    };
   const missingAppPrivileges = appNames.filter((name) => {
     const row = rows.get(name);
     return (
@@ -256,7 +965,11 @@ export function evaluateRuntimePrivileges(appNames, markerTable, runtimeRows) {
       !row.can_select ||
       !row.can_insert ||
       !row.can_update ||
-      !row.can_delete
+      !row.can_delete ||
+      row.can_truncate ||
+      row.can_references ||
+      row.can_trigger ||
+      row.can_maintain
     );
   });
   const marker = rows.get(markerTable);
@@ -264,13 +977,197 @@ export function evaluateRuntimePrivileges(appNames, markerTable, runtimeRows) {
     Boolean(marker?.can_select) &&
     !marker?.can_insert &&
     !marker?.can_update &&
-    !marker?.can_delete;
+    !marker?.can_delete &&
+    !marker?.can_truncate &&
+    !marker?.can_references &&
+    !marker?.can_trigger &&
+    !marker?.can_maintain;
   return {
     status:
       missingAppPrivileges.length === 0 && markerCorrect ? "pass" : "fail",
     missing_app_privileges: missingAppPrivileges,
     marker_read_only: markerCorrect,
   };
+}
+
+export function evaluateRuntimeSequencePrivileges(sequences, runtimeRows) {
+  const coverage = runtimeObjectCoverage(
+    runtimeRows,
+    sequences,
+    "sequence_name",
+    SEQUENCE_PRIVILEGES,
+  );
+  if (!coverage.complete) return { status: "fail", reason: coverage.reason };
+  const rows = new Map(runtimeRows.map((row) => [row.sequence_name, row]));
+  const incorrect = sequences
+    .map((sequence) => sequence.sequence_name)
+    .filter((sequenceName) => {
+      const row = rows.get(sequenceName);
+      return !row || !row.can_usage || !row.can_select || row.can_update;
+    });
+  return {
+    status: incorrect.length === 0 ? "pass" : "fail",
+    incorrect_sequences: incorrect,
+  };
+}
+
+export function evaluateRuntimeRoutinePrivileges(routines, runtimeRows) {
+  const coverage = runtimeObjectCoverage(
+    runtimeRows,
+    routines,
+    "routine_name",
+    ROUTINE_PRIVILEGES,
+  );
+  if (!coverage.complete) return { status: "fail", reason: coverage.reason };
+  const executable = runtimeRows
+    .filter((row) => row.can_execute)
+    .map((row) => row.routine_name);
+  return {
+    status: executable.length === 0 ? "pass" : "fail",
+    executable_routines: executable,
+  };
+}
+
+export function evaluateRuntimeSchemaPrivileges(schemaPrivilege) {
+  if (
+    !schemaPrivilege ||
+    typeof schemaPrivilege.has_usage !== "boolean" ||
+    typeof schemaPrivilege.has_create !== "boolean"
+  ) {
+    return {
+      status: "fail",
+      reason: "runtime_schema_privilege_evidence_unavailable",
+    };
+  }
+  return {
+    status:
+      schemaPrivilege.has_usage && !schemaPrivilege.has_create
+        ? "pass"
+        : "fail",
+    has_usage: schemaPrivilege.has_usage,
+    has_create: schemaPrivilege.has_create,
+  };
+}
+
+export function evaluateDefaultPrivileges(
+  defaultContexts,
+  defaultPrivileges,
+  schemaUsageForCurrentNonowners = "unknown",
+) {
+  if (!Array.isArray(defaultContexts) || !Array.isArray(defaultPrivileges))
+    return { status: "fail", reason: "default_acl_evidence_unavailable" };
+  if (
+    !["denied", "granted", "unknown"].includes(schemaUsageForCurrentNonowners)
+  ) {
+    return {
+      status: "fail",
+      reason: "default_acl_schema_usage_state_malformed",
+    };
+  }
+  const expectedContexts = new Set();
+  for (const context of defaultContexts) {
+    if (
+      !context ||
+      typeof context.defining_owner !== "string" ||
+      !DEFAULT_OBJECT_TYPES.includes(context.object_type) ||
+      typeof context.global_override_configured !== "boolean" ||
+      typeof context.schema_additive_acl_configured !== "boolean"
+    ) {
+      return { status: "fail", reason: "default_acl_context_malformed" };
+    }
+    const key = `${context.defining_owner}\u0000${context.object_type}`;
+    if (expectedContexts.has(key))
+      return { status: "fail", reason: "default_acl_context_duplicate" };
+    expectedContexts.add(key);
+  }
+  if (
+    expectedContexts.size === 0 ||
+    expectedContexts.size % DEFAULT_OBJECT_TYPES.length !== 0
+  )
+    return { status: "fail", reason: "default_acl_context_incomplete" };
+  for (const definingOwner of new Set(
+    defaultContexts.map((row) => row.defining_owner),
+  )) {
+    for (const objectType of DEFAULT_OBJECT_TYPES) {
+      if (!expectedContexts.has(`${definingOwner}\u0000${objectType}`))
+        return { status: "fail", reason: "default_acl_context_incomplete" };
+    }
+  }
+  const hazards = [];
+  const conditionalTypeUsage = [];
+  for (const row of defaultPrivileges) {
+    if (
+      !row ||
+      typeof row.defining_owner !== "string" ||
+      !DEFAULT_OBJECT_TYPES.includes(row.object_type) ||
+      !["global", "schema_additive"].includes(row.acl_source) ||
+      typeof row.grantee !== "string" ||
+      typeof row.privilege_type !== "string" ||
+      typeof row.is_grantable !== "boolean" ||
+      !expectedContexts.has(`${row.defining_owner}\u0000${row.object_type}`)
+    ) {
+      return { status: "fail", reason: "default_acl_row_malformed" };
+    }
+    const grant = {
+      defining_owner: row.defining_owner,
+      object_type: row.object_type,
+      acl_source: row.acl_source,
+      grantee: row.grantee,
+      privilege_type: row.privilege_type,
+      grantable: row.is_grantable,
+    };
+    // PostgreSQL's built-in PUBLIC USAGE default for types applies only to
+    // future types. It is not part of the 22-table contract and, while current
+    // ordinary/API-role schema USAGE is denied, cannot by itself expose a
+    // current table or establish current Data API disclosure. Preserve it as a
+    // conditional future-access condition rather than hiding it or calling it a
+    // table grant.
+    if (row.object_type === "types" && row.privilege_type === "USAGE") {
+      conditionalTypeUsage.push({
+        ...grant,
+        classification: "conditional_future_type_usage",
+        schema_usage_for_current_nonowners: schemaUsageForCurrentNonowners,
+        current_data_api_disclosure: "not_assessed_from_default_acl_metadata",
+      });
+    } else {
+      // Non-type default ACLs, including function EXECUTE, are genuine future
+      // object risks and require explicit review/revocation before creation.
+      hazards.push(grant);
+    }
+  }
+  return {
+    status: hazards.length === 0 ? "pass" : "fail",
+    hazardous_default_grants: hazards,
+    conditional_type_usage: conditionalTypeUsage,
+    schema_usage_for_current_nonowners: schemaUsageForCurrentNonowners,
+    creator_count: expectedContexts.size / DEFAULT_OBJECT_TYPES.length,
+  };
+}
+
+function schemaUsageForCurrentNonowners(rows, runtimeRole) {
+  if (
+    !Array.isArray(rows) ||
+    rows.length === 0 ||
+    !rows.every(
+      (row) =>
+        row &&
+        typeof row.role_name === "string" &&
+        typeof row.has_usage === "boolean" &&
+        typeof row.has_create === "boolean",
+    )
+  ) {
+    return "unknown";
+  }
+  return rows.some(
+    (row) =>
+      row.role_name !== runtimeRole &&
+      !REVIEWED_BUILTIN_CAPABILITY_ROLES.includes(row.role_name) &&
+      !REVIEWED_PROVIDER_SUPERUSER_ROLES.includes(row.role_name) &&
+      !REVIEWED_MANAGED_ADMIN_ROLES.includes(row.role_name) &&
+      row.has_usage,
+  )
+    ? "granted"
+    : "denied";
 }
 
 function quoteIdentifier(identifier) {
@@ -341,6 +1238,17 @@ async function loadProjectConfiguration(projectDir) {
 
 function rowsOrNull(result) {
   return result ? result.rows : null;
+}
+
+function columnKey(tableName, columnName) {
+  return JSON.stringify([tableName, columnName]);
+}
+
+function withColumnKeys(rows) {
+  return rows?.map((row) => ({
+    ...row,
+    column_key: columnKey(row.table_name, row.column_name),
+  }));
 }
 
 async function runRoleProbe(client, roleName, schemaName, tableName) {
@@ -486,10 +1394,49 @@ export function renderMarkdown(report) {
     report.evidence.sequence_acl_privileges ?? [],
     "sequence_name",
   );
+  const columnPrivileges = groupedPrivileges(
+    report.evidence.column_acl_privileges ?? [],
+    "column_key",
+  );
+  const routinePrivileges = groupedPrivileges(
+    report.evidence.routine_acl_privileges ?? [],
+    "routine_name",
+  );
   const schemaPrivileges = groupedPrivileges(
     report.evidence.schema_acl_privileges ?? [],
     "schema_name",
   );
+  const defaultPrivilegeEvaluation = checks.find(
+    (check) => check.name === "default_privileges",
+  )?.evidence?.evaluation;
+  const conditionalTypeUsage =
+    defaultPrivilegeEvaluation?.conditional_type_usage ?? [];
+  const futureFunctionDefaultGrants = (
+    defaultPrivilegeEvaluation?.hazardous_default_grants ?? []
+  ).filter(
+    (grant) =>
+      grant.object_type === "functions" && grant.privilege_type === "EXECUTE",
+  );
+  const externalPrivilegeEvaluation = checks.find(
+    (check) => check.name === "all_non_owner_schema_object_privileges",
+  )?.evidence;
+  const reviewedManagedCapabilities =
+    externalPrivilegeEvaluation?.reviewed_managed_capabilities ?? {};
+  const reviewedCapabilityEvidenceAvailable = Boolean(
+    externalPrivilegeEvaluation?.reviewed_managed_capabilities,
+  );
+  const reviewedCapabilityCount = reviewedCapabilityEvidenceAvailable
+    ? Object.values(reviewedManagedCapabilities).reduce(
+        (total, rows) => total + (Array.isArray(rows) ? rows.length : 0),
+        0,
+      )
+    : null;
+  const reviewedGroupCount = (group) =>
+    !reviewedCapabilityEvidenceAvailable
+      ? null
+      : Array.isArray(reviewedManagedCapabilities[group])
+        ? reviewedManagedCapabilities[group].length
+        : 0;
   const lines = [
     "# Circles Supabase PostgreSQL security audit",
     "",
@@ -560,7 +1507,10 @@ export function renderMarkdown(report) {
     "## Roles, effective permissions, and probes",
     "",
     `- Restricted role inspected: \`${report.runtime_role}\` (required: NOLOGIN, NOINHERIT, NOSUPERUSER, NOBYPASSRLS).`,
-    `- External-role catalog grants to schema/tables/sequences: ${report.summary.external_catalog_grants === 0 ? "**none detected**" : `**${report.summary.external_catalog_grants} detected**`}.`,
+    `- Ordinary/API/runtime effective or direct privilege findings: ${report.summary.external_catalog_grants === 0 ? "**none detected**" : `**${report.summary.external_catalog_grants ?? "unknown"} detected or incomplete**`}.`,
+    `- Reviewed provider-managed effective capabilities retained as separate evidence: **${toMarkdownCell(reviewedCapabilityCount)}** (${toMarkdownCell(externalPrivilegeEvaluation?.reviewed_effective_privilege_counts?.schema)} schema, ${toMarkdownCell(externalPrivilegeEvaluation?.reviewed_effective_privilege_counts?.tables)} table, ${toMarkdownCell(externalPrivilegeEvaluation?.reviewed_effective_privilege_counts?.columns)} column, ${toMarkdownCell(externalPrivilegeEvaluation?.reviewed_effective_privilege_counts?.sequences)} sequence, ${toMarkdownCell(externalPrivilegeEvaluation?.reviewed_effective_privilege_counts?.routines)} routine rows).`,
+    `- Unsafe transfer path from a reviewed privileged role to an untrusted role: **${toMarkdownCell(externalPrivilegeEvaluation?.unsafe_privileged_membership_paths?.length)}** (required: 0).`,
+    `- Roles cataloged for complete-matrix evaluation: **${toMarkdownCell(report.evidence.roles?.length)}**; membership edges recorded: **${toMarkdownCell(report.evidence.role_memberships?.length)}**.`,
     `- Backend app-table and marker read-only probe: **${toMarkdownCell(report.evidence.backend_probe?.app_select)}** / **${toMarkdownCell(report.evidence.backend_probe?.marker_select)}**.`,
     `- Marker catalog DML privilege result: **${report.summary.marker_dml_denied ? "denied as required" : "not denied"}**. No DML statement was issued.`,
     "",
@@ -574,7 +1524,37 @@ export function renderMarkdown(report) {
       ]),
     ),
     "",
-    "### Explicit schema ACL metadata",
+    "### Effective capability classification",
+    "",
+    markdownTable(
+      ["Classification", "Effective rows", "Reviewed exact names"],
+      [
+        [
+          "Ordinary/API/runtime or other unreviewed roles (failing)",
+          report.summary.external_catalog_grants ?? "unknown",
+          "none",
+        ],
+        [
+          "Built-in non-login capabilities (reviewed)",
+          reviewedGroupCount("builtin_non_login_capabilities"),
+          "pg_read_all_data, pg_write_all_data, pg_maintain",
+        ],
+        [
+          "Provider superuser (reviewed)",
+          reviewedGroupCount("provider_superuser"),
+          "supabase_admin",
+        ],
+        [
+          "Managed admin roles (reviewed)",
+          reviewedGroupCount("managed_admin_roles"),
+          "supabase_etl_admin, supabase_read_only_user",
+        ],
+      ],
+    ),
+    "",
+    "> `has_*_privilege` metadata records an effective catalog capability (including inheritance or PUBLIC) only. It is **not** a demonstrated RLS row exposure, a row-returning query, or Data API exposure. Ordinary/API roles still fail closed; the listed provider-managed roles are retained for review rather than mislabeled as anonymous data exposure.",
+    "",
+    "### Schema ACL metadata",
     "",
     schemaPrivileges.length
       ? markdownTable(
@@ -587,7 +1567,7 @@ export function renderMarkdown(report) {
         )
       : "No explicit schema ACL rows returned.",
     "",
-    "### Explicit table ACL metadata",
+    "### Table ACL metadata",
     "",
     tablePrivileges.length
       ? markdownTable(
@@ -600,7 +1580,7 @@ export function renderMarkdown(report) {
         )
       : "No explicit table ACL rows returned.",
     "",
-    "### Explicit sequence ACL metadata",
+    "### Sequence ACL metadata",
     "",
     sequencePrivileges.length
       ? markdownTable(
@@ -613,24 +1593,77 @@ export function renderMarkdown(report) {
         )
       : "No explicit sequence ACL rows returned.",
     "",
+    "### Column ACL metadata",
+    "",
+    columnPrivileges.length
+      ? markdownTable(
+          ["Table/column", "Grantee", "Privileges"],
+          columnPrivileges.map((row) => [
+            row.column_key,
+            row.grantee,
+            row.privileges.join(", "),
+          ]),
+        )
+      : "No column-specific ACL rows returned.",
+    "",
+    "### Routine ACL metadata",
+    "",
+    routinePrivileges.length
+      ? markdownTable(
+          ["Routine", "Grantee", "Privileges"],
+          routinePrivileges.map((row) => [
+            row.routine_name,
+            row.grantee,
+            row.privileges.join(", "),
+          ]),
+        )
+      : "No routine ACL rows returned.",
+    "",
     "### Default privileges",
+    "",
+    (report.evidence.default_privilege_contexts ?? []).length
+      ? markdownTable(
+          [
+            "Defining owner",
+            "Object type",
+            "Global override configured",
+            "Schema-additive ACL configured",
+          ],
+          report.evidence.default_privilege_contexts.map((row) => [
+            row.defining_owner,
+            row.object_type,
+            row.global_override_configured,
+            row.schema_additive_acl_configured,
+          ]),
+        )
+      : "Default-ACL creator/type context was unavailable.",
     "",
     (report.evidence.default_privileges ?? []).length
       ? markdownTable(
           [
             "Defining owner",
             "Object type",
-            "Explicit ACL entry count",
-            "ACL metadata",
+            "ACL source",
+            "Grantee",
+            "Privilege",
           ],
           report.evidence.default_privileges.map((row) => [
             row.defining_owner,
             row.object_type,
-            row.explicit_acl_entry_count,
-            row.acl_metadata,
+            row.acl_source,
+            row.grantee,
+            `${row.privilege_type}${row.is_grantable ? " (grantable)" : ""}`,
           ]),
         )
-      : "No schema-scoped default-ACL records were returned. Absence is recorded as metadata, not assumed to prove external gateway exposure settings.",
+      : "No non-owner effective default privilege row was returned after global-override and schema-additive merging.",
+    "",
+    conditionalTypeUsage.length
+      ? `> **Conditional future type usage:** ${conditionalTypeUsage.length} default TYPE USAGE row(s) were retained as metadata. Current non-owner schema USAGE is **${toMarkdownCell(defaultPrivilegeEvaluation?.schema_usage_for_current_nonowners)}**; TYPE USAGE is not part of the 22-table contract and does not by itself establish current Data API disclosure. It becomes relevant if schema USAGE or an exposure path changes.`
+      : "No conditional default TYPE USAGE row was returned.",
+    "",
+    futureFunctionDefaultGrants.length
+      ? `> **Future function risk:** ${futureFunctionDefaultGrants.length} default function EXECUTE grant(s) remain a genuine risk for future private-schema functions and are retained as failing evidence.`
+      : "No default function EXECUTE grant was returned.",
     "",
     "## Functions and schema-exposure indicators",
     "",
@@ -699,14 +1732,30 @@ async function collectEvidence(client, schemaName, runtimeRole) {
     client,
     `
     SELECT parent.rolname AS parent_role,
-           member.rolname AS member_role
+           member.rolname AS member_role,
+           grantor.rolname AS grantor_role,
+           membership.inherit_option,
+           membership.set_option,
+           membership.admin_option
     FROM pg_auth_members AS membership
     JOIN pg_roles AS parent ON parent.oid = membership.roleid
     JOIN pg_roles AS member ON member.oid = membership.member
-    WHERE member.rolname = $1
-    ORDER BY parent.rolname
-    LIMIT 20`,
-    [runtimeRole],
+    JOIN pg_roles AS grantor ON grantor.oid = membership.grantor
+    ORDER BY parent.rolname, member.rolname, grantor.rolname,
+             membership.inherit_option, membership.set_option, membership.admin_option`,
+  );
+
+  const rolesResult = await queryCatalog(
+    client,
+    `
+    SELECT r.rolname AS role_name,
+           r.rolcanlogin AS can_login,
+           r.rolinherit AS inherits,
+           r.rolsuper AS is_superuser,
+           r.rolbypassrls AS bypasses_rls,
+           (r.oid < 16384) AS is_catalog_builtin
+    FROM pg_roles AS r
+    ORDER BY r.rolname`,
   );
 
   const schemaResult = await queryCatalog(
@@ -734,8 +1783,7 @@ async function collectEvidence(client, schemaName, runtimeRole) {
     JOIN pg_namespace AS n ON n.oid = c.relnamespace
     WHERE n.nspname = $1
       AND c.relkind IN ('r', 'p')
-    ORDER BY c.relname
-    LIMIT 50`,
+    ORDER BY c.relname`,
     [schemaName],
   );
 
@@ -750,8 +1798,7 @@ async function collectEvidence(client, schemaName, runtimeRole) {
            p.with_check AS with_check_qualification
     FROM pg_policies AS p
     WHERE p.schemaname = $1
-    ORDER BY p.tablename, p.policyname
-    LIMIT 100`,
+    ORDER BY p.tablename, p.policyname`,
     [schemaName],
   );
 
@@ -763,8 +1810,7 @@ async function collectEvidence(client, schemaName, runtimeRole) {
     FROM pg_policies AS p
     WHERE p.schemaname = $1
     GROUP BY p.tablename
-    ORDER BY p.tablename
-    LIMIT 50`,
+    ORDER BY p.tablename`,
     [schemaName],
   );
 
@@ -772,6 +1818,7 @@ async function collectEvidence(client, schemaName, runtimeRole) {
     client,
     `
     SELECT n.nspname AS schema_name,
+           pg_get_userbyid(n.nspowner) AS owner,
            COALESCE(grantee.rolname, 'PUBLIC') AS grantee,
            privilege.privilege_type AS privilege_type,
            privilege.is_grantable AS is_grantable
@@ -779,8 +1826,7 @@ async function collectEvidence(client, schemaName, runtimeRole) {
     CROSS JOIN LATERAL aclexplode(COALESCE(n.nspacl, acldefault('n', n.nspowner))) AS privilege
     LEFT JOIN pg_roles AS grantee ON grantee.oid = privilege.grantee
     WHERE n.nspname = $1
-    ORDER BY grantee, privilege.privilege_type
-    LIMIT 100`,
+    ORDER BY grantee, privilege.privilege_type`,
     [schemaName],
   );
 
@@ -788,6 +1834,7 @@ async function collectEvidence(client, schemaName, runtimeRole) {
     client,
     `
     SELECT c.relname AS table_name,
+           pg_get_userbyid(c.relowner) AS owner,
            COALESCE(grantee.rolname, 'PUBLIC') AS grantee,
            privilege.privilege_type AS privilege_type,
            privilege.is_grantable AS is_grantable
@@ -797,8 +1844,46 @@ async function collectEvidence(client, schemaName, runtimeRole) {
     LEFT JOIN pg_roles AS grantee ON grantee.oid = privilege.grantee
     WHERE n.nspname = $1
       AND c.relkind IN ('r', 'p')
-    ORDER BY c.relname, grantee, privilege.privilege_type
-    LIMIT 500`,
+    ORDER BY c.relname, grantee, privilege.privilege_type`,
+    [schemaName],
+  );
+
+  const columnsResult = await queryCatalog(
+    client,
+    `
+    SELECT c.relname AS table_name,
+           a.attname AS column_name,
+           pg_get_userbyid(c.relowner) AS owner
+    FROM pg_class AS c
+    JOIN pg_namespace AS n ON n.oid = c.relnamespace
+    JOIN pg_attribute AS a ON a.attrelid = c.oid
+    WHERE n.nspname = $1
+      AND c.relkind IN ('r', 'p')
+      AND a.attnum > 0
+      AND NOT a.attisdropped
+    ORDER BY c.relname, a.attnum`,
+    [schemaName],
+  );
+
+  const columnAclResult = await queryCatalog(
+    client,
+    `
+    SELECT c.relname AS table_name,
+           a.attname AS column_name,
+           pg_get_userbyid(c.relowner) AS owner,
+           COALESCE(grantee.rolname, 'PUBLIC') AS grantee,
+           privilege.privilege_type AS privilege_type,
+           privilege.is_grantable AS is_grantable
+    FROM pg_class AS c
+    JOIN pg_namespace AS n ON n.oid = c.relnamespace
+    JOIN pg_attribute AS a ON a.attrelid = c.oid
+    CROSS JOIN LATERAL aclexplode(a.attacl) AS privilege
+    LEFT JOIN pg_roles AS grantee ON grantee.oid = privilege.grantee
+    WHERE n.nspname = $1
+      AND c.relkind IN ('r', 'p')
+      AND a.attnum > 0
+      AND NOT a.attisdropped
+    ORDER BY c.relname, a.attnum, grantee, privilege.privilege_type`,
     [schemaName],
   );
 
@@ -812,8 +1897,7 @@ async function collectEvidence(client, schemaName, runtimeRole) {
     JOIN pg_namespace AS n ON n.oid = c.relnamespace
     WHERE n.nspname = $1
       AND c.relkind = 'S'
-    ORDER BY c.relname
-    LIMIT 100`,
+    ORDER BY c.relname`,
     [schemaName],
   );
 
@@ -821,6 +1905,7 @@ async function collectEvidence(client, schemaName, runtimeRole) {
     client,
     `
     SELECT c.relname AS sequence_name,
+           pg_get_userbyid(c.relowner) AS owner,
            COALESCE(grantee.rolname, 'PUBLIC') AS grantee,
            privilege.privilege_type AS privilege_type,
            privilege.is_grantable AS is_grantable
@@ -830,44 +1915,98 @@ async function collectEvidence(client, schemaName, runtimeRole) {
     LEFT JOIN pg_roles AS grantee ON grantee.oid = privilege.grantee
     WHERE n.nspname = $1
       AND c.relkind = 'S'
-    ORDER BY c.relname, grantee, privilege.privilege_type
-    LIMIT 500`,
+    ORDER BY c.relname, grantee, privilege.privilege_type`,
+    [schemaName],
+  );
+
+  const defaultContextsResult = await queryCatalog(
+    client,
+    `
+    WITH object_types(object_type, object_kind) AS (
+      VALUES ('tables'::text, 'r'::"char"), ('sequences'::text, 'S'::"char"),
+             ('functions'::text, 'f'::"char"), ('types'::text, 'T'::"char")
+    ), eligible_creators(owner_oid) AS (
+      SELECT n.nspowner FROM pg_namespace AS n WHERE n.nspname = $1
+      UNION
+      SELECT role_catalog.oid
+      FROM pg_roles AS role_catalog
+      JOIN pg_namespace AS n ON n.nspname = $1
+      WHERE has_schema_privilege(role_catalog.oid, n.oid, 'CREATE')
+    )
+    SELECT pg_get_userbyid(eligible_creators.owner_oid) AS defining_owner,
+           object_types.object_type,
+           global_acl.oid IS NOT NULL AS global_override_configured,
+           schema_acl.oid IS NOT NULL AS schema_additive_acl_configured
+    FROM eligible_creators
+    CROSS JOIN object_types
+    LEFT JOIN pg_default_acl AS global_acl
+      ON global_acl.defaclnamespace = 0
+     AND global_acl.defaclrole = eligible_creators.owner_oid
+     AND global_acl.defaclobjtype = object_types.object_kind
+    LEFT JOIN pg_namespace AS n ON n.nspname = $1
+    LEFT JOIN pg_default_acl AS schema_acl
+      ON schema_acl.defaclnamespace = n.oid
+     AND schema_acl.defaclrole = eligible_creators.owner_oid
+     AND schema_acl.defaclobjtype = object_types.object_kind
+    ORDER BY defining_owner, object_types.object_type`,
     [schemaName],
   );
 
   const defaultPrivilegesResult = await queryCatalog(
     client,
+    // Global defaults replace PostgreSQL's built-in defaults; schema-specific
+    // entries are additive and cannot revoke a global grant (PostgreSQL 17).
     `
-    SELECT pg_get_userbyid(d.defaclrole) AS defining_owner,
-           CASE d.defaclobjtype
-             WHEN 'r' THEN 'tables'
-             WHEN 'S' THEN 'sequences'
-             WHEN 'f' THEN 'functions'
-             WHEN 'T' THEN 'types'
-             WHEN 'n' THEN 'schemas'
-             ELSE d.defaclobjtype::text
-           END AS object_type,
-           COALESCE(cardinality(d.defaclacl), 0)::integer AS explicit_acl_entry_count,
-           COALESCE(d.defaclacl::text, '{}') AS acl_metadata
-    FROM pg_default_acl AS d
-    JOIN pg_namespace AS n ON n.oid = d.defaclnamespace
-    WHERE n.nspname = $1
-    ORDER BY defining_owner, object_type
-    LIMIT 100`,
+    WITH object_types(object_type, object_kind) AS (
+      VALUES ('tables'::text, 'r'::"char"), ('sequences'::text, 'S'::"char"),
+             ('functions'::text, 'f'::"char"), ('types'::text, 'T'::"char")
+    ), eligible_creators(owner_oid) AS (
+      SELECT n.nspowner FROM pg_namespace AS n WHERE n.nspname = $1
+      UNION
+      SELECT role_catalog.oid
+      FROM pg_roles AS role_catalog
+      JOIN pg_namespace AS n ON n.nspname = $1
+      WHERE has_schema_privilege(role_catalog.oid, n.oid, 'CREATE')
+    ), effective_default_acl AS (
+      SELECT eligible_creators.owner_oid,
+             object_types.object_type,
+             'global'::text AS acl_source,
+             privilege.*
+      FROM eligible_creators
+      CROSS JOIN object_types
+      LEFT JOIN pg_default_acl AS global_acl
+        ON global_acl.defaclnamespace = 0
+       AND global_acl.defaclrole = eligible_creators.owner_oid
+       AND global_acl.defaclobjtype = object_types.object_kind
+      CROSS JOIN LATERAL aclexplode(
+        COALESCE(
+          global_acl.defaclacl,
+          acldefault(object_types.object_kind, eligible_creators.owner_oid)
+        )
+      ) AS privilege
+      UNION ALL
+      SELECT schema_acl.defaclrole AS owner_oid,
+             object_types.object_type,
+             'schema_additive'::text AS acl_source,
+             privilege.*
+      FROM pg_default_acl AS schema_acl
+      JOIN pg_namespace AS n ON n.oid = schema_acl.defaclnamespace
+      JOIN eligible_creators ON eligible_creators.owner_oid = schema_acl.defaclrole
+      JOIN object_types ON object_types.object_kind = schema_acl.defaclobjtype
+      CROSS JOIN LATERAL aclexplode(schema_acl.defaclacl) AS privilege
+      WHERE n.nspname = $1
+    )
+    SELECT pg_get_userbyid(effective_default_acl.owner_oid) AS defining_owner,
+           effective_default_acl.object_type,
+           effective_default_acl.acl_source,
+           COALESCE(grantee.rolname, 'PUBLIC') AS grantee,
+           effective_default_acl.privilege_type,
+           effective_default_acl.is_grantable
+    FROM effective_default_acl
+    LEFT JOIN pg_roles AS grantee ON grantee.oid = effective_default_acl.grantee
+    WHERE effective_default_acl.grantee <> effective_default_acl.owner_oid
+    ORDER BY defining_owner, object_type, acl_source, grantee, privilege_type`,
     [schemaName],
-  );
-
-  const defaultExternalGrantResult = await queryCatalog(
-    client,
-    `
-    SELECT COALESCE(bool_or(COALESCE(grantee.rolname, 'PUBLIC') = ANY($2::text[])), false) AS external_default_grant_detected
-    FROM pg_default_acl AS d
-    JOIN pg_namespace AS n ON n.oid = d.defaclnamespace
-    CROSS JOIN LATERAL aclexplode(d.defaclacl) AS privilege
-    LEFT JOIN pg_roles AS grantee ON grantee.oid = privilege.grantee
-    WHERE n.nspname = $1
-    LIMIT 1`,
-    [schemaName, [...EXTERNAL_ROLES, "PUBLIC"]],
   );
 
   const functionResult = await queryCatalog(
@@ -890,8 +2029,24 @@ async function collectEvidence(client, schemaName, runtimeRole) {
     FROM pg_proc AS p
     JOIN pg_namespace AS n ON n.oid = p.pronamespace
     WHERE n.nspname = $1
-    ORDER BY function_name
-    LIMIT 100`,
+    ORDER BY function_name`,
+    [schemaName],
+  );
+
+  const routineAclResult = await queryCatalog(
+    client,
+    `
+    SELECT p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' AS routine_name,
+           pg_get_userbyid(p.proowner) AS owner,
+           COALESCE(grantee.rolname, 'PUBLIC') AS grantee,
+           privilege.privilege_type AS privilege_type,
+           privilege.is_grantable AS is_grantable
+    FROM pg_proc AS p
+    JOIN pg_namespace AS n ON n.oid = p.pronamespace
+    CROSS JOIN LATERAL aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) AS privilege
+    LEFT JOIN pg_roles AS grantee ON grantee.oid = privilege.grantee
+    WHERE n.nspname = $1
+    ORDER BY routine_name, grantee, privilege.privilege_type`,
     [schemaName],
   );
 
@@ -919,64 +2074,101 @@ async function collectEvidence(client, schemaName, runtimeRole) {
   const externalSchemaResult = await queryCatalog(
     client,
     `
-    WITH target_roles(role_name) AS (
-      VALUES ('anon'::text), ('authenticated'::text), ('service_role'::text)
-    )
-    SELECT target_roles.role_name,
-           has_schema_privilege(target_roles.role_name, $1, 'USAGE') AS has_usage
-    FROM target_roles
-    ORDER BY target_roles.role_name
-    LIMIT 10`,
+    SELECT role_catalog.rolname AS role_name,
+           n.nspname AS schema_name,
+           has_schema_privilege(role_catalog.oid, n.oid, 'USAGE') AS has_usage,
+           has_schema_privilege(role_catalog.oid, n.oid, 'CREATE') AS has_create
+    FROM pg_roles AS role_catalog
+    JOIN pg_namespace AS n ON n.nspname = $1
+    WHERE role_catalog.oid <> n.nspowner
+    ORDER BY role_catalog.rolname`,
     [schemaName],
   );
 
   const externalTableResult = await queryCatalog(
     client,
     `
-    WITH target_roles(role_name) AS (
-      VALUES ('anon'::text), ('authenticated'::text), ('service_role'::text)
-    )
-    SELECT target_roles.role_name,
+    SELECT role_catalog.rolname AS role_name,
            c.relname AS table_name,
-           has_table_privilege(target_roles.role_name, c.oid, 'SELECT') AS can_select,
-           has_table_privilege(target_roles.role_name, c.oid, 'INSERT') AS can_insert,
-           has_table_privilege(target_roles.role_name, c.oid, 'UPDATE') AS can_update,
-           has_table_privilege(target_roles.role_name, c.oid, 'DELETE') AS can_delete
-    FROM target_roles
+           has_table_privilege(role_catalog.oid, c.oid, 'SELECT') AS can_select,
+           has_table_privilege(role_catalog.oid, c.oid, 'INSERT') AS can_insert,
+           has_table_privilege(role_catalog.oid, c.oid, 'UPDATE') AS can_update,
+           has_table_privilege(role_catalog.oid, c.oid, 'DELETE') AS can_delete,
+           has_table_privilege(role_catalog.oid, c.oid, 'TRUNCATE') AS can_truncate,
+           has_table_privilege(role_catalog.oid, c.oid, 'REFERENCES') AS can_references,
+           has_table_privilege(role_catalog.oid, c.oid, 'TRIGGER') AS can_trigger,
+           has_table_privilege(role_catalog.oid, c.oid, 'MAINTAIN') AS can_maintain
+    FROM pg_roles AS role_catalog
     CROSS JOIN pg_class AS c
     JOIN pg_namespace AS n ON n.oid = c.relnamespace
     WHERE n.nspname = $1
       AND c.relkind IN ('r', 'p')
-    ORDER BY target_roles.role_name, c.relname
-    LIMIT 100`,
+      AND role_catalog.oid <> c.relowner
+    ORDER BY role_catalog.rolname, c.relname`,
     [schemaName],
   );
 
   const externalSequenceResult = await queryCatalog(
     client,
     `
-    WITH target_roles(role_name) AS (
-      VALUES ('anon'::text), ('authenticated'::text), ('service_role'::text)
-    )
-    SELECT target_roles.role_name,
+    SELECT role_catalog.rolname AS role_name,
            c.relname AS sequence_name,
-           has_sequence_privilege(target_roles.role_name, c.oid, 'USAGE') AS can_usage,
-           has_sequence_privilege(target_roles.role_name, c.oid, 'SELECT') AS can_select,
-           has_sequence_privilege(target_roles.role_name, c.oid, 'UPDATE') AS can_update
-    FROM target_roles
+           has_sequence_privilege(role_catalog.oid, c.oid, 'USAGE') AS can_usage,
+           has_sequence_privilege(role_catalog.oid, c.oid, 'SELECT') AS can_select,
+           has_sequence_privilege(role_catalog.oid, c.oid, 'UPDATE') AS can_update
+    FROM pg_roles AS role_catalog
     CROSS JOIN pg_class AS c
     JOIN pg_namespace AS n ON n.oid = c.relnamespace
     WHERE n.nspname = $1
       AND c.relkind = 'S'
-    ORDER BY target_roles.role_name, c.relname
-    LIMIT 300`,
+      AND role_catalog.oid <> c.relowner
+    ORDER BY role_catalog.rolname, c.relname`,
+    [schemaName],
+  );
+
+  const externalColumnResult = await queryCatalog(
+    client,
+    `
+    SELECT role_catalog.rolname AS role_name,
+           c.relname AS table_name,
+           a.attname AS column_name,
+           has_column_privilege(role_catalog.oid, c.oid, a.attnum, 'SELECT') AS can_select,
+           has_column_privilege(role_catalog.oid, c.oid, a.attnum, 'INSERT') AS can_insert,
+           has_column_privilege(role_catalog.oid, c.oid, a.attnum, 'UPDATE') AS can_update,
+           has_column_privilege(role_catalog.oid, c.oid, a.attnum, 'REFERENCES') AS can_references
+    FROM pg_roles AS role_catalog
+    CROSS JOIN pg_class AS c
+    JOIN pg_namespace AS n ON n.oid = c.relnamespace
+    JOIN pg_attribute AS a ON a.attrelid = c.oid
+    WHERE n.nspname = $1
+      AND c.relkind IN ('r', 'p')
+      AND a.attnum > 0
+      AND NOT a.attisdropped
+      AND role_catalog.oid <> c.relowner
+    ORDER BY role_catalog.rolname, c.relname, a.attnum`,
+    [schemaName],
+  );
+
+  const externalRoutineResult = await queryCatalog(
+    client,
+    `
+    SELECT role_catalog.rolname AS role_name,
+           p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' AS routine_name,
+           has_function_privilege(role_catalog.oid, p.oid, 'EXECUTE') AS can_execute
+    FROM pg_roles AS role_catalog
+    CROSS JOIN pg_proc AS p
+    JOIN pg_namespace AS n ON n.oid = p.pronamespace
+    WHERE n.nspname = $1
+      AND role_catalog.oid <> p.proowner
+    ORDER BY role_catalog.rolname, routine_name`,
     [schemaName],
   );
 
   const runtimeSchemaResult = await queryCatalog(
     client,
     `
-    SELECT has_schema_privilege($1, $2, 'USAGE') AS has_usage
+    SELECT has_schema_privilege($1, $2, 'USAGE') AS has_usage,
+           has_schema_privilege($1, $2, 'CREATE') AS has_create
     LIMIT 1`,
     [runtimeRole, schemaName],
   );
@@ -988,36 +2180,84 @@ async function collectEvidence(client, schemaName, runtimeRole) {
            has_table_privilege($2, c.oid, 'SELECT') AS can_select,
            has_table_privilege($2, c.oid, 'INSERT') AS can_insert,
            has_table_privilege($2, c.oid, 'UPDATE') AS can_update,
-           has_table_privilege($2, c.oid, 'DELETE') AS can_delete
+           has_table_privilege($2, c.oid, 'DELETE') AS can_delete,
+           has_table_privilege($2, c.oid, 'TRUNCATE') AS can_truncate,
+           has_table_privilege($2, c.oid, 'REFERENCES') AS can_references,
+           has_table_privilege($2, c.oid, 'TRIGGER') AS can_trigger,
+           has_table_privilege($2, c.oid, 'MAINTAIN') AS can_maintain
     FROM pg_class AS c
     JOIN pg_namespace AS n ON n.oid = c.relnamespace
     WHERE n.nspname = $1
       AND c.relkind IN ('r', 'p')
-    ORDER BY c.relname
-    LIMIT 50`,
+    ORDER BY c.relname`,
     [schemaName, runtimeRole],
   );
+
+  const runtimeSequenceResult = await queryCatalog(
+    client,
+    `
+    SELECT c.relname AS sequence_name,
+           has_sequence_privilege($2, c.oid, 'USAGE') AS can_usage,
+           has_sequence_privilege($2, c.oid, 'SELECT') AS can_select,
+           has_sequence_privilege($2, c.oid, 'UPDATE') AS can_update
+    FROM pg_class AS c
+    JOIN pg_namespace AS n ON n.oid = c.relnamespace
+    WHERE n.nspname = $1
+      AND c.relkind = 'S'
+    ORDER BY c.relname`,
+    [schemaName, runtimeRole],
+  );
+
+  const runtimeRoutineResult = await queryCatalog(
+    client,
+    `
+    SELECT p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' AS routine_name,
+           has_function_privilege($2, p.oid, 'EXECUTE') AS can_execute
+    FROM pg_proc AS p
+    JOIN pg_namespace AS n ON n.oid = p.pronamespace
+    WHERE n.nspname = $1
+    ORDER BY routine_name`,
+    [schemaName, runtimeRole],
+  );
+
+  const columns = withColumnKeys(rowsOrNull(columnsResult));
+  const columnAclPrivileges = withColumnKeys(rowsOrNull(columnAclResult));
+  const externalColumnPrivileges = withColumnKeys(
+    rowsOrNull(externalColumnResult),
+  );
+  const functions = rowsOrNull(functionResult)?.map((row) => ({
+    ...row,
+    routine_name: row.function_name,
+  }));
 
   const data = {
     runtime_role: rowsOrNull(roleResult)?.[0] ?? null,
     role_memberships: rowsOrNull(membershipResult),
+    roles: rowsOrNull(rolesResult),
     schema: rowsOrNull(schemaResult)?.[0] ?? null,
     raw_tables: rowsOrNull(tableResult),
     policies: rowsOrNull(policyResult),
     policy_counts: rowsOrNull(policyCountsResult),
     schema_acl_privileges: rowsOrNull(schemaAclResult),
     table_acl_privileges: rowsOrNull(tableAclResult),
+    columns,
+    column_acl_privileges: columnAclPrivileges,
     sequences: rowsOrNull(sequencesResult),
     sequence_acl_privileges: rowsOrNull(sequenceAclResult),
+    default_privilege_contexts: rowsOrNull(defaultContextsResult),
     default_privileges: rowsOrNull(defaultPrivilegesResult),
-    default_external_grant: rowsOrNull(defaultExternalGrantResult)?.[0] ?? null,
-    functions: rowsOrNull(functionResult),
+    functions,
+    routine_acl_privileges: rowsOrNull(routineAclResult),
     schema_exposure_raw: rowsOrNull(exposureResult)?.[0] ?? null,
     external_schema_privileges: rowsOrNull(externalSchemaResult),
     external_table_privileges: rowsOrNull(externalTableResult),
     external_sequence_privileges: rowsOrNull(externalSequenceResult),
+    external_column_privileges: externalColumnPrivileges,
+    external_routine_privileges: rowsOrNull(externalRoutineResult),
     runtime_schema_privilege: rowsOrNull(runtimeSchemaResult)?.[0] ?? null,
     runtime_table_privileges: rowsOrNull(runtimeTableResult),
+    runtime_sequence_privileges: rowsOrNull(runtimeSequenceResult),
+    runtime_routine_privileges: rowsOrNull(runtimeRoutineResult),
   };
   return data;
 }
@@ -1110,10 +2350,11 @@ function checkFromEvaluation(
 }
 
 function hydrateTables(rawTables, policyCounts) {
+  if (!Array.isArray(rawTables) || !Array.isArray(policyCounts)) return null;
   const counts = new Map(
-    (policyCounts ?? []).map((row) => [row.table_name, row.policy_count]),
+    policyCounts.map((row) => [row.table_name, row.policy_count]),
   );
-  return (rawTables ?? []).map((row) => ({
+  return rawTables.map((row) => ({
     ...row,
     policy_count: counts.get(row.table_name) ?? 0,
   }));
@@ -1204,7 +2445,21 @@ export async function runAudit(options) {
       ),
     );
 
-    const evidence = await collectEvidence(client, SCHEMA, runtimeRole);
+    let evidence;
+    let catalogTransactionBegan = false;
+    try {
+      await client.query("BEGIN READ ONLY");
+      catalogTransactionBegan = true;
+      evidence = await collectEvidence(client, SCHEMA, runtimeRole);
+    } finally {
+      if (catalogTransactionBegan) {
+        try {
+          await client.query("ROLLBACK");
+        } catch {
+          // Individual unavailable catalog results remain fail-closed and redacted.
+        }
+      }
+    }
     const expectedAppNames = [...manifest.LEGACY_TABLE_NAMES];
     const expectedNames = [...expectedAppNames, manifest.DATA_MIGRATION_TABLE];
     const tables = hydrateTables(evidence.raw_tables, evidence.policy_counts);
@@ -1217,13 +2472,23 @@ export async function runAudit(options) {
       schema: evidence.schema,
       tables,
       policies,
+      roles: evidence.roles,
       role_memberships: evidence.role_memberships,
-      schema_acl_privileges: evidence.schema_acl_privileges ?? [],
-      table_acl_privileges: evidence.table_acl_privileges ?? [],
-      sequences: evidence.sequences ?? [],
-      sequence_acl_privileges: evidence.sequence_acl_privileges ?? [],
-      default_privileges: evidence.default_privileges ?? [],
+      schema_acl_privileges: evidence.schema_acl_privileges,
+      table_acl_privileges: evidence.table_acl_privileges,
+      columns: evidence.columns,
+      column_acl_privileges: evidence.column_acl_privileges,
+      sequences: evidence.sequences,
+      sequence_acl_privileges: evidence.sequence_acl_privileges,
+      functions: evidence.functions,
+      routine_acl_privileges: evidence.routine_acl_privileges,
+      default_privilege_contexts: evidence.default_privilege_contexts,
+      default_privileges: evidence.default_privileges,
       runtime_role: evidence.runtime_role,
+      runtime_schema_privilege: evidence.runtime_schema_privilege,
+      runtime_table_privileges: evidence.runtime_table_privileges,
+      runtime_sequence_privileges: evidence.runtime_sequence_privileges,
+      runtime_routine_privileges: evidence.runtime_routine_privileges,
     };
 
     const inventory = Array.isArray(evidence.raw_tables)
@@ -1265,14 +2530,17 @@ export async function runAudit(options) {
       ),
     );
 
-    const runtimeRoleEvaluation = evaluateRuntimeRole(evidence.runtime_role);
+    const runtimeRoleEvaluation = evaluateRuntimeRole(
+      evidence.runtime_role,
+      evidence.role_memberships,
+    );
     report.checks.push(
       checkFromEvaluation(
         context,
         "restricted_backend_role_flags",
         runtimeRoleEvaluation,
-        "circles_app_runtime is NOLOGIN, NOINHERIT, NOSUPERUSER, and NOBYPASSRLS.",
-        "circles_app_runtime is absent or has an unsafe role attribute.",
+        "circles_app_runtime is NOLOGIN, NOINHERIT, NOSUPERUSER, NOBYPASSRLS, and has no role-membership elevation path.",
+        "circles_app_runtime is absent, has an unsafe role attribute, or has a role-membership elevation path.",
       ),
     );
 
@@ -1291,46 +2559,54 @@ export async function runAudit(options) {
       ),
     );
 
-    const privilegesAvailable =
-      Array.isArray(evidence.external_schema_privileges) &&
-      Array.isArray(evidence.external_table_privileges) &&
-      Array.isArray(evidence.external_sequence_privileges);
-    const externalPrivilegeEvaluation = privilegesAvailable
-      ? evaluateExternalPrivileges(
-          evidence.external_schema_privileges,
-          evidence.external_table_privileges,
-          evidence.external_sequence_privileges,
-        )
-      : null;
+    const externalPrivilegeEvaluation = evaluateExternalPrivileges({
+      roles: evidence.roles,
+      role_memberships: evidence.role_memberships,
+      schema: evidence.schema,
+      tables: evidence.raw_tables,
+      columns: evidence.columns,
+      sequences: evidence.sequences,
+      routines: evidence.functions,
+      schema_privileges: evidence.external_schema_privileges,
+      table_privileges: evidence.external_table_privileges,
+      column_privileges: evidence.external_column_privileges,
+      sequence_privileges: evidence.external_sequence_privileges,
+      routine_privileges: evidence.external_routine_privileges,
+      schema_acl_privileges: evidence.schema_acl_privileges,
+      table_acl_privileges: evidence.table_acl_privileges,
+      column_acl_privileges: evidence.column_acl_privileges,
+      sequence_acl_privileges: evidence.sequence_acl_privileges,
+      routine_acl_privileges: evidence.routine_acl_privileges,
+    });
     report.checks.push(
       checkFromEvaluation(
         context,
-        "external_schema_table_sequence_privileges",
+        "all_non_owner_schema_object_privileges",
         externalPrivilegeEvaluation,
-        "anon, authenticated, and service_role have no effective USAGE or table/sequence privileges in the private schema.",
-        "One or more external roles have an effective private-schema, table, or sequence privilege.",
+        "Every current non-owner role remains in the complete effective-privilege matrix; no ordinary/API/runtime role has an unsafe effective privilege or direct ACL, and only exact reviewed provider-managed capabilities were separately classified.",
+        "Privilege evidence is incomplete; an ordinary/API/runtime or unreviewed role has an effective privilege; a direct ACL or grant option exists; a reviewed-role identity check failed; or a trusted privileged role reaches an untrusted member.",
       ),
     );
 
-    const defaultPrivilegesEvaluation =
-      evidence.default_external_grant === null
-        ? null
-        : {
-            status: evidence.default_external_grant
-              .external_default_grant_detected
-              ? "fail"
-              : "pass",
-          };
+    const defaultPrivilegesEvaluation = evaluateDefaultPrivileges(
+      evidence.default_privilege_contexts,
+      evidence.default_privileges,
+      schemaUsageForCurrentNonowners(
+        evidence.external_schema_privileges,
+        runtimeRole,
+      ),
+    );
     report.checks.push(
       checkFromEvaluation(
         context,
         "default_privileges",
         defaultPrivilegesEvaluation,
-        "No schema-scoped default privilege grant to PUBLIC, anon, authenticated, or service_role was cataloged.",
-        "A schema-scoped default privilege grants a target external role.",
+        "Every current private-schema creator has no dangerous non-owner effective global or schema-additive default privilege grant; default TYPE USAGE is recorded separately as a conditional future-type condition.",
+        "Effective global-plus-schema default ACL metadata is incomplete or contains a dangerous future-object grant, including function EXECUTE; default TYPE USAGE remains separately recorded rather than treated as current table or Data API disclosure.",
         {
-          default_privileges: evidence.default_privileges ?? [],
-          default_external_grant: evidence.default_external_grant,
+          default_privilege_contexts: evidence.default_privilege_contexts,
+          default_privileges: evidence.default_privileges,
+          evaluation: defaultPrivilegesEvaluation,
         },
       ),
     );
@@ -1349,26 +2625,58 @@ export async function runAudit(options) {
         context,
         "backend_table_privileges_and_marker_dml",
         runtimePrivilegesEvaluation,
-        "Backend has all application-table DML privileges, marker SELECT, and no marker INSERT/UPDATE/DELETE privilege (catalog verification only).",
-        "Backend application privileges or marker read-only privilege boundary differs from the expected design.",
+        "Backend has all application-table DML privileges, marker SELECT, and no TRUNCATE/REFERENCES/TRIGGER/MAINTAIN or marker DML privilege (catalog verification only).",
+        "Backend application privileges, destructive table privileges, or marker read-only privilege boundary differs from the expected design.",
+      ),
+    );
+
+    const runtimeSequenceEvaluation =
+      Array.isArray(evidence.sequences) &&
+      Array.isArray(evidence.runtime_sequence_privileges)
+        ? evaluateRuntimeSequencePrivileges(
+            evidence.sequences,
+            evidence.runtime_sequence_privileges,
+          )
+        : null;
+    report.checks.push(
+      checkFromEvaluation(
+        context,
+        "backend_sequence_privileges",
+        runtimeSequenceEvaluation,
+        "Backend has required USAGE/SELECT and no UPDATE privilege on every private sequence.",
+        "Backend sequence privilege metadata is incomplete or differs from the required USAGE/SELECT-only boundary.",
+      ),
+    );
+
+    const runtimeRoutineEvaluation =
+      Array.isArray(evidence.functions) &&
+      Array.isArray(evidence.runtime_routine_privileges)
+        ? evaluateRuntimeRoutinePrivileges(
+            evidence.functions,
+            evidence.runtime_routine_privileges,
+          )
+        : null;
+    report.checks.push(
+      checkFromEvaluation(
+        context,
+        "backend_routine_privileges",
+        runtimeRoutineEvaluation,
+        "Backend has no EXECUTE privilege on any current private-schema routine.",
+        "Backend routine privilege metadata is incomplete or grants EXECUTE in the private schema.",
       ),
     );
 
     const runtimeSchemaEvaluation =
       evidence.runtime_schema_privilege === null
         ? null
-        : {
-            status: evidence.runtime_schema_privilege.has_usage
-              ? "pass"
-              : "fail",
-          };
+        : evaluateRuntimeSchemaPrivileges(evidence.runtime_schema_privilege);
     report.checks.push(
       checkFromEvaluation(
         context,
-        "backend_schema_usage",
+        "backend_schema_usage_and_no_create",
         runtimeSchemaEvaluation,
-        "Backend role has required USAGE on the private schema.",
-        "Backend role lacks required private-schema USAGE.",
+        "Backend role has required private-schema USAGE and no CREATE privilege.",
+        "Backend schema privilege metadata is incomplete, lacks required USAGE, or permits CREATE.",
       ),
     );
 
@@ -1451,13 +2759,27 @@ export async function runAudit(options) {
 
     report.summary = {
       expected_table_count: expectedNames.length,
-      cataloged_table_count: tables.length,
-      external_catalog_grants: externalPrivilegeEvaluation
-        ? externalPrivilegeEvaluation.schema_usage_roles.length +
-          externalPrivilegeEvaluation.table_grants.length +
-          externalPrivilegeEvaluation.sequence_grants.length
+      cataloged_table_count: tables?.length ?? null,
+      external_catalog_grants: externalPrivilegeEvaluation?.unauthorized
+        ? Object.values(externalPrivilegeEvaluation.unauthorized).reduce(
+            (total, rows) => total + rows.length,
+            0,
+          )
         : null,
+      reviewed_provider_managed_capability_flags:
+        externalPrivilegeEvaluation?.reviewed_effective_privilege_counts
+          ? {
+              total:
+                externalPrivilegeEvaluation.reviewed_effective_privilege_total,
+              by_category:
+                externalPrivilegeEvaluation.reviewed_effective_privilege_counts,
+            }
+          : null,
+      unsafe_privileged_membership_paths:
+        externalPrivilegeEvaluation?.unsafe_privileged_membership_paths
+          ?.length ?? null,
       marker_dml_denied: runtimePrivilegesEvaluation?.marker_read_only ?? null,
+      runtime_sequence_boundary: runtimeSequenceEvaluation?.status ?? "unknown",
       function_risk_status: functionEvaluation?.status ?? "unknown",
       schema_exposure_indicator: exposure.status,
     };
@@ -1475,7 +2797,10 @@ export async function runAudit(options) {
       expected_table_count: 22,
       cataloged_table_count: null,
       external_catalog_grants: null,
+      reviewed_provider_managed_capability_flags: null,
+      unsafe_privileged_membership_paths: null,
       marker_dml_denied: null,
+      runtime_sequence_boundary: "unknown",
       function_risk_status: "unknown",
       schema_exposure_indicator: "unknown",
     };
@@ -1506,8 +2831,8 @@ function usage() {
   return [
     "Usage: node circles-supabase-security-audit.mjs [options]",
     "  --project-dir <path>      Circles project root (default: /home/ubuntu/circles)",
-    "  --json-output <path>      Write structured metadata-only JSON report",
-    "  --markdown-output <path>  Write human-readable Markdown report",
+    "  --json-output <path>      Required new private JSON path outside the Git tree",
+    "  --markdown-output <path>  Required new private Markdown path outside the Git tree",
     "  --help                    Show this help",
   ].join("\n");
 }
@@ -1527,20 +2852,21 @@ async function main() {
     console.log(usage());
     return;
   }
+  let outputPaths;
+  try {
+    outputPaths = await validateOutputPaths(options);
+  } catch {
+    console.error(
+      "Security audit output paths are invalid or already exist. Use --help for requirements.",
+    );
+    process.exitCode = 2;
+    return;
+  }
   const report = await runAudit(options);
   const json = `${JSON.stringify(report, null, 2)}\n`;
   const markdown = renderMarkdown(report);
   try {
-    if (options.jsonOutput)
-      await writeFile(options.jsonOutput, json, {
-        encoding: "utf8",
-        mode: 0o600,
-      });
-    if (options.markdownOutput)
-      await writeFile(options.markdownOutput, markdown, {
-        encoding: "utf8",
-        mode: 0o600,
-      });
+    await writePrivateReportPair(outputPaths, json, markdown);
   } catch {
     console.error(
       "Security audit completed but requested report output could not be written.",
@@ -1549,7 +2875,7 @@ async function main() {
     return;
   }
   console.log(
-    `Security audit ${statusWord(report.overall_status)}. JSON: ${options.jsonOutput ?? "not requested"}; Markdown: ${options.markdownOutput ?? "not requested"}.`,
+    `Security audit ${statusWord(report.overall_status)}. JSON and Markdown were written as new private files.`,
   );
   if (report.overall_status !== "pass") process.exitCode = 1;
 }

@@ -14,7 +14,8 @@ export type LiveMediaProps = {
   streamId: number;
   host: boolean;
   onError?: (message: string) => void;
-  onReady?: () => void;
+  /** Hosts receive their owned join generation; viewers receive no argument. */
+  onReady?: (generation?: number) => void;
 };
 
 type SignalKind = "join" | "offer" | "answer" | "ice" | "leave";
@@ -142,6 +143,7 @@ export default function LiveMedia({
     let viewerRestarting = false;
     let viewerMediaReady = false;
     let terminal = false;
+    let pageHideHandler: (() => void) | null = null;
 
     const report = (error: unknown) => {
       if (terminateLiveTransportForError(error, terminate)) return;
@@ -538,14 +540,21 @@ export default function LiveMedia({
       }
     };
 
-    let hostedStreamEnded = false;
-    const endHostedStream = () => {
-      if (hostedStreamEnded) return;
-      hostedStreamEnded = true;
-      void api.live.end.mutate({ streamId }).catch(() => undefined);
+    let hostedStreamEndPromise: Promise<void> | null = null;
+    const endHostedStream = (ownedGeneration: number): Promise<void> => {
+      if (hostedStreamEndPromise) return hostedStreamEndPromise;
+      const ending = api.live.end
+        .mutate({ streamId, generation: ownedGeneration })
+        .then(
+          () => undefined,
+          () => undefined,
+        );
+      hostedStreamEndPromise = ending;
+      return ending;
     };
 
-    const initialise = async () => {
+    const initialise = async (): Promise<number | null> => {
+      let ownedHostGeneration: number | null = null;
       try {
         const session = await api.live.join.mutate({ streamId });
         generation = session.generation;
@@ -553,17 +562,28 @@ export default function LiveMedia({
         hostGeneration = session.hostGeneration;
         cursor = session.signalCursor;
         joined = true;
-        if (!active) return;
+        ownedHostGeneration = host ? session.generation : null;
+        if (!active) return ownedHostGeneration;
         await applyRelayCredentials(session.ice, false);
 
         if (host) {
+          const hostCleanupGeneration = ownedHostGeneration;
+          if (hostCleanupGeneration === null) {
+            throw new Error("Host live media generation is unavailable.");
+          }
+          pageHideHandler = () => {
+            if (!terminal) void endHostedStream(hostCleanupGeneration);
+          };
+          if (typeof window !== "undefined") {
+            window.addEventListener("pagehide", pageHideHandler);
+          }
           const stream = await navigator.mediaDevices.getUserMedia({
             audio: true,
             video: { facingMode: "user" },
           });
           if (!active) {
             stream.getTracks().forEach((track) => track.stop());
-            return;
+            return ownedHostGeneration;
           }
           localStreamRef.current = stream;
           if (localVideo) {
@@ -572,10 +592,14 @@ export default function LiveMedia({
           }
           // Do not expose this stream to viewers until camera capture has really
           // completed and the server has accepted the host heartbeat.
-          await api.live.heartbeat.mutate({ streamId, ready: true });
-          if (!active) return;
+          await api.live.heartbeat.mutate({
+            streamId,
+            ready: true,
+            generation: hostCleanupGeneration,
+          });
+          if (!active) return ownedHostGeneration;
           setStatus("Live");
-          callbackRef.current.onReady?.();
+          callbackRef.current.onReady?.(hostCleanupGeneration);
         } else {
           setStatus("Waiting for host video…");
         }
@@ -584,28 +608,35 @@ export default function LiveMedia({
         if (active) pollTimer = setInterval(() => void poll(), 900);
         if (active) {
           heartbeatTimer = setInterval(() => {
-            void api.live.heartbeat.mutate({ streamId }).catch(report);
+            const heartbeatGeneration = host
+              ? ownedHostGeneration
+              : generation;
+            if (heartbeatGeneration === null) return;
+            void api.live.heartbeat
+              .mutate({ streamId, generation: heartbeatGeneration })
+              .catch(report);
           }, 5_000);
         }
+        return ownedHostGeneration;
       } catch (error) {
         report(error);
-        if (host && !terminal && !teardownController.signal.aborted) {
-          endHostedStream();
+        if (
+          host &&
+          ownedHostGeneration !== null &&
+          !terminal &&
+          !teardownController.signal.aborted
+        ) {
+          void endHostedStream(ownedHostGeneration);
         }
+        return ownedHostGeneration;
       }
     };
 
     const initialisePromise = initialise();
-    const onPageHide = () => {
-      if (host && !terminal) endHostedStream();
-    };
-    if (typeof window !== "undefined") {
-      window.addEventListener("pagehide", onPageHide);
-    }
     return () => {
       active = false;
-      if (typeof window !== "undefined") {
-        window.removeEventListener("pagehide", onPageHide);
+      if (typeof window !== "undefined" && pageHideHandler) {
+        window.removeEventListener("pagehide", pageHideHandler);
       }
       stopTransport();
 
@@ -614,13 +645,27 @@ export default function LiveMedia({
       // or stream change still releases the membership after join settles.
       if (!terminal && !host) {
         void initialisePromise.then(async () => {
-          if (joined && !teardownController.signal.aborted) {
-            await api.live.leave.mutate({ streamId }).catch(() => undefined);
+          const leavingGeneration = generation;
+          if (
+            joined &&
+            leavingGeneration !== null &&
+            !teardownController.signal.aborted
+          ) {
+            // The server applies this only if this effect's media generation is
+            // still current, so a delayed cleanup cannot revoke a replacement.
+            await api.live.leave
+              .mutate({ streamId, generation: leavingGeneration })
+              .catch(() => undefined);
           }
         });
       } else if (!terminal) {
-        void initialisePromise.then(() => {
-          if (!teardownController.signal.aborted) endHostedStream();
+        void initialisePromise.then((ownedHostGeneration) => {
+          if (
+            ownedHostGeneration !== null &&
+            !teardownController.signal.aborted
+          ) {
+            void endHostedStream(ownedHostGeneration);
+          }
         });
       }
     };

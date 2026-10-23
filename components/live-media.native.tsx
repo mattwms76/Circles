@@ -22,7 +22,8 @@ export type LiveMediaProps = {
   streamId: number;
   host: boolean;
   onError?: (message: string) => void;
-  onReady?: () => void;
+  /** Hosts receive their owned join generation; viewers receive no argument. */
+  onReady?: (generation?: number) => void;
 };
 
 type SignalKind = "join" | "offer" | "answer" | "ice" | "leave";
@@ -50,12 +51,23 @@ type LiveApi = {
         ice: LiveTurnCredentials | null;
       }>;
     };
-    leave: { mutate(input: { streamId: number }): Promise<{ success: true }> };
-    end: { mutate(input: { streamId: number }): Promise<{ success: true }> };
+    leave: {
+      mutate(input: {
+        streamId: number;
+        generation: number;
+      }): Promise<{ success: true }>;
+    };
+    end: {
+      mutate(input: {
+        streamId: number;
+        generation: number;
+      }): Promise<{ success: true }>;
+    };
     heartbeat: {
       mutate(input: {
         streamId: number;
         ready?: boolean;
+        generation: number;
       }): Promise<{ success: true }>;
     };
     signals: {
@@ -268,7 +280,14 @@ export default function LiveMedia({
   useEffect(() => {
     if (expoGoMessage) {
       callbackRef.current.onError?.(expoGoMessage);
-      if (host) void api.live.end.mutate({ streamId }).catch(() => undefined);
+      if (host) {
+        void api.live.join
+          .mutate({ streamId })
+          .then(({ generation }) =>
+            api.live.end.mutate({ streamId, generation }),
+          )
+          .catch(() => undefined);
+      }
       return;
     }
 
@@ -691,7 +710,21 @@ export default function LiveMedia({
       }
     };
 
-    const initialise = async () => {
+    let hostedStreamEndPromise: Promise<void> | null = null;
+    const endHostedStream = (ownedGeneration: number): Promise<void> => {
+      if (hostedStreamEndPromise) return hostedStreamEndPromise;
+      const ending = api.live.end
+        .mutate({ streamId, generation: ownedGeneration })
+        .then(
+          () => undefined,
+          () => undefined,
+        );
+      hostedStreamEndPromise = ending;
+      return ending;
+    };
+
+    const initialise = async (): Promise<number | null> => {
+      let ownedHostGeneration: number | null = null;
       try {
         const session = await api.live.join.mutate({ streamId });
         generation = session.generation;
@@ -699,26 +732,35 @@ export default function LiveMedia({
         hostGeneration = session.hostGeneration;
         cursor = session.signalCursor;
         joined = true;
-        if (!active) return;
+        ownedHostGeneration = host ? session.generation : null;
+        if (!active) return ownedHostGeneration;
         await applyRelayCredentials(session.ice, false);
 
         if (host) {
+          const hostCleanupGeneration = ownedHostGeneration;
+          if (hostCleanupGeneration === null) {
+            throw new Error("Host live media generation is unavailable.");
+          }
           const stream = await webRtc.mediaDevices.getUserMedia({
             audio: true,
             video: { facingMode: "user" },
           });
           if (!active) {
             stream.getTracks().forEach((track) => track.stop());
-            return;
+            return ownedHostGeneration;
           }
           localStreamRef.current = stream;
           setStreamURL(stream.toURL());
           // The stream is discoverable only after a successful native capture
           // and a server-side ready heartbeat, never merely after create().
-          await api.live.heartbeat.mutate({ streamId, ready: true });
-          if (!active) return;
+          await api.live.heartbeat.mutate({
+            streamId,
+            ready: true,
+            generation: hostCleanupGeneration,
+          });
+          if (!active) return ownedHostGeneration;
           setStatus("Live");
-          callbackRef.current.onReady?.();
+          callbackRef.current.onReady?.(hostCleanupGeneration);
         } else {
           setStatus("Waiting for host video…");
         }
@@ -727,18 +769,26 @@ export default function LiveMedia({
         if (active) pollTimer = setInterval(() => void poll(), 900);
         if (active) {
           heartbeatTimer = setInterval(() => {
-            void api.live.heartbeat.mutate({ streamId }).catch(report);
+            const heartbeatGeneration = host
+              ? ownedHostGeneration
+              : generation;
+            if (heartbeatGeneration === null) return;
+            void api.live.heartbeat
+              .mutate({ streamId, generation: heartbeatGeneration })
+              .catch(report);
           }, 5_000);
         }
+        return ownedHostGeneration;
       } catch (error) {
         report(error);
-        if (host && !terminal) {
-          void api.live.end.mutate({ streamId }).catch(() => undefined);
+        if (host && ownedHostGeneration !== null && !terminal) {
+          void endHostedStream(ownedHostGeneration);
         }
+        return ownedHostGeneration;
       }
     };
 
-    const initialisePromise = (async () => {
+    const initialisePromise = (async (): Promise<number | null> => {
       try {
         // Dynamic loading remains behind the Expo Go guard, so the stock Expo
         // client never evaluates an unlinked react-native-webrtc module.
@@ -747,17 +797,17 @@ export default function LiveMedia({
           throw new Error("The native WebRTC module is incomplete.");
         }
         webRtc = nativeModule;
-        if (!active) return;
+        if (!active) return null;
         setRTCView(() => webRtc.RTCView);
-        await initialise();
+        return await initialise();
       } catch {
-        if (!active) return;
+        if (!active) return null;
         nativeModuleUnavailable = true;
         const message =
           "Live video native support is unavailable. Rebuild the app with the WebRTC config plugin.";
         setStatus(message);
         callbackRef.current.onError?.(message);
-        if (host) void api.live.end.mutate({ streamId }).catch(() => undefined);
+        return null;
       }
     })();
     return () => {
@@ -767,14 +817,21 @@ export default function LiveMedia({
       // Setup must settle before a joined viewer can leave. If another effect
       // took over meanwhile, it owns the membership and no stale cleanup can
       // terminate the replacement session.
-      void initialisePromise.then(async () => {
+      void initialisePromise.then(async (ownedHostGeneration) => {
         if (!lifecycle.isCurrent(lifecycleToken)) return;
         if (terminal || nativeModuleUnavailable) {
           lifecycle.complete(lifecycleToken);
         } else if (!host && joined) {
-          await api.live.leave.mutate({ streamId }).catch(() => undefined);
-        } else if (host) {
-          await api.live.end.mutate({ streamId }).catch(() => undefined);
+          const leavingGeneration = generation;
+          if (leavingGeneration !== null) {
+            // A new effect can join while this setup settles. The server-side
+            // generation CAS makes this cleanup a no-op for that replacement.
+            await api.live.leave
+              .mutate({ streamId, generation: leavingGeneration })
+              .catch(() => undefined);
+          }
+        } else if (host && ownedHostGeneration !== null) {
+          await endHostedStream(ownedHostGeneration);
         }
         lifecycle.complete(lifecycleToken);
       });

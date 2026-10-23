@@ -4,7 +4,7 @@ import {
   AXIOS_TIMEOUT_MS,
 } from "../../shared/const.js";
 import { ForbiddenError } from "../../shared/_core/errors.js";
-import axios, { type AxiosInstance } from "axios";
+import { create as createAxios, type AxiosInstance } from "axios";
 import { parse as parseCookieHeader } from "cookie";
 import type { Request } from "express";
 import { SignJWT, jwtVerify } from "jose";
@@ -46,7 +46,7 @@ const GET_USER_INFO_PATH = `/webdev.v1.WebDevAuthPublicService/GetUserInfo`;
 const GET_USER_INFO_WITH_JWT_PATH = `/webdev.v1.WebDevAuthPublicService/GetUserInfoWithJwt`;
 
 class OAuthService {
-  constructor(private client: ReturnType<typeof axios.create>) {
+  constructor(private client: AxiosInstance) {
     console.log("[OAuth] Client initialized");
     if (!ENV.oAuthServerUrl) {
       console.error(
@@ -111,7 +111,7 @@ class OAuthService {
 }
 
 const createOAuthHttpClient = (): AxiosInstance =>
-  axios.create({
+  createAxios({
     baseURL: ENV.oAuthServerUrl,
     timeout: AXIOS_TIMEOUT_MS,
   });

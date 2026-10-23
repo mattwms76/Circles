@@ -18,14 +18,14 @@ The production database backup includes the relevant rows and canonical storage 
 
 - The inventory opens `REPEATABLE READ READ ONLY`, has a 5-second lock timeout and 30-second statement timeout, reads only `socialUploads` metadata plus aggregate reference counts, and stops at configured object/byte caps (defaults: **250 objects**, **200 MiB** total; hard caps: 1,000 objects/500 MiB).
 - It accepts only exact Circles managed-upload keys, exact canonical `/manus-storage/<key>` URLs, and the application MIME allowlist. It never accepts an arbitrary storage key, URL, file path, role, or SQL identifier.
-- Byte export requests only `GET /api/media/<validated-key>` on an explicit bare HTTPS `*.manus.computer` origin (or loopback for a controlled synthetic test). Redirects are refused; no Forge/S3/Supabase Storage provider credential is read or requested.
+- Byte export requests only `GET /api/media/<validated-key>` on an explicit canonical origin. A public HTTPS target must exactly equal the already-injected canonical `EXPO_PUBLIC_API_BASE_URL`; this binds a bearer-bearing export to the current app rather than every `*.manus.computer` host. Loopback HTTP(S) remains available for controlled synthetic tests. Redirects are refused; no Forge/S3/Supabase Storage provider credential is read or requested.
 - A separate owner-held bearer file is required only to call the existing protected application endpoint. It must be regular, owner-owned, non-symlinked, and `0600` (or stricter); it is never logged. The tool cannot escalate that bearer or bypass per-object authorization.
 - Plaintext inventory and input files must live in an owner-owned `0700` directory. The script creates every transient directory as `0700`, every plaintext file as `0600`, destroys transient contents, and writes only an `0600` age ciphertext as final export output.
 - The exporter validates the backup repository recipient against its currently approved public `age1…` recipient. It does **not** read an age identity. It uses `age` with the public recipient only; no plaintext package is an output artifact.
 
 ## Operator procedure
 
-Use only in a controlled owner shell with the already approved, injected PostgreSQL runtime configuration. The tool never loads `.env` files. This is not an instruction to request, print, or put a database URL on a command line.
+Use only in a controlled owner shell with the already approved, injected PostgreSQL runtime configuration and the current canonical `EXPO_PUBLIC_API_BASE_URL`. The tool never loads `.env` files. This is not an instruction to request, print, or put a database URL on a command line.
 
 1. Make an owner-only directory and arrange a protected runtime where the existing database configuration is already injected. Do not use the live database as a restore target.
 2. Produce a bounded metadata inventory (this is read-only):
@@ -47,7 +47,7 @@ Use only in a controlled owner shell with the already approved, injected Postgre
 
    The output contains only aggregate object/byte/reference counts. An inventory failure or cap breach is not a partial-success condition.
 
-4. If an authorized recovery principal is available **and is able to read every inventory object**, place only its bearer in `/private/circles-continuity/media-auth.json` as `{"bearerToken":"..."}` with mode `0600`. Supply the current approved public recipient file from the separate backup repository, not a private identity, and export a single separate ciphertext:
+4. If an authorized recovery principal is available **and is able to read every inventory object**, first confirm the injected `EXPO_PUBLIC_API_BASE_URL` is the current canonical app origin. Place only its bearer in `/private/circles-continuity/media-auth.json` as `{"bearerToken":"..."}` with mode `0600`. Supply that same exact origin as `--media-origin`, the current approved public recipient file from the separate backup repository, not a private identity, and export a single separate ciphertext:
 
    ```bash
    node scripts/recovery-continuity.mjs --export \

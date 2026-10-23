@@ -13,6 +13,7 @@ import {
   getLegacySessionCookieOptions,
   getSessionCookieName,
   getSessionCookieOptions,
+  isSecureRequest,
 } from "../server/_core/cookies";
 import {
   LEGACY_COOKIE_NAME,
@@ -236,6 +237,26 @@ describe("Mobile API origin and cookie isolation", () => {
         secure: true,
       });
     }
+  });
+
+  it("accepts forwarded HTTPS only from the configured loopback Preview contract", () => {
+    vi.stubEnv("EXPO_WEB_PREVIEW_URL", "https://preview.example.test");
+    const base = {
+      protocol: "http",
+      headers: { "x-forwarded-proto": "https" },
+      socket: { remoteAddress: "203.0.113.22" },
+    } as unknown as Request;
+    expect(isSecureRequest(base)).toBe(false);
+    expect(
+      isSecureRequest({
+        ...base,
+        headers: {
+          "x-forwarded-proto": "https",
+          "x-manus-preview-proxy": "1",
+        },
+        socket: { remoteAddress: "127.0.0.1" },
+      } as unknown as Request),
+    ).toBe(true);
   });
 
   it("ignores the old parent-domain cookie when the project cookie is also present", () => {

@@ -980,9 +980,11 @@ async function runReloadFlow({ fixture, apiBaseUrl, fetchImpl }) {
 async function runTeardownFlow({ fixture, apiBaseUrl, fetchImpl }) {
   const host = accountFromFixture(fixture, "host");
   const streamId = idFromFixture(fixture, "streamId");
+  const generation = idFromFixture(fixture, "hostGeneration");
   if (
     !host ||
     !streamId ||
+    !generation ||
     !mutableAccountIsNominated(fixture, "host") ||
     fixture?.mutations?.teardownStreamId !== streamId
   ) {
@@ -990,14 +992,14 @@ async function runTeardownFlow({ fixture, apiBaseUrl, fetchImpl }) {
       check(
         "live.teardown",
         "BLOCKED",
-        "host_or_stream_not_explicitly_nominated_for_teardown",
+        "host_stream_or_generation_not_explicitly_nominated_for_teardown",
       ),
     ];
   }
   const ended = await mutate({
     apiBaseUrl,
     procedure: "live.end",
-    input: { streamId },
+    input: { streamId, generation },
     account: host,
     fetchImpl,
   });
