@@ -61,9 +61,22 @@ jobs:
         run: |
           set -euo pipefail
           trap 'docker rm --force circles-api-validation >/dev/null 2>&1 || true' EXIT
+          # Production must reject a wholly untrusted/missing runtime environment.
+          if docker run --rm circles-api-validation:local >/tmp/circles-missing-runtime.log 2>&1; then
+            printf 'missing trusted production configuration was incorrectly accepted\n'
+            exit 1
+          fi
           export MANUS_JWT_SECRET
           MANUS_JWT_SECRET=$(openssl rand -hex 32)
-          docker run --detach --name circles-api-validation --publish 127.0.0.1:13000:3000 --env MANUS_JWT_SECRET circles-api-validation:local >/dev/null
+          # These are non-secret placeholders, never a production DB/account/provider.
+          # The invalid DSN fails locally before any external connection is attempted.
+          docker run --detach --name circles-api-validation --publish 127.0.0.1:13000:3000 \
+            --env MANUS_JWT_SECRET \
+            --env MANUS_PROJECT_ID=synthetic-container-validation \
+            --env MANUS_OAUTH_API_URL=https://oauth-api.example.invalid \
+            --env MANUS_OAUTH_PORTAL_URL=https://oauth.example.invalid \
+            --env SUPABASE_DATABASE_URL=synthetic-invalid-dsn \
+            circles-api-validation:local >/dev/null
           for attempt in $(seq 1 30); do
             if curl --fail --silent http://127.0.0.1:13000/api/health > /tmp/circles-container-health.json; then break; fi
             sleep 1
