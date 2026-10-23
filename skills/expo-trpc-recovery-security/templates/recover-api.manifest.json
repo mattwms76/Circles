@@ -47,7 +47,9 @@
         "limit": 20
       }
     },
-    "onboarding.status": {},
+    "onboarding.status": {
+      "input": {}
+    },
     "onboarding.recommendations": {
       "input": {
         "limit": 6
@@ -57,6 +59,18 @@
       "input": {}
     },
     "circleHome.get": {
+      "input": {}
+    },
+    "activity.list": {
+      "input": {}
+    },
+    "activity.unreadCount": {
+      "input": {}
+    },
+    "activity.preferences": {
+      "input": {}
+    },
+    "activity.resolveTarget": {
       "input": {}
     }
   }

@@ -13,7 +13,7 @@ export type ReadinessEvidence = {
 export function readinessFromEvidence(evidence: ReadinessEvidence | null) {
   const database =
     evidence?.runtime_role === "circles_app_runtime" &&
-    Number(evidence.app_table_count) === 22;
+    Number(evidence.app_table_count) === 25;
   const oauthState = database && evidence?.oauth_store_ready === true;
   return { ok: database && oauthState, database, oauthState };
 }

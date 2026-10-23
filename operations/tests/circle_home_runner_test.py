@@ -25,9 +25,10 @@ spec.loader.exec_module(runner)
 
 
 class RunnerSafety(unittest.TestCase):
-    def simulate(self, *, stop_fails=False, partial_start=False):
+    def simulate(self, *, stop_fails=False, partial_start=False, suite="circle-home"):
         folder = Path(tempfile.mkdtemp(prefix="circle-home-runner-unit-"))
         calls = []
+        processes = []
         evidence = None
         try:
             def tooling(argv, env, **_kwargs):
@@ -40,6 +41,7 @@ class RunnerSafety(unittest.TestCase):
                     raise RuntimeError("fixed synthetic stop failure")
 
             def process(argv, **_kwargs):
+                processes.append(argv)
                 if argv[-1] == "--version":
                     output = "initdb (PostgreSQL) 17.11\n" if "initdb" in argv[0] else "v22.23.4\n"
                     return types.SimpleNamespace(returncode=0, stdout=output)
@@ -52,9 +54,9 @@ class RunnerSafety(unittest.TestCase):
                  patch.object(runner, "apply_fixture_schema"), \
                  patch.object(runner.subprocess, "run", side_effect=process), \
                  contextlib.redirect_stdout(output):
-                code = runner.main()
+                code = runner.main(["--suite", suite])
             evidence = json.loads(output.getvalue().splitlines()[-1])
-            return code, evidence, calls, folder.exists()
+            return code, evidence, calls, processes, folder.exists()
         finally:
             if folder.exists():
                 shutil.rmtree(folder)
@@ -72,15 +74,26 @@ class RunnerSafety(unittest.TestCase):
         self.assertEqual(env["NODE_ENV"], "test")
 
     def test_clean_success_removes_fixture(self):
-        code, evidence, calls, remains = self.simulate()
+        code, evidence, calls, _processes, remains = self.simulate()
         self.assertEqual(code, 0)
         self.assertTrue(evidence["passed"])
         self.assertTrue(evidence["disposable_fixture_removed"])
         self.assertFalse(remains)
         self.assertTrue(any(call[-1] == "stop" for call in calls))
+        activity_code, activity_evidence, _activity_calls, processes, activity_remains = self.simulate(suite="activity")
+        self.assertEqual(activity_code, 0)
+        self.assertEqual(activity_evidence["suite"], "activity-isolated-http-e2e")
+        self.assertFalse(activity_remains)
+        activity_run = next(argv for argv in processes if "vitest.mjs" in argv[1])
+        self.assertEqual(activity_run[activity_run.index("--config") + 1], "e2e/activity.e2e.config.ts")
+        with patch.object(Path, "is_file", return_value=True):
+            self.assertEqual(
+                runner.fixture_migrations("activity")[-2:],
+                runner.ACTIVITY_MIGRATIONS,
+            )
 
     def test_stop_failure_cannot_report_success_or_remove_live_data(self):
-        code, evidence, calls, remains = self.simulate(stop_fails=True)
+        code, evidence, calls, _processes, remains = self.simulate(stop_fails=True)
         self.assertEqual(code, 1)
         self.assertFalse(evidence["passed"])
         self.assertFalse(evidence["disposable_fixture_removed"])
@@ -88,13 +101,12 @@ class RunnerSafety(unittest.TestCase):
         self.assertTrue(any("immediate" in call for call in calls))
 
     def test_partial_start_timeout_still_stops_its_owned_cluster(self):
-        code, evidence, calls, remains = self.simulate(partial_start=True)
+        code, evidence, calls, _processes, remains = self.simulate(partial_start=True)
         self.assertEqual(code, 1)
         self.assertFalse(evidence["passed"])
         self.assertTrue(evidence["disposable_fixture_removed"])
         self.assertTrue(any(call[-1] == "stop" for call in calls))
         self.assertFalse(remains)
-
 
 if __name__ == "__main__":
     unittest.main()

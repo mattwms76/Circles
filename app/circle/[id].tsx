@@ -11,12 +11,14 @@ import {
   CircleHomeEditor,
   CircleHomePanel,
 } from "@/components/circle-home-panel";
+import { CircleActivityPreference } from "@/components/activity-preferences";
 import { PostCard } from "@/components/post-card";
 import {
   canReadCircleHome,
   circleHomeScopeKey,
   resolveCircleHomeUiState,
 } from "@/lib/circle-home-ui";
+import { canUseCircleActivityPreferences } from "@/lib/activity-ui";
 import {
   Avatar,
   Button,
@@ -584,6 +586,13 @@ export default function CircleScreen() {
                           ? "We couldn’t confirm this circle’s guidelines right now."
                           : "Circle guidelines aren’t available right now."}
                 </T>
+              )}
+              {user && canUseCircleActivityPreferences(group.role) && (
+                <CircleActivityPreference
+                  key={`activity-preferences:${circleId}:${user.id}`}
+                  viewerId={user.id}
+                  circleId={circleId}
+                />
               )}
               {group.joined && group.role !== "owner" && (
                 <Button

@@ -14,7 +14,7 @@ describe("private backend readiness", () => {
     expect(
       readinessFromEvidence({
         runtime_role: "postgres",
-        app_table_count: 22,
+        app_table_count: 25,
         oauth_store_ready: true,
       }).ok,
     ).toBe(false);
@@ -23,7 +23,7 @@ describe("private backend readiness", () => {
     expect(
       readinessFromEvidence({
         runtime_role: "circles_app_runtime",
-        app_table_count: 22,
+        app_table_count: 25,
         oauth_store_ready: false,
       }),
     ).toEqual({ ok: false, database: true, oauthState: false });
@@ -41,7 +41,7 @@ describe("private backend readiness", () => {
     expect(
       readinessFromEvidence({
         runtime_role: "circles_app_runtime",
-        app_table_count: 22,
+        app_table_count: 25,
         oauth_store_ready: true,
       }).ok,
     ).toBe(true);

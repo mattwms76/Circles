@@ -33,6 +33,7 @@ export const SESSION_INDEXES = Object.freeze([
   "application_sessions_expiry_idx",
 ]);
 export const REQUIRED_IDENTITY_SEQUENCES = Object.freeze({
+  activityItems: "activityItems_id_seq",
   users: "users_id_seq",
   profiles: "profiles_id_seq",
   circles: "circles_id_seq",
@@ -57,6 +58,29 @@ export const REQUIRED_IDENTITY_TABLES = Object.freeze(
 
 /** Exact private app table/column contract; catalog reads never select user rows. */
 export const REQUIRED_APPLICATION_COLUMNS = Object.freeze({
+  activityItems: Object.freeze([
+    "id",
+    "recipientId",
+    "actorId",
+    "kind",
+    "sourceId",
+    "circleId",
+    "postId",
+    "createdAt",
+    "readAt",
+  ]),
+  activityPreferences: Object.freeze([
+    "recipientId",
+    "commentsEnabled",
+    "membershipApprovalsEnabled",
+    "updatedAt",
+  ]),
+  activityCirclePreferences: Object.freeze([
+    "recipientId",
+    "circleId",
+    "muted",
+    "updatedAt",
+  ]),
   users: Object.freeze([
     "id",
     "openId",
@@ -232,6 +256,18 @@ export const REQUIRED_APPLICATION_TABLES = Object.freeze(
   Object.keys(REQUIRED_APPLICATION_COLUMNS),
 );
 export const REQUIRED_RUNTIME_POLICIES = Object.freeze({
+  activityItems: Object.freeze({
+    name: "runtime_activity_items_policy",
+    command: "*",
+  }),
+  activityPreferences: Object.freeze({
+    name: "runtime_activity_preferences_policy",
+    command: "*",
+  }),
+  activityCirclePreferences: Object.freeze({
+    name: "runtime_activity_circle_preferences_policy",
+    command: "*",
+  }),
   users: Object.freeze({ name: "runtime_users_policy", command: "*" }),
   profiles: Object.freeze({ name: "runtime_profiles_policy", command: "*" }),
   circles: Object.freeze({ name: "runtime_circles_policy", command: "*" }),
@@ -336,6 +372,7 @@ const SAFE_RUNTIME_KEYS = new Set([
 
 const ALLOWED_SERVICE_NAME = "circles-api";
 const SOURCE_ROUTERS = Object.freeze([
+  { file: "server/activity-router.ts", namespace: "activity", indent: 2 },
   { file: "server/social-router.ts", namespace: "social", indent: 2 },
   { file: "server/onboarding-router.ts", namespace: "onboarding", indent: 2 },
   { file: "server/circle-home-router.ts", namespace: "circleHome", indent: 2 },
@@ -350,6 +387,21 @@ const SOURCE_ROUTERS = Object.freeze([
  * never guessed or invoked.
  */
 const ENDPOINT_DEFINITIONS = Object.freeze({
+  "activity.list": {
+    expected: "activity-page",
+    requiresAuth: true,
+    input: { limit: 20 },
+  },
+  "activity.unreadCount": { expected: "activity-unread", requiresAuth: true },
+  "activity.preferences": {
+    expected: "activity-preferences",
+    requiresAuth: true,
+  },
+  "activity.resolveTarget": {
+    expected: "activity-target",
+    requiresAuth: true,
+    identifier: { source: "activityId", field: "id" },
+  },
   "auth.me": { expected: "authenticated-object", requiresAuth: true },
   "onboarding.introductionTarget": {
     expected: "object",
@@ -1172,6 +1224,117 @@ function trpcPayload(text) {
 
 function expectedShape(value, expected) {
   if (expected === "array") return Array.isArray(value);
+  if (expected.startsWith("activity-")) {
+    const id = (number) => positiveInteger(number) && number <= 2_147_483_647;
+    const exact = (object, fields) =>
+      plainObject(object) &&
+      fields.every((field) => field in object) &&
+      Object.keys(object).every((field) => fields.includes(field));
+    const timestamp = (text) =>
+      typeof text === "string" &&
+      text.length <= 64 &&
+      Number.isFinite(Date.parse(text));
+    const label = (text) =>
+      text === null ||
+      (typeof text === "string" && Array.from(text).length <= 140);
+    if (!plainObject(value) || !id(value.viewerId)) return false;
+    if (expected === "activity-page") {
+      if (
+        !exact(value, ["viewerId", "items", "nextCursor"]) ||
+        !Array.isArray(value.items) ||
+        value.items.length > 40
+      )
+        return false;
+      const items = value.items;
+      if (
+        !items.every(
+          (item, index) =>
+            exact(item, [
+              "id",
+              "kind",
+              "createdAt",
+              "readAt",
+              "available",
+              "actorName",
+              "circleName",
+            ]) &&
+            id(item.id) &&
+            (index === 0 || items[index - 1].id > item.id) &&
+            ["comment_on_your_post", "membership_approved"].includes(
+              item.kind,
+            ) &&
+            timestamp(item.createdAt) &&
+            (item.readAt === null || timestamp(item.readAt)) &&
+            typeof item.available === "boolean" &&
+            label(item.actorName) &&
+            label(item.circleName) &&
+            (item.available ||
+              (item.actorName === null && item.circleName === null)),
+        )
+      )
+        return false;
+      return (
+        value.nextCursor === null ||
+        (exact(value.nextCursor, ["beforeId"]) &&
+          id(value.nextCursor.beforeId) &&
+          items.length > 0 &&
+          value.nextCursor.beforeId === items[items.length - 1].id)
+      );
+    }
+    if (expected === "activity-unread") {
+      return (
+        exact(value, ["viewerId", "count", "throughId"]) &&
+        Number.isInteger(value.count) &&
+        value.count >= 0 &&
+        value.count <= 2_147_483_647 &&
+        Number.isInteger(value.throughId) &&
+        value.throughId >= 0 &&
+        value.throughId <= 2_147_483_647 &&
+        (value.count === 0 || value.throughId > 0)
+      );
+    }
+    if (expected === "activity-preferences") {
+      return (
+        exact(value, [
+          "viewerId",
+          "commentsEnabled",
+          "membershipApprovalsEnabled",
+          "circle",
+        ]) &&
+        typeof value.commentsEnabled === "boolean" &&
+        typeof value.membershipApprovalsEnabled === "boolean" &&
+        (value.circle === null ||
+          (exact(value.circle, ["id", "name", "muted"]) &&
+            id(value.circle.id) &&
+            typeof value.circle.name === "string" &&
+            Array.from(value.circle.name).length <= 140 &&
+            typeof value.circle.muted === "boolean"))
+      );
+    }
+    if (expected === "activity-target") {
+      if (
+        !exact(value, ["viewerId", "activityId", "target"]) ||
+        !id(value.activityId)
+      )
+        return false;
+      const target = value.target;
+      if (target === null) return true;
+      if (exact(target, ["type", "circleId"]) && target.type === "circle")
+        return id(target.circleId);
+      if (!exact(target, ["type", "post"]) || target.type !== "post")
+        return false;
+      const post = target.post;
+      return (
+        plainObject(post) &&
+        id(post.id) &&
+        (post.circleId === null || id(post.circleId)) &&
+        typeof post.text === "string" &&
+        plainObject(post.author) &&
+        id(post.author.id)
+      );
+    }
+    return false;
+  }
   if (expected === "circle-home-object") {
     const fields = [
       "circleId",

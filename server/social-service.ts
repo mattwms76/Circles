@@ -66,6 +66,10 @@ import {
   type CircleHomeTextInput,
 } from "../shared/circle-home";
 import { getDb, type CirclesDatabase, type CirclesTransaction } from "./db";
+import {
+  recordCommentActivity,
+  recordMembershipApprovalActivity,
+} from "./activity-events";
 
 export type CircleRole = "owner" | "moderator" | "member" | "pending";
 type ApprovedCircleRole = Exclude<CircleRole, "pending">;
@@ -830,6 +834,41 @@ async function postOutputWithDb(
     saved: savedRows.length > 0,
     createdAt: toIso(post.createdAt),
   };
+}
+
+/**
+ * Activity resolution repeats current post/context and approved-membership checks before
+ * mapping the ordinary Post DTO. A former circle item can never be treated as global.
+ */
+export async function getActivityPostTarget(
+  viewerId: number,
+  postId: number,
+  expectedCircleId: number | null,
+): Promise<Post | null> {
+  const db = await requireDb();
+  return db.transaction(async (tx) => {
+    const rows = await tx
+      .select({ circleId: posts.circleId })
+      .from(posts)
+      .where(eq(posts.id, postId))
+      .limit(1);
+    const post = rows[0];
+    if (!post || post.circleId !== expectedCircleId) return null;
+    if (expectedCircleId !== null) {
+      const role = await membershipRoleWithDb(tx, viewerId, expectedCircleId);
+      if (!isApprovedCircleRole(role)) return null;
+    }
+    try {
+      await assertPostAccess(tx, viewerId, postId);
+      return await postOutputWithDb(tx, postId, viewerId);
+    } catch (error) {
+      // A deletion/revocation may win after the verified lookup. Do not sanitize operational errors.
+      if (error instanceof TRPCError && (error.code === "NOT_FOUND" || error.code === "FORBIDDEN")) {
+        return null;
+      }
+      throw error;
+    }
+  });
 }
 
 async function circleHomeOutputWithDb(
@@ -1794,7 +1833,7 @@ export async function approveMember(
         "Only an owner or moderator may approve a pending member",
       );
     }
-    await tx
+    const approved = await tx
       .update(memberships)
       .set({ role: "member", updatedAt: new Date() })
       .where(
@@ -1802,7 +1841,18 @@ export async function approveMember(
           eq(memberships.circleId, circleId),
           eq(memberships.userId, targetUserId),
         ),
-      );
+      )
+      .returning({ id: memberships.id });
+    const membershipId = approved[0]?.id;
+    if (!membershipId) {
+      socialError("INTERNAL_SERVER_ERROR", "Unable to approve the pending member");
+    }
+    await recordMembershipApprovalActivity(tx, {
+      recipientId: targetUserId,
+      actorId,
+      sourceId: membershipId,
+      circleId,
+    });
   });
   return { success: true };
 }
@@ -1938,7 +1988,7 @@ export async function createComment(
   const db = await requireDb();
   await ensureProfileWithDb(db, userId);
   const row = await db.transaction(async (tx) => {
-    await assertPostAccessForProtectedMutation(tx, userId, postId);
+    const access = await assertPostAccessForProtectedMutation(tx, userId, postId);
     const created = await tx
       .insert(comments)
       .values({ authorId: userId, postId, text: text.trim() })
@@ -1947,7 +1997,16 @@ export async function createComment(
         text: comments.text,
         createdAt: comments.createdAt,
       });
-    return created[0];
+    const row = created[0];
+    if (!row) socialError("INTERNAL_SERVER_ERROR", "Unable to create comment");
+    await recordCommentActivity(tx, {
+      recipientId: access.post.authorId,
+      actorId: userId,
+      sourceId: row.id,
+      postId,
+      circleId: access.post.circleId,
+    });
+    return row;
   });
   if (!row) socialError("INTERNAL_SERVER_ERROR", "Unable to create comment");
   return {
