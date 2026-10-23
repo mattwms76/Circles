@@ -25,7 +25,9 @@ import {
 const temporaryDirectories: string[] = [];
 
 function temporaryDirectory() {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "circles-recover-api-"));
+  const directory = fs.mkdtempSync(
+    path.join(os.tmpdir(), "circles-recover-api-"),
+  );
   temporaryDirectories.push(directory);
   return directory;
 }
@@ -53,7 +55,9 @@ function configuration() {
   };
 }
 
-function clearedEnvironment(overrides: Record<string, string | undefined> = {}) {
+function clearedEnvironment(
+  overrides: Record<string, string | undefined> = {},
+) {
   return {
     NODE_ENV: "test",
     PATH: process.env.PATH ?? "/usr/bin:/bin",
@@ -85,12 +89,14 @@ const liveSignalsInput = z
   })
   .strict();
 
-function mockTrpcFetch(
-  calls: MockCall[],
-) {
+function mockTrpcFetch(calls: MockCall[]) {
   return async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(
-      typeof input === "string" ? input : input instanceof URL ? input.href : input.url,
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.href
+          : input.url,
     );
     const route = url.pathname.replace("/api/trpc/", "");
     const headers = new Headers(init?.headers);
@@ -99,23 +105,38 @@ function mockTrpcFetch(
     const queryInput = encodedInput
       ? (JSON.parse(encodedInput) as { json?: unknown }).json
       : undefined;
-    calls.push({ route, method: init?.method ?? "GET", authenticated, input: queryInput });
-    if (route === "live.signals" && !liveSignalsInput.safeParse(queryInput).success) {
-      return new Response(JSON.stringify({ error: { data: { code: "BAD_REQUEST" } } }), {
-        status: 400,
-      });
+    calls.push({
+      route,
+      method: init?.method ?? "GET",
+      authenticated,
+      input: queryInput,
+    });
+    if (
+      ["live.signals", "live.relay"].includes(route) &&
+      !liveSignalsInput.safeParse(queryInput).success
+    ) {
+      return new Response(
+        JSON.stringify({ error: { data: { code: "BAD_REQUEST" } } }),
+        {
+          status: 400,
+        },
+      );
     }
     const protectedRoute = [
       "auth.me",
       "social.conversations",
       "social.messages",
       "live.signals",
+      "live.relay",
       "live.chat",
     ].includes(route);
     if (protectedRoute && !authenticated && route !== "auth.me") {
-      return new Response(JSON.stringify({ error: { data: { code: "UNAUTHORIZED" } } }), {
-        status: 401,
-      });
+      return new Response(
+        JSON.stringify({ error: { data: { code: "UNAUTHORIZED" } } }),
+        {
+          status: 401,
+        },
+      );
     }
     const value =
       route === "auth.me"
@@ -124,9 +145,11 @@ function mockTrpcFetch(
           : null
         : route === "system.health"
           ? { ok: true }
-          : ["social.circle", "social.profile"].includes(route)
-            ? { id: 1 }
-            : [];
+          : route === "live.relay"
+            ? { ice: null }
+            : ["social.circle", "social.profile"].includes(route)
+              ? { id: 1 }
+              : [];
     return new Response(JSON.stringify({ result: { data: { json: value } } }), {
       status: 200,
       headers: { "content-type": "application/json" },
@@ -156,22 +179,34 @@ describe("guarded API recovery", () => {
 
     expect(report.ok).toBe(true);
     expect(restartCalls).toBe(1);
-    expect(report.inventory.declaredQueries).toBe(14);
+    expect(report.inventory.declaredQueries).toBe(15);
     expect(report.verification.summary).toMatchObject({
       failed: 0,
       skipped: 0,
-      completedPositiveQueries: 14,
+      completedPositiveQueries: 15,
     });
     expect(calls.every((call) => call.method === "GET")).toBe(true);
-    expect(calls.some((call) => /create|join|send|update|delete|logout|react/.test(call.route))).toBe(false);
+    expect(
+      calls.some((call) =>
+        /create|join|send|update|delete|logout|react/.test(call.route),
+      ),
+    ).toBe(false);
     const signalInputs = calls
       .filter((call) => call.route === "live.signals")
       .map((call) => call.input);
     expect(signalInputs).toEqual([
-      { streamId: existingIds.streamId, generation: existingIds.liveGeneration },
-      { streamId: existingIds.streamId, generation: existingIds.liveGeneration },
+      {
+        streamId: existingIds.streamId,
+        generation: existingIds.liveGeneration,
+      },
+      {
+        streamId: existingIds.streamId,
+        generation: existingIds.liveGeneration,
+      },
     ]);
-    expect(signalInputs.every((input) => liveSignalsInput.safeParse(input).success)).toBe(true);
+    expect(
+      signalInputs.every((input) => liveSignalsInput.safeParse(input).success),
+    ).toBe(true);
   });
 
   it("uses a reviewed live.signals manifest generation when no auth-file generation is supplied", async () => {
@@ -181,11 +216,15 @@ describe("guarded API recovery", () => {
       endpointManifest,
       JSON.stringify({
         version: 1,
-        endpoints: { "live.signals": { input: { generation: 27 } } },
+        endpoints: {
+          "live.signals": { input: { generation: 27 } },
+          "live.relay": { input: { generation: 27 } },
+        },
       }),
     );
     const calls: MockCall[] = [];
-    const { liveGeneration: _liveGeneration, ...idsWithoutGeneration } = existingIds;
+    const { liveGeneration: _liveGeneration, ...idsWithoutGeneration } =
+      existingIds;
 
     const report = await runRecovery({
       mode: "verify-only",
@@ -199,7 +238,9 @@ describe("guarded API recovery", () => {
 
     expect(report.ok).toBe(true);
     expect(
-      calls.filter((call) => call.route === "live.signals").map((call) => call.input),
+      calls
+        .filter((call) => call.route === "live.signals")
+        .map((call) => call.input),
     ).toEqual([
       { streamId: existingIds.streamId, generation: 27 },
       { streamId: existingIds.streamId, generation: 27 },
@@ -208,7 +249,8 @@ describe("guarded API recovery", () => {
 
   it("skips live.signals without a current generation, makes no signals request, and fails strict coverage", async () => {
     const calls: MockCall[] = [];
-    const { liveGeneration: _liveGeneration, ...idsWithoutGeneration } = existingIds;
+    const { liveGeneration: _liveGeneration, ...idsWithoutGeneration } =
+      existingIds;
 
     const report = await runRecovery({
       mode: "verify-only",
@@ -275,7 +317,9 @@ describe("guarded API recovery", () => {
     });
 
     expect(report.ok).toBe(false);
-    expect(JSON.stringify(report.configuration.errors)).toContain("MANUS_JWT_SECRET");
+    expect(JSON.stringify(report.configuration.errors)).toContain(
+      "MANUS_JWT_SECRET",
+    );
     expect(restarted).toBe(false);
     expect(report.restart.attempted).toBe(false);
   });
@@ -298,7 +342,8 @@ describe("guarded API recovery", () => {
   });
 
   it("reports protected verification as incomplete and fails strict mode without an auth file", async () => {
-    const calls: { route: string; method: string; authenticated: boolean }[] = [];
+    const calls: { route: string; method: string; authenticated: boolean }[] =
+      [];
     const report = await runRecovery({
       mode: "apply",
       strict: true,
@@ -367,7 +412,9 @@ describe("guarded API recovery", () => {
 
     expect(report.ok).toBe(false);
     expect(JSON.stringify(report)).not.toContain(secret);
-    expect(JSON.stringify(report)).not.toContain("different-stable-secret-value");
+    expect(JSON.stringify(report)).not.toContain(
+      "different-stable-secret-value",
+    );
     expect(report.configuration.errors).toContainEqual(
       expect.objectContaining({ name: "MANUS_JWT_SECRET" }),
     );
@@ -406,9 +453,9 @@ describe("guarded API recovery", () => {
       }),
     );
 
-    expect(() => loadEndpointManifest(manifestPath, deriveEndpointInventory())).toThrow(
-      "endpoint_manifest_invalid",
-    );
+    expect(() =>
+      loadEndpointManifest(manifestPath, deriveEndpointInventory()),
+    ).toThrow("endpoint_manifest_invalid");
   });
 
   it("blocks restart when a durable-session schema check fails", async () => {
@@ -493,22 +540,31 @@ describe("guarded API recovery", () => {
     let readinessClosed = false;
     const ready = await checkDatabaseReady(configuration(), {
       projectRoot: PROJECT_ROOT,
-      pgModule: makePgModule((query) => {
-        readinessQueries.push(query);
-        return { rows: [{ database_name: "postgres" }] };
-      }, () => {
-        readinessClosed = true;
-      }),
+      pgModule: makePgModule(
+        (query) => {
+          readinessQueries.push(query);
+          return { rows: [{ database_name: "postgres" }] };
+        },
+        () => {
+          readinessClosed = true;
+        },
+      ),
     });
     expect(ready).toBe(true);
     expect(readinessQueries).toEqual([
-      expect.objectContaining({ text: "SELECT current_database() AS database_name", values: [] }),
+      expect.objectContaining({
+        text: "SELECT current_database() AS database_name",
+        values: [],
+      }),
     ]);
-    expect(readinessQueries.every((query) => query.text.startsWith("SELECT"))).toBe(true);
+    expect(
+      readinessQueries.every((query) => query.text.startsWith("SELECT")),
+    ).toBe(true);
     expect(readinessClosed).toBe(true);
 
-    const columns = Object.entries(REQUIRED_APPLICATION_COLUMNS).flatMap(([table, names]) =>
-      names.map((column) => ({ table_name: table, column_name: column })),
+    const columns = Object.entries(REQUIRED_APPLICATION_COLUMNS).flatMap(
+      ([table, names]) =>
+        names.map((column) => ({ table_name: table, column_name: column })),
     );
     const tableRows = REQUIRED_APPLICATION_TABLES.map((table) => ({
       table_name: table,
@@ -522,50 +578,70 @@ describe("guarded API recovery", () => {
     let schemaClosed = false;
     const schema = await checkApplicationSchema(configuration(), {
       projectRoot: PROJECT_ROOT,
-      pgModule: makePgModule((query) => {
-        schemaQueries.push(query);
-        if (query.text.includes("FROM pg_roles")) {
-          return {
-            rows: [{
-              rolname: APPLICATION_RUNTIME_ROLE,
-              rolcanlogin: false,
-              rolinherit: false,
-              rolbypassrls: false,
-              rolsuper: false,
-            }],
-          };
-        }
-        if (query.text.includes("has_schema_privilege")) {
-          return { rows: [{ can_use_schema: true }] };
-        }
-        if (query.text.includes("information_schema.columns")) return { rows: columns };
-        if (query.text.includes("c.relkind IN")) return { rows: tableRows };
-        if (query.text.includes("FROM pg_indexes")) {
-          return { rows: [
-            { indexname: "application_sessions_user_app_idx" },
-            { indexname: "application_sessions_expiry_idx" },
-          ] };
-        }
-        if (query.text.includes("c.relkind = 'S'")) {
-          return { rows: [{ sequence_name: "users_id_seq", can_use_sequence: true }] };
-        }
-        throw new Error("unexpected synthetic catalog query");
-      }, () => {
-        schemaClosed = true;
-      }),
+      pgModule: makePgModule(
+        (query) => {
+          schemaQueries.push(query);
+          if (query.text.includes("FROM pg_roles")) {
+            return {
+              rows: [
+                {
+                  rolname: APPLICATION_RUNTIME_ROLE,
+                  rolcanlogin: false,
+                  rolinherit: false,
+                  rolbypassrls: false,
+                  rolsuper: false,
+                },
+              ],
+            };
+          }
+          if (query.text.includes("has_schema_privilege")) {
+            return { rows: [{ can_use_schema: true }] };
+          }
+          if (query.text.includes("information_schema.columns"))
+            return { rows: columns };
+          if (query.text.includes("c.relkind IN")) return { rows: tableRows };
+          if (query.text.includes("FROM pg_indexes")) {
+            return {
+              rows: [
+                { indexname: "application_sessions_user_app_idx" },
+                { indexname: "application_sessions_expiry_idx" },
+              ],
+            };
+          }
+          if (query.text.includes("c.relkind = 'S'")) {
+            return {
+              rows: [{ sequence_name: "users_id_seq", can_use_sequence: true }],
+            };
+          }
+          throw new Error("unexpected synthetic catalog query");
+        },
+        () => {
+          schemaClosed = true;
+        },
+      ),
     });
     expect(schema).toBe(true);
     expect(schemaQueries).toHaveLength(6);
-    expect(schemaQueries.every((query) => query.text.startsWith("SELECT"))).toBe(true);
-    expect(schemaQueries.every((query) => query.query_timeout === 8_000)).toBe(true);
-    expect(schemaQueries.some((query) => query.text.includes("SELECT 1"))).toBe(false);
+    expect(
+      schemaQueries.every((query) => query.text.startsWith("SELECT")),
+    ).toBe(true);
+    expect(schemaQueries.every((query) => query.query_timeout === 8_000)).toBe(
+      true,
+    );
+    expect(schemaQueries.some((query) => query.text.includes("SELECT 1"))).toBe(
+      false,
+    );
     expect(schemaClosed).toBe(true);
   });
 
   it("fails closed when private-schema catalog evidence or project-local pg is unavailable", async () => {
     const noRls = await checkApplicationSchema(configuration(), {
       projectRoot: PROJECT_ROOT,
-      connectionOptions: () => ({ host: "synthetic", database: "postgres", user: "synthetic" }),
+      connectionOptions: () => ({
+        host: "synthetic",
+        database: "postgres",
+        user: "synthetic",
+      }),
       pgModule: {
         Client: class {
           async connect() {}
@@ -582,7 +658,11 @@ describe("guarded API recovery", () => {
     await expect(
       checkDatabaseReady(configuration(), {
         projectRoot: absentProject,
-        connectionOptions: () => ({ host: "synthetic", database: "postgres", user: "synthetic" }),
+        connectionOptions: () => ({
+          host: "synthetic",
+          database: "postgres",
+          user: "synthetic",
+        }),
       }),
     ).resolves.toBe(false);
   });
@@ -597,15 +677,23 @@ describe("guarded API recovery", () => {
         HOME: "/home/synthetic-operator",
         PM2_HOME: "/home/synthetic-operator/.pm2-existing",
       }),
-      spawn: (_command: string, _args: string[], options: { env: Record<string, string> }) => {
+      spawn: (
+        _command: string,
+        _args: string[],
+        options: { env: Record<string, string> },
+      ) => {
         spawnOptions = options;
         return { status: 0, signal: null };
       },
     });
     expect(preserved.ok).toBe(true);
     expect(spawnOptions?.env.HOME).toBe("/home/synthetic-operator");
-    expect(spawnOptions?.env.PM2_HOME).toBe("/home/synthetic-operator/.pm2-existing");
-    expect(spawnOptions?.env.SUPABASE_DATABASE_URL).toContain("pooler.supabase.com");
+    expect(spawnOptions?.env.PM2_HOME).toBe(
+      "/home/synthetic-operator/.pm2-existing",
+    );
+    expect(spawnOptions?.env.SUPABASE_DATABASE_URL).toContain(
+      "pooler.supabase.com",
+    );
     expect(spawnOptions?.env.DATABASE_URL).toBeUndefined();
 
     let spawned = false;
@@ -619,12 +707,16 @@ describe("guarded API recovery", () => {
         throw new Error("must not spawn");
       },
     });
-    expect(ambiguous).toEqual({ ok: false, reason: "pm2_manager_context_required" });
+    expect(ambiguous).toEqual({
+      ok: false,
+      reason: "pm2_manager_context_required",
+    });
     expect(spawned).toBe(false);
   });
 
   it("runs verify-only against a public Preview origin without any database, schema, or restart action", async () => {
-    const calls: { route: string; method: string; authenticated: boolean }[] = [];
+    const calls: { route: string; method: string; authenticated: boolean }[] =
+      [];
     let databaseChecks = 0;
     let schemaChecks = 0;
     let restarts = 0;
@@ -656,14 +748,17 @@ describe("guarded API recovery", () => {
     expect(databaseChecks).toBe(0);
     expect(schemaChecks).toBe(0);
     expect(restarts).toBe(0);
-    expect(report.inventory.declaredQueries).toBe(14);
+    expect(report.inventory.declaredQueries).toBe(15);
     expect(calls.every((call) => call.method === "GET")).toBe(true);
   });
 
   it("uses an explicit project-dir when the verifier script is bundled outside the source tree", () => {
     const bundledDirectory = temporaryDirectory();
     const bundledScript = path.join(bundledDirectory, "recover-api.mjs");
-    fs.copyFileSync(path.join(PROJECT_ROOT, "scripts", "recover-api.mjs"), bundledScript);
+    fs.copyFileSync(
+      path.join(PROJECT_ROOT, "scripts", "recover-api.mjs"),
+      bundledScript,
+    );
     const child = spawnSync(
       process.execPath,
       [
@@ -686,7 +781,7 @@ describe("guarded API recovery", () => {
     expect(child.status).toBe(1);
     const report = JSON.parse(child.stdout);
     expect(report.configuration.ok).toBe(true);
-    expect(report.inventory.declaredQueries).toBe(14);
+    expect(report.inventory.declaredQueries).toBe(15);
     expect(report.restart.attempted).toBe(false);
     expect(report.database.required).toBe(false);
   });
@@ -709,10 +804,18 @@ describe("guarded API recovery", () => {
       expect.objectContaining({ reason: "environment_file_not_trusted" }),
     );
 
-    const authFile = path.join(directory, "private-auth-path-must-not-appear.json");
-    fs.writeFileSync(authFile, JSON.stringify({ bearerToken: secret, ids: {} }));
+    const authFile = path.join(
+      directory,
+      "private-auth-path-must-not-appear.json",
+    );
+    fs.writeFileSync(
+      authFile,
+      JSON.stringify({ bearerToken: secret, ids: {} }),
+    );
     fs.chmodSync(authFile, 0o640);
-    expect(() => loadVerificationAuth(authFile)).toThrow("environment_file_not_trusted");
+    expect(() => loadVerificationAuth(authFile)).toThrow(
+      "environment_file_not_trusted",
+    );
     const authReport = await runRecovery({
       mode: "verify-only",
       projectDir: PROJECT_ROOT,
@@ -777,9 +880,12 @@ describe("guarded API recovery", () => {
       fetchImpl: (async () => {
         attempts += 1;
         if (attempts === 1) return new Response("not-ready", { status: 503 });
-        return new Response(JSON.stringify({ result: { data: { json: [] } } }), {
-          status: 200,
-        });
+        return new Response(
+          JSON.stringify({ result: { data: { json: [] } } }),
+          {
+            status: 200,
+          },
+        );
       }) as typeof fetch,
       sleep: async () => {
         delays += 1;
@@ -794,16 +900,19 @@ describe("guarded API recovery", () => {
     expect(() => parseCliArguments(["--apply", "--verify-only"])).toThrow(
       "recovery_mode_ambiguous",
     );
-    expect(() => parseCliArguments(["--verify-only", "--service-manager", "pm2"])).toThrow(
-      "verify_only_restart_options_invalid",
-    );
-    expect(() => parseCliArguments(["--verify-only", "--project-dir", "relative-source"])).toThrow(
-      "project_dir_must_be_absolute",
-    );
+    expect(() =>
+      parseCliArguments(["--verify-only", "--service-manager", "pm2"]),
+    ).toThrow("verify_only_restart_options_invalid");
+    expect(() =>
+      parseCliArguments(["--verify-only", "--project-dir", "relative-source"]),
+    ).toThrow("project_dir_must_be_absolute");
     expect(
-      validateVerificationConfiguration({}, {
-        operatorBaseUrl: "https://current-preview.manus.computer",
-      }).apiBaseUrl,
+      validateVerificationConfiguration(
+        {},
+        {
+          operatorBaseUrl: "https://current-preview.manus.computer",
+        },
+      ).apiBaseUrl,
     ).toBe("https://current-preview.manus.computer");
   });
 });

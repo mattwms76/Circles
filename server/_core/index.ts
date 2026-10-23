@@ -8,6 +8,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { createCorsMiddleware } from "./cors";
 import { clearLegacySessionCookie } from "./cookies";
+import { checkBackendReadiness } from "./readiness";
 
 async function startServer() {
   const app = express();
@@ -26,6 +27,12 @@ async function startServer() {
     res.json({ ok: true, timestamp: Date.now() });
   });
 
+  app.get("/api/ready", async (_req, res) => {
+    const status = await checkBackendReadiness();
+    res.setHeader("Cache-Control", "no-store");
+    res.status(status.ok ? 200 : 503).json(status);
+  });
+
   app.use(
     "/api/trpc",
     createExpressMiddleware({
@@ -42,4 +49,5 @@ async function startServer() {
 
 startServer().catch(() => {
   console.error("[api] server failed to start");
+  process.exitCode = 1;
 });

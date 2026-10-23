@@ -1,0 +1,106 @@
+{
+  "target": "store",
+  "requiredPlatforms": ["android", "ios"],
+  "manifest": {
+    "appConfig": true,
+    "scheme": true,
+    "nativeIds": true,
+    "easProfile": "store",
+    "nativeWebRtc": {
+      "required": true,
+      "configPlugin": true
+    }
+  },
+  "api": {
+    "dockerfile": true,
+    "frozenLockfile": true,
+    "buildWithoutRuntimeCredentials": true,
+    "runsAsNonRoot": true,
+    "port": 3000,
+    "healthPath": "/api/ready",
+    "productionOrigin": "https://api.example.invalid"
+  },
+  "requiredProviders": [
+    {
+      "name": "oauth",
+      "secrets": []
+    },
+    {
+      "name": "database",
+      "secrets": ["SUPABASE_DATABASE_URL"]
+    },
+    {
+      "name": "forge-api",
+      "secrets": ["BUILT_IN_FORGE_API_KEY"]
+    },
+    {
+      "name": "session-signing",
+      "secrets": ["MANUS_JWT_SECRET"]
+    },
+    {
+      "name": "turn-relay",
+      "secrets": ["TURN_SERVER_URLS", "TURN_SHARED_SECRET"]
+    }
+  ],
+  "providers": {
+    "oauth": {
+      "configured": false,
+      "secrets": {}
+    },
+    "database": {
+      "configured": false,
+      "secrets": {
+        "SUPABASE_DATABASE_URL": false
+      }
+    },
+    "forge-api": {
+      "configured": false,
+      "secrets": {
+        "BUILT_IN_FORGE_API_KEY": false
+      }
+    },
+    "session-signing": {
+      "configured": false,
+      "secrets": {
+        "MANUS_JWT_SECRET": false
+      }
+    },
+    "turn-relay": {
+      "configured": false,
+      "secrets": {
+        "TURN_SERVER_URLS": false,
+        "TURN_SHARED_SECRET": false
+      }
+    }
+  },
+  "evidence": {
+    "claims": {
+      "signedBuild": false
+    },
+    "apiContainer": {
+      "status": "not_run"
+    },
+    "apiHealth": {
+      "status": "not_run"
+    },
+    "nativeBuilds": {
+      "android": {
+        "status": "not_run"
+      },
+      "ios": {
+        "status": "not_run"
+      }
+    },
+    "devices": {
+      "android": {
+        "status": "not_run"
+      },
+      "ios": {
+        "status": "not_run"
+      }
+    },
+    "liveRelay": {
+      "status": "not_run"
+    }
+  }
+}

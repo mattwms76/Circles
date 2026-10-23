@@ -13,12 +13,15 @@ import {
   configuredFrontendOrigins,
   parseExactFrontendOrigin,
 } from "./frontend-origins";
+import {
+  oauthPendingStateStore,
+  type ConsumedWebOAuthPendingState,
+} from "./oauth-pending-state";
 import { sdk } from "./sdk";
 
 const OAUTH_STATE_COOKIE = "manus_oauth_state";
 const OAUTH_CALLBACK_PATH = "/api/oauth/callback";
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
-const MAX_PENDING_NATIVE_FLOWS = 2_000;
 
 export type OAuthStatePayload = {
   redirectUri: string;
@@ -36,7 +39,11 @@ type NativePendingOAuthState = OAuthStatePayload & {
   expiresAt: number;
 };
 
-const pendingNativeOAuthFlows = new Map<string, NativePendingOAuthState>();
+type OAuthStateCookie = {
+  state: string;
+  cookieBinding: string;
+  expiresAt: number;
+};
 
 function getQueryParam(req: Request, key: string): string | undefined {
   const value = req.query[key];
@@ -57,8 +64,13 @@ function randomValue(): string {
 }
 
 /** Encodes the Manus OAuth wire state: base64 JSON containing redirectUri and nonce. */
-export function encodeOAuthState(payload: OAuthStatePayload): string {
-  return Buffer.from(JSON.stringify(payload), "utf8").toString("base64");
+export function encodeOAuthState({
+  redirectUri,
+  nonce,
+}: OAuthStatePayload): string {
+  return Buffer.from(JSON.stringify({ redirectUri, nonce }), "utf8").toString(
+    "base64",
+  );
 }
 
 /** Parses only canonical base64 Manus OAuth state values. */
@@ -258,7 +270,7 @@ function buildAuthorizationUrl(redirectUri: string, state: string): string {
   return url.toString();
 }
 
-function signPendingState(pending: PendingOAuthState): string {
+function signPendingState(pending: OAuthStateCookie): string {
   if (!ENV.cookieSecret)
     throw new Error("OAuth session signing is unavailable");
   const payload = Buffer.from(JSON.stringify(pending), "utf8").toString(
@@ -270,7 +282,7 @@ function signPendingState(pending: PendingOAuthState): string {
   return `${payload}.${signature}`;
 }
 
-function readPendingState(req: Request): PendingOAuthState | null {
+function readPendingState(req: Request): OAuthStateCookie | null {
   if (!ENV.cookieSecret || !req.headers.cookie) return null;
   const raw = parseCookieHeader(req.headers.cookie)[OAUTH_STATE_COOKIE];
   if (!raw) return null;
@@ -288,17 +300,16 @@ function readPendingState(req: Request): PendingOAuthState | null {
       !value ||
       typeof value !== "object" ||
       typeof (value as Record<string, unknown>).state !== "string" ||
-      typeof (value as Record<string, unknown>).redirectUri !== "string" ||
-      typeof (value as Record<string, unknown>).nonce !== "string" ||
-      typeof (value as Record<string, unknown>).frontendOrigin !== "string" ||
+      typeof (value as Record<string, unknown>).cookieBinding !== "string" ||
       typeof (value as Record<string, unknown>).expiresAt !== "number"
     ) {
       return null;
     }
-    const pending = value as PendingOAuthState;
+    const pending = value as OAuthStateCookie;
     if (
-      !isTrustedFrontendOrigin(pending.frontendOrigin) ||
-      !isTrustedWebCallbackRedirect(pending.redirectUri, pending.frontendOrigin)
+      pending.expiresAt <= Date.now() ||
+      !/^[A-Za-z0-9_-]{32,128}$/.test(pending.cookieBinding) ||
+      decodeOAuthState(pending.state) === null
     ) {
       return null;
     }
@@ -322,40 +333,36 @@ function clearOAuthStateCookie(req: Request, res: Response) {
   res.clearCookie(OAUTH_STATE_COOKIE, oauthStateCookieOptions(req));
 }
 
-function pruneNativeOAuthFlows(now = Date.now()) {
-  for (const [flowToken, pending] of pendingNativeOAuthFlows) {
-    if (pending.expiresAt <= now) pendingNativeOAuthFlows.delete(flowToken);
-  }
-  while (pendingNativeOAuthFlows.size >= MAX_PENDING_NATIVE_FLOWS) {
-    const oldest = pendingNativeOAuthFlows.keys().next().value;
-    if (!oldest) break;
-    pendingNativeOAuthFlows.delete(oldest);
-  }
-}
-
-function issueNativeOAuthFlow(redirectUri: string): {
+async function issueNativeOAuthFlow(redirectUri: string): Promise<{
   flowToken: string;
   state: string;
-} {
-  pruneNativeOAuthFlows();
+}> {
   const issued = issueState(redirectUri);
   const flowToken = randomValue();
-  pendingNativeOAuthFlows.set(flowToken, {
+  await oauthPendingStateStore.createNative({
     ...issued,
-    expiresAt: Date.now() + OAUTH_STATE_TTL_MS,
+    flowToken,
+    expiresAt: new Date(Date.now() + OAUTH_STATE_TTL_MS),
   });
   return { flowToken, state: issued.state };
 }
 
-function consumeNativeOAuthFlow(
+async function consumeNativeOAuthFlow(
   flowToken: string | undefined,
-): NativePendingOAuthState | null {
+  state: string,
+): Promise<NativePendingOAuthState | null> {
   if (!flowToken || !/^[A-Za-z0-9_-]{32,128}$/.test(flowToken)) return null;
-  const pending = pendingNativeOAuthFlows.get(flowToken) ?? null;
-  // Consume before exchanging: a code/state/flow tuple can never be replayed, including after errors.
-  pendingNativeOAuthFlows.delete(flowToken);
-  if (!pending || pending.expiresAt <= Date.now()) return null;
-  return pending;
+  // DELETE ... RETURNING consumes the valid code/state/flow tuple before exchange.
+  const pending = await oauthPendingStateStore.consumeNative({
+    state,
+    flowToken,
+  });
+  if (!pending) return null;
+  return {
+    ...pending,
+    state: encodeOAuthState(pending),
+    expiresAt: pending.expiresAt.getTime(),
+  };
 }
 
 async function syncUser(userInfo: {
@@ -433,7 +440,7 @@ function setApplicationSession(
 }
 
 export function registerOAuthRoutes(app: Express) {
-  app.get("/api/oauth/start", (req: Request, res: Response) => {
+  app.get("/api/oauth/start", async (req: Request, res: Response) => {
     const redirectUri = getQueryParam(req, "redirectUri");
     const frontendOrigin = getQueryParam(req, "frontendOrigin");
     if (
@@ -448,10 +455,18 @@ export function registerOAuthRoutes(app: Express) {
 
     try {
       const issued = issueState(redirectUri);
-      const pending: PendingOAuthState = {
+      const cookieBinding = randomValue();
+      const expiresAt = Date.now() + OAUTH_STATE_TTL_MS;
+      await oauthPendingStateStore.createWeb({
         ...issued,
         frontendOrigin,
-        expiresAt: Date.now() + OAUTH_STATE_TTL_MS,
+        cookieBinding,
+        expiresAt: new Date(expiresAt),
+      });
+      const pending: OAuthStateCookie = {
+        state: issued.state,
+        cookieBinding,
+        expiresAt,
       };
       res.cookie(OAUTH_STATE_COOKIE, signPendingState(pending), {
         ...oauthStateCookieOptions(req),
@@ -464,7 +479,7 @@ export function registerOAuthRoutes(app: Express) {
     }
   });
 
-  app.get("/api/oauth/mobile/start", (req: Request, res: Response) => {
+  app.get("/api/oauth/mobile/start", async (req: Request, res: Response) => {
     const redirectUri = getQueryParam(req, "redirectUri");
     if (!redirectUri || !isSafeNativeRedirectUri(redirectUri)) {
       res.status(400).json({ error: "Invalid OAuth redirect" });
@@ -472,7 +487,7 @@ export function registerOAuthRoutes(app: Express) {
     }
 
     try {
-      const { flowToken, state } = issueNativeOAuthFlow(redirectUri);
+      const { flowToken, state } = await issueNativeOAuthFlow(redirectUri);
       res.setHeader("Cache-Control", "no-store");
       res.json({
         authorizationUrl: buildAuthorizationUrl(redirectUri, state),
@@ -487,10 +502,41 @@ export function registerOAuthRoutes(app: Express) {
   app.get("/api/oauth/callback", async (req: Request, res: Response) => {
     const code = getQueryParam(req, "code");
     const state = getQueryParam(req, "state");
-    const pending = readPendingState(req);
+    const cookie = readPendingState(req);
     clearOAuthStateCookie(req, res);
 
-    if (!code || !state || !pending || !validateOAuthState(state, pending)) {
+    if (!code || !state || !cookie || !constantTimeEqual(state, cookie.state)) {
+      res.status(400).json({ error: "Invalid OAuth state" });
+      return;
+    }
+
+    let consumed: ConsumedWebOAuthPendingState | null;
+    try {
+      consumed = await oauthPendingStateStore.consumeWeb({
+        state,
+        cookieBinding: cookie.cookieBinding,
+      });
+    } catch {
+      res.status(503).json({ error: "OAuth is temporarily unavailable" });
+      return;
+    }
+
+    const pending: PendingOAuthState | null = consumed
+      ? {
+          ...consumed,
+          state: encodeOAuthState(consumed),
+          expiresAt: consumed.expiresAt.getTime(),
+        }
+      : null;
+    if (
+      !pending ||
+      !isTrustedFrontendOrigin(pending.frontendOrigin) ||
+      !isTrustedWebCallbackRedirect(
+        pending.redirectUri,
+        pending.frontendOrigin,
+      ) ||
+      !validateOAuthState(state, pending)
+    ) {
       res.status(400).json({ error: "Invalid OAuth state" });
       return;
     }
@@ -508,9 +554,28 @@ export function registerOAuthRoutes(app: Express) {
   app.get("/api/oauth/mobile", async (req: Request, res: Response) => {
     const code = getQueryParam(req, "code");
     const state = getQueryParam(req, "state");
-    const pending = consumeNativeOAuthFlow(req.get("x-manus-oauth-flow"));
 
-    if (!code || !state || !pending || !validateOAuthState(state, pending)) {
+    if (!code || !state) {
+      res.status(400).json({ error: "Invalid OAuth state" });
+      return;
+    }
+
+    let pending: NativePendingOAuthState | null;
+    try {
+      pending = await consumeNativeOAuthFlow(
+        req.get("x-manus-oauth-flow"),
+        state,
+      );
+    } catch {
+      res.status(503).json({ error: "OAuth is temporarily unavailable" });
+      return;
+    }
+
+    if (
+      !pending ||
+      !isSafeNativeRedirectUri(pending.redirectUri) ||
+      !validateOAuthState(state, pending)
+    ) {
       res.status(400).json({ error: "Invalid OAuth state" });
       return;
     }

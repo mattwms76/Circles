@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import fs from "node:fs";
+import { Buffer } from "node:buffer";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config as configureDotenv } from "dotenv";
@@ -50,6 +51,7 @@ export const ENVIRONMENT_CONTRACT = Object.freeze({
       "EXPO_PUBLIC_WEB_URL",
       "PUBLIC_URL",
     ]),
+    productionLive: Object.freeze(["TURN_SERVER_URLS", "TURN_SHARED_SECRET"]),
   }),
   platformManaged: Object.freeze(["NODE_ENV", "PORT", "EXPO_OS"]),
   sourceNames: Object.freeze([
@@ -80,6 +82,8 @@ export const ENVIRONMENT_CONTRACT = Object.freeze({
     "OWNER_NAME",
     "OWNER_OPEN_ID",
     "PUBLIC_URL",
+    "TURN_SERVER_URLS",
+    "TURN_SHARED_SECRET",
     "VITE_APP_ID",
     "VITE_OAUTH_PORTAL_URL",
     "WEB_ORIGIN",
@@ -112,6 +116,8 @@ export const ENVIRONMENT_CONTRACT = Object.freeze({
     "OWNER_NAME",
     "OWNER_OPEN_ID",
     "PUBLIC_URL",
+    "TURN_SERVER_URLS",
+    "TURN_SHARED_SECRET",
     "VITE_APP_ID",
     "VITE_OAUTH_PORTAL_URL",
     "WEB_ORIGIN",
@@ -130,6 +136,7 @@ export const ENV_REFERENCE_SOURCE_FILES = Object.freeze([
   "server/db.ts",
   "server/social-service.ts",
   "server/storage.ts",
+  "server/turn-config.ts",
   "server/_core/cookies.ts",
   "server/_core/cors.ts",
   "server/_core/frontend-origins.ts",
@@ -225,6 +232,23 @@ export function validateEnvironment(env = process.env, mode = "runtime") {
         errors.push(issue(name, "is required at runtime"));
     }
 
+    if (env.NODE_ENV === "production") {
+      for (const name of ENVIRONMENT_CONTRACT.runtime.productionLive) {
+        if (!hasValue(env[name]))
+          errors.push(
+            issue(name, "is required for production live operations"),
+          );
+      }
+      if (
+        hasValue(env.TURN_SHARED_SECRET) &&
+        Buffer.byteLength(env.TURN_SHARED_SECRET, "utf8") < 32
+      ) {
+        errors.push(
+          issue("TURN_SHARED_SECRET", "must contain at least 32 bytes"),
+        );
+      }
+    }
+
     const signingSecret = env.MANUS_JWT_SECRET;
     if (hasValue(signingSecret) && Array.from(signingSecret).length < 32) {
       errors.push(
@@ -239,13 +263,17 @@ export function validateEnvironment(env = process.env, mode = "runtime") {
       try {
         const legacySource = new URL(env.DATABASE_URL);
         if (!["mysql:", "mysql2:"].includes(legacySource.protocol)) {
-          errors.push(issue(
-            "DATABASE_URL",
-            "is reserved for a read-only MySQL migration or rollback source",
-          ));
+          errors.push(
+            issue(
+              "DATABASE_URL",
+              "is reserved for a read-only MySQL migration or rollback source",
+            ),
+          );
         }
       } catch {
-        errors.push(issue("DATABASE_URL", "must be a MySQL connection URL when supplied"));
+        errors.push(
+          issue("DATABASE_URL", "must be a MySQL connection URL when supplied"),
+        );
       }
     }
 
@@ -275,7 +303,8 @@ export function validateEnvironment(env = process.env, mode = "runtime") {
 export function extractEnvironmentNames(sourceText) {
   const names = new Set();
   const direct = /\b(?:process\.env|env|environment)\.([A-Z][A-Z0-9_]*)\b/g;
-  const literalBracket = /\b(?:process\.env|env|environment)\[\s*["']([A-Z][A-Z0-9_]*)["']\s*\]/g;
+  const literalBracket =
+    /\b(?:process\.env|env|environment)\[\s*["']([A-Z][A-Z0-9_]*)["']\s*\]/g;
   let match;
 
   while ((match = direct.exec(sourceText))) names.add(match[1]);

@@ -22,6 +22,9 @@
       "input": {
         "timestamp": 0
       }
+    },
+    "live.relay": {
+      "input": {}
     }
   }
 }

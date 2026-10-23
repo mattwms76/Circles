@@ -1,0 +1,50 @@
+name: Circles API container validation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: circles-api-container-validation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  container:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Build the locked credential-free API image
+        run: docker build --tag circles-api-validation:local .
+      - name: Validate nonroot TLS certificate access
+        run: |
+          docker run --rm --entrypoint node circles-api-validation:local -e '
+            const fs = require("node:fs");
+            const crypto = require("node:crypto");
+            if (process.getuid() === 0) process.exit(1);
+            const cert = new crypto.X509Certificate(fs.readFileSync("server/certificates/supabase-root-2021.crt"));
+            if (cert.fingerprint256.replaceAll(":", "").toLowerCase() !== "807025ad50d4ed219d2c9c7d299c004f824eb00cf7f65afef607d07b72e6cafa") process.exit(1);
+            console.log("nonroot pinned TLS certificate passed");
+          '
+      - name: Check liveness and missing-data fail-closed readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'docker rm --force circles-api-validation >/dev/null 2>&1 || true' EXIT
+          export MANUS_JWT_SECRET
+          MANUS_JWT_SECRET=$(openssl rand -hex 32)
+          docker run --detach --name circles-api-validation --publish 127.0.0.1:13000:3000 --env MANUS_JWT_SECRET circles-api-validation:local >/dev/null
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:13000/api/health > /tmp/circles-container-health.json; then break; fi
+            sleep 1
+          done
+          python3 -c 'import json; assert json.load(open("/tmp/circles-container-health.json"))["ok"] is True'
+          status=$(curl --silent --output /tmp/circles-container-ready.json --write-out '%{http_code}' http://127.0.0.1:13000/api/ready)
+          test "$status" = 503
+          python3 -c 'import json; r=json.load(open("/tmp/circles-container-ready.json")); assert r["ok"] is False and r["database"] is False and r["oauthState"] is False'
+          printf 'container liveness passed; absent datastore readiness correctly blocked\n'
