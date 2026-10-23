@@ -1,7 +1,9 @@
 import { Pool, type PoolClient, type PoolConfig } from "pg";
 import { RUNTIME_ROLE } from "./_core/postgres-config.mjs";
+import { withOperationDeadline } from "./_core/bounded-network";
 
 export const SET_RUNTIME_ROLE_SQL = `SET ROLE ${RUNTIME_ROLE}`;
+export const RUNTIME_ROLE_INITIALIZATION_TIMEOUT_MS = 8_000;
 
 type PoolConnectCallback = (
   error: Error | undefined,
@@ -23,7 +25,10 @@ export class RuntimeRoleInitializationError extends Error {
  */
 export async function initializeRuntimeRole(client: PoolClient): Promise<PoolClient> {
   try {
-    await client.query(SET_RUNTIME_ROLE_SQL);
+    await withOperationDeadline(
+      client.query(SET_RUNTIME_ROLE_SQL),
+      RUNTIME_ROLE_INITIALIZATION_TIMEOUT_MS,
+    );
     return client;
   } catch {
     client.release(true);

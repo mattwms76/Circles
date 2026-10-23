@@ -23,6 +23,11 @@ export class StorageOperationTimeoutError extends StorageOperationError {
   }
 }
 
+export type StorageRequestOptions = {
+  /** Handler-scoped cancellation signal; callers retain ownership of its lifecycle. */
+  signal?: AbortSignal;
+};
+
 function getForgeConfig() {
   const forgeUrl = ENV.forgeApiUrl;
   const forgeKey = ENV.forgeApiKey;
@@ -75,7 +80,7 @@ export async function storagePut(
   relKey: string,
   data: Buffer | Uint8Array | string,
   contentType = "application/octet-stream",
-  options: { stableKey?: boolean } = {},
+  options: { stableKey?: boolean } & StorageRequestOptions = {},
 ): Promise<{ key: string; url: string }> {
   const { forgeUrl, forgeKey } = getForgeConfig();
   const normalizedKey = normalizeKey(relKey);
@@ -86,6 +91,7 @@ export async function storagePut(
 
   const presignResp = await storageFetch(presignUrl, {
     headers: { Authorization: `Bearer ${forgeKey}` },
+    signal: options.signal,
   });
   if (!presignResp.ok) {
     await discardErrorResponse(presignResp);
@@ -101,6 +107,7 @@ export async function storagePut(
     method: "PUT",
     headers: { "Content-Type": contentType },
     body: blob,
+    signal: options.signal,
   });
   if (!uploadResp.ok) {
     await discardErrorResponse(uploadResp);
@@ -116,7 +123,10 @@ export async function storageGet(relKey: string): Promise<{ key: string; url: st
   return { key, url: `/manus-storage/${key}` };
 }
 
-export async function storageGetSignedUrl(relKey: string): Promise<string> {
+export async function storageGetSignedUrl(
+  relKey: string,
+  options: StorageRequestOptions = {},
+): Promise<string> {
   const { forgeUrl, forgeKey } = getForgeConfig();
   const key = normalizeKey(relKey);
   const getUrl = new URL("v1/storage/presign/get", forgeUrl + "/");
@@ -124,6 +134,7 @@ export async function storageGetSignedUrl(relKey: string): Promise<string> {
 
   const response = await storageFetch(getUrl, {
     headers: { Authorization: `Bearer ${forgeKey}` },
+    signal: options.signal,
   });
   if (!response.ok) {
     await discardErrorResponse(response);

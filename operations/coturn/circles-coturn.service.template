@@ -1,0 +1,51 @@
+# Rendered and installed only by install-coturn.sh after explicit root --apply.
+# This deliberately does not replace the distribution coturn.service.
+[Unit]
+Description=Circles authenticated coturn relay
+Documentation=https://github.com/coturn/coturn/wiki/turnserver
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=exec
+User=coturn
+Group=coturn
+UMask=0077
+
+# The protected root-owned source file is loaded only for this service. The
+# root-only pre-start helper consumes it and writes a 0600 runtime configuration
+# owned by coturn; it is never passed through an environment variable.
+LoadCredential=turn_static_auth_secret:/etc/coturn/circles-turn.secret
+RuntimeDirectory=circles-coturn
+RuntimeDirectoryMode=0750
+ExecStartPre=+/usr/local/libexec/circles-coturn-render-config --template /etc/coturn/circles-turnserver.conf.template --output /run/circles-coturn/turnserver.conf --credential %d/turn_static_auth_secret --owner coturn:coturn
+ExecStart=/usr/bin/turnserver -c /run/circles-coturn/turnserver.conf
+# Coturn handles SIGUSR2 by reloading TLS certificates and keys. This does not
+# change relay auth configuration; secret changes require a deliberate restart.
+ExecReload=/bin/kill -USR2 $MAINPID
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=30s
+TimeoutStopSec=30s
+
+# Coturn runs as an unprivileged user and uses only non-privileged ports. The
+# privileged renderer is explicitly scoped to ExecStartPre.
+CapabilityBoundingSet=
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+PrivateMounts=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/run/circles-coturn
+ProtectControlGroups=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   ScrollView,
@@ -14,6 +14,17 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
 import { assetBase64, supportedMime } from "@/lib/media";
+import { createSingleFlightSubmitter } from "@/lib/single-flight-submit";
+import {
+  isCircleCoverMime,
+  mediaUploadKey,
+  normalizeCreateMode,
+  parsePositiveSafeId,
+  reusableUploadUrl,
+  validateComposerDraft,
+  type CreateMode,
+  type ReusableUpload,
+} from "@/lib/feed-ui-helpers";
 import {
   Avatar,
   Button,
@@ -30,20 +41,29 @@ import {
 } from "@/components/circles-ui";
 
 export default function CreateScreen() {
-  const params = useLocalSearchParams<{ mode?: string; circleId?: string }>();
+  const params = useLocalSearchParams<{
+    mode?: string | string[];
+    circleId?: string | string[];
+  }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user, requireAuth, notify, showLogin } = useCircles();
-  const [mode, setMode] = useState(params.mode || "post");
+  const [mode, setMode] = useState<CreateMode>(() =>
+    normalizeCreateMode(params.mode),
+  );
   const [text, setText] = useState("");
   const [name, setName] = useState("");
   const [category, setCategory] = useState("Lifestyle");
   const [privacy, setPrivacy] = useState<"public" | "private">("public");
   const [circleId, setCircleId] = useState<number | undefined>(
-    params.circleId ? Number(params.circleId) : undefined,
+    () => parsePositiveSafeId(params.circleId),
   );
   const [asset, setAsset] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [reusableUpload, setReusableUpload] = useState<ReusableUpload | null>(
+    null,
+  );
   const [busy, setBusy] = useState(false);
+  const publishSubmitter = useRef(createSingleFlightSubmitter()).current;
   const circles = trpc.social.circles.useQuery({});
   const profile = trpc.social.profile.useQuery({}, { enabled: !!user });
   const utils = trpc.useUtils();
@@ -51,6 +71,31 @@ export default function CreateScreen() {
   const post = trpc.social.createPost.useMutation();
   const circle = trpc.social.createCircle.useMutation();
   const live = trpc.live.create.useMutation();
+
+  function clearSelectedMedia() {
+    setAsset(null);
+    setReusableUpload(null);
+  }
+
+  function selectMode(nextMode: CreateMode) {
+    if (nextMode === "circle" && asset) {
+      try {
+        if (!isCircleCoverMime(supportedMime(asset))) {
+          clearSelectedMedia();
+          notify("Circle covers need a JPEG, PNG, or WebP photo. The video was removed.");
+        }
+      } catch (error) {
+        clearSelectedMedia();
+        notify(
+          error instanceof Error
+            ? error.message
+            : "Choose a supported cover photo for your circle.",
+        );
+      }
+    }
+    setMode(nextMode);
+  }
+
   async function pickMedia() {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -58,22 +103,62 @@ export default function CreateScreen() {
         quality: 0.8,
         base64: true,
       });
-      if (!result.canceled) setAsset(result.assets[0]);
-    } catch {
-      notify("Photo library could not open. Check your device permissions.");
+      if (!result.canceled) {
+        const nextAsset = result.assets[0];
+        const mimeType = supportedMime(nextAsset);
+        if (mode === "circle" && !isCircleCoverMime(mimeType)) {
+          notify("Circle covers need a JPEG, PNG, or WebP photo.");
+          return;
+        }
+        setAsset(nextAsset);
+        // A changed selection cannot safely reuse the prior upload URL.
+        setReusableUpload(null);
+      }
+    } catch (error) {
+      notify(
+        error instanceof Error
+          ? error.message
+          : "Photo library could not open. Check your device permissions.",
+      );
     }
   }
   async function uploadAsset() {
     if (!asset) return undefined;
-    return (
-      await upload.mutateAsync({
-        base64: await assetBase64(asset),
-        mimeType: supportedMime(asset),
-      })
-    ).url;
+    const mimeType = supportedMime(asset);
+    if (mode === "circle" && !isCircleCoverMime(mimeType)) {
+      throw new Error("Circle covers need a JPEG, PNG, or WebP photo.");
+    }
+    const key = mediaUploadKey({
+      uri: asset.uri,
+      mimeType,
+      fileSize: asset.fileSize,
+    });
+    const previousUrl = reusableUploadUrl(reusableUpload, key);
+    if (previousUrl) return previousUrl;
+
+    const result = await upload.mutateAsync({
+      base64: await assetBase64(asset),
+      mimeType,
+    });
+    // Keep the canonical URL only for this exact selected asset. A failed
+    // subsequent publish can retry without duplicating media; the client never
+    // deletes an upload because it cannot prove that it is still unreferenced.
+    setReusableUpload({ key, url: result.url });
+    return result.url;
   }
-  async function publish() {
-    if (!requireAuth()) return;
+
+  async function publishAfterAuth() {
+    const validationError = validateComposerDraft({
+      mode,
+      text,
+      name,
+      category,
+      hasMedia: !!asset,
+    });
+    if (validationError) {
+      notify(validationError);
+      return;
+    }
     if (
       mode === "live" &&
       Platform.OS !== "web" &&
@@ -81,18 +166,6 @@ export default function CreateScreen() {
     ) {
       notify(
         "Live broadcasting needs a Circles development or release build. Expo Go can preview the social screens.",
-      );
-      return;
-    }
-    if (mode === "post" && !text.trim() && !asset) {
-      notify("Add a moment or a few words first.");
-      return;
-    }
-    if (mode !== "post" && !name.trim()) {
-      notify(
-        mode === "circle"
-          ? "Give your circle a name."
-          : "Give your live session a title.",
       );
       return;
     }
@@ -136,11 +209,23 @@ export default function CreateScreen() {
       }
     } catch (e) {
       notify(
-        e instanceof Error ? e.message : "Could not share. Please try again.",
+        e instanceof Error
+          ? e.message
+          : reusableUpload
+            ? "Could not share. Your media is ready to reuse when you try again."
+            : "Could not share. Please try again.",
       );
     } finally {
       setBusy(false);
     }
+  }
+
+  function publish() {
+    const run = () => {
+      void publishSubmitter.run(publishAfterAuth);
+    };
+    if (!requireAuth(run)) return;
+    run();
   }
   return (
     <View style={{ flex: 1, backgroundColor: C.bg, paddingTop: insets.top }}>
@@ -187,24 +272,24 @@ export default function CreateScreen() {
                 : "What’s your world today?"}
           </T>
           <View style={[s.row, { gap: 8 }]}>
+              <Pill
+                title="Post"
+                icon="image-outline"
+                selected={mode === "post"}
+                onPress={() => selectMode("post")}
+              />
             <Pill
-              title="Post"
-              icon="image-outline"
-              selected={mode === "post"}
-              onPress={() => setMode("post")}
-            />
+                title="Circle"
+                icon="ellipse-outline"
+                selected={mode === "circle"}
+                onPress={() => selectMode("circle")}
+              />
             <Pill
-              title="Circle"
-              icon="ellipse-outline"
-              selected={mode === "circle"}
-              onPress={() => setMode("circle")}
-            />
-            <Pill
-              title="Go live"
-              icon="radio-outline"
-              selected={mode === "live"}
-              onPress={() => setMode("live")}
-            />
+                title="Go live"
+                icon="radio-outline"
+                selected={mode === "live"}
+                onPress={() => selectMode("live")}
+              />
           </View>
           {!user ? (
             <Empty

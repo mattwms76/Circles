@@ -5,7 +5,9 @@ import {
   getNativeOAuthFlowToken,
 } from "@/constants/oauth";
 import { useCircles } from "@/hooks/circles-context";
+import { cleanupFailedNativeLoginConfirmation } from "@/hooks/native-login-transition";
 import * as Auth from "@/lib/_core/auth";
+import * as Api from "@/lib/_core/api";
 import * as Linking from "expo-linking";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
@@ -93,6 +95,7 @@ export default function OAuthCallback() {
 
   useEffect(() => {
     const handleCallback = async () => {
+      let capturedBearer: string | null = null;
       try {
         let code: string | null = params.code ?? null;
         let state: string | null = params.state ?? null;
@@ -126,7 +129,8 @@ export default function OAuthCallback() {
           throw new Error("Secure sign in did not return a session");
         }
 
-        await Auth.setSessionToken(result.app_session_id);
+        capturedBearer = result.app_session_id;
+        await Auth.setSessionToken(capturedBearer);
         const authenticated = await completeNativeLogin();
         if (!authenticated) {
           throw new Error("Unable to verify the new secure session");
@@ -135,10 +139,30 @@ export default function OAuthCallback() {
         setStatus("success");
         setTimeout(() => router.replace("/(tabs)"), 1_000);
       } catch (error) {
+        const cleanup = capturedBearer
+          ? await cleanupFailedNativeLoginConfirmation({
+              capturedBearer,
+              clearLocalCredentials: async () => {
+                await Promise.all([Auth.removeSessionToken(), Auth.clearUserInfo()]);
+              },
+              remoteLogout: Api.logout,
+            })
+          : null;
         setStatus("error");
-        setErrorMessage(
-          friendlyOAuthError(error instanceof Error ? error.message : null),
+        const message = friendlyOAuthError(
+          error instanceof Error ? error.message : null,
         );
+        if (cleanup?.localCleanupFailed) {
+          setErrorMessage(
+            `${message} This device could not clear the incomplete sign-in. Please close and reopen Circles before trying again.`,
+          );
+        } else if (cleanup?.remoteRevocationFailed) {
+          setErrorMessage(
+            `${message} This device was cleared, but secure sign-out could not be confirmed. Please try signing in again shortly.`,
+          );
+        } else {
+          setErrorMessage(message);
+        }
       }
     };
 

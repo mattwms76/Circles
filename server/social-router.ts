@@ -13,6 +13,7 @@ import type {
 } from "../shared/social";
 import { MESSAGE_PAGE_DEFAULT_LIMIT, MESSAGE_PAGE_MAX_LIMIT } from "../shared/message-pagination";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
+import { requestCancellation } from "./_core/bounded-network";
 import { storagePut } from "./storage";
 import {
   approveMember,
@@ -20,19 +21,24 @@ import {
   createComment,
   createPost,
   deletePost,
+  discardUnusedUpload,
   encryptSocialMedia,
   feed,
+  feedPage,
   findProfile,
   getCircle,
   getProfile,
   joinCircle,
   leaveCircle,
   listCircles,
+  listCirclesPage,
   listComments,
   listConversations,
   listMembers,
+  listMembersPage,
   listMessages,
   listProfiles,
+  listProfilesPage,
   markConversationRead,
   openCircleChat,
   openDirect,
@@ -40,6 +46,7 @@ import {
   removeMember,
   reportPost,
   sendMessage,
+  setCircleMembership,
   setMemberRole,
   toggleFollow,
   toggleLike,
@@ -48,6 +55,11 @@ import {
 } from "./social-service";
 
 const id = z.number().int().positive();
+const dateIdCursor = z.object({
+  createdAt: z.string().datetime({ offset: true }),
+  id,
+});
+const pageLimit = z.number().int().positive().max(50).default(20);
 const shortText = z.string().trim().min(1).max(10_000);
 const optionalMediaUrl = z
   .string()
@@ -58,7 +70,13 @@ const optionalMediaUrl = z
   })
   .optional();
 export const sendMessageInput = z
-  .object({ conversationId: id, text: z.string().trim().max(10_000), media: optionalMediaUrl })
+  .object({
+    conversationId: id,
+    text: z.string().trim().max(10_000),
+    media: optionalMediaUrl,
+    // Optional for staged native clients. When supplied it makes retries durable and exact.
+    clientMessageId: z.string().min(16).max(96).regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/).optional(),
+  })
   .superRefine((value, issue) => {
     if (!value.text && !value.media) {
       issue.addIssue({ code: "custom", message: "A message needs text or media", path: ["text"] });
@@ -126,15 +144,95 @@ export const socialRouter = router({
         filter: z.enum(["for-you", "following", "circles", "saved"]),
         circleId: id.optional(),
         authorId: id.optional(),
+        cursor: z.object({ createdAt: z.string().datetime({ offset: true }), id }).optional(),
+        limit: z.number().int().positive().max(100).optional(),
       }),
     )
     .query(async ({ ctx, input }): Promise<Post[]> =>
-      feed(ctx.user?.id ?? null, input.filter, input.circleId, input.authorId),
+      feed(ctx.user?.id ?? null, input.filter, input.circleId, input.authorId, {
+        ...(input.cursor
+          ? { cursor: { createdAt: new Date(input.cursor.createdAt), id: input.cursor.id } }
+          : {}),
+        ...(input.limit ? { limit: input.limit } : {}),
+      }),
     ),
+
+  feedPage: publicProcedure
+    .input(
+      z.object({
+        filter: z.enum(["for-you", "following", "circles", "saved"]),
+        circleId: id.optional(),
+        authorId: id.optional(),
+        cursor: dateIdCursor.optional(),
+        limit: pageLimit,
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const page = await feedPage(
+        ctx.user?.id ?? null,
+        input.filter,
+        input.circleId,
+        input.authorId,
+        {
+          ...(input.cursor
+            ? {
+                cursor: {
+                  createdAt: new Date(input.cursor.createdAt),
+                  id: input.cursor.id,
+                },
+              }
+            : {}),
+          limit: input.limit,
+        },
+      );
+      return {
+        ...page,
+        nextCursor: page.nextCursor
+          ? {
+              createdAt: page.nextCursor.createdAt.toISOString(),
+              id: page.nextCursor.id,
+            }
+          : null,
+      };
+    }),
 
   circles: publicProcedure
     .input(z.object({ search: z.string().trim().max(120).optional(), category: z.string().trim().max(80).optional() }))
     .query(async ({ ctx, input }): Promise<Circle[]> => listCircles(ctx.user?.id ?? null, input)),
+
+  circlesPage: publicProcedure
+    .input(
+      z.object({
+        search: z.string().trim().max(120).optional(),
+        category: z.string().trim().max(80).optional(),
+        cursor: dateIdCursor.optional(),
+        limit: pageLimit,
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const page = await listCirclesPage(ctx.user?.id ?? null, {
+        search: input.search,
+        category: input.category,
+        ...(input.cursor
+          ? {
+              cursor: {
+                createdAt: new Date(input.cursor.createdAt),
+                id: input.cursor.id,
+              },
+            }
+          : {}),
+        limit: input.limit,
+      });
+      return {
+        ...page,
+        nextCursor: page.nextCursor
+          ? {
+              createdAt: page.nextCursor.createdAt.toISOString(),
+              id: page.nextCursor.id,
+            }
+          : null,
+      };
+    }),
 
   circle: publicProcedure
     .input(z.object({ id }))
@@ -143,6 +241,22 @@ export const socialRouter = router({
   profiles: publicProcedure
     .input(z.object({ search: z.string().trim().max(120).optional() }))
     .query(async ({ ctx, input }): Promise<Profile[]> => listProfiles(ctx.user?.id ?? null, input.search)),
+
+  profilesPage: publicProcedure
+    .input(
+      z.object({
+        search: z.string().trim().max(120).optional(),
+        cursor: z.object({ id }).optional(),
+        limit: pageLimit,
+      }),
+    )
+    .query(({ ctx, input }) =>
+      listProfilesPage(ctx.user?.id ?? null, {
+        search: input.search,
+        cursor: input.cursor,
+        limit: input.limit,
+      }),
+    ),
 
   profile: publicProcedure
     .input(z.object({ id: id.optional() }).optional())
@@ -171,8 +285,8 @@ export const socialRouter = router({
     .mutation(({ ctx, input }): Promise<Profile> => updateProfile(ctx.user.id, input)),
 
   follow: protectedProcedure
-    .input(z.object({ userId: id }))
-    .mutation(({ ctx, input }) => toggleFollow(ctx.user.id, input.userId)),
+    .input(z.object({ userId: id, following: z.boolean().optional() }))
+    .mutation(({ ctx, input }) => toggleFollow(ctx.user.id, input.userId, input.following)),
 
   createCircle: protectedProcedure
     .input(
@@ -195,9 +309,46 @@ export const socialRouter = router({
     .input(z.object({ circleId: id }))
     .mutation(({ ctx, input }) => leaveCircle(ctx.user.id, input.circleId)),
 
+  setMembership: protectedProcedure
+    .input(z.object({ circleId: id, joined: z.boolean() }))
+    .mutation(({ ctx, input }) =>
+      setCircleMembership(ctx.user.id, input.circleId, input.joined),
+    ),
+
   members: publicProcedure
     .input(z.object({ circleId: id }))
     .query(({ ctx, input }): Promise<Member[]> => listMembers(ctx.user?.id ?? null, input.circleId)),
+
+  membersPage: publicProcedure
+    .input(
+      z.object({
+        circleId: id,
+        cursor: dateIdCursor.optional(),
+        limit: pageLimit,
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const page = await listMembersPage(ctx.user?.id ?? null, input.circleId, {
+        ...(input.cursor
+          ? {
+              cursor: {
+                createdAt: new Date(input.cursor.createdAt),
+                id: input.cursor.id,
+              },
+            }
+          : {}),
+        limit: input.limit,
+      });
+      return {
+        ...page,
+        nextCursor: page.nextCursor
+          ? {
+              createdAt: page.nextCursor.createdAt.toISOString(),
+              id: page.nextCursor.id,
+            }
+          : null,
+      };
+    }),
 
   setRole: protectedProcedure
     .input(z.object({ circleId: id, userId: id, role: z.enum(["moderator", "member"]) }))
@@ -235,12 +386,12 @@ export const socialRouter = router({
     .mutation(({ ctx, input }): Promise<Post> => createPost(ctx.user.id, input)),
 
   likePost: protectedProcedure
-    .input(z.object({ postId: id }))
-    .mutation(({ ctx, input }) => toggleLike(ctx.user.id, input.postId)),
+    .input(z.object({ postId: id, liked: z.boolean().optional() }))
+    .mutation(({ ctx, input }) => toggleLike(ctx.user.id, input.postId, input.liked)),
 
   savePost: protectedProcedure
-    .input(z.object({ postId: id }))
-    .mutation(({ ctx, input }) => toggleSave(ctx.user.id, input.postId)),
+    .input(z.object({ postId: id, saved: z.boolean().optional() }))
+    .mutation(({ ctx, input }) => toggleSave(ctx.user.id, input.postId, input.saved)),
 
   comments: publicProcedure
     .input(z.object({ postId: id }))
@@ -277,7 +428,11 @@ export const socialRouter = router({
   sendMessage: protectedProcedure
     .input(sendMessageInput)
     .mutation(({ ctx, input }): Promise<Message> =>
-      sendMessage(ctx.user.id, input.conversationId, { text: input.text, media: input.media }),
+      sendMessage(ctx.user.id, input.conversationId, {
+        text: input.text,
+        media: input.media,
+        clientMessageId: input.clientMessageId,
+      }),
     ),
 
   markRead: protectedProcedure
@@ -289,31 +444,54 @@ export const socialRouter = router({
   upload: protectedProcedure
     .input(z.object({ base64: z.string().max(MAX_BASE64_CHARACTERS), mimeType }))
     .mutation(async ({ ctx, input }): Promise<{ url: string }> => {
-      const bytes = decodeBase64(input.base64);
-      if (!bytesMatchMime(bytes, input.mimeType)) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Upload bytes do not match the declared MIME type" });
-      }
-      const extension =
-        input.mimeType === "image/jpeg"
-          ? "jpg"
-          : input.mimeType === "image/png"
-            ? "png"
-            : input.mimeType === "image/webp"
-            ? "webp"
-              : "mp4";
-      let encrypted: Buffer;
+      const cancellation = requestCancellation(ctx.req, ctx.res);
       try {
-        encrypted = encryptSocialMedia(bytes);
-      } catch {
-        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Secure media upload is unavailable" });
+        const bytes = decodeBase64(input.base64);
+        if (!bytesMatchMime(bytes, input.mimeType)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Upload bytes do not match the declared MIME type" });
+        }
+        const extension =
+          input.mimeType === "image/jpeg"
+            ? "jpg"
+            : input.mimeType === "image/png"
+              ? "png"
+              : input.mimeType === "image/webp"
+                ? "webp"
+                : "mp4";
+        let encrypted: Buffer;
+        try {
+          encrypted = encryptSocialMedia(bytes);
+        } catch {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Secure media upload is unavailable" });
+        }
+        const key = `social-encrypted/${ctx.user.id}/${randomUUID()}.${extension}.enc`;
+        const uploaded = await storagePut(key, encrypted, "application/octet-stream", {
+          stableKey: true,
+          signal: cancellation.signal,
+        });
+        return recordUpload(ctx.user.id, {
+          key: uploaded.key,
+          url: uploaded.url,
+          mimeType: input.mimeType,
+          bytes: bytes.length,
+        });
+      } finally {
+        cancellation.dispose();
       }
-      const key = `social-encrypted/${ctx.user.id}/${randomUUID()}.${extension}.enc`;
-      const uploaded = await storagePut(key, encrypted, "application/octet-stream", { stableKey: true });
-      return recordUpload(ctx.user.id, {
-        key: uploaded.key,
-        url: uploaded.url,
-        mimeType: input.mimeType,
-        bytes: bytes.length,
-      });
     }),
+
+  /** Revokes an unused caller-owned upload so retries can reuse or explicitly abandon it safely. */
+  discardUpload: protectedProcedure
+    .input(
+      z.object({
+        url: z
+          .string()
+          .trim()
+          .max(2_048)
+          .refine(isAllowedMediaAttachmentReference, {
+            message: "Upload must be a canonical managed media URL",
+          }),
+      }),
+    )
+    .mutation(({ ctx, input }) => discardUnusedUpload(ctx.user.id, input.url)),
 });

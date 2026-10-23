@@ -32,6 +32,28 @@ export const SESSION_INDEXES = Object.freeze([
   "application_sessions_user_app_idx",
   "application_sessions_expiry_idx",
 ]);
+export const REQUIRED_IDENTITY_SEQUENCES = Object.freeze({
+  users: "users_id_seq",
+  profiles: "profiles_id_seq",
+  circles: "circles_id_seq",
+  memberships: "memberships_id_seq",
+  posts: "posts_id_seq",
+  reactions: "reactions_id_seq",
+  bookmarks: "bookmarks_id_seq",
+  comments: "comments_id_seq",
+  conversations: "conversations_id_seq",
+  conversationParticipants: "conversationParticipants_id_seq",
+  messages: "messages_id_seq",
+  follows: "follows_id_seq",
+  reports: "reports_id_seq",
+  socialUploads: "socialUploads_id_seq",
+  streams: "streams_id_seq",
+  liveSignals: "liveSignals_id_seq",
+  liveChat: "liveChat_id_seq",
+});
+export const REQUIRED_IDENTITY_TABLES = Object.freeze(
+  Object.keys(REQUIRED_IDENTITY_SEQUENCES),
+);
 
 /** Exact private app table/column contract; catalog reads never select user rows. */
 export const REQUIRED_APPLICATION_COLUMNS = Object.freeze({
@@ -121,6 +143,7 @@ export const REQUIRED_APPLICATION_COLUMNS = Object.freeze({
     "text",
     "media",
     "createdAt",
+    "clientMessageId",
   ]),
   follows: Object.freeze(["id", "followerId", "followingId", "createdAt"]),
   reports: Object.freeze([
@@ -139,6 +162,7 @@ export const REQUIRED_APPLICATION_COLUMNS = Object.freeze({
     "mimeType",
     "bytes",
     "createdAt",
+    "claimedAt",
   ]),
   socialSeedMarkers: Object.freeze(["key", "completedAt"]),
   _dataMigrations: Object.freeze([
@@ -201,6 +225,60 @@ export const REQUIRED_APPLICATION_COLUMNS = Object.freeze({
 export const REQUIRED_APPLICATION_TABLES = Object.freeze(
   Object.keys(REQUIRED_APPLICATION_COLUMNS),
 );
+export const REQUIRED_RUNTIME_POLICIES = Object.freeze({
+  users: Object.freeze({ name: "runtime_users_policy", command: "*" }),
+  profiles: Object.freeze({ name: "runtime_profiles_policy", command: "*" }),
+  circles: Object.freeze({ name: "runtime_circles_policy", command: "*" }),
+  memberships: Object.freeze({
+    name: "runtime_memberships_policy",
+    command: "*",
+  }),
+  posts: Object.freeze({ name: "runtime_posts_policy", command: "*" }),
+  reactions: Object.freeze({ name: "runtime_reactions_policy", command: "*" }),
+  bookmarks: Object.freeze({ name: "runtime_bookmarks_policy", command: "*" }),
+  comments: Object.freeze({ name: "runtime_comments_policy", command: "*" }),
+  conversations: Object.freeze({
+    name: "runtime_conversations_policy",
+    command: "*",
+  }),
+  conversationParticipants: Object.freeze({
+    name: "runtime_conversation_participants_policy",
+    command: "*",
+  }),
+  messages: Object.freeze({ name: "runtime_messages_policy", command: "*" }),
+  follows: Object.freeze({ name: "runtime_follows_policy", command: "*" }),
+  reports: Object.freeze({ name: "runtime_reports_policy", command: "*" }),
+  socialUploads: Object.freeze({
+    name: "runtime_social_uploads_policy",
+    command: "*",
+  }),
+  socialSeedMarkers: Object.freeze({
+    name: "runtime_social_seed_markers_policy",
+    command: "*",
+  }),
+  _dataMigrations: Object.freeze({
+    name: "runtime_data_migrations_read_policy",
+    command: "r",
+  }),
+  applicationSessions: Object.freeze({
+    name: "runtime_application_sessions_policy",
+    command: "*",
+  }),
+  streams: Object.freeze({ name: "runtime_streams_policy", command: "*" }),
+  activeHostLeases: Object.freeze({
+    name: "runtime_active_host_leases_policy",
+    command: "*",
+  }),
+  liveViewers: Object.freeze({
+    name: "runtime_live_viewers_policy",
+    command: "*",
+  }),
+  liveSignals: Object.freeze({
+    name: "runtime_live_signals_policy",
+    command: "*",
+  }),
+  liveChat: Object.freeze({ name: "runtime_live_chat_policy", command: "*" }),
+});
 
 const REQUIRED_RUNTIME_KEYS = Object.freeze([
   "MANUS_PROJECT_ID",
@@ -266,6 +344,17 @@ const SOURCE_ROUTERS = Object.freeze([
 const ENDPOINT_DEFINITIONS = Object.freeze({
   "auth.me": { expected: "authenticated-object", requiresAuth: true },
   "social.feed": { expected: "array", input: { filter: "for-you" } },
+  "social.feedPage": {
+    expected: "paged-object",
+    input: { filter: "for-you", limit: 20 },
+  },
+  "social.circlesPage": { expected: "paged-object", input: { limit: 20 } },
+  "social.profilesPage": { expected: "paged-object", input: { limit: 20 } },
+  "social.membersPage": {
+    expected: "paged-object",
+    input: { limit: 20 },
+    identifier: { source: "circleId", field: "circleId" },
+  },
   "social.circles": { expected: "array", input: {} },
   "social.circle": {
     expected: "object",
@@ -935,7 +1024,23 @@ export function loadVerificationAuth(authFile, fsModule = fs) {
       throw new Error("verification_auth_invalid");
     }
   }
-  return { bearerToken: parsed.bearerToken, ids: cloneJson(ids) };
+  const activeLiveContext = parsed.activeLiveContext;
+  if (
+    activeLiveContext !== undefined &&
+    (!plainObject(activeLiveContext) ||
+      !positiveInteger(activeLiveContext.streamId) ||
+      !positiveInteger(activeLiveContext.generation) ||
+      Object.keys(activeLiveContext).some(
+        (key) => key !== "streamId" && key !== "generation",
+      ))
+  ) {
+    throw new Error("verification_auth_invalid");
+  }
+  return {
+    bearerToken: parsed.bearerToken,
+    ids: cloneJson(ids),
+    activeLiveContext: activeLiveContext ? cloneJson(activeLiveContext) : null,
+  };
 }
 
 function endpointInput(endpoint, ids, manifest) {
@@ -972,6 +1077,23 @@ function endpointInput(endpoint, ids, manifest) {
       : { ...(input ?? {}), ...identifierInput };
   }
   return { ok: true, input };
+}
+
+/**
+ * Live reads need an operator-provided current host/viewer attestation in
+ * addition to a bearer and source-reviewed stream/generation inputs. This is
+ * deliberately a verification scope gate, not proof of a native/provider
+ * session: without it, context-dependent positives remain incomplete.
+ */
+function hasActiveLiveContextAttestation(endpoint, input, auth) {
+  if (!endpoint.name.startsWith("live.") || !endpoint.requiresAuth) return true;
+  const context = auth?.activeLiveContext;
+  if (!plainObject(context) || !positiveInteger(context.streamId)) return false;
+  if (!positiveInteger(context.generation)) return false;
+  if (!plainObject(input) || input.streamId !== context.streamId) return false;
+  return (
+    endpoint.name === "live.chat" || input.generation === context.generation
+  );
 }
 
 async function readBoundedResponse(
@@ -1027,6 +1149,26 @@ function trpcPayload(text) {
 
 function expectedShape(value, expected) {
   if (expected === "array") return Array.isArray(value);
+  if (expected === "paged-object") {
+    if (
+      !plainObject(value) ||
+      !Array.isArray(value.items) ||
+      value.items.length > 50 ||
+      typeof value.hasMore !== "boolean"
+    )
+      return false;
+    if (!value.hasMore) return value.nextCursor === null;
+    const cursor = value.nextCursor;
+    return (
+      plainObject(cursor) &&
+      positiveInteger(cursor.id) &&
+      Object.keys(cursor).every((key) => key === "id" || key === "createdAt") &&
+      (cursor.createdAt === undefined ||
+        (typeof cursor.createdAt === "string" &&
+          cursor.createdAt.length <= 64 &&
+          Number.isFinite(Date.parse(cursor.createdAt))))
+    );
+  }
   if (expected === "object") return plainObject(value);
   if (expected === "object-or-null")
     return value === null || plainObject(value);
@@ -1169,6 +1311,17 @@ export async function verifyReadOnlyEndpoints({
       );
       continue;
     }
+    if (!hasActiveLiveContextAttestation(endpoint, inputResult.input, auth)) {
+      checks.push(
+        result(
+          endpoint.name,
+          "positive",
+          "skipped",
+          "missing_active_live_context",
+        ),
+      );
+      continue;
+    }
     if (
       requiresAuth &&
       endpoint.name !== "auth.me" &&
@@ -1306,6 +1459,8 @@ function applicationColumnsAreComplete(rows) {
       typeof row?.column_name !== "string"
     )
       return false;
+    if (!Object.hasOwn(REQUIRED_APPLICATION_COLUMNS, row.table_name))
+      return false;
     const columns = discovered.get(row.table_name) ?? new Set();
     columns.add(row.column_name);
     discovered.set(row.table_name, columns);
@@ -1313,7 +1468,11 @@ function applicationColumnsAreComplete(rows) {
   return Object.entries(REQUIRED_APPLICATION_COLUMNS).every(
     ([table, columns]) => {
       const actual = discovered.get(table);
-      return actual && columns.every((column) => actual.has(column));
+      return (
+        actual &&
+        actual.size === columns.length &&
+        columns.every((column) => actual.has(column))
+      );
     },
   );
 }
@@ -1355,6 +1514,54 @@ function runtimeRoleIsRestricted(rows) {
     row.rolbypassrls === false &&
     row.rolsuper === false,
   );
+}
+
+function identitySequencesAreComplete(rows) {
+  if (!Array.isArray(rows) || rows.length !== REQUIRED_IDENTITY_TABLES.length) {
+    return false;
+  }
+  const discovered = new Map(rows.map((row) => [row?.table_name, row]));
+  return REQUIRED_IDENTITY_TABLES.every((table) => {
+    const row = discovered.get(table);
+    return (
+      row?.expected_sequence_name === REQUIRED_IDENTITY_SEQUENCES[table] &&
+      row?.sequence_name === REQUIRED_IDENTITY_SEQUENCES[table] &&
+      row?.owner_table_name === table &&
+      row?.owner_column_name === "id" &&
+      row?.is_identity === true &&
+      row?.can_use_sequence === true &&
+      row?.can_select_sequence === true &&
+      row?.can_update_sequence === false &&
+      row?.observed_sequence_count === REQUIRED_IDENTITY_TABLES.length
+    );
+  });
+}
+
+function runtimePoliciesAreExact(rows) {
+  if (
+    !Array.isArray(rows) ||
+    rows.length !== REQUIRED_APPLICATION_TABLES.length
+  ) {
+    return false;
+  }
+  const discovered = new Map(rows.map((row) => [row?.table_name, row]));
+  return REQUIRED_APPLICATION_TABLES.every((table) => {
+    const expected = REQUIRED_RUNTIME_POLICIES[table];
+    const row = discovered.get(table);
+    if (
+      !expected ||
+      row?.policy_name !== expected.name ||
+      row?.policy_command !== expected.command ||
+      row?.runtime_role_only !== true ||
+      row?.policy_permissive !== true ||
+      row?.using_expression !== "true"
+    ) {
+      return false;
+    }
+    return expected.command === "r"
+      ? row?.with_check_expression === null
+      : row?.with_check_expression === "true";
+  });
 }
 
 async function getSharedPostgresConnectionOptions(configuration, projectRoot) {
@@ -1439,7 +1646,8 @@ export async function checkDatabaseReady(
 
 /**
  * Verifies role, schema use, every required table/column, RLS/DML grants,
- * session indexes, and sequence USAGE with bounded catalog reads only. It never
+ * exact backend policies, session indexes, and the complete identity-sequence
+ * ownership/privilege inventory with bounded catalog reads only. It never
  * reads app data, performs DDL, or mutates the target.
  *
  * @param {Record<string, string | undefined>} configuration
@@ -1495,6 +1703,18 @@ export async function checkApplicationSchema(
     );
     if (!applicationTablesAreSecured(tables?.rows)) return false;
 
+    const policies = await connection.query(
+      privateCatalogQuery(
+        "SELECT c.relname AS table_name, p.polname AS policy_name, p.polcmd AS policy_command, p.polpermissive AS policy_permissive, p.polroles = ARRAY[(SELECT oid FROM pg_roles WHERE rolname = $2)]::oid[] AS runtime_role_only, pg_get_expr(p.polqual, p.polrelid) AS using_expression, CASE WHEN p.polwithcheck IS NULL THEN NULL ELSE pg_get_expr(p.polwithcheck, p.polrelid) END AS with_check_expression FROM pg_class AS c JOIN pg_namespace AS n ON n.oid = c.relnamespace JOIN pg_policy AS p ON p.polrelid = c.oid WHERE n.nspname = $1 AND c.relkind IN ('r', 'p') AND c.relname = ANY($3::text[]) ORDER BY c.relname, p.polname",
+        [
+          APPLICATION_SCHEMA,
+          APPLICATION_RUNTIME_ROLE,
+          REQUIRED_APPLICATION_TABLES,
+        ],
+      ),
+    );
+    if (!runtimePoliciesAreExact(policies?.rows)) return false;
+
     const indexes = await connection.query(
       privateCatalogQuery(
         "SELECT indexname FROM pg_indexes WHERE schemaname = $1 AND tablename = $2",
@@ -1508,15 +1728,18 @@ export async function checkApplicationSchema(
 
     const sequences = await connection.query(
       privateCatalogQuery(
-        "SELECT c.relname AS sequence_name, has_sequence_privilege($2, c.oid, 'USAGE') AS can_use_sequence FROM pg_class AS c JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND c.relkind = 'S'",
-        [APPLICATION_SCHEMA, APPLICATION_RUNTIME_ROLE],
+        "WITH expected(table_name, expected_sequence_name) AS (SELECT * FROM unnest($2::text[], $3::text[])), app_sequences AS (SELECT c.oid, c.relname AS sequence_name FROM pg_class AS c JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND c.relkind = 'S'), sequence_owners AS (SELECT sequence_relation.relname AS sequence_name, table_relation.relname AS owner_table_name, attribute_catalog.attname AS owner_column_name, attribute_catalog.attidentity IN ('a', 'd') AS is_identity FROM pg_depend AS dependency_catalog JOIN pg_class AS sequence_relation ON sequence_relation.oid = dependency_catalog.objid JOIN pg_class AS table_relation ON table_relation.oid = dependency_catalog.refobjid JOIN pg_namespace AS table_namespace ON table_namespace.oid = table_relation.relnamespace JOIN pg_attribute AS attribute_catalog ON attribute_catalog.attrelid = table_relation.oid AND attribute_catalog.attnum = dependency_catalog.refobjsubid WHERE dependency_catalog.deptype = 'i' AND table_namespace.nspname = $1) SELECT expected.table_name, expected.expected_sequence_name, app_sequences.sequence_name, sequence_owners.owner_table_name, sequence_owners.owner_column_name, sequence_owners.is_identity, has_sequence_privilege($4, app_sequences.oid, 'USAGE') AS can_use_sequence, has_sequence_privilege($4, app_sequences.oid, 'SELECT') AS can_select_sequence, has_sequence_privilege($4, app_sequences.oid, 'UPDATE') AS can_update_sequence, (SELECT count(*)::integer FROM app_sequences) AS observed_sequence_count FROM expected LEFT JOIN app_sequences ON app_sequences.sequence_name = expected.expected_sequence_name LEFT JOIN sequence_owners ON sequence_owners.sequence_name = app_sequences.sequence_name ORDER BY expected.table_name",
+        [
+          APPLICATION_SCHEMA,
+          REQUIRED_IDENTITY_TABLES,
+          REQUIRED_IDENTITY_TABLES.map(
+            (table) => REQUIRED_IDENTITY_SEQUENCES[table],
+          ),
+          APPLICATION_RUNTIME_ROLE,
+        ],
       ),
     );
-    return (
-      Array.isArray(sequences?.rows) &&
-      sequences.rows.length > 0 &&
-      sequences.rows.every((row) => row?.can_use_sequence === true)
-    );
+    return identitySequencesAreComplete(sequences?.rows);
   } catch {
     return false;
   } finally {

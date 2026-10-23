@@ -1,0 +1,67 @@
+# Circles coturn template. Render only through render-turnserver-config.sh.
+# This file intentionally contains no secret. The renderer rejects an unresolved
+# auth-secret token and writes its output mode 0600 for the coturn service user.
+
+# Direct public-address deployment only. A NAT or proxy topology is intentionally
+# rejected by install-coturn.sh rather than guessed here.
+listening-ip=__PUBLIC_IP__
+relay-ip=__PUBLIC_IP__
+external-ip=__PUBLIC_IP__
+listening-port=3478
+tls-listening-port=5349
+pidfile=/run/circles-coturn/turnserver.pid
+
+# Coturn TURN REST authentication. Do not add user=, no-auth, or oauth here.
+realm=__DNS_NAME__
+server-name=__DNS_NAME__
+use-auth-secret
+static-auth-secret=__TURN_STATIC_AUTH_SECRET__
+
+# TLS material is supplied by the approved operator path and must be readable by
+# the coturn service user. TLS 1.0 and 1.1 remain disabled by coturn defaults.
+cert=__TLS_CERT__
+pkey=__TLS_KEY__
+
+# Conservative allocation, bandwidth, and relay-socket limits. Capacity changes
+# require an explicit review of host resources and firewall/security-group rules.
+min-port=__RELAY_MIN_PORT__
+max-port=__RELAY_MAX_PORT__
+user-quota=4
+total-quota=128
+max-bps=2000000
+bps-capacity=32000000
+max-allocate-timeout=30
+
+# Disable management and unnecessary relay surfaces; retain authenticated TURN
+# UDP allocations and TLS client access at turns:<DNS>:5349.
+no-cli
+no-tcp-relay
+no-multicast-peers
+no-dynamic-ip-list
+no-dynamic-realms
+secure-stun
+fingerprint
+stale-nonce
+no-software-attribute
+log-file=stdout
+log-min-level=warning
+
+# A TURN server can reach addresses that its clients cannot. Deny RFC1918,
+# loopback, link-local, multicast, and other non-public peer destinations.
+# No allowed-peer-ip rules appear here: allowed entries override denied entries.
+denied-peer-ip=0.0.0.0-0.255.255.255
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=100.64.0.0-100.127.255.255
+denied-peer-ip=127.0.0.0-127.255.255.255
+denied-peer-ip=169.254.0.0-169.254.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.0.0.0-192.0.0.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+denied-peer-ip=198.18.0.0-198.19.255.255
+denied-peer-ip=224.0.0.0-239.255.255.255
+denied-peer-ip=240.0.0.0-255.255.255.255
+denied-peer-ip=::
+denied-peer-ip=::1
+denied-peer-ip=fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+denied-peer-ip=fe80::-febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+denied-peer-ip=ff00::-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff

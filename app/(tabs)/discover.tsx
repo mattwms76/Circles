@@ -5,6 +5,11 @@ import { useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
 import { resolveFnd001QueryDisplayState } from "@/lib/fnd001-query-display-state";
+import {
+  getBoundedLoadedCollection,
+  UI_COLLECTION_PAGE_SIZE,
+  type LoadedCollectionEndState,
+} from "@/lib/feed-ui-helpers";
 import { AppShell } from "@/components/app-shell";
 import { CircleCard } from "@/components/circle-card";
 import { PostCard } from "@/components/post-card";
@@ -21,24 +26,91 @@ import {
   T,
 } from "@/components/circles-ui";
 
+function CollectionFooter({
+  itemLabel,
+  canAppend,
+  endState,
+  onAppend,
+}: {
+  itemLabel: string;
+  canAppend: boolean;
+  endState: LoadedCollectionEndState;
+  onAppend: () => void;
+}) {
+  if (canAppend) {
+    return (
+      <Button
+        title={`Show more ${itemLabel}`}
+        secondary
+        onPress={onAppend}
+        style={{ alignSelf: "center", marginTop: 4 }}
+      />
+    );
+  }
+
+  return (
+    <T
+      style={{
+        color: C.muted,
+        fontSize: 12,
+        lineHeight: 18,
+        textAlign: "center",
+      }}
+    >
+      {endState === "continuation-unavailable"
+        ? `This loaded ${itemLabel} page is full. Refine your search or try again for a fresh page.`
+        : `You’ve reached the end of these ${itemLabel}.`}
+    </T>
+  );
+}
+
 export default function DiscoverScreen() {
   const router = useRouter();
   const { requireAuth, notify } = useCircles();
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState("For you");
-  const people = trpc.social.profiles.useQuery({ search });
-  const circles = trpc.social.circles.useQuery({ search });
-  const feed = trpc.social.feed.useQuery({ filter: "for-you" });
+  const [livesVisibleCount, setLivesVisibleCount] = useState(
+    UI_COLLECTION_PAGE_SIZE,
+  );
+  const [followingByPersonId, setFollowingByPersonId] = useState<
+    Record<number, boolean>
+  >({});
+  const [pendingFollowIds, setPendingFollowIds] = useState<Set<number>>(
+    new Set(),
+  );
+  const people = trpc.social.profilesPage.useInfiniteQuery(
+    { search, limit: UI_COLLECTION_PAGE_SIZE },
+    { getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined },
+  );
+  const circles = trpc.social.circlesPage.useInfiniteQuery(
+    { search, limit: UI_COLLECTION_PAGE_SIZE },
+    { getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined },
+  );
+  const feed = trpc.social.feedPage.useInfiniteQuery(
+    { filter: "for-you", limit: UI_COLLECTION_PAGE_SIZE },
+    { getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined },
+  );
   const lives = trpc.live.list.useQuery({ search });
+  const changeSearch = (value: string) => {
+    setSearch(value);
+    setLivesVisibleCount(UI_COLLECTION_PAGE_SIZE);
+  };
+  const changeTab = (value: string) => {
+    setTab(value);
+    setLivesVisibleCount(UI_COLLECTION_PAGE_SIZE);
+  };
+  const peopleItems = people.data?.pages.flatMap((page) => page.items) ?? [];
+  const circleItems = circles.data?.pages.flatMap((page) => page.items) ?? [];
+  const feedItems = feed.data?.pages.flatMap((page) => page.items) ?? [];
   const peopleDisplayState = resolveFnd001QueryDisplayState({
     isLoading: people.isLoading,
     isError: people.isError,
-    hasContent: !!people.data?.length,
+    hasContent: peopleItems.length > 0 || !!people.hasNextPage,
   });
   const circlesDisplayState = resolveFnd001QueryDisplayState({
     isLoading: circles.isLoading,
     isError: circles.isError,
-    hasContent: !!circles.data?.length,
+    hasContent: circleItems.length > 0 || !!circles.hasNextPage,
   });
   const livesDisplayState = resolveFnd001QueryDisplayState({
     isLoading: lives.isLoading,
@@ -47,23 +119,54 @@ export default function DiscoverScreen() {
   });
   const utils = trpc.useUtils();
   const follow = trpc.social.follow.useMutation({
-    onSuccess: () => {
+    onSuccess: (result, variables) => {
+      setFollowingByPersonId((current) => ({
+        ...current,
+        [variables.userId]: result.following,
+      }));
+      setPendingFollowIds((current) => {
+        const next = new Set(current);
+        next.delete(variables.userId);
+        return next;
+      });
       void utils.social.profiles.invalidate();
       notify("Your connections have been updated.");
     },
-    onError: (e) => notify(e.message),
+    onError: (e, variables) => {
+      setFollowingByPersonId((current) => {
+        const { [variables.userId]: _removed, ...rest } = current;
+        return rest;
+      });
+      setPendingFollowIds((current) => {
+        const next = new Set(current);
+        next.delete(variables.userId);
+        return next;
+      });
+      notify(e.message);
+    },
   });
-  const posts =
-    feed.data?.filter((post) =>
-      `${post.text} ${post.author.name} ${post.circleName || ""}`
-        .toLowerCase()
-        .includes(search.toLowerCase()),
-    ) || [];
+  const posts = feedItems.filter((post) =>
+    `${post.text} ${post.author.name} ${post.circleName || ""}`
+      .toLowerCase()
+      .includes(search.toLowerCase()),
+  );
   const feedDisplayState = resolveFnd001QueryDisplayState({
     isLoading: feed.isLoading,
     isError: feed.isError,
-    hasContent: !!posts.length,
+    hasContent: posts.length > 0 || !!feed.hasNextPage,
   });
+  const livesPage = getBoundedLoadedCollection(lives.data, livesVisibleCount);
+  const requestFollow = (personId: number, currentlyFollowing: boolean) => {
+    if (pendingFollowIds.has(personId)) return;
+    requireAuth(() => {
+      setPendingFollowIds((current) => new Set(current).add(personId));
+      setFollowingByPersonId((current) => ({
+        ...current,
+        [personId]: !currentlyFollowing,
+      }));
+      follow.mutate({ userId: personId });
+    });
+  };
   const contentWidth = {
     width: "100%" as const,
     maxWidth: 680,
@@ -91,7 +194,7 @@ export default function DiscoverScreen() {
           <TextInput
             placeholder="People, passions, places…"
             value={search}
-            onChangeText={setSearch}
+            onChangeText={changeSearch}
             placeholderTextColor={C.muted}
             style={{
               flex: 1,
@@ -107,7 +210,7 @@ export default function DiscoverScreen() {
               size={18}
               color={C.muted}
               label="Clear search"
-              onPress={() => setSearch("")}
+              onPress={() => changeSearch("")}
             />
           )}
         </View>
@@ -124,7 +227,7 @@ export default function DiscoverScreen() {
               title={item}
               key={item}
               selected={tab === item}
-              onPress={() => setTab(item)}
+              onPress={() => changeTab(item)}
             />
           ))}
         </ScrollView>
@@ -153,56 +256,75 @@ export default function DiscoverScreen() {
               text="Try another name or handle."
             />
           ) : (
-            (people.data ?? []).map((person) => (
-              <View
-                key={person.id}
-                style={[
-                  s.row,
-                  {
-                    padding: 14,
-                    gap: 12,
-                    backgroundColor: C.paper,
-                    borderRadius: 14,
-                    borderWidth: 1,
-                    borderColor: C.border,
-                  },
-                ]}
-              >
-                <Pressable onPress={() => router.push(`/person/${person.id}`)}>
-                  <Avatar uri={person.avatar} name={person.name} size={48} />
-                </Pressable>
-                <Pressable
-                  onPress={() => router.push(`/person/${person.id}`)}
-                  style={{ flex: 1, minWidth: 0 }}
+            peopleItems.map((person) => {
+              const isFollowing =
+                followingByPersonId[person.id] ?? person.isFollowing;
+              const isFollowPending = pendingFollowIds.has(person.id);
+              return (
+                <View
+                  key={person.id}
+                  style={[
+                    s.row,
+                    {
+                      padding: 14,
+                      gap: 12,
+                      backgroundColor: C.paper,
+                      borderRadius: 14,
+                      borderWidth: 1,
+                      borderColor: C.border,
+                    },
+                  ]}
                 >
-                  <T
-                    style={{ fontWeight: "700", fontSize: 14, lineHeight: 20 }}
+                  <Pressable
+                    onPress={() => router.push(`/person/${person.id}`)}
                   >
-                    {person.name}
-                  </T>
-                  <T style={{ color: C.muted, fontSize: 12, lineHeight: 18 }}>
-                    @{person.handle}
-                  </T>
-                  <T
-                    numberOfLines={2}
-                    style={{ color: C.muted, fontSize: 14, lineHeight: 21 }}
+                    <Avatar uri={person.avatar} name={person.name} size={48} />
+                  </Pressable>
+                  <Pressable
+                    onPress={() => router.push(`/person/${person.id}`)}
+                    style={{ flex: 1, minWidth: 0 }}
                   >
-                    {person.bio}
-                  </T>
-                </Pressable>
-                <Button
-                  title={person.isFollowing ? "Following" : "Follow"}
-                  secondary={person.isFollowing}
-                  onPress={() =>
-                    requireAuth(() => follow.mutate({ userId: person.id }))
-                  }
-                  style={{
-                    paddingHorizontal: 11,
-                    borderRadius: 9,
-                  }}
-                />
-              </View>
-            ))
+                    <T
+                      style={{
+                        fontWeight: "700",
+                        fontSize: 14,
+                        lineHeight: 20,
+                      }}
+                    >
+                      {person.name}
+                    </T>
+                    <T style={{ color: C.muted, fontSize: 12, lineHeight: 18 }}>
+                      @{person.handle}
+                    </T>
+                    <T
+                      numberOfLines={2}
+                      style={{ color: C.muted, fontSize: 14, lineHeight: 21 }}
+                    >
+                      {person.bio}
+                    </T>
+                  </Pressable>
+                  <Button
+                    title={isFollowing ? "Following" : "Follow"}
+                    secondary={isFollowing}
+                    loading={isFollowPending}
+                    disabled={isFollowPending}
+                    onPress={() => requestFollow(person.id, !!isFollowing)}
+                    style={{
+                      paddingHorizontal: 11,
+                      borderRadius: 9,
+                    }}
+                  />
+                </View>
+              );
+            })
+          )}
+          {peopleDisplayState === "content" && (
+            <CollectionFooter
+              itemLabel="people"
+              canAppend={!!people.hasNextPage}
+              endState={people.hasNextPage ? "more-loaded" : "end"}
+              onAppend={() => void people.fetchNextPage()}
+            />
           )}
         </View>
       )}
@@ -227,9 +349,17 @@ export default function DiscoverScreen() {
               text="A new passion deserves a new circle."
             />
           ) : (
-            (circles.data ?? [])
+            circleItems
               .slice(0, tab === "For you" ? 2 : undefined)
               .map((circle) => <CircleCard key={circle.id} circle={circle} />)
+          )}
+          {circlesDisplayState === "content" && tab === "Circles" && (
+            <CollectionFooter
+              itemLabel="circles"
+              canAppend={!!circles.hasNextPage}
+              endState={circles.hasNextPage ? "more-loaded" : "end"}
+              onAppend={() => void circles.fetchNextPage()}
+            />
           )}
         </View>
       )}
@@ -253,6 +383,14 @@ export default function DiscoverScreen() {
           ) : (
             posts.map((post) => <PostCard key={post.id} post={post} />)
           )}
+          {feedDisplayState === "content" && (
+            <CollectionFooter
+              itemLabel="moments"
+              canAppend={!!feed.hasNextPage}
+              endState={feed.hasNextPage ? "more-loaded" : "end"}
+              onAppend={() => void feed.fetchNextPage()}
+            />
+          )}
         </View>
       )}
       {tab === "Live" && (
@@ -268,7 +406,7 @@ export default function DiscoverScreen() {
               onAction={() => void lives.refetch()}
             />
           ) : livesDisplayState === "content" ? (
-            (lives.data ?? []).map((live) => (
+            livesPage.items.map((live) => (
               <Pressable
                 key={live.id}
                 onPress={() => router.push(`/live/${live.id}`)}
@@ -296,6 +434,14 @@ export default function DiscoverScreen() {
               onAction={() =>
                 requireAuth(() => router.push("/create?mode=live"))
               }
+            />
+          )}
+          {livesDisplayState === "content" && (
+            <CollectionFooter
+              itemLabel="live moments"
+              canAppend={livesPage.canAppend}
+              endState={livesPage.endState}
+              onAppend={() => setLivesVisibleCount(livesPage.nextVisibleCount)}
             />
           )}
         </View>

@@ -13,14 +13,19 @@ import {
 import { streams } from "../../drizzle/live-schema";
 import { getDb } from "../db";
 import { storageGetSignedUrl } from "../storage";
-import { decryptSocialMedia, SOCIAL_MEDIA_FRAME_OVERHEAD } from "../social-service";
+import {
+  decryptSocialMedia,
+  SOCIAL_MEDIA_FRAME_OVERHEAD,
+} from "../social-service";
 import { previewLimiterIdentityFromRequest } from "./runtimeSecurity";
 import { sdk } from "./sdk";
+import { requestCancellation, RequestAbortedError } from "./bounded-network";
 
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 const HOST_LEASE_MS = 45_000;
 const APPROVED_ROLES = ["owner", "moderator", "member"] as const;
-const ENCRYPTED_SOCIAL_KEY = /^social-encrypted\/[1-9]\d*\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.(?:jpg|png|webp|mp4)\.enc$/;
+const ENCRYPTED_SOCIAL_KEY =
+  /^social-encrypted\/[1-9]\d*\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.(?:jpg|png|webp|mp4)\.enc$/;
 const MEDIA_FETCH_TIMEOUT_MS = 15_000;
 const MAX_CONCURRENT_MEDIA_DOWNLOADS = 4;
 const MAX_CONCURRENT_MEDIA_DOWNLOADS_PER_CLIENT = 2;
@@ -57,18 +62,26 @@ export function createMediaWorkAdmission(options: MediaWorkAdmissionOptions) {
   let activeDownloads = 0;
   const clientBudgets = new Map<string, MediaWorkBudgetEntry>();
 
-  const retryAfterSeconds = (remainingMs: number) => Math.max(1, Math.ceil(remainingMs / 1000));
+  const retryAfterSeconds = (remainingMs: number) =>
+    Math.max(1, Math.ceil(remainingMs / 1000));
 
   const pruneExpiredClients = (now: number) => {
     for (const [clientKey, budget] of clientBudgets) {
-      if (budget.activeRequests === 0 && now - budget.windowStartedAt >= options.budgetWindowMs) {
+      if (
+        budget.activeRequests === 0 &&
+        now - budget.windowStartedAt >= options.budgetWindowMs
+      ) {
         clientBudgets.delete(clientKey);
       }
     }
   };
 
   return {
-    tryAcquire(clientKey: string, bytes: number, now = Date.now()): MediaWorkAdmission {
+    tryAcquire(
+      clientKey: string,
+      bytes: number,
+      now = Date.now(),
+    ): MediaWorkAdmission {
       if (!Number.isSafeInteger(bytes) || bytes < 1) {
         throw new RangeError("Media work cost must be a positive safe integer");
       }
@@ -83,18 +96,32 @@ export function createMediaWorkAdmission(options: MediaWorkAdmissionOptions) {
         budget.windowStartedAt = now;
         budget.usedBytes = 0;
       }
-      if (budget?.activeRequests && budget.activeRequests >= options.maxConcurrentDownloadsPerClient) {
+      if (
+        budget?.activeRequests &&
+        budget.activeRequests >= options.maxConcurrentDownloadsPerClient
+      ) {
         return { kind: "concurrency_limited", retryAfterSeconds: 1 };
       }
-      if (budget && budget.usedBytes + bytes > options.maxBytesPerClientWindow) {
+      if (
+        budget &&
+        budget.usedBytes + bytes > options.maxBytesPerClientWindow
+      ) {
         return {
           kind: "rate_limited",
-          retryAfterSeconds: retryAfterSeconds(budget.windowStartedAt + options.budgetWindowMs - now),
+          retryAfterSeconds: retryAfterSeconds(
+            budget.windowStartedAt + options.budgetWindowMs - now,
+          ),
         };
       }
       if (!budget) {
-        if (clientBudgets.size >= options.maxTrackedClients || bytes > options.maxBytesPerClientWindow) {
-          return { kind: "rate_limited", retryAfterSeconds: retryAfterSeconds(options.budgetWindowMs) };
+        if (
+          clientBudgets.size >= options.maxTrackedClients ||
+          bytes > options.maxBytesPerClientWindow
+        ) {
+          return {
+            kind: "rate_limited",
+            retryAfterSeconds: retryAfterSeconds(options.budgetWindowMs),
+          };
         }
         budget = { windowStartedAt: now, usedBytes: 0, activeRequests: 0 };
         clientBudgets.set(clientKey, budget);
@@ -111,7 +138,10 @@ export function createMediaWorkAdmission(options: MediaWorkAdmissionOptions) {
           released = true;
           activeDownloads -= 1;
           budget.activeRequests -= 1;
-          if (budget.activeRequests === 0 && Date.now() - budget.windowStartedAt >= options.budgetWindowMs) {
+          if (
+            budget.activeRequests === 0 &&
+            Date.now() - budget.windowStartedAt >= options.budgetWindowMs
+          ) {
             clientBudgets.delete(clientKey);
           }
         },
@@ -134,7 +164,10 @@ class MediaFetchTimeoutError extends Error {
   }
 }
 
-function parseSingleRange(value: string | undefined, total: number): ByteRange | null | false {
+function parseSingleRange(
+  value: string | undefined,
+  total: number,
+): ByteRange | null | false {
   if (!value) return null;
   const match = /^bytes=(\d*)-(\d*)$/.exec(value.trim());
   if (!match || total <= 0) return false;
@@ -197,17 +230,27 @@ export async function readBoundedEncryptedMediaBody(
   }
 }
 
-async function fetchBoundedEncryptedMedia(signedUrl: string, expectedBytes: number): Promise<Buffer> {
+export async function fetchBoundedEncryptedMedia(
+  signedUrl: string,
+  expectedBytes: number,
+  signal?: AbortSignal,
+): Promise<Buffer> {
   const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (signal?.aborted) throw new RequestAbortedError();
+  signal?.addEventListener("abort", abort, { once: true });
   const timeout = setTimeout(() => controller.abort(), MEDIA_FETCH_TIMEOUT_MS);
   try {
-    const storageResponse = await fetch(signedUrl, { signal: controller.signal });
+    const storageResponse = await fetch(signedUrl, {
+      signal: controller.signal,
+    });
     if (!storageResponse.ok) {
       await storageResponse.body?.cancel().catch(() => undefined);
       throw new Error("Media backend error");
     }
     const contentLengthHeader = storageResponse.headers.get("content-length");
-    const contentLength = contentLengthHeader === null ? null : Number(contentLengthHeader);
+    const contentLength =
+      contentLengthHeader === null ? null : Number(contentLengthHeader);
     if (
       contentLength !== null &&
       (!Number.isSafeInteger(contentLength) || contentLength !== expectedBytes)
@@ -215,12 +258,17 @@ async function fetchBoundedEncryptedMedia(signedUrl: string, expectedBytes: numb
       await storageResponse.body?.cancel().catch(() => undefined);
       throw new Error("Invalid encrypted media length");
     }
-    return await readBoundedEncryptedMediaBody(storageResponse.body, expectedBytes);
+    return await readBoundedEncryptedMediaBody(
+      storageResponse.body,
+      expectedBytes,
+    );
   } catch (error) {
+    if (signal?.aborted) throw new RequestAbortedError();
     if (controller.signal.aborted) throw new MediaFetchTimeoutError();
     throw error;
   } finally {
     clearTimeout(timeout);
+    signal?.removeEventListener("abort", abort);
   }
 }
 
@@ -251,7 +299,11 @@ async function requester(req: Request): Promise<number | null> {
   }
 }
 
-async function isApprovedMember(db: Database, userId: number, circleIds: number[]): Promise<boolean> {
+async function isApprovedMember(
+  db: Database,
+  userId: number,
+  circleIds: number[],
+): Promise<boolean> {
   if (!circleIds.length) return false;
   const match = await db
     .select({ id: memberships.id })
@@ -275,13 +327,18 @@ async function isAuthorizedSocialMedia(
   // The route only ever looks up this exact validated socialUploads storage key. It cannot sign
   // arbitrary caller-provided object keys.
   const uploadRows = await db
-    .select({ userId: socialUploads.userId, mimeType: socialUploads.mimeType, bytes: socialUploads.bytes })
+    .select({
+      userId: socialUploads.userId,
+      mimeType: socialUploads.mimeType,
+      bytes: socialUploads.bytes,
+    })
     .from(socialUploads)
     .where(eq(socialUploads.storageKey, key))
     .limit(1);
   const upload = uploadRows[0];
   if (!upload) return null;
-  if (userId === upload.userId) return { mimeType: upload.mimeType, bytes: upload.bytes };
+  if (userId === upload.userId)
+    return { mimeType: upload.mimeType, bytes: upload.bytes };
 
   const mediaUrl = `/manus-storage/${key}`;
   const [profileReference, circleCoverReference] = await Promise.all([
@@ -290,7 +347,11 @@ async function isAuthorizedSocialMedia(
       .from(profiles)
       .where(or(eq(profiles.avatar, mediaUrl), eq(profiles.cover, mediaUrl)))
       .limit(1),
-    db.select({ id: circles.id }).from(circles).where(eq(circles.image, mediaUrl)).limit(1),
+    db
+      .select({ id: circles.id })
+      .from(circles)
+      .where(eq(circles.image, mediaUrl))
+      .limit(1),
   ]);
   // Avatars and circle covers are intentional public discovery references.
   if (profileReference.length || circleCoverReference.length) {
@@ -305,7 +366,11 @@ async function isAuthorizedSocialMedia(
   if (postRows.some((post) => post.circleId === null)) {
     return { mimeType: upload.mimeType, bytes: upload.bytes };
   }
-  const postCircleIds = [...new Set(postRows.flatMap((post) => (post.circleId ? [post.circleId] : [])))];
+  const postCircleIds = [
+    ...new Set(
+      postRows.flatMap((post) => (post.circleId ? [post.circleId] : [])),
+    ),
+  ];
   if (postCircleIds.length) {
     const postCircles = await db
       .select({ id: circles.id, privacy: circles.privacy })
@@ -324,9 +389,15 @@ async function isAuthorizedSocialMedia(
     .from(messages)
     .where(eq(messages.media, mediaUrl));
   if (userId && messageRows.length) {
-    const conversationIds = [...new Set(messageRows.map((message) => message.conversationId))];
+    const conversationIds = [
+      ...new Set(messageRows.map((message) => message.conversationId)),
+    ];
     const relatedConversations = await db
-      .select({ id: conversations.id, kind: conversations.kind, circleId: conversations.circleId })
+      .select({
+        id: conversations.id,
+        kind: conversations.kind,
+        circleId: conversations.circleId,
+      })
       .from(conversations)
       .where(inArray(conversations.id, conversationIds));
     const directIds = relatedConversations
@@ -343,10 +414,13 @@ async function isAuthorizedSocialMedia(
           ),
         )
         .limit(1);
-      if (directParticipant.length) return { mimeType: upload.mimeType, bytes: upload.bytes };
+      if (directParticipant.length)
+        return { mimeType: upload.mimeType, bytes: upload.bytes };
     }
     const messageCircleIds = relatedConversations.flatMap((conversation) =>
-      conversation.kind === "circle" && conversation.circleId ? [conversation.circleId] : [],
+      conversation.kind === "circle" && conversation.circleId
+        ? [conversation.circleId]
+        : [],
     );
     if (await isApprovedMember(db, userId, [...new Set(messageCircleIds)])) {
       return { mimeType: upload.mimeType, bytes: upload.bytes };
@@ -375,7 +449,11 @@ async function isAuthorizedSocialMedia(
     return { mimeType: upload.mimeType, bytes: upload.bytes };
   }
   const streamCircleIds = [
-    ...new Set(freshReadyStreams.flatMap((stream) => (stream.circleId ? [stream.circleId] : []))),
+    ...new Set(
+      freshReadyStreams.flatMap((stream) =>
+        stream.circleId ? [stream.circleId] : [],
+      ),
+    ),
   ];
   if (streamCircleIds.length) {
     const streamCircles = await db
@@ -394,7 +472,9 @@ async function isAuthorizedSocialMedia(
 }
 
 async function sendDecryptedSocialMedia(req: Request, res: Response) {
-  const key = String((req.params as Record<string, string | undefined>)["0"] ?? "");
+  const key = String(
+    (req.params as Record<string, string | undefined>)["0"] ?? "",
+  );
   if (!ENCRYPTED_SOCIAL_KEY.test(key)) {
     res.status(404).send("Media not found");
     return;
@@ -406,6 +486,7 @@ async function sendDecryptedSocialMedia(req: Request, res: Response) {
     return;
   }
 
+  const cancellation = requestCancellation(req, res);
   try {
     const userId = await requester(req);
     const upload = await isAuthorizedSocialMedia(db, key, userId);
@@ -413,7 +494,11 @@ async function sendDecryptedSocialMedia(req: Request, res: Response) {
       res.status(404).send("Media not found");
       return;
     }
-    if (!Number.isSafeInteger(upload.bytes) || upload.bytes < 1 || upload.bytes > MAX_UPLOAD_BYTES) {
+    if (
+      !Number.isSafeInteger(upload.bytes) ||
+      upload.bytes < 1 ||
+      upload.bytes > MAX_UPLOAD_BYTES
+    ) {
       res.status(502).send("Invalid media metadata");
       return;
     }
@@ -431,10 +516,16 @@ async function sendDecryptedSocialMedia(req: Request, res: Response) {
 
     // GCM frames must be fetched and authenticated as a whole. Charge the declared full plaintext
     // size for every request (including bytes=0-0) before asking storage for a signed URL.
-    const admission = mediaWorkAdmission.tryAcquire(mediaWorkClientKey(req, userId), upload.bytes);
+    const admission = mediaWorkAdmission.tryAcquire(
+      mediaWorkClientKey(req, userId),
+      upload.bytes,
+    );
     if (admission.kind !== "allowed") {
       res
-        .set({ "Cache-Control": "private, no-store", "Retry-After": String(admission.retryAfterSeconds) })
+        .set({
+          "Cache-Control": "private, no-store",
+          "Retry-After": String(admission.retryAfterSeconds),
+        })
         .status(429)
         .send("Media request limit reached");
       return;
@@ -442,8 +533,14 @@ async function sendDecryptedSocialMedia(req: Request, res: Response) {
 
     try {
       const expectedEncryptedBytes = upload.bytes + SOCIAL_MEDIA_FRAME_OVERHEAD;
-      const signedUrl = await storageGetSignedUrl(key);
-      const encrypted = await fetchBoundedEncryptedMedia(signedUrl, expectedEncryptedBytes);
+      const signedUrl = await storageGetSignedUrl(key, {
+        signal: cancellation.signal,
+      });
+      const encrypted = await fetchBoundedEncryptedMedia(
+        signedUrl,
+        expectedEncryptedBytes,
+        cancellation.signal,
+      );
       const plaintext = decryptSocialMedia(encrypted);
       if (plaintext.length !== upload.bytes) {
         res.status(502).send("Invalid decrypted media");
@@ -467,15 +564,26 @@ async function sendDecryptedSocialMedia(req: Request, res: Response) {
       admission.release();
     }
   } catch (error) {
+    if (cancellation.signal.aborted || res.destroyed || res.writableEnded)
+      return;
     const status =
       error instanceof MediaFetchTimeoutError
         ? 504
-        : error instanceof Error && error.message === "Social media encryption is unavailable"
+        : error instanceof Error &&
+            error.message === "Social media encryption is unavailable"
           ? 503
           : 502;
-    res.status(status).send(
-      status === 504 ? "Media backend timed out" : status === 503 ? "Media service unavailable" : "Media unavailable",
-    );
+    res
+      .status(status)
+      .send(
+        status === 504
+          ? "Media backend timed out"
+          : status === 503
+            ? "Media service unavailable"
+            : "Media unavailable",
+      );
+  } finally {
+    cancellation.dispose();
   }
 }
 

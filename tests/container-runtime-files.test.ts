@@ -4,6 +4,13 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("production container TLS files", () => {
+  it("has no inactive package patch inputs in the frozen container graph", () => {
+    const dockerfile = readFileSync(resolve("Dockerfile"), "utf8");
+    const manifest = JSON.parse(readFileSync(resolve("package.json"), "utf8"));
+    expect(manifest.pnpm.patchedDependencies ?? {}).toEqual({});
+    expect(dockerfile).not.toContain("COPY patches ./patches");
+  });
+
   it("copies the public pinned Supabase certificate into the nonroot runtime", () => {
     const dockerfile = readFileSync(resolve("Dockerfile"), "utf8");
     const runtime = dockerfile.slice(dockerfile.lastIndexOf(" AS runtime"));

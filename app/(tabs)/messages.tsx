@@ -169,7 +169,7 @@ export default function MessagesScreen() {
                   {conversation.name}
                 </T>
                 <T numberOfLines={1} style={{ fontSize: 12, color: C.muted }}>
-                  {conversation.lastMessage || "Say something kind."}
+                  {conversation.lastMessage || "No messages yet."}
                 </T>
               </View>
               <View

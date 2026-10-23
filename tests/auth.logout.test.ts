@@ -19,6 +19,7 @@ const memory = vi.hoisted(() => {
   process.env.MANUS_JWT_SECRET =
     "synthetic-session-signing-secret-for-auth-logout-tests";
   process.env.MANUS_OAUTH_API_URL = "https://oauth.synthetic.invalid";
+  process.env.FRONTEND_ORIGIN = "https://web.synthetic.invalid";
 
   type Stored = {
     sessionId: string;
@@ -130,7 +131,10 @@ function createAuthContext(
     user,
     req: {
       protocol,
-      headers,
+      headers: {
+        origin: "https://web.synthetic.invalid",
+        ...headers,
+      },
     } as TrpcContext["req"],
     res: {
       clearCookie: (name: string, options: Record<string, unknown>) => {
@@ -349,6 +353,40 @@ describe("auth.logout", () => {
       const cleared = failedResponse.headers.get("set-cookie") ?? "";
       expect(cleared).toContain(`${APPLICATION_SESSION_COOKIE_NAME}=`);
       expect(cleared).toContain(`${fallbackName}=`);
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
+    }
+  });
+
+  it("rejects origin-less cookie logout in REST and tRPC without revoking that browser session", async () => {
+    const browserCookie = await sdk.createSessionToken("cookie-only", {
+      name: "Cookie only",
+    });
+    const fallbackName = getSessionCookieName({
+      protocol: "http",
+      headers: {},
+    } as TrpcContext["req"]);
+    const { server, url } = await startLogoutApp();
+    try {
+      const response = await fetch(`${url}/api/auth/logout`, {
+        method: "POST",
+        headers: {
+          cookie: `${APPLICATION_SESSION_COOKIE_NAME}=${browserCookie}; ${fallbackName}=${browserCookie}`,
+        },
+      });
+      expect(response.status).toBe(403);
+      await expect(sdk.verifySession(browserCookie)).resolves.not.toBeNull();
+
+      const { ctx } = createAuthContext("http", {
+        cookie: `${APPLICATION_SESSION_COOKIE_NAME}=${browserCookie}`,
+      });
+      delete ctx.req.headers.origin;
+      await expect(appRouter.createCaller(ctx).auth.logout()).rejects.toMatchObject({
+        code: "FORBIDDEN",
+      });
+      await expect(sdk.verifySession(browserCookie)).resolves.not.toBeNull();
     } finally {
       await new Promise<void>((resolve, reject) =>
         server.close((error) => (error ? reject(error) : resolve())),

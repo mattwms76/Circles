@@ -1,9 +1,15 @@
 import { TRPCError } from "@trpc/server";
 import { ENV } from "./env";
+import { fetchWithDeadline } from "./runtimeSecurity";
 
 export type NotificationPayload = {
   title: string;
   content: string;
+};
+
+export type NotificationRequestOptions = {
+  /** A handler-owned cancellation signal, if the caller has one. */
+  signal?: AbortSignal;
 };
 
 const TITLE_MAX_LENGTH = 1200;
@@ -58,27 +64,18 @@ const validatePayload = (input: NotificationPayload): NotificationPayload => {
  * cannot be reached (callers can fall back to email/slack). Validation errors
  * bubble up as TRPC errors so callers can fix the payload.
  */
-export async function notifyOwner(payload: NotificationPayload): Promise<boolean> {
+export async function notifyOwner(
+  payload: NotificationPayload,
+  options: NotificationRequestOptions = {},
+): Promise<boolean> {
   const { title, content } = validatePayload(payload);
 
-  if (!ENV.forgeApiUrl) {
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: "Notification service URL is not configured.",
-    });
-  }
-
-  if (!ENV.forgeApiKey) {
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: "Notification service API key is not configured.",
-    });
-  }
+  if (!ENV.forgeApiUrl || !ENV.forgeApiKey) return false;
 
   const endpoint = buildEndpointUrl(ENV.forgeApiUrl);
 
   try {
-    const response = await fetch(endpoint, {
+    const response = await fetchWithDeadline(endpoint, {
       method: "POST",
       headers: {
         accept: "application/json",
@@ -87,6 +84,7 @@ export async function notifyOwner(payload: NotificationPayload): Promise<boolean
         "connect-protocol-version": "1",
       },
       body: JSON.stringify({ title, content }),
+      signal: options.signal,
     });
 
     if (!response.ok) {
@@ -95,6 +93,7 @@ export async function notifyOwner(payload: NotificationPayload): Promise<boolean
       return false;
     }
 
+    await response.body?.cancel().catch(() => undefined);
     return true;
   } catch {
     console.warn("[Notification] Error calling notification service");

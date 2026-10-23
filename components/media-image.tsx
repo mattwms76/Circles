@@ -5,6 +5,11 @@ import { getApiBaseUrl, getApiRequestUrl } from "@/constants/oauth";
 import { getSessionToken } from "@/lib/_core/auth";
 import { useCircles } from "@/hooks/circles-context";
 import {
+  nativeMediaRequestKey,
+  nativeMediaTokenForRequest,
+  type NativeMediaTokenState,
+} from "@/lib/media-cache";
+import {
   requiresNativeMediaAuthorization,
   resolveMediaUrlForRenderer,
 } from "@/shared/media";
@@ -18,26 +23,44 @@ export function resolveMediaUrl(uri: string): string {
 }
 export function useMediaSource(uri: string) {
   const { user } = useCircles();
-  const [token, setToken] = useState<string | null>(null);
-  const requiresNativeAuthorization = requiresNativeMediaAuthorization(uri, Platform.OS === "web");
+  const resolvedUri = resolveMediaUrl(uri);
+  const requiresNativeAuthorization = requiresNativeMediaAuthorization(
+    uri,
+    Platform.OS === "web",
+  );
+  const requestKey = nativeMediaRequestKey(user?.id, resolvedUri);
+  const [tokenState, setTokenState] = useState<NativeMediaTokenState>({
+    requestKey: "",
+    settled: false,
+    token: null,
+  });
   useEffect(() => {
     if (!requiresNativeAuthorization) return;
     let active = true;
     void getSessionToken().then((value) => {
-      if (active) setToken(value);
+      if (active) setTokenState({ requestKey, settled: true, token: value });
+    }, () => {
+      if (active) setTokenState({ requestKey, settled: true, token: null });
     });
     return () => {
       active = false;
     };
-  }, [requiresNativeAuthorization, user?.id]);
+  }, [requestKey, requiresNativeAuthorization]);
   return useMemo(
-    () => ({
-      uri: resolveMediaUrl(uri),
-      ...(token && requiresNativeAuthorization
-        ? { headers: { Authorization: `Bearer ${token}` } }
-        : {}),
-    }),
-    [uri, token, requiresNativeAuthorization],
+    () => {
+      if (requiresNativeAuthorization) {
+        const token = nativeMediaTokenForRequest(tokenState, requestKey);
+        // Returning null keeps Expo Image/Video idle rather than prefetching the
+        // authenticated proxy URI without a bearer or with a stale account's one.
+        if (!token) return null;
+        return {
+          uri: resolvedUri,
+          headers: { Authorization: `Bearer ${token}` },
+        };
+      }
+      return { uri: resolvedUri };
+    },
+    [requestKey, requiresNativeAuthorization, resolvedUri, tokenState],
   );
 }
 export function Image(props: ImageProps) {
@@ -61,6 +84,6 @@ export function Image(props: ImageProps) {
     "uri" in original &&
     original.uri
   )
-    source = { ...original, ...resolved };
+    source = resolved ? { ...original, ...resolved } : null;
   return <ExpoImage {...props} source={source} />;
 }

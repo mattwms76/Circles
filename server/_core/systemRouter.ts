@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { notifyOwner } from "./notification";
 import { adminProcedure, publicProcedure, router } from "./trpc";
+import { requestCancellation } from "./bounded-network";
 
 export const systemRouter = router({
   health: publicProcedure
@@ -20,10 +21,15 @@ export const systemRouter = router({
         content: z.string().min(1, "content is required"),
       }),
     )
-    .mutation(async ({ input }) => {
-      const delivered = await notifyOwner(input);
-      return {
-        success: delivered,
-      } as const;
+    .mutation(async ({ input, ctx }) => {
+      const cancellation = requestCancellation(ctx.req, ctx.res);
+      try {
+        const delivered = await notifyOwner(input, {
+          signal: cancellation.signal,
+        });
+        return { success: delivered } as const;
+      } finally {
+        cancellation.dispose();
+      }
     }),
 });

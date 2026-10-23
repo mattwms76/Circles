@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { circles, memberships } from "../drizzle/schema";
-import { joinCircle } from "../server/social-service";
+import {
+  joinCircle,
+  setCircleMembership,
+} from "../server/social-service";
 
 const socialJoinDbMock = vi.hoisted(() => ({
   getDb: vi.fn(),
@@ -10,7 +13,7 @@ vi.mock("../server/db", () => ({
   getDb: socialJoinDbMock.getDb,
 }));
 
-type SyntheticJoinRole = "member" | "pending";
+type SyntheticJoinRole = "member" | "pending" | "owner";
 type SyntheticCirclePrivacy = "public" | "private";
 
 const SYNTHETIC_CIRCLE_ID = 41;
@@ -23,17 +26,29 @@ const SYNTHETIC_USER_ID = 99;
 function createSyntheticConcurrentJoinFixture(privacy: SyntheticCirclePrivacy) {
   let membershipRole: SyntheticJoinRole | undefined;
   let conflictWrites = 0;
+  let deleteWrites = 0;
 
-  const db = {
+  const rows = <T>(value: T[]) => ({
+    for: async () => value,
+    then: <Result>(
+      resolve: (rows: T[]) => Result | PromiseLike<Result>,
+      reject?: (error: unknown) => Result | PromiseLike<Result>,
+    ) => Promise.resolve(value).then(resolve, reject),
+  });
+
+  let db: object;
+  const transaction = async <T>(callback: (tx: object) => Promise<T>) =>
+    callback(db);
+  db = {
     select: () => ({
       from: (table: unknown) => ({
         where: () => ({
-          limit: async () => {
+          limit: () => {
             if (table === circles) {
-              return [{ id: SYNTHETIC_CIRCLE_ID, privacy }];
+              return rows([{ id: SYNTHETIC_CIRCLE_ID, privacy }]);
             }
             if (table === memberships) {
-              return membershipRole ? [{ role: membershipRole }] : [];
+              return rows(membershipRole ? [{ role: membershipRole }] : []);
             }
             throw new Error("Unexpected synthetic join query");
           },
@@ -65,12 +80,24 @@ function createSyntheticConcurrentJoinFixture(privacy: SyntheticCirclePrivacy) {
         };
       },
     }),
+    delete: (table: unknown) => ({
+      where: async () => {
+        if (table !== memberships) throw new Error("Unexpected synthetic membership deletion");
+        deleteWrites += 1;
+        membershipRole = undefined;
+      },
+    }),
+    transaction,
   };
 
   return {
     db,
     conflictWrites: () => conflictWrites,
+    deleteWrites: () => deleteWrites,
     membershipRole: () => membershipRole,
+    setMembershipRole: (role: SyntheticJoinRole | undefined) => {
+      membershipRole = role;
+    },
   };
 }
 
@@ -105,5 +132,34 @@ describe("SOC-003 idempotent circle joins", () => {
     expect(joined).toEqual([{ role: "pending" }, { role: "pending" }]);
     expect(fixture.membershipRole()).toBe("pending");
     expect(fixture.conflictWrites()).toBe(2);
+  });
+
+  it("cancels a private pending request idempotently under the same circle lock", async () => {
+    const fixture = createSyntheticConcurrentJoinFixture("private");
+    socialJoinDbMock.getDb.mockResolvedValue(fixture.db);
+
+    await expect(
+      setCircleMembership(SYNTHETIC_USER_ID, SYNTHETIC_CIRCLE_ID, true),
+    ).resolves.toEqual({ role: "pending", joined: false });
+    await expect(
+      setCircleMembership(SYNTHETIC_USER_ID, SYNTHETIC_CIRCLE_ID, false),
+    ).resolves.toEqual({ role: null, joined: false });
+    await expect(
+      setCircleMembership(SYNTHETIC_USER_ID, SYNTHETIC_CIRCLE_ID, false),
+    ).resolves.toEqual({ role: null, joined: false });
+
+    expect(fixture.membershipRole()).toBeUndefined();
+    expect(fixture.deleteWrites()).toBe(1);
+  });
+
+  it("keeps the owner terminal when asked to leave", async () => {
+    const fixture = createSyntheticConcurrentJoinFixture("public");
+    fixture.setMembershipRole("owner");
+    socialJoinDbMock.getDb.mockResolvedValue(fixture.db);
+
+    await expect(
+      setCircleMembership(SYNTHETIC_USER_ID, SYNTHETIC_CIRCLE_ID, false),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(fixture.membershipRole()).toBe("owner");
   });
 });

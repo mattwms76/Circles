@@ -216,7 +216,18 @@ export function PostCard({ post }: { post: Post }) {
               onPress={() =>
                 requireAuth(() => like.mutate({ postId: post.id }))
               }
-              style={[s.row, { gap: 5, paddingVertical: 5, minHeight: 44 }]}
+              accessibilityRole="button"
+              accessibilityLabel={liked ? "Unlike post" : "Like post"}
+              accessibilityState={{ disabled: like.isPending, busy: like.isPending }}
+              style={[
+                s.row,
+                {
+                  gap: 5,
+                  paddingVertical: 5,
+                  minHeight: 44,
+                  opacity: like.isPending ? 0.55 : 1,
+                },
+              ]}
             >
               <Icon
                 name={liked ? "heart" : "heart-outline"}
@@ -254,7 +265,9 @@ export function PostCard({ post }: { post: Post }) {
             color={saved ? C.coral : C.ink}
             size={20}
             onPress={() => requireAuth(() => save.mutate({ postId: post.id }))}
-            label="Save post"
+            label={saved ? "Remove saved post" : "Save post"}
+            disabled={save.isPending}
+            loading={save.isPending}
           />
         </View>
         <T style={{ fontSize: 14, lineHeight: 21 }}>

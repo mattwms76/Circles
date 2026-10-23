@@ -4,6 +4,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
 } from "react";
 import { Modal, Pressable, View } from "react-native";
@@ -15,10 +16,12 @@ import * as Auth from "@/lib/_core/auth";
 import { logoutAndPurgeClientSession } from "@/lib/client-session";
 import { clearPrivateImageCaches } from "@/lib/media-cache";
 import { completeNativeLoginTransition } from "@/hooks/native-login-transition";
+import { resolveAuthGateState, type AuthGateState } from "@/lib/feed-ui-helpers";
 
 type State = {
   user: { id: number; name: string | null } | null;
   authLoading: boolean;
+  authState: AuthGateState;
   requireAuth: (action?: () => void) => boolean;
   notify: (message: string) => void;
   refresh: () => void;
@@ -44,13 +47,32 @@ export function CirclesProvider({
   const [login, setLogin] = useState(false);
   const [notice, setNotice] = useState("");
   const [signing, setSigning] = useState(false);
-  const loginVisible = login && !auth.data;
+  const pendingProtectedAction = useRef<(() => void) | null>(null);
+  const authState = resolveAuthGateState({
+    isLoading: auth.isLoading,
+    isError: auth.isError,
+    hasUser: !!auth.data,
+  });
+  const loginVisible = login && authState === "guest";
   const refetchAuth = auth.refetch;
   useEffect(() => {
     if (!notice) return;
     const timer = setTimeout(() => setNotice(""), 4000);
     return () => clearTimeout(timer);
   }, [notice]);
+
+  useEffect(() => {
+    if (authState === "authenticated" && pendingProtectedAction.current) {
+      const action = pendingProtectedAction.current;
+      pendingProtectedAction.current = null;
+      action();
+      return;
+    }
+
+    if (authState === "guest" && pendingProtectedAction.current) {
+      setLogin(true);
+    }
+  }, [authState]);
 
   const refresh = useCallback(() => {
     void refetchAuth();
@@ -90,23 +112,45 @@ export function CirclesProvider({
     return authenticatedUser !== null;
   }, [queryClient, refetchAuth, utils]);
 
-  const requireAuth = (action?: () => void) => {
-    if (!auth.data) {
+  const requireAuth = useCallback(
+    (action?: () => void) => {
+      if (authState === "authenticated") {
+        action?.();
+        return true;
+      }
+
+      if (authState === "checking") {
+        if (action) pendingProtectedAction.current = action;
+        setNotice("Checking your sign-in…");
+        return false;
+      }
+
+      if (authState === "error") {
+        setNotice("We couldn’t confirm your sign-in. Check your connection and try again.");
+        return false;
+      }
+
       setLogin(true);
       return false;
-    }
-    action?.();
-    return true;
-  };
+    },
+    [authState],
+  );
   return (
     <Context.Provider
       value={{
         user: auth.data || null,
         authLoading: auth.isLoading,
+        authState,
         requireAuth,
         notify: setNotice,
         refresh,
-        showLogin: () => setLogin(true),
+        showLogin: () => {
+          if (authState === "error") {
+            setNotice("We couldn’t confirm your sign-in. Check your connection and try again.");
+            return;
+          }
+          setLogin(true);
+        },
         logout,
         completeNativeLogin,
       }}

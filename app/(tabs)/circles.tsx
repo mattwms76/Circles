@@ -7,6 +7,7 @@ import { useCircles } from "@/hooks/circles-context";
 import { AppShell } from "@/components/app-shell";
 import { CircleCard } from "@/components/circle-card";
 import {
+  Button,
   C,
   Empty,
   Icon,
@@ -24,12 +25,18 @@ export default function CirclesScreen() {
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("All");
   const [joinedOnly, setJoinedOnly] = useState(false);
-  const circles = trpc.social.circles.useQuery({
-    search,
-    category: category === "All" ? undefined : category,
-  });
-  const items =
-    circles.data?.filter((circle) => !joinedOnly || circle.joined) || [];
+  const circles = trpc.social.circlesPage.useInfiniteQuery(
+    {
+      search,
+      category: category === "All" ? undefined : category,
+      limit: 20,
+    },
+    {
+      getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    },
+  );
+  const circleItems = circles.data?.pages.flatMap((page) => page.items) ?? [];
+  const items = circleItems.filter((circle) => !joinedOnly || circle.joined);
   return (
     <AppShell>
       <View style={{ gap: 21 }}>
@@ -220,7 +227,7 @@ export default function CirclesScreen() {
               void circles.refetch();
             }}
           />
-        ) : !items.length ? (
+        ) : !items.length && !circles.hasNextPage ? (
           <Empty
             icon="ellipse-outline"
             title={
@@ -239,8 +246,26 @@ export default function CirclesScreen() {
             }
           />
         ) : (
-          items.map((circle) => <CircleCard key={circle.id} circle={circle} />)
+          items.map((circle) => (
+            <CircleCard key={circle.id} circle={circle} />
+          ))
         )}
+        {!circles.isLoading && !circles.error &&
+          (circles.hasNextPage ? (
+            <Button
+              title="Show more circles"
+              secondary
+              loading={circles.isFetchingNextPage}
+              onPress={() => void circles.fetchNextPage()}
+              style={{ alignSelf: "center", marginTop: 4 }}
+            />
+          ) : (
+            <T
+              style={{ color: C.muted, fontSize: 12, textAlign: "center", paddingVertical: 14 }}
+            >
+              You’ve reached the end of these circles.
+            </T>
+          ))}
       </View>
     </AppShell>
   );

@@ -2,10 +2,12 @@ import React, { useState } from "react";
 import { Pressable, ScrollView, useWindowDimensions, View } from "react-native";
 import { useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
+import { resolveFnd001QueryDisplayState } from "@/lib/fnd001-query-display-state";
 import { AppShell } from "@/components/app-shell";
 import { PostCard } from "@/components/post-card";
 import {
   Avatar,
+  Button,
   C,
   Empty,
   Icon,
@@ -23,10 +25,21 @@ export default function HomeScreen() {
   const [filter, setFilter] = useState<
     "for-you" | "following" | "circles" | "saved"
   >("for-you");
-  const feed = trpc.social.feed.useQuery({ filter });
-  const profiles = trpc.social.profiles.useQuery({});
+  const feed = trpc.social.feedPage.useInfiniteQuery(
+    { filter, limit: 20 },
+    {
+      getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    },
+  );
+  const profiles = trpc.social.profilesPage.useQuery({ limit: 6 });
   const myProfile = trpc.social.profile.useQuery({}, { enabled: !!user });
   const lives = trpc.live.list.useQuery({});
+  const feedItems = feed.data?.pages.flatMap((page) => page.items) ?? [];
+  const feedDisplayState = resolveFnd001QueryDisplayState({
+    isLoading: feed.isLoading,
+    isError: feed.isError,
+    hasContent: feedItems.length > 0 || !!feed.hasNextPage,
+  });
   return (
     <AppShell>
       <View style={{ gap: 6 }}>
@@ -93,7 +106,7 @@ export default function HomeScreen() {
           </View>
           <T style={{ fontSize: 10, color: C.muted }}>Your moment</T>
         </Pressable>
-        {profiles.data?.slice(0, 6).map((profile) => (
+        {profiles.data?.items.map((profile) => (
           <Pressable
             key={profile.id}
             onPress={() => router.push(`/person/${profile.id}`)}
@@ -156,18 +169,18 @@ export default function HomeScreen() {
           </T>
         </Pressable>
       </ScrollView>
-      {feed.isLoading ? (
+      {feedDisplayState === "loading" ? (
         <Loading />
-      ) : feed.error ? (
+      ) : feedDisplayState === "error" ? (
         <Empty
           title="A small pause in the connection."
-          text={feed.error.message}
+          text={feed.error?.message || "Check your connection and try again."}
           action="Reconnect"
           onAction={() => {
             void feed.refetch();
           }}
         />
-      ) : !feed.data?.length ? (
+      ) : feedDisplayState === "empty" ? (
         <Empty
           icon="leaf-outline"
           title={
@@ -190,17 +203,28 @@ export default function HomeScreen() {
           }
         />
       ) : (
-        feed.data.map((post) => <PostCard key={post.id} post={post} />)
+        feedItems.map((post) => <PostCard key={post.id} post={post} />)
       )}
-      <View style={{ alignItems: "center", paddingVertical: 14, gap: 5 }}>
-        <Icon name="leaf-outline" color="#A0AB91" size={20} />
-        <T style={{ color: C.muted, fontSize: 11 }}>
-          You’re all caught up. Go make a moment.
-        </T>
-        <T style={{ color: "#A3A799", fontSize: 9 }}>
-          Example community content · Your own story starts with sign-in.
-        </T>
-      </View>
+      {feedDisplayState === "content" &&
+        (feed.hasNextPage ? (
+          <Button
+            title="Show more moments"
+            secondary
+            loading={feed.isFetchingNextPage}
+            onPress={() => void feed.fetchNextPage()}
+            style={{ alignSelf: "center", marginVertical: 14 }}
+          />
+        ) : (
+          <View style={{ alignItems: "center", paddingVertical: 14, gap: 5 }}>
+            <Icon name="leaf-outline" color="#A0AB91" size={20} />
+            <T style={{ color: C.muted, fontSize: 11 }}>
+              You’re all caught up. Go make a moment.
+            </T>
+            <T style={{ color: "#A3A799", fontSize: 9 }}>
+              Example community content · Your own story starts with sign-in.
+            </T>
+          </View>
+        ))}
     </AppShell>
   );
 }
