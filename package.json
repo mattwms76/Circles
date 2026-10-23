@@ -23,6 +23,7 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "test:ci": "vitest run --reporter=default --reporter=junit --outputFile=artifacts/test-results/junit.xml",
+    "test:e2e:circle-home": "/usr/bin/python3 scripts/run-circle-home-e2e.py",
     "check:env": "node scripts/check-env.mjs",
     "build:app": "expo export --platform all --output-dir artifacts/bundles/all --max-workers 1",
     "db:push": "drizzle-kit generate && drizzle-kit migrate",
