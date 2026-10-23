@@ -1,12 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query";
-import React, {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Modal, Pressable, View } from "react-native";
 import { trpc } from "@/lib/trpc";
 import { startOAuthLogin } from "@/constants/oauth";
@@ -16,20 +9,10 @@ import * as Auth from "@/lib/_core/auth";
 import { logoutAndPurgeClientSession } from "@/lib/client-session";
 import { clearPrivateImageCaches } from "@/lib/media-cache";
 import { completeNativeLoginTransition } from "@/hooks/native-login-transition";
-import { resolveAuthGateState, type AuthGateState } from "@/lib/feed-ui-helpers";
+import { resolveAuthGateState } from "@/lib/feed-ui-helpers";
+import { CirclesContext as Context } from "./circles-context-core";
+export { useCircles } from "./circles-context-core";
 
-type State = {
-  user: { id: number; name: string | null } | null;
-  authLoading: boolean;
-  authState: AuthGateState;
-  requireAuth: (action?: () => void) => boolean;
-  notify: (message: string) => void;
-  refresh: () => void;
-  showLogin: () => void;
-  logout: () => Promise<void>;
-  completeNativeLogin: () => Promise<boolean>;
-};
-const Context = createContext<State | null>(null);
 export function CirclesProvider({
   children,
   queryClient,
@@ -126,7 +109,9 @@ export function CirclesProvider({
       }
 
       if (authState === "error") {
-        setNotice("We couldn’t confirm your sign-in. Check your connection and try again.");
+        setNotice(
+          "We couldn’t confirm your sign-in. Check your connection and try again.",
+        );
         return false;
       }
 
@@ -146,7 +131,9 @@ export function CirclesProvider({
         refresh,
         showLogin: () => {
           if (authState === "error") {
-            setNotice("We couldn’t confirm your sign-in. Check your connection and try again.");
+            setNotice(
+              "We couldn’t confirm your sign-in. Check your connection and try again.",
+            );
             return;
           }
           setLogin(true);
@@ -273,9 +260,4 @@ export function CirclesProvider({
       </Modal>
     </Context.Provider>
   );
-}
-export function useCircles() {
-  const state = useContext(Context);
-  if (!state) throw new Error("CirclesProvider missing");
-  return state;
 }
