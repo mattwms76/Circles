@@ -20,7 +20,7 @@ Queries and note drafts are scoped to account, circle and case. A failed authori
 
 The rollout must validate the additive private schema and eligible legacy mapping in disposable PostgreSQL17, execute actual isolated HTTP/router/service/database tests, align exact health/readiness/security/recovery and encrypted backup inventories, and verify current source-equivalent CI/container checks. All test identities/data belong to disposable fixtures, never production. Fixture-context HTTP testing is not OAuth/session-provider, rendered native UI or signed-device proof.
 
-Core implementation and private-schema activation are complete; exact-source app CI is recorded below when observed. Existing Cron7, schedules, data-exposure boundaries and publication state remain unchanged.
+Core implementation, private-schema activation and exact-source remote validation are complete; evidence is recorded below. Existing Cron7, schedules, data-exposure boundaries and publication state remain unchanged.
 
 ### Observed rollout evidence — 23 October 2026
 
@@ -28,4 +28,4 @@ Migrations 0012/0013 were rehearsed in disposable PG17 and applied atomically. T
 
 The unchanged sanitized health function returned healthy=true, error_code=null at 2026-10-23 16:16:56 UTC; Cron7 remains active at 03:15 UTC. API and same-origin Preview are ready and reject anonymous moderator reads. 476 unit/regression tests plus the real isolated Moderation/Activity/Circle Home HTTP/PG17 suites pass; TypeScript, zero-warning lint, auditor/template/API and workflow checks pass. Real OAuth/session-provider, mounted UI/native assistive-tech and signed-device proof remain separate.
 
-Private encrypted backup run 39985490037 succeeded. Its actual downloaded private Release, immutable producer/tag provenance, all three asset checksums, recovery-key decryption, inner checksums and exact 27-app/28-total manifest passed; temporary plaintext was removed. Exact-source app CI/container remains pending at this source save. App publication remains disabled.
+Private encrypted backup run 39985490037 succeeded. Its actual downloaded private Release, immutable producer/tag provenance, all three asset checksums, recovery-key decryption, inner checksums and exact 27-app/28-total manifest passed; temporary plaintext was removed. Exact-source CI 39986196687 and container 39986196730 passed for GitHub e7b8ecf, whose tree matches canonical 61438bd. CI includes the real isolated moderation, Activity and Circle Home HTTP/PG17 suites plus iOS/Android/Web JavaScript exports. These are not signed native/device or real OAuth-provider tests. App publication remains disabled.
