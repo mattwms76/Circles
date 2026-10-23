@@ -55,10 +55,17 @@ import {
   MESSAGE_PAGE_MAX_LIMIT,
 } from "../shared/message-pagination";
 import {
-  getDb,
-  type CirclesDatabase,
-  type CirclesTransaction,
-} from "./db";
+  CIRCLE_HOME_ID_MAX,
+  CIRCLE_HOME_RULE_MAX,
+  CIRCLE_HOME_RULES_MAX,
+  CIRCLE_HOME_WELCOME_MAX,
+  circleHomeRuleKey,
+  circleHomeTextLength,
+  type CircleHome,
+  type CircleHomePinInput,
+  type CircleHomeTextInput,
+} from "../shared/circle-home";
+import { getDb, type CirclesDatabase, type CirclesTransaction } from "./db";
 
 export type CircleRole = "owner" | "moderator" | "member" | "pending";
 type ApprovedCircleRole = Exclude<CircleRole, "pending">;
@@ -84,6 +91,66 @@ export const SOCIAL_MEDIA_FRAME_OVERHEAD =
 
 function socialError(code: TRPCError["code"], message: string): never {
   throw new TRPCError({ code, message });
+}
+
+function normalizeCircleHomeId(value: unknown): number {
+  if (
+    typeof value !== "number" ||
+    !Number.isSafeInteger(value) ||
+    value < 1 ||
+    value > CIRCLE_HOME_ID_MAX
+  ) {
+    socialError("BAD_REQUEST", "Invalid circle home identifier");
+  }
+  return value;
+}
+
+/** Defense in depth for direct server callers; routers apply the same public bounds. */
+export function normalizeCircleHomeTextInput(
+  input: CircleHomeTextInput,
+): CircleHomeTextInput {
+  const circleId = normalizeCircleHomeId(input.circleId);
+  if (typeof input.welcomeMessage !== "string") {
+    socialError("BAD_REQUEST", "Welcome message must be plain text");
+  }
+  const welcomeMessage = input.welcomeMessage.trim();
+  if (circleHomeTextLength(welcomeMessage) > CIRCLE_HOME_WELCOME_MAX) {
+    socialError("BAD_REQUEST", "Welcome message is too long");
+  }
+  if (!Array.isArray(input.rules) || input.rules.length > CIRCLE_HOME_RULES_MAX) {
+    socialError("BAD_REQUEST", "Too many circle rules");
+  }
+
+  const seenRules = new Set<string>();
+  const rules = input.rules.map((rule) => {
+    if (typeof rule !== "string") {
+      socialError("BAD_REQUEST", "Circle rules must be plain text");
+    }
+    if (/[\r\n]/.test(rule)) {
+      socialError("BAD_REQUEST", "Circle rules must be single-line");
+    }
+    const normalized = rule.trim();
+    if (!normalized || circleHomeTextLength(normalized) > CIRCLE_HOME_RULE_MAX) {
+      socialError("BAD_REQUEST", "Circle rule is blank or too long");
+    }
+    const duplicateKey = circleHomeRuleKey(normalized);
+    if (seenRules.has(duplicateKey)) {
+      socialError("BAD_REQUEST", "Circle rules must be unique");
+    }
+    seenRules.add(duplicateKey);
+    return normalized;
+  });
+
+  return { circleId, welcomeMessage, rules };
+}
+
+/** Defense in depth for direct server callers; `null` is the only explicit unpin state. */
+export function normalizeCircleHomePinInput(
+  input: CircleHomePinInput,
+): CircleHomePinInput {
+  const circleId = normalizeCircleHomeId(input.circleId);
+  if (input.postId === null) return { circleId, postId: null };
+  return { circleId, postId: normalizeCircleHomeId(input.postId) };
 }
 
 /**
@@ -300,7 +367,7 @@ async function postRowOrThrow(
 }
 
 async function findProfileWithDb(
-  db: Database,
+  db: Database | SocialTransaction,
   userId: number,
   viewerId: number | null = null,
 ): Promise<Profile | null> {
@@ -383,7 +450,7 @@ async function ensureProfileWithDb(
 }
 
 async function displayProfileWithDb(
-  db: Database,
+  db: Database | SocialTransaction,
   userId: number,
   viewerId: number | null = null,
 ): Promise<Profile> {
@@ -700,7 +767,7 @@ async function assertPostAccessForProtectedMutation(
 }
 
 async function postOutputWithDb(
-  db: Database,
+  db: Database | SocialTransaction,
   postId: number,
   viewerId: number | null,
 ): Promise<Post> {
@@ -763,6 +830,150 @@ async function postOutputWithDb(
     saved: savedRows.length > 0,
     createdAt: toIso(post.createdAt),
   };
+}
+
+async function circleHomeOutputWithDb(
+  db: Database | SocialTransaction,
+  viewerId: number | null,
+  circleId: number,
+): Promise<CircleHome> {
+  const circle = await circleRowOrThrow(db, circleId);
+  const role = await membershipRoleWithDb(db, viewerId, circleId);
+  if (!canReadCircleContent(circle.privacy, role)) {
+    socialError(
+      "FORBIDDEN",
+      "You must be an approved member to access this private circle",
+    );
+  }
+
+  let pinnedPost: Post | null = null;
+  if (circle.pinnedPostId) {
+    // Bind the target lookup to this circle before mapping. This safely hides legacy/corrupt
+    // foreign metadata even before the FK has been validated against historic rows.
+    const pinnedRows = await db
+      .select({ id: posts.id })
+      .from(posts)
+      .where(
+        and(
+          eq(posts.id, circle.pinnedPostId),
+          eq(posts.circleId, circle.id),
+        ),
+      )
+      .limit(1);
+    if (pinnedRows[0]) {
+      try {
+        pinnedPost = await postOutputWithDb(db, pinnedRows[0].id, viewerId);
+      } catch (error) {
+        // A post deletion may commit between the verified lookup and DTO mapper on a read path.
+        // The FK clears metadata; meanwhile, omit the no-longer-current pinned item safely.
+        if (!(error instanceof TRPCError) || error.code !== "NOT_FOUND") throw error;
+      }
+    }
+  }
+
+  return {
+    circleId: circle.id,
+    viewerId,
+    welcomeMessage: circle.welcomeMessage,
+    rules: [...circle.rules],
+    pinnedPost,
+    canManage: canModerateCircle(role),
+    updatedAt: toIso(circle.updatedAt),
+  };
+}
+
+/** Read-only Circle Home lookup. Public circles remain public; private circles require a current approved role. */
+export async function getCircleHome(
+  viewerId: number | null,
+  circleId: number,
+): Promise<CircleHome> {
+  const normalizedCircleId = normalizeCircleHomeId(circleId);
+  const db = await requireDb();
+  // Keep the visibility decision, pinned-target verification, and display mapping on the runtime
+  // role connection without materializing a social profile or mutating home metadata.
+  return db.transaction((tx) =>
+    circleHomeOutputWithDb(tx, viewerId, normalizedCircleId),
+  );
+}
+
+/** Managers may replace welcome/rules without touching an independently managed pin. */
+export async function updateCircleHome(
+  userId: number,
+  input: CircleHomeTextInput,
+): Promise<{ success: true }> {
+  const normalized = normalizeCircleHomeTextInput(input);
+  const db = await requireDb();
+  await db.transaction(async (tx) => {
+    const { circle, role } = await lockCircleAccessForProtectedMutation(
+      tx,
+      userId,
+      normalized.circleId,
+    );
+    if (!canModerateCircle(role)) {
+      socialError(
+        "FORBIDDEN",
+        "Only a circle owner or moderator may manage circle home content",
+      );
+    }
+    const sameRules =
+      circle.rules.length === normalized.rules.length &&
+      circle.rules.every((rule, index) => rule === normalized.rules[index]);
+    if (circle.welcomeMessage === normalized.welcomeMessage && sameRules) return;
+    await tx
+      .update(circles)
+      .set({
+        welcomeMessage: normalized.welcomeMessage,
+        rules: normalized.rules,
+        updatedAt: new Date(),
+      })
+      .where(eq(circles.id, normalized.circleId));
+  });
+  return { success: true };
+}
+
+/** Managers set a concrete existing circle post or explicitly clear the pin; there is no toggle. */
+export async function setCirclePinnedPost(
+  userId: number,
+  input: CircleHomePinInput,
+): Promise<{ success: true }> {
+  const normalized = normalizeCircleHomePinInput(input);
+  const db = await requireDb();
+  await db.transaction(async (tx) => {
+    const { circle, role } = await lockCircleAccessForProtectedMutation(
+      tx,
+      userId,
+      normalized.circleId,
+    );
+    if (!canModerateCircle(role)) {
+      socialError(
+        "FORBIDDEN",
+        "Only a circle owner or moderator may manage circle home content",
+      );
+    }
+
+    if (normalized.postId !== null) {
+      // The existing parent-row lock serializes this target read with deletePost's circle lock.
+      const postRows = await tx
+        .select({ id: posts.id, circleId: posts.circleId })
+        .from(posts)
+        .where(
+          and(eq(posts.id, normalized.postId), eq(posts.circleId, circle.id)),
+        )
+        .limit(1);
+      const post = postRows[0];
+      // The predicate suppresses foreign posts; retain this defensive check for non-SQL mocks.
+      if (!post || post.circleId !== circle.id) {
+        socialError("NOT_FOUND", "Post is unavailable for this circle");
+      }
+    }
+
+    if (circle.pinnedPostId === normalized.postId) return;
+    await tx
+      .update(circles)
+      .set({ pinnedPostId: normalized.postId, updatedAt: new Date() })
+      .where(eq(circles.id, normalized.circleId));
+  });
+  return { success: true };
 }
 
 const FEED_PAGE_SIZE = 100;

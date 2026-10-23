@@ -1,5 +1,6 @@
 import {
   check,
+  type AnyPgColumn,
   index,
   integer,
   jsonb,
@@ -142,6 +143,13 @@ export const circles = circlesApp.table(
     color: varchar("color", { length: 32 }).notNull().default("#ED604A"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
+    welcomeMessage: text("welcomeMessage").notNull().default(""),
+    rules: jsonb("rules").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    // posts is declared below; retain an explicit column annotation to avoid Drizzle's recursive FK inference.
+    pinnedPostId: integer("pinnedPostId").references(
+      (): AnyPgColumn => posts.id,
+      { onDelete: "set null" },
+    ),
   },
   (table) => [
     index("circles_category_idx").on(table.category),

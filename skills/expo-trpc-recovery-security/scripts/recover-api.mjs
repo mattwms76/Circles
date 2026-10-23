@@ -93,6 +93,9 @@ export const REQUIRED_APPLICATION_COLUMNS = Object.freeze({
     "color",
     "createdAt",
     "updatedAt",
+    "welcomeMessage",
+    "rules",
+    "pinnedPostId",
   ]),
   memberships: Object.freeze([
     "id",
@@ -335,6 +338,7 @@ const ALLOWED_SERVICE_NAME = "circles-api";
 const SOURCE_ROUTERS = Object.freeze([
   { file: "server/social-router.ts", namespace: "social", indent: 2 },
   { file: "server/onboarding-router.ts", namespace: "onboarding", indent: 2 },
+  { file: "server/circle-home-router.ts", namespace: "circleHome", indent: 2 },
   { file: "server/live-router.ts", namespace: "live", indent: 2 },
   { file: "server/_core/systemRouter.ts", namespace: "system", indent: 2 },
 ]);
@@ -350,6 +354,10 @@ const ENDPOINT_DEFINITIONS = Object.freeze({
   "onboarding.introductionTarget": {
     expected: "object",
     requiresAuth: true,
+    identifier: { source: "circleId", field: "circleId" },
+  },
+  "circleHome.get": {
+    expected: "circle-home-object",
     identifier: { source: "circleId", field: "circleId" },
   },
   "onboarding.status": { expected: "object", requiresAuth: true },
@@ -1164,6 +1172,57 @@ function trpcPayload(text) {
 
 function expectedShape(value, expected) {
   if (expected === "array") return Array.isArray(value);
+  if (expected === "circle-home-object") {
+    const fields = [
+      "circleId",
+      "viewerId",
+      "welcomeMessage",
+      "rules",
+      "pinnedPost",
+      "canManage",
+      "updatedAt",
+    ];
+    if (
+      !plainObject(value) ||
+      !fields.every((field) => field in value) ||
+      !Object.keys(value).every((field) => fields.includes(field)) ||
+      !positiveInteger(value.circleId) ||
+      !(value.viewerId === null || positiveInteger(value.viewerId)) ||
+      typeof value.welcomeMessage !== "string" ||
+      Array.from(value.welcomeMessage).length > 2_000 ||
+      !Array.isArray(value.rules) ||
+      value.rules.length > 10 ||
+      !value.rules.every(
+        (rule) =>
+          typeof rule === "string" &&
+          rule.trim().length > 0 &&
+          rule === rule.trim() &&
+          !/[\r\n]/.test(rule) &&
+          Array.from(rule).length <= 300,
+      ) ||
+      new Set(
+        value.rules.map((rule) =>
+          rule.replace(/[A-Z]/g, (letter) => letter.toLowerCase()),
+        ),
+      ).size !== value.rules.length ||
+      typeof value.canManage !== "boolean" ||
+      (value.canManage && value.viewerId === null) ||
+      typeof value.updatedAt !== "string" ||
+      value.updatedAt.length > 64 ||
+      !Number.isFinite(Date.parse(value.updatedAt))
+    )
+      return false;
+    const post = value.pinnedPost;
+    return (
+      post === null ||
+      (plainObject(post) &&
+        positiveInteger(post.id) &&
+        post.circleId === value.circleId &&
+        typeof post.text === "string" &&
+        plainObject(post.author) &&
+        positiveInteger(post.author.id))
+    );
+  }
   if (expected === "paged-object") {
     if (
       !plainObject(value) ||
