@@ -46,6 +46,15 @@
       "input": {
         "limit": 20
       }
+    },
+    "onboarding.status": {},
+    "onboarding.recommendations": {
+      "input": {
+        "limit": 6
+      }
+    },
+    "onboarding.introductionTarget": {
+      "input": {}
     }
   }
 }

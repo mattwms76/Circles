@@ -78,6 +78,9 @@ export const REQUIRED_APPLICATION_COLUMNS = Object.freeze({
     "cover",
     "createdAt",
     "updatedAt",
+    "interests",
+    "onboardingStep",
+    "onboardingCompletedAt",
   ]),
   circles: Object.freeze([
     "id",
@@ -331,6 +334,7 @@ const SAFE_RUNTIME_KEYS = new Set([
 const ALLOWED_SERVICE_NAME = "circles-api";
 const SOURCE_ROUTERS = Object.freeze([
   { file: "server/social-router.ts", namespace: "social", indent: 2 },
+  { file: "server/onboarding-router.ts", namespace: "onboarding", indent: 2 },
   { file: "server/live-router.ts", namespace: "live", indent: 2 },
   { file: "server/_core/systemRouter.ts", namespace: "system", indent: 2 },
 ]);
@@ -343,6 +347,17 @@ const SOURCE_ROUTERS = Object.freeze([
  */
 const ENDPOINT_DEFINITIONS = Object.freeze({
   "auth.me": { expected: "authenticated-object", requiresAuth: true },
+  "onboarding.introductionTarget": {
+    expected: "object",
+    requiresAuth: true,
+    identifier: { source: "circleId", field: "circleId" },
+  },
+  "onboarding.status": { expected: "object", requiresAuth: true },
+  "onboarding.recommendations": {
+    expected: "object",
+    requiresAuth: true,
+    input: { limit: 6 },
+  },
   "social.feed": { expected: "array", input: { filter: "for-you" } },
   "social.feedPage": {
     expected: "paged-object",

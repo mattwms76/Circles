@@ -17,6 +17,7 @@ import {
   T,
 } from "@/components/circles-ui";
 import { useCircles } from "@/hooks/circles-context";
+import { OnboardingEntry } from "@/components/onboarding-entry";
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -67,6 +68,7 @@ export default function HomeScreen() {
           Good people. Shared passions. Real moments.
         </T>
       </View>
+      <OnboardingEntry />
       <ScrollView
         showsVerticalScrollIndicator={false}
         horizontal
