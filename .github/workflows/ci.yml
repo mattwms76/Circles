@@ -76,6 +76,30 @@ jobs:
           mkdir -p artifacts/test-results
           pnpm test:ci
 
+      - name: Install isolated Circle Home PostgreSQL 17 test tools
+        run: |
+          if ! test -x /usr/lib/postgresql/17/bin/initdb; then
+            sudo install -d /usr/share/postgresql-common/pgdg
+            sudo curl --fail --silent --show-error --location \
+              https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+              --output /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+            printf '%s\n' \
+              'Types: deb' \
+              'URIs: https://apt.postgresql.org/pub/repos/apt' \
+              'Suites: noble-pgdg' \
+              "Architectures: $(dpkg --print-architecture)" \
+              'Components: main' \
+              'Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc' \
+              | sudo tee /etc/apt/sources.list.d/circles-pgdg.sources > /dev/null
+            sudo apt-get update
+          fi
+          sudo apt-get install --yes --no-install-recommends postgresql-17 python3-psycopg
+          /usr/lib/postgresql/17/bin/initdb --version
+          /usr/bin/python3 -c 'import psycopg'
+
+      - name: Run isolated Circle Home HTTP and PostgreSQL E2E
+        run: pnpm test:e2e:circle-home
+
       - name: Compile API
         run: pnpm build
 
