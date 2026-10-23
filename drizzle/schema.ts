@@ -10,6 +10,7 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import type { InterestId, OnboardingStep } from "../shared/onboarding";
 
 /**
  * All Circles application data lives outside Supabase's public/private/auth/storage
@@ -76,12 +77,53 @@ export const profiles = circlesApp.table(
     cover: varchar("cover", { length: 2048 }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
+    /** Private, explicit onboarding preferences; never part of the public Profile DTO. */
+    interests: jsonb("interests")
+      .$type<InterestId[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    onboardingStep: varchar("onboardingStep", { length: 16 })
+      .$type<OnboardingStep>()
+      .notNull()
+      .default("interests"),
+    onboardingCompletedAt: timestamp("onboardingCompletedAt", {
+      withTimezone: true,
+    }),
   },
   (table) => [
     uniqueIndex("profiles_user_id_unique").on(table.userId),
     // MySQL's legacy unique varchar comparison was case-insensitive. Keep that
     // invariant in PostgreSQL while the service normalizes newly written handles.
     uniqueIndex("profiles_handle_ci_unique").on(sql`lower(${table.handle})`),
+    check(
+      "profiles_onboarding_interests_check",
+      sql`CASE
+        WHEN jsonb_typeof(${table.interests}) = 'array' THEN
+          jsonb_array_length(${table.interests}) <= 6
+          AND ${table.interests} <@ '["lifestyle", "outdoors", "design", "photography", "fitness", "music", "food", "travel", "books", "gaming", "technology", "art"]'::jsonb
+          AND ${table.interests}::text !~ '"lifestyle".*"lifestyle"'
+          AND ${table.interests}::text !~ '"outdoors".*"outdoors"'
+          AND ${table.interests}::text !~ '"design".*"design"'
+          AND ${table.interests}::text !~ '"photography".*"photography"'
+          AND ${table.interests}::text !~ '"fitness".*"fitness"'
+          AND ${table.interests}::text !~ '"music".*"music"'
+          AND ${table.interests}::text !~ '"food".*"food"'
+          AND ${table.interests}::text !~ '"travel".*"travel"'
+          AND ${table.interests}::text !~ '"books".*"books"'
+          AND ${table.interests}::text !~ '"gaming".*"gaming"'
+          AND ${table.interests}::text !~ '"technology".*"technology"'
+          AND ${table.interests}::text !~ '"art".*"art"'
+        ELSE false
+      END`,
+    ),
+    check(
+      "profiles_onboarding_step_check",
+      sql`${table.onboardingStep} IN ('interests', 'circles', 'first-post', 'complete')`,
+    ),
+    check(
+      "profiles_onboarding_completion_check",
+      sql`(${table.onboardingStep} = 'complete') = (${table.onboardingCompletedAt} IS NOT NULL)`,
+    ),
   ],
 );
 
@@ -287,11 +329,9 @@ export const messages = circlesApp.table(
       table.conversationId,
       table.createdAt,
     ),
-    uniqueIndex("messages_conversation_author_client_message_id_unique").on(
-      table.conversationId,
-      table.authorId,
-      table.clientMessageId,
-    ).where(sql`${table.clientMessageId} IS NOT NULL`),
+    uniqueIndex("messages_conversation_author_client_message_id_unique")
+      .on(table.conversationId, table.authorId, table.clientMessageId)
+      .where(sql`${table.clientMessageId} IS NOT NULL`),
     check(
       "messages_content_check",
       sql`btrim(${table.text}) <> '' OR ${table.media} IS NOT NULL`,

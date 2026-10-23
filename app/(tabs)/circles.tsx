@@ -6,6 +6,7 @@ import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
 import { AppShell } from "@/components/app-shell";
 import { CircleCard } from "@/components/circle-card";
+import { OnboardingEntry } from "@/components/onboarding-entry";
 import {
   Button,
   C,
@@ -110,6 +111,7 @@ export default function CirclesScreen() {
             </Pressable>
           </View>
         </View>
+        <OnboardingEntry />
         <View
           style={[
             s.row,

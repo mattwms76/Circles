@@ -261,12 +261,20 @@ export default function ProfileScreen({
               <Avatar uri={p.avatar} name={p.name} size={79} />
             </View>
             {own && (
-              <Button
-                title="Edit profile"
-                secondary
-                onPress={() => setEdit(true)}
-                style={{ marginTop: 36, borderRadius: 9 }}
-              />
+              <View style={{ marginTop: 36, gap: 7, alignItems: "flex-end" }}>
+                <Button
+                  title="Edit profile"
+                  secondary
+                  onPress={() => setEdit(true)}
+                  style={{ borderRadius: 9 }}
+                />
+                <Button
+                  title="Edit interests"
+                  secondary
+                  onPress={() => router.push("/onboarding?edit=1")}
+                  style={{ borderRadius: 9 }}
+                />
+              </View>
             )}
           </View>
           <View style={{ paddingVertical: 16, gap: 10, minWidth: 0 }}>

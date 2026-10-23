@@ -132,6 +132,9 @@ function mockTrpcFetch(calls: MockCall[]) {
     }
     const protectedRoute = [
       "auth.me",
+      "onboarding.status",
+      "onboarding.introductionTarget",
+      "onboarding.recommendations",
       "social.conversations",
       "social.messages",
       "live.signals",
@@ -151,15 +154,21 @@ function mockTrpcFetch(calls: MockCall[]) {
         ? authenticated
           ? { id: 1, openId: "synthetic" }
           : null
-        : route === "system.health"
-          ? { ok: true }
-          : route.endsWith("Page")
-            ? { items: [], nextCursor: null, hasMore: false }
-            : route === "live.relay"
-            ? { ice: null }
-            : ["social.circle", "social.profile"].includes(route)
-              ? { id: 1 }
-              : [];
+        : route === "onboarding.status"
+          ? { userId: 1, interests: [], step: "interests", completedAt: null }
+          : route === "onboarding.introductionTarget"
+            ? { userId: 1, circleId: 11, eligible: false }
+            : route === "onboarding.recommendations"
+              ? { userId: 1, interests: [], items: [], basis: "explore" }
+              : route === "system.health"
+                ? { ok: true }
+                : route.endsWith("Page")
+                  ? { items: [], nextCursor: null, hasMore: false }
+                  : route === "live.relay"
+                    ? { ice: null }
+                    : ["social.circle", "social.profile"].includes(route)
+                      ? { id: 1 }
+                      : [];
     return new Response(JSON.stringify({ result: { data: { json: value } } }), {
       status: 200,
       headers: { "content-type": "application/json" },
@@ -196,11 +205,11 @@ describe("guarded API recovery", () => {
 
     expect(report.ok).toBe(true);
     expect(restartCalls).toBe(1);
-    expect(report.inventory.declaredQueries).toBe(19);
+    expect(report.inventory.declaredQueries).toBe(22);
     expect(report.verification.summary).toMatchObject({
       failed: 0,
       skipped: 0,
-      completedPositiveQueries: 19,
+      completedPositiveQueries: 22,
     });
     expect(calls.every((call) => call.method === "GET")).toBe(true);
     expect(
@@ -815,7 +824,7 @@ describe("guarded API recovery", () => {
     expect(databaseChecks).toBe(0);
     expect(schemaChecks).toBe(0);
     expect(restarts).toBe(0);
-    expect(report.inventory.declaredQueries).toBe(19);
+    expect(report.inventory.declaredQueries).toBe(22);
     expect(calls.every((call) => call.method === "GET")).toBe(true);
   });
 
@@ -848,7 +857,7 @@ describe("guarded API recovery", () => {
     expect(child.status).toBe(1);
     const report = JSON.parse(child.stdout);
     expect(report.configuration.ok).toBe(true);
-    expect(report.inventory.declaredQueries).toBe(19);
+    expect(report.inventory.declaredQueries).toBe(22);
     expect(report.restart.attempted).toBe(false);
     expect(report.database.required).toBe(false);
   });

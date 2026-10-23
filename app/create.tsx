@@ -39,25 +39,56 @@ import {
   T,
   Wordmark,
 } from "@/components/circles-ui";
+import { INTRODUCTION_DRAFT } from "@/shared/onboarding";
+import { canPrefillIntroduction } from "@/lib/onboarding-introduction";
 
 export default function CreateScreen() {
   const params = useLocalSearchParams<{
     mode?: string | string[];
     circleId?: string | string[];
+    intro?: string | string[];
   }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user, requireAuth, notify, showLogin } = useCircles();
+  const { user, authState, requireAuth, notify, showLogin } = useCircles();
   const [mode, setMode] = useState<CreateMode>(() =>
     normalizeCreateMode(params.mode),
   );
-  const [text, setText] = useState("");
+  const [draftText, setDraftText] = useState("");
+  const [textEdited, setTextEdited] = useState(false);
   const [name, setName] = useState("");
   const [category, setCategory] = useState("Lifestyle");
   const [privacy, setPrivacy] = useState<"public" | "private">("public");
-  const [circleId, setCircleId] = useState<number | undefined>(
-    () => parsePositiveSafeId(params.circleId),
+  const [circleId, setCircleId] = useState<number | undefined>(() =>
+    parsePositiveSafeId(params.circleId),
   );
+  const introductionRequested =
+    params.intro === "1" && mode === "post" && !!circleId;
+  const introductionTarget = trpc.onboarding.introductionTarget.useQuery(
+    { circleId: circleId ?? 1 },
+    {
+      enabled: introductionRequested && authState === "authenticated",
+      staleTime: 0,
+      refetchOnMount: "always",
+      retry: false,
+    },
+  );
+  const verifiedIntroduction = canPrefillIntroduction({
+    requested: introductionRequested,
+    accountId: authState === "authenticated" ? user?.id : null,
+    circleId,
+    target: introductionTarget.data,
+    confirmed:
+      introductionTarget.isFetchedAfterMount &&
+      !introductionTarget.isFetching &&
+      !introductionTarget.isError,
+  });
+  const text =
+    !textEdited && verifiedIntroduction ? INTRODUCTION_DRAFT : draftText;
+  function setText(value: string) {
+    setTextEdited(true);
+    setDraftText(value);
+  }
   const [asset, setAsset] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [reusableUpload, setReusableUpload] = useState<ReusableUpload | null>(
     null,
@@ -82,7 +113,9 @@ export default function CreateScreen() {
       try {
         if (!isCircleCoverMime(supportedMime(asset))) {
           clearSelectedMedia();
-          notify("Circle covers need a JPEG, PNG, or WebP photo. The video was removed.");
+          notify(
+            "Circle covers need a JPEG, PNG, or WebP photo. The video was removed.",
+          );
         }
       } catch (error) {
         clearSelectedMedia();
@@ -272,24 +305,24 @@ export default function CreateScreen() {
                 : "What’s your world today?"}
           </T>
           <View style={[s.row, { gap: 8 }]}>
-              <Pill
-                title="Post"
-                icon="image-outline"
-                selected={mode === "post"}
-                onPress={() => selectMode("post")}
-              />
             <Pill
-                title="Circle"
-                icon="ellipse-outline"
-                selected={mode === "circle"}
-                onPress={() => selectMode("circle")}
-              />
+              title="Post"
+              icon="image-outline"
+              selected={mode === "post"}
+              onPress={() => selectMode("post")}
+            />
             <Pill
-                title="Go live"
-                icon="radio-outline"
-                selected={mode === "live"}
-                onPress={() => selectMode("live")}
-              />
+              title="Circle"
+              icon="ellipse-outline"
+              selected={mode === "circle"}
+              onPress={() => selectMode("circle")}
+            />
+            <Pill
+              title="Go live"
+              icon="radio-outline"
+              selected={mode === "live"}
+              onPress={() => selectMode("live")}
+            />
           </View>
           {!user ? (
             <Empty
