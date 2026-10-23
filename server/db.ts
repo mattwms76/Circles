@@ -3,22 +3,29 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import * as coreSchema from "../drizzle/schema";
 import * as liveSchema from "../drizzle/live-schema";
 import * as sessionSchema from "../drizzle/session-schema";
+import * as activitySchema from "../drizzle/activity-schema";
 import { type InsertUser, users } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 import { getPostgresConnectionOptions } from "./_core/postgres-config.mjs";
-import { createRuntimeRolePool, type RuntimeRolePool } from "./runtime-role-pool";
+import {
+  createRuntimeRolePool,
+  type RuntimeRolePool,
+} from "./runtime-role-pool";
 
 const databaseSchema = {
   ...coreSchema,
   ...liveSchema,
   ...sessionSchema,
+  ...activitySchema,
 };
 
 export type CirclesDatabase = NodePgDatabase<typeof databaseSchema> & {
   /** Drizzle's client is always RuntimeRolePool, never a privileged raw Pool. */
   $client: RuntimeRolePool;
 };
-export type CirclesTransaction = Parameters<Parameters<CirclesDatabase["transaction"]>[0]>[0];
+export type CirclesTransaction = Parameters<
+  Parameters<CirclesDatabase["transaction"]>[0]
+>[0];
 
 let pool: RuntimeRolePool | null = null;
 let database: CirclesDatabase | null = null;
@@ -104,7 +111,11 @@ export async function getUserByOpenId(openId: string) {
   if (!db) return undefined;
 
   try {
-    const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
+    const result = await db
+      .select()
+      .from(users)
+      .where(eq(users.openId, openId))
+      .limit(1);
     return result[0];
   } catch {
     throw new PostgreSqlDatabaseUnavailableError();

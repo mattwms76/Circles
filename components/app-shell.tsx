@@ -18,6 +18,7 @@ import {
   type IconName,
 } from "./circles-ui";
 import { Image } from "@/components/media-image";
+import { ActivityBadge } from "./activity-badge";
 
 export const navigation: {
   label: string;
@@ -37,6 +38,12 @@ export const navigation: {
     path: "/circles",
     icon: "ellipse-outline",
     active: "ellipse",
+  },
+  {
+    label: "Updates",
+    path: "/updates",
+    icon: "notifications-outline",
+    active: "notifications",
   },
   {
     label: "Messages",
@@ -150,6 +157,12 @@ export function AppShell({
               onPress={() => router.push("/messages")}
               label="Open messages"
             />
+            {user && (
+              <ActivityBadge
+                viewerId={user.id}
+                onPress={() => router.push("/updates")}
+              />
+            )}
             {wide && (
               <>
                 <View
@@ -213,12 +226,15 @@ export function AppShell({
                   <Pressable
                     key={item.path}
                     onPress={() => router.push(item.path as any)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open ${item.label}`}
                     style={{
                       flexDirection: "row",
                       alignItems: "center",
                       gap: 15,
                       paddingVertical: 14,
                       paddingHorizontal: 15,
+                      minHeight: 44,
                       borderRadius: 12,
                       backgroundColor: selected ? C.soft : "transparent",
                     }}

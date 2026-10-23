@@ -1117,7 +1117,7 @@ export function evaluateDefaultPrivileges(
       grantable: row.is_grantable,
     };
     // PostgreSQL's built-in PUBLIC USAGE default for types applies only to
-    // future types. It is not part of the 22-table contract and, while current
+    // future types. It is not part of the 25-table contract and, while current
     // ordinary/API-role schema USAGE is denied, cannot by itself expose a
     // current table or establish current Data API disclosure. Preserve it as a
     // conditional future-access condition rather than hiding it or calling it a
@@ -1221,6 +1221,9 @@ async function loadProjectConfiguration(projectDir) {
     pathToFileURL(resolve(projectDir, "scripts/supabase-data-manifest.mjs"))
       .href
   );
+  const currentContract = await import(
+    pathToFileURL(resolve(projectDir, "scripts/recover-api.mjs")).href
+  );
   if (
     configuration.PRIVATE_SCHEMA !== SCHEMA ||
     manifest.PRIVATE_SCHEMA !== SCHEMA
@@ -1233,7 +1236,28 @@ async function loadProjectConfiguration(projectDir) {
   ) {
     throw new Error("Unexpected audit manifest configuration");
   }
-  return { configuration, manifest };
+  const currentAppNames = currentAuditInventory(
+    currentContract.REQUIRED_APPLICATION_COLUMNS,
+    manifest.LEGACY_TABLE_NAMES,
+  );
+  return { configuration, manifest, currentAppNames };
+}
+
+export function currentAuditInventory(requiredColumns, legacyNames) {
+  if (!requiredColumns || !Array.isArray(legacyNames))
+    throw new Error("Unexpected current audit contract");
+  const names = Object.keys(requiredColumns);
+  if (
+    !names.includes(MARKER_TABLE) ||
+    !legacyNames.every((name) => names.includes(name)) ||
+    !names.every(
+      (name) =>
+        Array.isArray(requiredColumns[name]) &&
+        requiredColumns[name].length > 0,
+    )
+  )
+    throw new Error("Unexpected current audit contract");
+  return names.filter((name) => name !== MARKER_TABLE);
 }
 
 function rowsOrNull(result) {
@@ -1468,7 +1492,7 @@ export function renderMarkdown(report) {
     "",
     "## Table inventory, RLS, and ownership",
     "",
-    `Expected inventory: **21 application tables + \`${MARKER_TABLE}\` = 22 tables**.`,
+    `Expected inventory: **24 application tables + \`${MARKER_TABLE}\` = 25 tables**.`,
     "",
     markdownTable(
       ["Table", "Owner", "RLS enabled", "RLS forced", "Policy count"],
@@ -1658,7 +1682,7 @@ export function renderMarkdown(report) {
       : "No non-owner effective default privilege row was returned after global-override and schema-additive merging.",
     "",
     conditionalTypeUsage.length
-      ? `> **Conditional future type usage:** ${conditionalTypeUsage.length} default TYPE USAGE row(s) were retained as metadata. Current non-owner schema USAGE is **${toMarkdownCell(defaultPrivilegeEvaluation?.schema_usage_for_current_nonowners)}**; TYPE USAGE is not part of the 22-table contract and does not by itself establish current Data API disclosure. It becomes relevant if schema USAGE or an exposure path changes.`
+      ? `> **Conditional future type usage:** ${conditionalTypeUsage.length} default TYPE USAGE row(s) were retained as metadata. Current non-owner schema USAGE is **${toMarkdownCell(defaultPrivilegeEvaluation?.schema_usage_for_current_nonowners)}**; TYPE USAGE is not part of the 25-table contract and does not by itself establish current Data API disclosure. It becomes relevant if schema USAGE or an exposure path changes.`
       : "No conditional default TYPE USAGE row was returned.",
     "",
     futureFunctionDefaultGrants.length
@@ -2421,7 +2445,7 @@ export async function runAudit(options) {
   let report = baseReport(context);
   let client;
   try {
-    const { configuration, manifest } =
+    const { configuration, manifest, currentAppNames } =
       await loadProjectConfiguration(projectDir);
     const runtimeRole = configuration.RUNTIME_ROLE;
     if (runtimeRole !== "circles_app_runtime")
@@ -2460,7 +2484,7 @@ export async function runAudit(options) {
         }
       }
     }
-    const expectedAppNames = [...manifest.LEGACY_TABLE_NAMES];
+    const expectedAppNames = [...currentAppNames];
     const expectedNames = [...expectedAppNames, manifest.DATA_MIGRATION_TABLE];
     const tables = hydrateTables(evidence.raw_tables, evidence.policy_counts);
     const policies = (evidence.policies ?? []).map((policy) => ({
@@ -2499,8 +2523,8 @@ export async function runAudit(options) {
         context,
         "private_table_inventory",
         inventory,
-        "Exactly 22 expected private tables were cataloged (21 application tables plus _dataMigrations).",
-        "Private table inventory differs from the 22 expected objects.",
+        "Exactly 25 expected private tables were cataloged (24 application tables plus _dataMigrations).",
+        "Private table inventory differs from the 25 expected objects.",
       ),
     );
 
@@ -2794,7 +2818,7 @@ export async function runAudit(options) {
       ),
     );
     report.summary = {
-      expected_table_count: 22,
+      expected_table_count: 25,
       cataloged_table_count: null,
       external_catalog_grants: null,
       reviewed_provider_managed_capability_flags: null,

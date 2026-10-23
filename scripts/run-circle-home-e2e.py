@@ -6,6 +6,7 @@ receives only an allowlisted environment and an ephemeral local PostgreSQL port.
 """
 from __future__ import annotations
 
+from argparse import ArgumentParser
 import json
 import os
 from pathlib import Path
@@ -41,10 +42,49 @@ BASELINE_AND_FEATURE_MIGRATIONS = (
     "operations/migrations/0008_circles_home.sql",
     "operations/migrations/0009_circles_ops_circle_home_health.sql",
 )
+ACTIVITY_MIGRATIONS = (
+    "operations/migrations/0010_circles_activity_inbox.sql",
+    "operations/migrations/0011_circles_ops_activity_health.sql",
+)
+SUITES = ("circle-home", "activity")
 
 
 def fail(message: str) -> NoReturn:
     raise RuntimeError(message)
+
+
+def parse_suite(argv: list[str] | None = None) -> str:
+    """Select one strict local fixture suite; arbitrary configs and DSNs are never accepted."""
+    parser = ArgumentParser(description=__doc__)
+    parser.add_argument("--suite", choices=SUITES, default="circle-home")
+    return str(parser.parse_args(argv).suite)
+
+
+def fixture_migrations(suite: str) -> tuple[str, ...]:
+    """Return reviewed fixed migrations, requiring both Activity additions for that suite."""
+    available_activity = tuple(
+        relative_path
+        for relative_path in ACTIVITY_MIGRATIONS
+        if PROJECT_ROOT.joinpath(relative_path).is_file()
+    )
+    if suite == "activity" and available_activity != ACTIVITY_MIGRATIONS:
+        fail("Activity E2E requires the reviewed 0010 and 0011 fixture migrations")
+    # Circle Home keeps running during a concurrent additive migration rollout: it receives the
+    # exact Activity schema/health pair together, never an orphan health definition that expects
+    # tables not yet present. Activity mode above remains stricter and refuses a partial pair.
+    return (
+        BASELINE_AND_FEATURE_MIGRATIONS + ACTIVITY_MIGRATIONS
+        if available_activity == ACTIVITY_MIGRATIONS
+        else BASELINE_AND_FEATURE_MIGRATIONS
+    )
+
+
+def suite_config(suite: str) -> str:
+    return (
+        "e2e/activity.e2e.config.ts"
+        if suite == "activity"
+        else "e2e/circle-home.e2e.config.ts"
+    )
 
 
 def checked(argv: list[str], env: dict[str, str], *, timeout: int = 90) -> None:
@@ -88,8 +128,10 @@ def fixture_environment(home: Path) -> dict[str, str]:
     }
 
 
-def apply_fixture_schema(port: int) -> None:
-    """Apply private baseline/features and insert only synthetic Circle Home records."""
+def apply_fixture_schema(
+    port: int, *, suite: str, migrations: tuple[str, ...]
+) -> None:
+    """Apply private migrations and insert only synthetic records for one named suite."""
     with psycopg.connect(host="127.0.0.1", port=port, dbname="postgres", user="postgres", connect_timeout=5, autocommit=True) as bootstrap:
         bootstrap.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(FIXTURE_DB)))
     with psycopg.connect(
@@ -105,7 +147,7 @@ def apply_fixture_schema(port: int) -> None:
         db.execute("INSERT INTO e2e_fixture.guard(token) VALUES (%s)", (FIXTURE_TOKEN,))
         for role in ("anon", "authenticated", "service_role"):
             db.execute(f"CREATE ROLE {role} NOLOGIN NOSUPERUSER NOBYPASSRLS")
-        for relative_path in BASELINE_AND_FEATURE_MIGRATIONS:
+        for relative_path in migrations:
             db.execute((PROJECT_ROOT / relative_path).read_text(encoding="utf-8"))
 
         # The current health function verifies the historical marker without reading application data.
@@ -119,6 +161,15 @@ def apply_fixture_schema(port: int) -> None:
                 "manifest-sha256:1196b25e66280952d905d860e3488fa82af9d082983c5315f28ead30b35172a7",
             ),
         )
+        if "operations/migrations/0011_circles_ops_activity_health.sql" in migrations:
+            # This catalog-only local health call proves the paired 25-table Activity extension
+            # remains compatible with the longstanding Circle Home fixture before either suite
+            # starts. It reads no application rows and writes only private local ops history.
+            health = db.execute(
+                "SELECT healthy, error_code FROM circles_ops.run_daily_migration_health()"
+            ).fetchone()
+            if health != (True, None):
+                fail("paired Activity operations health contract is unhealthy")
         db.execute(
             """
             INSERT INTO circles_app.users(id, "openId", name)
@@ -161,6 +212,15 @@ def apply_fixture_schema(port: int) -> None:
               (13, 5, 'owner')
             """
         )
+        if suite == "activity":
+            # Activity target resolution requires current author membership for circle-scoped
+            # posts. The default Circle Home fixture intentionally retains its original state.
+            db.execute(
+                """
+                INSERT INTO circles_app.memberships("circleId", "userId", role)
+                VALUES (11, 6, 'member'), (12, 6, 'member')
+                """
+            )
         db.execute(
             """
             INSERT INTO circles_app.posts(id, "authorId", "circleId", text)
@@ -173,13 +233,16 @@ def apply_fixture_schema(port: int) -> None:
             """
         )
         # Explicit ids keep request assertions stable; future fixture writes remain safe too.
-        for sequence, value in (("users_id_seq", 6), ("profiles_id_seq", 6), ("circles_id_seq", 13), ("memberships_id_seq", 8), ("posts_id_seq", 105)):
+        membership_sequence_value = 10 if suite == "activity" else 8
+        for sequence, value in (("users_id_seq", 6), ("profiles_id_seq", 6), ("circles_id_seq", 13), ("memberships_id_seq", membership_sequence_value), ("posts_id_seq", 105)):
             db.execute("SELECT setval(%s, %s, true)", (f"circles_app.{sequence}", value))
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    suite = parse_suite(argv)
+    migrations: tuple[str, ...] = ()
     evidence: dict[str, object] = {
-        "suite": "circle-home-isolated-http-e2e",
+        "suite": f"{suite}-isolated-http-e2e",
         "production_access": False,
         "production_write": False,
         "fixture": "fresh-local-postgresql-17",
@@ -193,6 +256,7 @@ def main() -> int:
             fail("Circle project root is unavailable")
         if not all(path.is_file() for path in (PG_BIN / "initdb", PG_BIN / "pg_ctl", NODE, VITEST)):
             fail("required pinned local E2E toolchain is unavailable")
+        migrations = fixture_migrations(suite)
         probe_env = fixture_environment(PROJECT_ROOT)
         version = subprocess.run([str(NODE), "--version"], env=probe_env, capture_output=True, text=True, timeout=10, check=True)
         if version.stdout.strip() != "v22.23.4":
@@ -226,7 +290,7 @@ def main() -> int:
         )
         started = True
         phase = "migrate-and-seed"
-        apply_fixture_schema(port)
+        apply_fixture_schema(port, suite=suite, migrations=migrations)
 
         phase = "isolated-http-e2e"
         child_env = {**env, FIXTURE_ENV_PORT: str(port), "CIRCLE_HOME_E2E_DB": FIXTURE_DB, "CIRCLE_HOME_E2E_TOKEN": FIXTURE_TOKEN}
@@ -236,7 +300,7 @@ def main() -> int:
                 str(VITEST),
                 "run",
                 "--config",
-                "e2e/circle-home.e2e.config.ts",
+                suite_config(suite),
                 "--reporter=default",
             ],
             cwd=PROJECT_ROOT,
@@ -251,7 +315,7 @@ def main() -> int:
             {
                 "passed": True,
                 "postgres_major": 17,
-                "migrations": len(BASELINE_AND_FEATURE_MIGRATIONS),
+                "migrations": len(migrations),
                 "http": "loopback-only ephemeral port",
             }
         )
