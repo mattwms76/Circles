@@ -498,6 +498,31 @@ function safeHttpOrigin(value) {
   }
 }
 
+const CONFIGURED_API_ORIGIN_KEYS = Object.freeze([
+  "EXPO_PUBLIC_API_BASE_URL",
+  "API_BASE_URL",
+  "API_ORIGIN",
+]);
+
+/**
+ * Accept an already-canonical bare origin only. This keeps URL parser
+ * normalization (case, default ports, credentials, paths, and whitespace) from
+ * turning a different operator input into a bearer-bearing request target.
+ */
+function strictHttpOrigin(value) {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > 2_048 ||
+    value !== value.trim() ||
+    /[\u0000-\u001f\u007f]/.test(value)
+  ) {
+    return null;
+  }
+  const parsed = safeHttpOrigin(value);
+  return parsed?.origin === value ? parsed : null;
+}
+
 function hasFixedPort(url, port) {
   const effectivePort = url.port || (url.protocol === "https:" ? "443" : "80");
   return effectivePort === String(port);
@@ -508,19 +533,42 @@ function isTemporarySandboxHost(url) {
 }
 
 function isLoopbackHost(url) {
-  return ["127.0.0.1", "::1", "localhost"].includes(url.hostname);
+  const hostname = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  return ["127.0.0.1", "::1", "localhost"].includes(hostname);
+}
+
+function isInternalApiOrigin(origin) {
+  return isLoopbackHost(origin) && hasFixedPort(origin, API_PORT);
+}
+
+function configuredApiOrigin(configuration = {}) {
+  const supplied = CONFIGURED_API_ORIGIN_KEYS.filter((key) =>
+    Object.hasOwn(configuration, key),
+  );
+  if (!supplied.length) return { origin: null, error: null };
+  const origins = supplied.map((key) => strictHttpOrigin(configuration[key]));
+  if (origins.some((origin) => !origin)) {
+    return { origin: null, error: "configured_api_origin_invalid" };
+  }
+  if (!origins.every((origin) => origin.origin === origins[0].origin)) {
+    return { origin: null, error: "configured_api_origin_ambiguous" };
+  }
+  return { origin: origins[0], error: null };
+}
+
+function explicitApiOrigin(operatorBaseUrl) {
+  if (operatorBaseUrl === undefined) return { origin: null, error: null };
+  const origin = strictHttpOrigin(operatorBaseUrl);
+  return origin
+    ? { origin, error: null }
+    : { origin: null, error: "operator_api_origin_invalid" };
 }
 
 function verificationOrigin(value) {
-  const origin = hasValue(value) ? safeHttpOrigin(value.trim()) : null;
+  const origin = strictHttpOrigin(value);
   if (!origin) return null;
   if (origin.protocol === "http:" && !isLoopbackHost(origin)) return null;
-  if (
-    isTemporarySandboxHost(origin) &&
-    (origin.protocol !== "https:" || !hasFixedPort(origin, 443))
-  ) {
-    return null;
-  }
+  if (!isLoopbackHost(origin) && !hasFixedPort(origin, 443)) return null;
   return origin;
 }
 
@@ -528,37 +576,61 @@ function verificationOrigin(value) {
  * Verify-only is a post-refresh/public-origin boundary. It deliberately accepts
  * a proxied HTTPS origin (including a current *.manus.computer port-443
  * Preview) without treating it as the internal API:3000 restart target.
+ *
+ * @param {Record<string, string | undefined>} configuration
+ * @param {{ operatorBaseUrl?: string, credentialed?: boolean }} options
  */
 export function validateVerificationConfiguration(
   configuration = {},
-  { operatorBaseUrl } = {},
+  { operatorBaseUrl, credentialed = false } = {},
 ) {
-  const selectedBaseUrl = hasValue(operatorBaseUrl)
-    ? operatorBaseUrl
-    : [
-        configuration.EXPO_PUBLIC_API_BASE_URL,
-        configuration.API_BASE_URL,
-        configuration.API_ORIGIN,
-        configuration.PUBLIC_URL,
-      ].find(hasValue);
-  const apiOrigin = verificationOrigin(selectedBaseUrl);
+  const configured = configuredApiOrigin(configuration);
+  const explicit = explicitApiOrigin(operatorBaseUrl);
+  const selected = explicit.origin ?? configured.origin;
+  const apiOrigin = selected ? verificationOrigin(selected.origin) : null;
+  const credentialedTargetIsBound =
+    !credentialed ||
+    (apiOrigin &&
+      (isInternalApiOrigin(apiOrigin) ||
+        (configured.origin && apiOrigin.origin === configured.origin.origin)));
   return {
-    ok: Boolean(apiOrigin),
-    errors: apiOrigin
-      ? []
-      : [
-          issue(
-            "API_BASE_URL",
-            "must be an explicit credential-free HTTPS origin or local API origin",
-          ),
-        ],
-    apiBaseUrl: apiOrigin?.origin ?? null,
+    ok:
+      Boolean(apiOrigin) &&
+      !configured.error &&
+      !explicit.error &&
+      credentialedTargetIsBound,
+    errors:
+      apiOrigin &&
+      !configured.error &&
+      !explicit.error &&
+      credentialedTargetIsBound
+        ? []
+        : [
+            issue(
+              "API_BASE_URL",
+              configured.error ??
+                explicit.error ??
+                (!apiOrigin
+                  ? "must be an explicit canonical HTTPS origin or loopback API origin"
+                  : "credentialed verification must use loopback or the exact trusted configured API origin"),
+            ),
+          ],
+    apiBaseUrl:
+      apiOrigin &&
+      !configured.error &&
+      !explicit.error &&
+      credentialedTargetIsBound
+        ? apiOrigin.origin
+        : null,
   };
 }
 
 /**
  * Validates only configuration shape/presence and identity continuity. It never
  * opens a database or prints a value, DSN, token, or signing material.
+ *
+ * @param {Record<string, string | undefined>} configuration
+ * @param {{ referenceEnvironment?: NodeJS.ProcessEnv, operatorBaseUrl?: string }} options
  */
 export function validateRefreshConfiguration(
   configuration,
@@ -601,11 +673,12 @@ export function validateRefreshConfiguration(
     }
   }
 
-  const selectedBaseUrl =
-    operatorBaseUrl || configuration.EXPO_PUBLIC_API_BASE_URL;
-  const apiOrigin = hasValue(selectedBaseUrl)
-    ? safeHttpOrigin(selectedBaseUrl.trim())
-    : null;
+  const configured = configuredApiOrigin(configuration);
+  const explicit = explicitApiOrigin(operatorBaseUrl);
+  const apiOrigin = explicit.origin ?? configured.origin;
+  if (configured.error || explicit.error) {
+    errors.push(issue("API_BASE_URL", configured.error ?? explicit.error));
+  }
   if (!apiOrigin || !hasFixedPort(apiOrigin, API_PORT)) {
     errors.push(
       issue(
@@ -616,6 +689,16 @@ export function validateRefreshConfiguration(
   } else if (isTemporarySandboxHost(apiOrigin)) {
     errors.push(
       issue("API_BASE_URL", "must not use a temporary Manus session hostname"),
+    );
+  } else if (
+    !isInternalApiOrigin(apiOrigin) &&
+    (!configured.origin || apiOrigin.origin !== configured.origin.origin)
+  ) {
+    errors.push(
+      issue(
+        "API_BASE_URL",
+        "must use loopback API:3000 or exactly match the trusted configured API origin",
+      ),
     );
   }
 
@@ -650,7 +733,7 @@ export function validateRefreshConfiguration(
   return {
     ok: errors.length === 0,
     errors,
-    apiBaseUrl: apiOrigin?.origin ?? null,
+    apiBaseUrl: errors.length === 0 ? (apiOrigin?.origin ?? null) : null,
   };
 }
 
@@ -1692,6 +1775,8 @@ export async function runRecovery(
     mode === "verify-only"
       ? validateVerificationConfiguration(selectedEnvironment.values, {
           operatorBaseUrl,
+          // Reject an unbound target before loadVerificationAuth can read a bearer.
+          credentialed: Boolean(auth?.bearerToken) || Boolean(authFile),
         })
       : validateRefreshConfiguration(selectedEnvironment.values, {
           referenceEnvironment,

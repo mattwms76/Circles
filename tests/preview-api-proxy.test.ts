@@ -26,11 +26,10 @@ async function listen(handler: RequestListener) {
   };
 }
 
-async function proxyFor(port: number, publicProtocol = "https") {
+async function proxyFor(port: number, publicOrigin = "https://preview.example.test") {
   const proxy = createPreviewApiProxy({
     port,
-    publicProtocol,
-    publicOrigin: "https://preview.example.test",
+    publicOrigin,
     timeoutMs: 1000,
   });
   return listen((req, res) => {
@@ -200,11 +199,56 @@ describe("same-origin Preview API proxy", () => {
     const api = await listen((req, res) =>
       res.end(String(req.headers["x-forwarded-proto"])),
     );
-    const proxy = await proxyFor(api.port, "http");
+    const proxy = await proxyFor(api.port, "http://localhost:48081");
     const response = await fetch(`${proxy.url}/api/health`, {
       headers: { "X-Forwarded-Proto": "https" },
     });
     expect(await response.text()).toBe("http");
+  });
+
+  it("strips caller forwarding headers and gives anonymous Preview browsers separate signed buckets", async () => {
+    const api = await listen((req, res) => {
+      res.setHeader("Content-Type", "application/json");
+      res.end(
+        JSON.stringify({
+          limiter: req.headers["x-manus-preview-limiter"],
+          marker: req.headers["x-manus-preview-proxy"],
+          forwardedFor: req.headers["x-forwarded-for"] ?? null,
+          protocol: req.headers["x-forwarded-proto"],
+        }),
+      );
+    });
+    const proxy = await listen((req, res) => {
+      createPreviewApiProxy({
+        port: api.port,
+        publicOrigin: "https://preview.example.test",
+        limiterSecret: "test-only-preview-limiter-secret",
+        now: () => 1_700_000_000,
+      })(req, res, () => res.end());
+    });
+
+    const first = await fetch(`${proxy.url}/api/media/public`, {
+      headers: {
+        "X-Forwarded-For": "203.0.113.10",
+        "X-Manus-Preview-Limiter": "forged",
+        "X-Manus-Preview-Proxy": "forged",
+      },
+    });
+    const firstBucket = await first.json();
+    const second = await fetch(`${proxy.url}/api/media/public`, {
+      headers: { "X-Forwarded-For": "203.0.113.11" },
+    });
+    const secondBucket = await second.json();
+
+    expect(firstBucket).toMatchObject({
+      marker: "1",
+      forwardedFor: null,
+      protocol: "https",
+    });
+    expect(firstBucket.limiter).not.toBe("forged");
+    expect(secondBucket.limiter).not.toBe(firstBucket.limiter);
+    expect(first.headers.get("set-cookie")).toContain("HttpOnly");
+    expect(first.headers.get("set-cookie")).toContain("SameSite=None");
   });
 
   it("returns a retryable JSON error when the API listener is unavailable", async () => {

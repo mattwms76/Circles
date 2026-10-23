@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   ContinuitySafetyError,
   DEFAULT_MAX_OBJECTS,
@@ -15,6 +15,12 @@ import {
 } from "../scripts/recovery-continuity.mjs";
 
 const temporaryDirectories: string[] = [];
+let previousMediaOrigin: string | undefined;
+
+beforeEach(() => {
+  previousMediaOrigin = process.env.EXPO_PUBLIC_API_BASE_URL;
+  process.env.EXPO_PUBLIC_API_BASE_URL = "https://current-preview.manus.computer";
+});
 
 function temporaryDirectory() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "circles-continuity-test-"));
@@ -60,6 +66,8 @@ afterEach(() => {
   while (temporaryDirectories.length) {
     fs.rmSync(temporaryDirectories.pop()!, { recursive: true, force: true });
   }
+  if (previousMediaOrigin === undefined) delete process.env.EXPO_PUBLIC_API_BASE_URL;
+  else process.env.EXPO_PUBLIC_API_BASE_URL = previousMediaOrigin;
 });
 
 describe("recovery continuity", () => {

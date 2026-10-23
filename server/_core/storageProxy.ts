@@ -14,6 +14,7 @@ import { streams } from "../../drizzle/live-schema";
 import { getDb } from "../db";
 import { storageGetSignedUrl } from "../storage";
 import { decryptSocialMedia, SOCIAL_MEDIA_FRAME_OVERHEAD } from "../social-service";
+import { previewLimiterIdentityFromRequest } from "./runtimeSecurity";
 import { sdk } from "./sdk";
 
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
@@ -225,8 +226,11 @@ async function fetchBoundedEncryptedMedia(signedUrl: string, expectedBytes: numb
 
 function mediaWorkClientKey(req: Request, userId: number | null): string {
   if (userId !== null) return `user:${userId}`;
+  const previewIdentity = previewLimiterIdentityFromRequest(req);
+  if (previewIdentity) return `preview:${previewIdentity}`;
   // req.ip follows the deployment's Express trust-proxy setting. Do not accept a caller-supplied
-  // forwarding header here, because that would let public clients evade the byte budget.
+  // forwarding header here, because that would let public clients evade the byte budget. The only
+  // exception is the HMAC-authenticated, short-lived Preview identity verified above.
   return `ip:${req.ip || req.socket.remoteAddress || "unknown"}`;
 }
 

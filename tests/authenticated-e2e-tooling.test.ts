@@ -348,6 +348,7 @@ describe("authenticated native E2E operator tooling", () => {
   });
 
   it("rejects browser, Expo Go, and bundle claims as native evidence", () => {
+    // Device execution is not inferred from the source-only checks below.
     for (const surface of ["web", "expo-go", "bundle"]) {
       const result = verifyNativeEvidence({
         version: 1,
@@ -359,6 +360,29 @@ describe("authenticated native E2E operator tooling", () => {
         reason: "non_native_execution_surface_rejected",
       });
     }
+  });
+
+  it("blocks teardown without an observed nominated host generation", async () => {
+    const calls: { path: string; method: string }[] = [];
+    const report = await runAuthenticatedE2E({
+      fixture: syntheticFixture,
+      apiBaseUrl: "https://circles.test",
+      options: {
+        liveFlow: "teardown",
+        allowMutations: true,
+        mutationAcknowledgement: MUTATION_ACKNOWLEDGEMENT,
+      },
+      fetchImpl: authenticatedFetch(calls),
+    });
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        name: "live.teardown",
+        status: "BLOCKED",
+        reason:
+          "host_stream_or_generation_not_explicitly_nominated_for_teardown",
+      }),
+    );
+    expect(calls.filter((call) => call.method === "POST")).toEqual([]);
   });
 
   it("keeps source intent separate from synthetic device-evidence labels", () => {

@@ -65,6 +65,12 @@ function clearedEnvironment(
   };
 }
 
+function trustedPreviewConfiguration() {
+  return {
+    EXPO_PUBLIC_API_BASE_URL: "https://current-preview.manus.computer",
+  };
+}
+
 const existingIds = {
   circleId: 11,
   profileId: 12,
@@ -230,6 +236,7 @@ describe("guarded API recovery", () => {
       mode: "verify-only",
       strict: true,
       projectDir: PROJECT_ROOT,
+      configuration: trustedPreviewConfiguration(),
       operatorBaseUrl: "https://current-preview.manus.computer",
       endpointManifest,
       auth: { bearerToken: "synthetic-bearer", ids: idsWithoutGeneration },
@@ -256,6 +263,7 @@ describe("guarded API recovery", () => {
       mode: "verify-only",
       strict: true,
       projectDir: PROJECT_ROOT,
+      configuration: trustedPreviewConfiguration(),
       operatorBaseUrl: "https://current-preview.manus.computer",
       auth: { bearerToken: "synthetic-bearer", ids: idsWithoutGeneration },
       fetchImpl: mockTrpcFetch(calls),
@@ -289,6 +297,7 @@ describe("guarded API recovery", () => {
       mode: "verify-only",
       strict: true,
       projectDir: PROJECT_ROOT,
+      configuration: trustedPreviewConfiguration(),
       operatorBaseUrl: "https://current-preview.manus.computer",
       authFile,
       fetchImpl: mockTrpcFetch(calls),
@@ -723,6 +732,7 @@ describe("guarded API recovery", () => {
     const report = await runRecovery({
       mode: "verify-only",
       projectDir: PROJECT_ROOT,
+      configuration: trustedPreviewConfiguration(),
       operatorBaseUrl: "https://current-preview.manus.computer",
       auth: { bearerToken: "synthetic-bearer", ids: existingIds },
       databaseReady: async () => {
@@ -819,6 +829,7 @@ describe("guarded API recovery", () => {
     const authReport = await runRecovery({
       mode: "verify-only",
       projectDir: PROJECT_ROOT,
+      configuration: trustedPreviewConfiguration(),
       operatorBaseUrl: "https://current-preview.manus.computer",
       authFile,
     });

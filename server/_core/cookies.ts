@@ -4,21 +4,14 @@ import {
   LEGACY_COOKIE_NAME,
   SESSION_COOKIE_SUFFIX,
 } from "../../shared/const.js";
+import { isTrustedPreviewProxyRequest } from "./runtimeSecurity";
 
 /** The application cookie accepted before the context-specific SDK session cookie. */
 export const APPLICATION_SESSION_COOKIE_NAME = "webdev_app_session";
 
-function isSecureRequest(req: Request) {
+export function isSecureRequest(req: Request) {
   if (req.protocol === "https") return true;
-
-  const forwardedProto = req.headers["x-forwarded-proto"];
-  if (!forwardedProto) return false;
-
-  const protoList = Array.isArray(forwardedProto)
-    ? forwardedProto
-    : forwardedProto.split(",");
-
-  return protoList.some((proto) => proto.trim().toLowerCase() === "https");
+  return isTrustedPreviewProxyRequest(req, "https");
 }
 
 export function getSessionCookieOptions(

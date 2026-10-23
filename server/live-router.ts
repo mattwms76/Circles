@@ -240,6 +240,25 @@ async function getStreamOrThrow(streamId: number): Promise<Stream> {
   return stream;
 }
 
+/**
+ * Every live write takes this row lock before examining lifecycle state. It is
+ * the common serialization boundary for end, join, leave, signaling, and
+ * chat writes, so a completed end cannot be followed by a stale insert.
+ */
+async function lockLiveStream(
+  tx: LiveTransaction,
+  streamId: number,
+): Promise<Stream> {
+  const [stream] = await tx
+    .select()
+    .from(streams)
+    .where(eq(streams.id, streamId))
+    .for("update")
+    .limit(1);
+  if (!stream) notFound();
+  return stream;
+}
+
 async function assertCircleAccess(
   userId: number,
   circleId: number | null,
@@ -363,6 +382,7 @@ async function endHostStreamAtomically(
   db: LiveDatabase,
   hostId: number,
   streamId: number,
+  expectedGeneration: number,
 ): Promise<void> {
   await db.transaction(async (tx) => {
     const lease = await lockActiveHostLease(tx, hostId);
@@ -375,6 +395,11 @@ async function endHostStreamAtomically(
     if (!stream || stream.status !== "live") notFound();
     if (stream.hostId !== hostId)
       forbidden("Only the host can end this live stream.");
+    if (
+      !hasCurrentLiveSignalGeneration(expectedGeneration, stream.hostGeneration)
+    ) {
+      forbidden("This live media session has been replaced.");
+    }
 
     const active = await reconcileActiveHostLease(
       tx,
@@ -405,17 +430,18 @@ async function renewHostLeaseAtomically(
   hostId: number,
   streamId: number,
   ready: boolean | undefined,
+  expectedGeneration: number,
 ): Promise<void> {
   await db.transaction(async (tx) => {
     const lease = await lockActiveHostLease(tx, hostId);
-    const [stream] = await tx
-      .select()
-      .from(streams)
-      .where(eq(streams.id, streamId))
-      .for("update")
-      .limit(1);
-    if (!stream || stream.status !== "live") notFound();
+    const stream = await lockLiveStream(tx, streamId);
+    if (stream.status !== "live") notFound();
     if (stream.hostId !== hostId) notFound();
+    if (
+      !hasCurrentLiveSignalGeneration(expectedGeneration, stream.hostGeneration)
+    ) {
+      forbidden("This live media session has been replaced.");
+    }
 
     const now = new Date();
     const active = await reconcileActiveHostLease(tx, lease, hostId, now);
@@ -462,12 +488,26 @@ async function getActiveViewerGeneration(
   return rows[0]?.generation ?? null;
 }
 
-async function isActiveViewer(
+/** The caller already holds the stream row lock for the whole lifecycle write. */
+async function getActiveViewerGenerationInTransaction(
+  tx: LiveTransaction,
   streamId: number,
   userId: number,
   now = Date.now(),
-): Promise<boolean> {
-  return (await getActiveViewerGeneration(streamId, userId, now)) !== null;
+): Promise<number | null> {
+  const rows = await tx
+    .select({ generation: liveViewers.generation })
+    .from(liveViewers)
+    .where(
+      and(
+        eq(liveViewers.streamId, streamId),
+        eq(liveViewers.userId, userId),
+        isNull(liveViewers.leftAt),
+        gt(liveViewers.lastSeenAt, new Date(now - VIEWER_LEASE_MS)),
+      ),
+    )
+    .limit(1);
+  return rows[0]?.generation ?? null;
 }
 
 async function assertActiveParticipant(
@@ -478,6 +518,28 @@ async function assertActiveParticipant(
   await assertCircleAccess(userId, stream.circleId);
   if (stream.hostId === userId) return stream.hostGeneration;
   const generation = await getActiveViewerGeneration(stream.id, userId);
+  if (generation === null) {
+    forbidden("Join this live stream before participating.");
+  }
+  return generation;
+}
+
+/**
+ * Transaction counterpart used only after lockLiveStream(). Circle access is
+ * still checked at the route boundary before entering the transaction.
+ */
+async function assertActiveParticipantInTransaction(
+  tx: LiveTransaction,
+  stream: Stream,
+  userId: number,
+): Promise<number> {
+  if (!streamIsReadyAndActive(stream)) notFound();
+  if (stream.hostId === userId) return stream.hostGeneration;
+  const generation = await getActiveViewerGenerationInTransaction(
+    tx,
+    stream.id,
+    userId,
+  );
   if (generation === null) {
     forbidden("Join this live stream before participating.");
   }
@@ -518,10 +580,11 @@ async function toLiveStream(stream: Stream): Promise<LiveStream> {
   };
 }
 
-async function signalHighWaterMark(streamId: number): Promise<number> {
-  const db = await getDb();
-  if (!db) unavailable();
-  const [latest] = await db
+async function signalHighWaterMarkInTransaction(
+  tx: LiveTransaction,
+  streamId: number,
+): Promise<number> {
+  const [latest] = await tx
     .select({ id: liveSignals.id })
     .from(liveSignals)
     .where(eq(liveSignals.streamId, streamId))
@@ -531,14 +594,15 @@ async function signalHighWaterMark(streamId: number): Promise<number> {
 }
 
 /** Remove only messages belonging to the media lifecycle that was superseded. */
-async function purgeParticipantGenerationSignals(input: {
+async function purgeParticipantGenerationSignalsInTransaction(
+  tx: LiveTransaction,
+  input: {
   streamId: number;
   participantId: number;
   generation: number;
-}): Promise<void> {
-  const db = await getDb();
-  if (!db) unavailable();
-  await db
+  },
+): Promise<void> {
+  await tx
     .delete(liveSignals)
     .where(
       and(
@@ -557,17 +621,18 @@ async function purgeParticipantGenerationSignals(input: {
     );
 }
 
-async function insertSystemSignal(input: {
+async function insertSystemSignalInTransaction(
+  tx: LiveTransaction,
+  input: {
   streamId: number;
   fromId: number;
   toId: number;
   kind: "join" | "leave";
   fromGeneration: number;
   toGeneration: number;
-}): Promise<void> {
-  const db = await getDb();
-  if (!db) unavailable();
-  await db.insert(liveSignals).values({ ...input, payload: "{}" });
+  },
+): Promise<void> {
+  await tx.insert(liveSignals).values({ ...input, payload: "{}" });
 }
 
 export const liveRouter = router({
@@ -680,15 +745,29 @@ export const liveRouter = router({
       return toLiveStream(stream);
     }),
 
-  end: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
-    if (!db) unavailable();
-    await endHostStreamAtomically(db, ctx.user.id, input.streamId);
-    return { success: true } as const;
-  }),
+  end: protectedProcedure
+    .input(idInput.extend({ generation: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) unavailable();
+      await endHostStreamAtomically(
+        db,
+        ctx.user.id,
+        input.streamId,
+        input.generation,
+      );
+      return { success: true } as const;
+    }),
 
   heartbeat: protectedProcedure
-    .input(idInput.extend({ ready: z.boolean().optional() }))
+    .input(
+      idInput.extend({
+        ready: z.boolean().optional(),
+        // Every media lifecycle, including a host's lease renewal, is bound to
+        // the generation allocated by join. Legacy host calls fail closed.
+        generation: z.number().int().positive(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) unavailable();
@@ -698,7 +777,13 @@ export const liveRouter = router({
       if (stream.hostId === ctx.user.id) {
         // An expired lease cannot be revived: create() will release it and lets
         // the host make a fresh session instead of resurrecting stale metadata.
-        await renewHostLeaseAtomically(db, ctx.user.id, stream.id, input.ready);
+        await renewHostLeaseAtomically(
+          db,
+          ctx.user.id,
+          stream.id,
+          input.ready,
+          input.generation,
+        );
         return { success: true } as const;
       }
 
@@ -708,21 +793,38 @@ export const liveRouter = router({
           message: "Only the host can mark a live stream ready.",
         });
       }
-      if (!streamIsReadyAndActive(stream, now.getTime())) notFound();
+      const viewerGeneration = input.generation;
       await assertCircleAccess(ctx.user.id, stream.circleId);
-      if (!(await isActiveViewer(stream.id, ctx.user.id, now.getTime()))) {
-        forbidden("Join this live stream before renewing presence.");
-      }
-      await db
-        .update(liveViewers)
-        .set({ lastSeenAt: now })
-        .where(
-          and(
-            eq(liveViewers.streamId, stream.id),
-            eq(liveViewers.userId, ctx.user.id),
-            isNull(liveViewers.leftAt),
-          ),
+      await db.transaction(async (tx) => {
+        const lockedStream = await lockLiveStream(tx, stream.id);
+        if (!streamIsReadyAndActive(lockedStream, now.getTime())) notFound();
+        const currentGeneration = await getActiveViewerGenerationInTransaction(
+          tx,
+          lockedStream.id,
+          ctx.user.id,
+          now.getTime(),
         );
+        if (
+          !hasCurrentLiveSignalGeneration(viewerGeneration, currentGeneration)
+        ) {
+          forbidden("This live media session has been replaced.");
+        }
+        const [renewed] = await tx
+          .update(liveViewers)
+          .set({ lastSeenAt: now })
+          .where(
+            and(
+              eq(liveViewers.streamId, lockedStream.id),
+              eq(liveViewers.userId, ctx.user.id),
+              eq(liveViewers.generation, viewerGeneration),
+              isNull(liveViewers.leftAt),
+            ),
+          )
+          .returning({ generation: liveViewers.generation });
+        if (!renewed) {
+          forbidden("This live media session has been replaced.");
+        }
+      });
       return { success: true } as const;
     }),
 
@@ -732,109 +834,130 @@ export const liveRouter = router({
     const turnConfiguration = loadLiveTurnConfiguration();
     const db = await getDb();
     if (!db) unavailable();
-    const stream = await getStreamOrThrow(input.streamId);
+    const accessibleStream = await getStreamOrThrow(input.streamId);
     const now = new Date();
-    if (!streamHasActiveHostLease(stream, now.getTime())) notFound();
-    await assertCircleAccess(ctx.user.id, stream.circleId);
+    await assertCircleAccess(ctx.user.id, accessibleStream.circleId);
 
-    // The host does not inflate viewer counts, but a reload is a fresh media
-    // lifecycle. Its new generation rejects old answers and ICE immediately.
-    if (stream.hostId === ctx.user.id) {
-      const signalCursor = await signalHighWaterMark(stream.id);
-      const generation = stream.hostGeneration + 1;
-      await db
-        .update(streams)
-        .set({ hostGeneration: generation })
-        .where(and(eq(streams.id, stream.id), eq(streams.status, "live")));
-      await purgeParticipantGenerationSignals({
-        streamId: stream.id,
-        participantId: stream.hostId,
-        generation: stream.hostGeneration,
-      });
-      const activeViewers = await db
-        .select({
-          userId: liveViewers.userId,
-          generation: liveViewers.generation,
-        })
+    return db.transaction(async (tx) => {
+      // Both host restarts and viewer joins take this same stream-row lock. A
+      // joining viewer therefore either appears in the restart snapshot or
+      // targets the newer host generation; it can never fall between them.
+      const stream = await lockLiveStream(tx, input.streamId);
+      if (!streamHasActiveHostLease(stream, now.getTime())) notFound();
+
+      // The host does not inflate viewer counts, but a reload is a fresh media
+      // lifecycle. The locked stream serializes each increment and snapshot.
+      if (stream.hostId === ctx.user.id) {
+        const signalCursor = await signalHighWaterMarkInTransaction(
+          tx,
+          stream.id,
+        );
+        const priorGeneration = stream.hostGeneration;
+        const generation = priorGeneration + 1;
+        await tx
+          .update(streams)
+          .set({ hostGeneration: generation })
+          .where(
+            and(
+              eq(streams.id, stream.id),
+              eq(streams.status, "live"),
+              eq(streams.hostGeneration, priorGeneration),
+            ),
+          );
+        await purgeParticipantGenerationSignalsInTransaction(tx, {
+          streamId: stream.id,
+          participantId: stream.hostId,
+          generation: priorGeneration,
+        });
+        const activeViewers = await tx
+          .select({
+            userId: liveViewers.userId,
+            generation: liveViewers.generation,
+          })
+          .from(liveViewers)
+          .where(
+            and(
+              eq(liveViewers.streamId, stream.id),
+              isNull(liveViewers.leftAt),
+              gt(
+                liveViewers.lastSeenAt,
+                new Date(now.getTime() - VIEWER_LEASE_MS),
+              ),
+            ),
+          );
+        const restartSignals = createHostGenerationRestartSignals({
+          streamId: stream.id,
+          hostId: stream.hostId,
+          hostGeneration: generation,
+          viewers: activeViewers,
+        });
+        if (restartSignals.length > 0) {
+          await tx.insert(liveSignals).values(restartSignals);
+        }
+        return createLiveJoinSession({
+          hostId: stream.hostId,
+          generation,
+          hostGeneration: generation,
+          signalCursor,
+          userId: ctx.user.id,
+          turnConfiguration,
+        });
+      }
+      if (stream.readyAt === null) notFound();
+
+      const [existingViewer] = await tx
+        .select({ generation: liveViewers.generation })
         .from(liveViewers)
         .where(
           and(
             eq(liveViewers.streamId, stream.id),
-            isNull(liveViewers.leftAt),
-            gt(
-              liveViewers.lastSeenAt,
-              new Date(now.getTime() - VIEWER_LEASE_MS),
-            ),
+            eq(liveViewers.userId, ctx.user.id),
           ),
-        );
-      const restartSignals = createHostGenerationRestartSignals({
-        streamId: stream.id,
-        hostId: stream.hostId,
-        hostGeneration: generation,
-        viewers: activeViewers,
-      });
-      if (restartSignals.length > 0) {
-        await db.insert(liveSignals).values(restartSignals);
+        )
+        .for("update")
+        .limit(1);
+      const generation = (existingViewer?.generation ?? 0) + 1;
+      await tx
+        .insert(liveViewers)
+        .values({
+          streamId: stream.id,
+          userId: ctx.user.id,
+          joinedAt: now,
+          lastSeenAt: now,
+          generation,
+          leftAt: null,
+        })
+        .onConflictDoUpdate({
+          target: [liveViewers.streamId, liveViewers.userId],
+          set: { joinedAt: now, lastSeenAt: now, generation, leftAt: null },
+        });
+      if (existingViewer) {
+        await purgeParticipantGenerationSignalsInTransaction(tx, {
+          streamId: stream.id,
+          participantId: ctx.user.id,
+          generation: existingViewer.generation,
+        });
       }
+      const signalCursor = await signalHighWaterMarkInTransaction(
+        tx,
+        stream.id,
+      );
+      await insertSystemSignalInTransaction(tx, {
+        streamId: stream.id,
+        fromId: ctx.user.id,
+        toId: stream.hostId,
+        kind: "join",
+        fromGeneration: generation,
+        toGeneration: stream.hostGeneration,
+      });
       return createLiveJoinSession({
         hostId: stream.hostId,
         generation,
-        hostGeneration: generation,
+        hostGeneration: stream.hostGeneration,
         signalCursor,
         userId: ctx.user.id,
         turnConfiguration,
       });
-    }
-    if (stream.readyAt === null) notFound();
-
-    const [existingViewer] = await db
-      .select({ generation: liveViewers.generation })
-      .from(liveViewers)
-      .where(
-        and(
-          eq(liveViewers.streamId, stream.id),
-          eq(liveViewers.userId, ctx.user.id),
-        ),
-      )
-      .limit(1);
-    const generation = (existingViewer?.generation ?? 0) + 1;
-    await db
-      .insert(liveViewers)
-      .values({
-        streamId: stream.id,
-        userId: ctx.user.id,
-        joinedAt: now,
-        lastSeenAt: now,
-        generation,
-        leftAt: null,
-      })
-      .onConflictDoUpdate({
-        target: [liveViewers.streamId, liveViewers.userId],
-        set: { joinedAt: now, lastSeenAt: now, generation, leftAt: null },
-      });
-    if (existingViewer) {
-      await purgeParticipantGenerationSignals({
-        streamId: stream.id,
-        participantId: ctx.user.id,
-        generation: existingViewer.generation,
-      });
-    }
-    const signalCursor = await signalHighWaterMark(stream.id);
-    await insertSystemSignal({
-      streamId: stream.id,
-      fromId: ctx.user.id,
-      toId: stream.hostId,
-      kind: "join",
-      fromGeneration: generation,
-      toGeneration: stream.hostGeneration,
-    });
-    return createLiveJoinSession({
-      hostId: stream.hostId,
-      generation,
-      hostGeneration: stream.hostGeneration,
-      signalCursor,
-      userId: ctx.user.id,
-      turnConfiguration,
     });
   }),
 
@@ -893,62 +1016,86 @@ export const liveRouter = router({
       };
     }),
 
-  leave: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {
-    const db = await getDb();
-    if (!db) unavailable();
-    const stream = await getStreamOrThrow(input.streamId);
-    if (stream.status !== "live") notFound();
-    await assertCircleAccess(ctx.user.id, stream.circleId);
-    if (stream.hostId === ctx.user.id) {
-      forbidden("The host must end the live stream instead of leaving it.");
-    }
-    const [viewer] = await db
-      .select({
-        streamId: liveViewers.streamId,
-        generation: liveViewers.generation,
-      })
-      .from(liveViewers)
-      .where(
-        and(
-          eq(liveViewers.streamId, stream.id),
-          eq(liveViewers.userId, ctx.user.id),
-          isNull(liveViewers.leftAt),
-        ),
-      )
-      .limit(1);
-    if (!viewer) {
-      forbidden("You have not joined this live stream.");
-    }
+  leave: protectedProcedure
+    .input(idInput.extend({ generation: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) unavailable();
+      const accessibleStream = await getStreamOrThrow(input.streamId);
+      await assertCircleAccess(ctx.user.id, accessibleStream.circleId);
 
-    const wasActive = await isActiveViewer(stream.id, ctx.user.id);
+      await db.transaction(async (tx) => {
+        const stream = await lockLiveStream(tx, input.streamId);
+        if (stream.status !== "live") notFound();
+        if (stream.hostId === ctx.user.id) {
+          forbidden("The host must end the live stream instead of leaving it.");
+        }
+        const [viewer] = await tx
+          .select({
+            generation: liveViewers.generation,
+            lastSeenAt: liveViewers.lastSeenAt,
+          })
+          .from(liveViewers)
+          .where(
+            and(
+              eq(liveViewers.streamId, stream.id),
+              eq(liveViewers.userId, ctx.user.id),
+              isNull(liveViewers.leftAt),
+            ),
+          )
+          .for("update")
+          .limit(1);
+        if (!viewer) {
+          forbidden("You have not joined this live stream.");
+        }
+        if (
+          !hasCurrentLiveSignalGeneration(input.generation, viewer.generation)
+        ) {
+          forbidden("This live media session has been replaced.");
+        }
 
-    await db
-      .update(liveViewers)
-      .set({ leftAt: new Date() })
-      .where(
-        and(
-          eq(liveViewers.streamId, stream.id),
-          eq(liveViewers.userId, ctx.user.id),
-          isNull(liveViewers.leftAt),
-        ),
-      );
-    await purgeParticipantGenerationSignals({
-      streamId: stream.id,
-      participantId: ctx.user.id,
-      generation: viewer.generation,
-    });
-    if (wasActive) {
-      await insertSystemSignal({
-        streamId: stream.id,
-        fromId: ctx.user.id,
-        toId: stream.hostId,
-        kind: "leave",
-        fromGeneration: viewer.generation,
-        toGeneration: stream.hostGeneration,
+        const leftAt = new Date();
+        const [left] = await tx
+          .update(liveViewers)
+          .set({ leftAt })
+          .where(
+            and(
+              eq(liveViewers.streamId, stream.id),
+              eq(liveViewers.userId, ctx.user.id),
+              eq(liveViewers.generation, input.generation),
+              isNull(liveViewers.leftAt),
+            ),
+          )
+          .returning({ generation: liveViewers.generation });
+        if (!left) {
+          forbidden("This live media session has been replaced.");
+        }
+
+        // Signals and the leave notification are coupled to the successful CAS,
+        // never merely to a stale pre-update viewer read.
+        await purgeParticipantGenerationSignalsInTransaction(tx, {
+          streamId: stream.id,
+          participantId: ctx.user.id,
+          generation: input.generation,
+        });
+        if (
+          hasActiveViewerLease(
+            { leftAt: null, lastSeenAt: viewer.lastSeenAt },
+            leftAt.getTime(),
+          )
+        ) {
+          await insertSystemSignalInTransaction(tx, {
+            streamId: stream.id,
+            fromId: ctx.user.id,
+            toId: stream.hostId,
+            kind: "leave",
+            fromGeneration: input.generation,
+            toGeneration: stream.hostGeneration,
+          });
+        }
       });
-    }
-    return { success: true } as const;
-  }),
+      return { success: true } as const;
+    }),
 
   signals: protectedProcedure
     .input(
@@ -1027,80 +1174,89 @@ export const liveRouter = router({
         });
       }
 
-      const stream = await getStreamOrThrow(input.streamId);
-      if (!streamIsReadyAndActive(stream)) notFound();
-      await assertCircleAccess(ctx.user.id, stream.circleId);
-
-      const [senderGeneration, recipientGeneration] = await Promise.all([
-        ctx.user.id === stream.hostId
-          ? Promise.resolve(stream.hostGeneration)
-          : getActiveViewerGeneration(stream.id, ctx.user.id),
-        input.toId === stream.hostId
-          ? Promise.resolve(stream.hostGeneration)
-          : getActiveViewerGeneration(stream.id, input.toId),
+      const accessibleStream = await getStreamOrThrow(input.streamId);
+      await Promise.all([
+        assertCircleAccess(ctx.user.id, accessibleStream.circleId),
+        assertCircleAccess(input.toId, accessibleStream.circleId),
       ]);
-      if (
-        senderGeneration === null ||
-        !hasCurrentLiveSignalGeneration(input.generation, senderGeneration)
-      ) {
-        forbidden("This live media session has been replaced.");
-      }
-      if (recipientGeneration === null) {
-        forbidden("This WebRTC signal is not allowed for these participants.");
-      }
-      const senderHasJoinedCurrentHostGeneration =
-        ctx.user.id === stream.hostId ||
-        !!(
-          await db
-            .select({ id: liveSignals.id })
-            .from(liveSignals)
-            .where(
-              and(
-                eq(liveSignals.streamId, stream.id),
-                eq(liveSignals.fromId, ctx.user.id),
-                eq(liveSignals.toId, stream.hostId),
-                eq(liveSignals.kind, "join"),
-                eq(liveSignals.fromGeneration, senderGeneration),
-                eq(liveSignals.toGeneration, stream.hostGeneration),
-              ),
-            )
-            .limit(1)
-        )[0];
-      if (!senderHasJoinedCurrentHostGeneration) {
-        throw new TRPCError({
-          // A stale peer can emit ICE while the viewer is waiting to consume the
-          // restart signal. This is intentionally non-terminal: the pending
-          // server-issued reset lets that still-authorized viewer rejoin.
-          code: "CONFLICT",
-          message: "The host media session restarted; waiting to rejoin.",
-        });
-      }
-      if (
-        !canSendSignal({
-          streamIsLive: streamIsReadyAndActive(stream),
-          hostId: stream.hostId,
-          senderId: ctx.user.id,
-          recipientId: input.toId,
-          kind: input.kind,
-          recipientIsActiveViewer:
-            input.toId !== stream.hostId && recipientGeneration !== null,
-          senderIsActiveViewer:
-            ctx.user.id !== stream.hostId && senderGeneration !== null,
-          senderHasJoinedCurrentHostGeneration,
-        })
-      ) {
-        forbidden("This WebRTC signal is not allowed for these participants.");
-      }
-      await assertCircleAccess(input.toId, stream.circleId);
 
-      await db.insert(liveSignals).values({
-        streamId: stream.id,
-        fromId: ctx.user.id,
-        toId: input.toId,
-        kind: input.kind,
-        fromGeneration: senderGeneration,
-        toGeneration: recipientGeneration,
-        payload: input.payload,
+      await db.transaction(async (tx) => {
+        const stream = await lockLiveStream(tx, input.streamId);
+        if (!streamIsReadyAndActive(stream)) notFound();
+        const [senderGeneration, recipientGeneration] = await Promise.all([
+          ctx.user.id === stream.hostId
+            ? Promise.resolve(stream.hostGeneration)
+            : getActiveViewerGenerationInTransaction(
+                tx,
+                stream.id,
+                ctx.user.id,
+              ),
+          input.toId === stream.hostId
+            ? Promise.resolve(stream.hostGeneration)
+            : getActiveViewerGenerationInTransaction(tx, stream.id, input.toId),
+        ]);
+        if (
+          senderGeneration === null ||
+          !hasCurrentLiveSignalGeneration(input.generation, senderGeneration)
+        ) {
+          forbidden("This live media session has been replaced.");
+        }
+        if (recipientGeneration === null) {
+          forbidden("This WebRTC signal is not allowed for these participants.");
+        }
+        const senderHasJoinedCurrentHostGeneration =
+          ctx.user.id === stream.hostId ||
+          !!(
+            await tx
+              .select({ id: liveSignals.id })
+              .from(liveSignals)
+              .where(
+                and(
+                  eq(liveSignals.streamId, stream.id),
+                  eq(liveSignals.fromId, ctx.user.id),
+                  eq(liveSignals.toId, stream.hostId),
+                  eq(liveSignals.kind, "join"),
+                  eq(liveSignals.fromGeneration, senderGeneration),
+                  eq(liveSignals.toGeneration, stream.hostGeneration),
+                ),
+              )
+              .limit(1)
+          )[0];
+        if (!senderHasJoinedCurrentHostGeneration) {
+          throw new TRPCError({
+            // A stale peer can emit ICE while the viewer is waiting to consume the
+            // restart signal. This is intentionally non-terminal: the pending
+            // server-issued reset lets that still-authorized viewer rejoin.
+            code: "CONFLICT",
+            message: "The host media session restarted; waiting to rejoin.",
+          });
+        }
+        if (
+          !canSendSignal({
+            streamIsLive: streamIsReadyAndActive(stream),
+            hostId: stream.hostId,
+            senderId: ctx.user.id,
+            recipientId: input.toId,
+            kind: input.kind,
+            recipientIsActiveViewer:
+              input.toId !== stream.hostId && recipientGeneration !== null,
+            senderIsActiveViewer:
+              ctx.user.id !== stream.hostId && senderGeneration !== null,
+            senderHasJoinedCurrentHostGeneration,
+          })
+        ) {
+          forbidden("This WebRTC signal is not allowed for these participants.");
+        }
+
+        await tx.insert(liveSignals).values({
+          streamId: stream.id,
+          fromId: ctx.user.id,
+          toId: input.toId,
+          kind: input.kind,
+          fromGeneration: senderGeneration,
+          toGeneration: recipientGeneration,
+          payload: input.payload,
+        });
       });
       return { success: true } as const;
     }),
@@ -1133,15 +1289,19 @@ export const liveRouter = router({
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) unavailable();
-      const stream = await getStreamOrThrow(input.streamId);
-      await assertActiveParticipant(stream, ctx.user.id);
+      const accessibleStream = await getStreamOrThrow(input.streamId);
+      await assertCircleAccess(ctx.user.id, accessibleStream.circleId);
       const profile = await getProfile(ctx.user.id);
-      await db.insert(liveChat).values({
-        streamId: stream.id,
-        userId: ctx.user.id,
-        userName: profile.name || profile.handle,
-        avatar: profile.avatar,
-        text: input.text,
+      await db.transaction(async (tx) => {
+        const stream = await lockLiveStream(tx, input.streamId);
+        await assertActiveParticipantInTransaction(tx, stream, ctx.user.id);
+        await tx.insert(liveChat).values({
+          streamId: stream.id,
+          userId: ctx.user.id,
+          userName: profile.name || profile.handle,
+          avatar: profile.avatar,
+          text: input.text,
+        });
       });
       return { success: true } as const;
     }),
@@ -1149,15 +1309,19 @@ export const liveRouter = router({
   react: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {
     const db = await getDb();
     if (!db) unavailable();
-    const stream = await getStreamOrThrow(input.streamId);
-    await assertActiveParticipant(stream, ctx.user.id);
+    const accessibleStream = await getStreamOrThrow(input.streamId);
+    await assertCircleAccess(ctx.user.id, accessibleStream.circleId);
     const profile = await getProfile(ctx.user.id);
-    await db.insert(liveChat).values({
-      streamId: stream.id,
-      userId: ctx.user.id,
-      userName: profile.name || profile.handle,
-      avatar: profile.avatar,
-      text: "❤",
+    await db.transaction(async (tx) => {
+      const stream = await lockLiveStream(tx, input.streamId);
+      await assertActiveParticipantInTransaction(tx, stream, ctx.user.id);
+      await tx.insert(liveChat).values({
+        streamId: stream.id,
+        userId: ctx.user.id,
+        userName: profile.name || profile.handle,
+        avatar: profile.avatar,
+        text: "❤",
+      });
     });
     return { success: true } as const;
   }),

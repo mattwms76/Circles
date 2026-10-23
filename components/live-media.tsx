@@ -6,7 +6,7 @@ export type LiveMediaProps = {
   streamId: number;
   host: boolean;
   onError?: (message: string) => void;
-  onReady?: () => void;
+  onReady?: (generation?: number) => void;
 };
 
 /** Graceful fallback for an unsupported platform; web and native use platform files. */
@@ -22,7 +22,14 @@ export default function LiveMedia({ streamId, host, onError }: LiveMediaProps) {
   useEffect(() => {
     callbackRef.current.onError?.(message);
     if (host) {
-      void client.live.end.mutate({ streamId }).catch(() => undefined);
+      // Even this fallback may only end the host lifecycle that it just joined;
+      // it never treats an omitted generation as current authority.
+      void client.live.join
+        .mutate({ streamId })
+        .then(({ generation }) =>
+          client.live.end.mutate({ streamId, generation }),
+        )
+        .catch(() => undefined);
     }
     // Callback identities intentionally do not restart this lifecycle.
   }, [client, host, streamId]);

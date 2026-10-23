@@ -4,21 +4,21 @@
 
 ## Three deliberately separate modes
 
-| Mode | Runtime/database preflight | Restart | API queries | Intended boundary |
-| --- | --- | --- | --- | --- |
-| Default / `--dry-run` | Full trusted runtime config, bounded read-only `SELECT 1`, and (when applicable) session-schema check | No | No | Plan an approved **local-manager** change. |
-| `--apply` | Same full preflight as dry run | Only existing `circles-api` through the selected local manager/adapter | Yes, after bounded readiness | Local-manager recovery only. |
-| `--verify-only` | **No database connection or session-schema inspection**; validates only a supplied/refreshed API origin | **Never** | Yes | Post-refresh/post-restart verification, including Host-managed Preview. |
+| Mode                  | Runtime/database preflight                                                                              | Restart                                                                | API queries                  | Intended boundary                                                       |
+| --------------------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | ---------------------------- | ----------------------------------------------------------------------- |
+| Default / `--dry-run` | Full trusted runtime config, bounded read-only PostgreSQL readiness and private-schema catalog checks   | No                                                                     | No                           | Plan an approved **local-manager** change.                              |
+| `--apply`             | Same full preflight as dry run                                                                          | Only existing `circles-api` through the selected local manager/adapter | Yes, after bounded readiness | Local-manager recovery only.                                            |
+| `--verify-only`       | **No database connection or session-schema inspection**; validates only a supplied/refreshed API origin | **Never**                                                              | Yes                          | Post-refresh/post-restart verification, including Host-managed Preview. |
 
 `--apply`, `--dry-run`, and `--verify-only` are mutually exclusive when explicitly supplied. `--verify-only` rejects local restart and `--require-session-schema` options rather than silently ignoring them.
 
 ## Safety model
 
-- **Internal restart boundary:** dry-run/apply require all runtime values, preserve API **3000** and Metro **8081**, and reject a Manus session hostname as an internal API target. This prevents a local restart from being redirected to another port or an arbitrary Preview URL.
-- **Published verification boundary:** verify-only accepts a credential-free explicit HTTPS origin, including a current `*.manus.computer` Preview on public port **443**, or an origin read from a freshly supplied environment source. It does not hardcode a session address. Plain HTTP is accepted only for a loopback local API origin.
+- **Internal restart boundary:** dry-run/apply require all runtime values and preserve API **3000** and Metro **8081**. An explicit API target must be a canonical loopback `:3000` origin or an exact canonical match for the trusted configured API origin; an arbitrary remote `--api-base-url` is refused before any auth file is read. Temporary Manus session hosts remain invalid restart targets.
+- **Published verification boundary:** verify-only keeps public HTTPS Preview verification separate from internal API **3000**. An unauthenticated check may use an explicit canonical HTTPS origin (or loopback HTTP); when an auth file/bearer is present, a public target must exactly equal the canonical API origin supplied by the trusted selected configuration. This permits the current trusted Preview without accepting every `*.manus.computer` host. Plain HTTP is accepted only for loopback.
 - Runtime settings for dry-run/apply come from exactly one selected dotenv file or exporter. A private dotenv/auth file must be a regular non-symlink file owned by the current user with no group/world permissions (`0600` is typical). A trusted exporter/restart executable may instead be normal owner-owned, non-group/world-writable `0755`.
-- Dry-run/apply first validate config shape and identity continuity, then open one bounded project-local MySQL connection and issue only `SELECT 1 AS ready`. This applies even to an unpatched build. A durable-session build additionally uses bounded read-only `information_schema` queries to require `applicationSessions`, its `sessionFingerprint` primary key, and both reviewed indexes. Connections are closed in every outcome. No DDL or migration is performed.
-- A downloaded/skill-bundled script uses `--project-dir` to read `server/` from the real source checkout and, for dry-run/apply only, resolve that checkout's existing `mysql2` dependency. `--project-dir` must be absolute. Verify-only remains dependency-free with respect to MySQL.
+- Dry-run/apply first validate config shape and identity continuity, then use project-local `pg` plus the reviewed PostgreSQL helper for one bounded `current_database()` readiness read and six bounded private-schema catalog reads (runtime role, schema usage, required columns, RLS/DML grants, session indexes, and sequence usage). Connections are closed in every outcome. No app rows, DDL, migration, or provider mutation is performed.
+- A downloaded/skill-bundled script uses `--project-dir` to read `server/` from the real source checkout and, for dry-run/apply only, resolve that checkout's existing `pg` dependency and `postgres-config.mjs` helper. `--project-dir` must be absolute. Verify-only remains database-driver independent.
 - Apply accepts only the service name `circles-api`. It uses an existing `systemd` or `pm2` manager, or a finite explicit restart-adapter executable. It uses no shell, PID input, wildcard `pkill`, or detached child process.
 - PM2 uses `--update-env` **only** after it receives an explicit absolute `HOME` and `PM2_HOME` from the trusted reference environment. Their values are preserved exactly; the script never invents a machine-global PM2 location. An absent/relative/ambiguous manager context is refused, so the command cannot connect to or create a different PM2 manager.
 - After a successful local restart, the utility retries the non-mutating public `social.feed` data read at most **3** times (500 ms between attempts) before it runs the final inventory. `/api/health` alone is not used as readiness proof.
@@ -31,13 +31,14 @@ This standalone Node utility **does not and cannot call Host MCP or job-control 
 2. Restart only the known API job with `service=true` through Host control.
 3. Run this script as verify-only against the **current public Preview/API origin**.
 
-Verify-only needs no exported database URL, JWT secret, provider key, or session-schema access: Host has already preflighted/restarted the service. It needs an explicit public origin or a refreshed origin-only environment input, the absolute source checkout, and optionally private auth/manifest files.
+Verify-only needs no exported database URL, JWT secret, provider key, or session-schema access: Host has already preflighted/restarted the service. It needs the absolute source checkout and an explicit canonical public origin. If using a private auth file, provide a freshly selected trusted configuration containing the same canonical `EXPO_PUBLIC_API_BASE_URL`; a bare arbitrary public origin is deliberately rejected before that file is opened.
 
 ```sh
 # The preview origin comes from the current Host/operator result; do not reuse a past session URL.
 node /secure/tools/recover-api.mjs --verify-only \
   --project-dir /srv/circles \
   --api-base-url https://<current-preview>.manus.computer \
+  --env-file /secure/circles/refreshed-public-origin.env \
   --auth-file /secure/circles/verify-auth.json \
   --endpoint-manifest /srv/circles/examples/recover-api.manifest.json \
   --strict
@@ -54,7 +55,7 @@ node /secure/tools/recover-api.mjs --verify-only \
 
 ## Dry-run workflow (local-manager path)
 
-Start with a known trusted runtime source outside the repository. Both dry run and apply resolve MySQL from `--project-dir` (or the repository containing the script) and perform the bounded read-only database preflight before any possible restart.
+Start with a known trusted runtime source outside the repository. Both dry run and apply resolve PostgreSQL from `--project-dir` (or the repository containing the script) and perform the bounded read-only database/catalog preflight before any possible restart.
 
 ```sh
 node scripts/recover-api.mjs --dry-run \
@@ -108,7 +109,7 @@ node scripts/recover-api.mjs --apply \
   --auth-file /secure/circles/verify-auth.json --strict
 ```
 
-Use `--api-base-url http://127.0.0.1:3000` or another known **internal port-3000** API origin only for dry-run/apply. A public/proxied Preview origin belongs to verify-only, not local restart mode.
+Use `--api-base-url http://127.0.0.1:3000` for loopback dry-run/apply, or omit it to use the trusted configured API origin. A non-loopback explicit `:3000` origin must exactly match that trusted configuration; a public/proxied Preview origin belongs to verify-only, not local restart mode.
 
 ## Verification inputs and coverage
 
@@ -147,12 +148,12 @@ The script never creates a user, circle, post, conversation, stream, or session.
 
 Current-source query inventory is:
 
-| Router | Query procedures | Positive input source |
-| --- | --- | --- |
-| `auth` | `me` | Bearer file; anonymous state is checked separately |
-| `social` | `feed`, `circles`, `circle`, `profiles`, `profile`, `members`, `comments`, `conversations`, `messages` | Safe defaults plus existing `circleId`/`profileId`/`postId`/`conversationId` as required |
-| `live` | `list`, `signals`, `chat` | Safe default; `chat` uses existing `streamId`; `signals` uses existing `streamId` plus current positive `liveGeneration` (or reviewed manifest generation override) |
-| `system` | `health` | Safe timestamp input; supplementary only |
+| Router   | Query procedures                                                                                       | Positive input source                                                                                                                                                          |
+| -------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `auth`   | `me`                                                                                                   | Bearer file; anonymous state is checked separately                                                                                                                             |
+| `social` | `feed`, `circles`, `circle`, `profiles`, `profile`, `members`, `comments`, `conversations`, `messages` | Safe defaults plus existing `circleId`/`profileId`/`postId`/`conversationId` as required                                                                                       |
+| `live`   | `list`, `signals`, `relay`, `chat`                                                                     | Safe default; `chat` uses existing `streamId`; `signals` and `relay` use existing `streamId` plus current positive `liveGeneration` (or reviewed manifest generation override) |
+| `system` | `health`                                                                                               | Safe timestamp input; supplementary only                                                                                                                                       |
 
 Each API request is a finite-timeout `GET /api/trpc/<query>` with `redirect: "error"` and a 64 KiB response limit. A redirect is never followed, so a bearer is never sent to a redirected origin. Network, malformed, truncated, and oversized responses become redacted result categories; response bodies, SQL diagnostics, cookies, DSNs, bearer tokens, config values, and private paths are not printed. `social.feed`, `social.circles`, and `live.list` are the final public data readiness checks.
 
@@ -164,4 +165,4 @@ Each API request is a finite-timeout `GET /api/trpc/<query>` with `redirect: "er
 - `1`: rejected configuration/target/private input/database/schema, failed restart/readiness/query/shape, or strict incomplete/inventory-drift coverage.
 - `2`: invalid/ambiguous CLI arguments.
 
-The focused tests use only synthetic fetch responses, injected restart/database adapters, mocked MySQL modules, a copied bundled script, and temporary local files. They do not access a real database, provider, service manager, browser, auth session, Host deployment, or deployed Preview. Passing tests or this utility does not apply a migration or prove real OAuth, durable-session data, provider connectivity, or actual production service state.
+The focused tests use only synthetic fetch responses, injected restart/database adapters, mocked PostgreSQL modules, a copied bundled script, and temporary local files. They do not access a real database, provider, service manager, browser, auth session, Host deployment, or deployed Preview. Passing tests or this utility does not apply a migration or prove real OAuth, durable-session data, provider connectivity, or actual production service state.

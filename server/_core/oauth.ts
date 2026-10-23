@@ -1,6 +1,10 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { parse as parseCookieHeader } from "cookie";
 import { APPLICATION_SESSION_TTL_MS } from "../../shared/const.js";
+import {
+  CIRCLES_NATIVE_OAUTH_REDIRECT_URI,
+  isCirclesNativeOAuthRedirectUri,
+} from "../../shared/oauth-redirect-contract.js";
 import type { Express, Request, Response } from "express";
 import { getUserByOpenId, upsertUser } from "../db";
 import {
@@ -215,27 +219,9 @@ function isTrustedWebCallbackRedirect(
   }
 }
 
-/** Allows only the app's fixed Manus deep-link callback, never arbitrary custom schemes. */
+/** Allows only the deployment-owned Circles AuthSession callback. */
 export function isSafeNativeRedirectUri(redirectUri: string): boolean {
-  try {
-    const url = new URL(redirectUri);
-    if (
-      !/^manus[0-9]{8,}:$/.test(url.protocol) ||
-      url.username ||
-      url.password ||
-      url.port ||
-      url.search ||
-      url.hash
-    ) {
-      return false;
-    }
-    return (
-      (url.hostname === "oauth" && url.pathname === "/callback") ||
-      (url.hostname === "" && url.pathname === "/oauth/callback")
-    );
-  } catch {
-    return false;
-  }
+  return isCirclesNativeOAuthRedirectUri(redirectUri);
 }
 
 function issueState(
@@ -480,17 +466,18 @@ export function registerOAuthRoutes(app: Express) {
   });
 
   app.get("/api/oauth/mobile/start", async (req: Request, res: Response) => {
-    const redirectUri = getQueryParam(req, "redirectUri");
-    if (!redirectUri || !isSafeNativeRedirectUri(redirectUri)) {
-      res.status(400).json({ error: "Invalid OAuth redirect" });
-      return;
-    }
-
     try {
-      const { flowToken, state } = await issueNativeOAuthFlow(redirectUri);
+      // Never accept a callback receiver from the initiating request. The
+      // provider is sent only the immutable URI owned by this Circles build.
+      const { flowToken, state } = await issueNativeOAuthFlow(
+        CIRCLES_NATIVE_OAUTH_REDIRECT_URI,
+      );
       res.setHeader("Cache-Control", "no-store");
       res.json({
-        authorizationUrl: buildAuthorizationUrl(redirectUri, state),
+        authorizationUrl: buildAuthorizationUrl(
+          CIRCLES_NATIVE_OAUTH_REDIRECT_URI,
+          state,
+        ),
         flowToken,
         expiresIn: Math.floor(OAUTH_STATE_TTL_MS / 1000),
       });

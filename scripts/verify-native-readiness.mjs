@@ -100,7 +100,10 @@ function sourceContains(projectRoot, relativePath, expressions, fsModule) {
       path.join(projectRoot, relativePath),
       "utf8",
     );
-    return expressions.every((expression) => source.includes(expression));
+    const compactSource = source.replace(/\s+/g, "");
+    return expressions.every((expression) =>
+      compactSource.includes(expression.replace(/\s+/g, "")),
+    );
   } catch {
     return false;
   }
@@ -116,7 +119,7 @@ export function verifySourceContracts(
       "source.oauth_native_redirect",
       "constants/oauth.ts",
       [
-        'Linking.createURL("/oauth/callback"',
+        "CIRCLES_NATIVE_OAUTH_REDIRECT_URI",
         "NATIVE_OAUTH_FLOW_KEY",
         "SecureStore.setItemAsync",
       ],

@@ -6,6 +6,7 @@ import {
   isTrustedFrontendOrigin,
   validateOAuthState,
 } from "../server/_core/oauth";
+import { CIRCLES_NATIVE_OAUTH_REDIRECT_URI } from "../shared/oauth-redirect-contract";
 
 const redirectUri =
   "https://3000-project.us1.manus.computer/api/oauth/callback";
@@ -72,19 +73,24 @@ describe("OAuth state security", () => {
     ).toBe(false);
   });
 
-  it("allows only the fixed Manus native deep-link callback", () => {
+  it("allows only the fixed Circles AuthSession native deep-link callback", () => {
+    expect(isSafeNativeRedirectUri(CIRCLES_NATIVE_OAUTH_REDIRECT_URI)).toBe(
+      true,
+    );
+    expect(
+      isSafeNativeRedirectUri("manus999999999999999:///oauth/callback"),
+    ).toBe(false);
     expect(
       isSafeNativeRedirectUri("manus252278368451773://oauth/callback"),
-    ).toBe(true);
-    expect(
-      isSafeNativeRedirectUri("manus252278368451773:///oauth/callback"),
-    ).toBe(true);
+    ).toBe(false);
     expect(isSafeNativeRedirectUri("otherapp://oauth/callback")).toBe(false);
     expect(isSafeNativeRedirectUri("manus252278368451773://oauth/other")).toBe(
       false,
     );
     expect(
-      isSafeNativeRedirectUri("manus252278368451773://evil/callback"),
+      isSafeNativeRedirectUri(
+        "manus252278368451773:///oauth%2Fcallback?next=attacker",
+      ),
     ).toBe(false);
   });
 });
