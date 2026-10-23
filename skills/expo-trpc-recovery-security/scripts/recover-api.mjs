@@ -243,6 +243,8 @@ const SAFE_RUNTIME_KEYS = new Set([
   "OWNER_OPEN_ID",
   "PORT",
   "PUBLIC_URL",
+  "TURN_SERVER_URLS",
+  "TURN_SHARED_SECRET",
   "VITE_APP_ID",
   "VITE_OAUTH_PORTAL_URL",
   "WEB_ORIGIN",
@@ -291,6 +293,26 @@ const ENDPOINT_DEFINITIONS = Object.freeze({
   "live.list": { expected: "array" },
   "live.signals": {
     expected: "array",
+    requiresAuth: true,
+    identifiers: [
+      {
+        source: "streamId",
+        field: "streamId",
+        missingReason: "missing_existing_stream_id",
+        invalidReason: "invalid_existing_stream_id",
+      },
+      {
+        source: "liveGeneration",
+        field: "generation",
+        manifestOverride: true,
+        missingReason: "missing_current_live_generation",
+        invalidReason: "invalid_current_live_generation",
+      },
+    ],
+    exactIdentifierInput: true,
+  },
+  "live.relay": {
+    expected: "object",
     requiresAuth: true,
     identifiers: [
       {
@@ -1132,7 +1154,7 @@ function delay(milliseconds) {
 
 /**
  * A finite post-restart readiness check using an actual public data query, not
- * only /api/health. This is intentionally separate from the 14-query final
+ * only /api/health. This is intentionally separate from the source-derived final
  * inventory and cannot loop indefinitely.
  */
 export async function waitForApiReadiness({

@@ -1,0 +1,15 @@
+# Requires an already-authenticated, installed native build. Do not use Expo Go.
+# Supply PRIVATE_CIRCLE_ID and DIRECT_CONVERSATION_ID as non-secret Maestro environment variables.
+appId: space.manus.circles.t252278368451773
+name: Circles authenticated private read-only navigation
+---
+- launchApp:
+    clearState: false
+- openLink: manus252278368451773:///circle/${PRIVATE_CIRCLE_ID}
+- assertVisible: "CIRCLE SPACE"
+- tapOn: "Members"
+- assertVisible: "Members"
+- openLink: manus252278368451773:///chat/${DIRECT_CONVERSATION_ID}?name=Private%20E2E
+- assertVisible: "Private conversation"
+- assertVisible: "Attach photo or video"
+# Intentionally do not tap attach/send, join/request, moderation, live, or logout controls.

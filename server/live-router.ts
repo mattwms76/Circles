@@ -13,6 +13,12 @@ import { memberships } from "../drizzle/schema";
 import type { LiveStream } from "../shared/social";
 import { createHostGenerationRestartSignals } from "../shared/live-generation-restart";
 import { getDb } from "./db";
+import {
+  createTurnIceConfiguration,
+  loadTurnConfiguration,
+  TurnConfigurationError,
+  type TurnConfiguration,
+} from "./turn-config";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import {
   canAccessCircle,
@@ -136,11 +142,47 @@ export function isLiveSignalVisibleToSession(
   );
 }
 
+/**
+ * Relay credentials are issued only after the caller has passed the existing
+ * authenticated join path. The server-only helper never exposes its shared
+ * secret; development receives null and retains the direct/STUN transport.
+ */
+function createLiveJoinSession(input: {
+  hostId: number;
+  generation: number;
+  hostGeneration: number;
+  signalCursor: number;
+  userId: number;
+  turnConfiguration: TurnConfiguration | null;
+}) {
+  return {
+    hostId: input.hostId,
+    generation: input.generation,
+    hostGeneration: input.hostGeneration,
+    signalCursor: input.signalCursor,
+    ice: createTurnIceConfiguration(input.userId, input.turnConfiguration),
+  };
+}
+
 function unavailable(): never {
   throw new TRPCError({
     code: "SERVICE_UNAVAILABLE",
     message: "Live streaming is temporarily unavailable.",
   });
+}
+
+/**
+ * Keep malformed or absent production relay settings scoped to live calls.
+ * This preserves strict parser behavior without making feeds, auth, or DMs
+ * fail while the live provider is unavailable.
+ */
+function loadLiveTurnConfiguration(): TurnConfiguration | null {
+  try {
+    return loadTurnConfiguration();
+  } catch (error) {
+    if (error instanceof TurnConfigurationError) unavailable();
+    throw error;
+  }
 }
 
 function notFound(): never {
@@ -587,6 +629,9 @@ export const liveRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }): Promise<LiveStream> => {
+      // Production must not create a stream that would later fall back to a
+      // public STUN-only transport. Do this before any stream/lease write.
+      loadLiveTurnConfiguration();
       const db = await getDb();
       if (!db) unavailable();
       const circleId = input.circleId ?? null;
@@ -682,6 +727,9 @@ export const liveRouter = router({
     }),
 
   join: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {
+    // Validate relay availability before this path can replace host/viewer
+    // generations or insert a membership-presence row.
+    const turnConfiguration = loadLiveTurnConfiguration();
     const db = await getDb();
     if (!db) unavailable();
     const stream = await getStreamOrThrow(input.streamId);
@@ -728,12 +776,14 @@ export const liveRouter = router({
       if (restartSignals.length > 0) {
         await db.insert(liveSignals).values(restartSignals);
       }
-      return {
+      return createLiveJoinSession({
         hostId: stream.hostId,
         generation,
         hostGeneration: generation,
         signalCursor,
-      };
+        userId: ctx.user.id,
+        turnConfiguration,
+      });
     }
     if (stream.readyAt === null) notFound();
 
@@ -778,13 +828,70 @@ export const liveRouter = router({
       fromGeneration: generation,
       toGeneration: stream.hostGeneration,
     });
-    return {
+    return createLiveJoinSession({
       hostId: stream.hostId,
       generation,
       hostGeneration: stream.hostGeneration,
       signalCursor,
-    };
+      userId: ctx.user.id,
+      turnConfiguration,
+    });
   }),
+
+  /**
+   * Rotation never calls join: it validates the caller's existing media
+   * lifecycle with the same live/circle/lease/generation boundary used for
+   * signaling, then returns only a fresh ephemeral relay credential.
+   */
+  relay: protectedProcedure
+    .input(idInput.extend({ generation: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      const turnConfiguration = loadLiveTurnConfiguration();
+      const db = await getDb();
+      if (!db) unavailable();
+      const stream = await getStreamOrThrow(input.streamId);
+      const currentGeneration = await assertActiveParticipant(
+        stream,
+        ctx.user.id,
+      );
+      if (
+        !hasCurrentLiveSignalGeneration(input.generation, currentGeneration)
+      ) {
+        forbidden("This live media session has been replaced.");
+      }
+
+      // A viewer cannot refresh credentials for a generation which has not
+      // joined the currently active host lifecycle, matching signal()'s
+      // restart guard without writing a new join row or bumping generations.
+      if (ctx.user.id !== stream.hostId) {
+        const joinedCurrentHostGeneration = !!(
+          await db
+            .select({ id: liveSignals.id })
+            .from(liveSignals)
+            .where(
+              and(
+                eq(liveSignals.streamId, stream.id),
+                eq(liveSignals.fromId, ctx.user.id),
+                eq(liveSignals.toId, stream.hostId),
+                eq(liveSignals.kind, "join"),
+                eq(liveSignals.fromGeneration, currentGeneration),
+                eq(liveSignals.toGeneration, stream.hostGeneration),
+              ),
+            )
+            .limit(1)
+        )[0];
+        if (!joinedCurrentHostGeneration) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "The host media session restarted; waiting to rejoin.",
+          });
+        }
+      }
+
+      return {
+        ice: createTurnIceConfiguration(ctx.user.id, turnConfiguration),
+      };
+    }),
 
   leave: protectedProcedure.input(idInput).mutation(async ({ ctx, input }) => {
     const db = await getDb();

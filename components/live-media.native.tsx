@@ -7,6 +7,13 @@ import {
   type StyleProp,
   type ViewStyle,
 } from "react-native";
+import {
+  createLiveIceConfiguration,
+  LIVE_RELAY_REFRESH_SKEW_MS,
+  liveRelayExpiryMs,
+  liveRelayNeedsRefresh,
+  type LiveTurnCredentials,
+} from "@/lib/live-ice";
 import { createTRPCClient } from "@/lib/trpc";
 import { hostGenerationFromRestartSignal } from "@/shared/live-generation-restart";
 import { terminateLiveTransportForError } from "./live-media-terminal";
@@ -35,6 +42,12 @@ type LiveApi = {
         generation: number;
         hostGeneration: number;
         signalCursor: number;
+        ice: LiveTurnCredentials | null;
+      }>;
+    };
+    relay: {
+      query(input: { streamId: number; generation: number }): Promise<{
+        ice: LiveTurnCredentials | null;
       }>;
     };
     leave: { mutate(input: { streamId: number }): Promise<{ success: true }> };
@@ -80,14 +93,16 @@ type NativePeer = {
   localDescription: NativeDescription | null;
   remoteDescription: NativeDescription | null;
   connectionState: string;
+  signalingState: string;
   onicecandidate:
     | ((event: { candidate: NativeCandidate | null }) => void)
     | null;
   ontrack: ((event: { streams: NativeStream[] }) => void) | null;
   onconnectionstatechange: (() => void) | null;
   addTrack: (track: NativeTrack, stream: NativeStream) => void;
-  createOffer: () => Promise<NativeDescription>;
+  createOffer: (options?: { iceRestart?: boolean }) => Promise<NativeDescription>;
   createAnswer: () => Promise<NativeDescription>;
+  setConfiguration: (configuration: NativeIceConfiguration) => void;
   setLocalDescription: (description: NativeDescription) => Promise<void>;
   setRemoteDescription: (description: unknown) => Promise<void>;
   addIceCandidate: (candidate: unknown) => Promise<void>;
@@ -99,10 +114,16 @@ type RTCViewProps = {
   objectFit?: "contain" | "cover";
   mirror?: boolean;
 };
+type NativeIceConfiguration = {
+  iceServers: {
+    urls: string[];
+    username?: string;
+    credential?: string;
+    credentialType?: "password";
+  }[];
+};
 type NativeWebRTC = {
-  RTCPeerConnection: new (configuration: {
-    iceServers: { urls: string }[];
-  }) => NativePeer;
+  RTCPeerConnection: new (configuration: NativeIceConfiguration) => NativePeer;
   RTCIceCandidate: new (candidate: NativeCandidate) => unknown;
   RTCSessionDescription: new (description: NativeDescription) => unknown;
   RTCView: React.ComponentType<RTCViewProps>;
@@ -114,11 +135,29 @@ type NativeWebRTC = {
   };
 };
 
-type PeerState = { connection: NativePeer; pendingIce: NativeCandidate[] };
-
-const ICE_CONFIGURATION = {
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+type PeerState = {
+  connection: NativePeer;
+  pendingIce: NativeCandidate[];
+  restartPending: boolean;
 };
+
+function nativeIceConfiguration(
+  relay: LiveTurnCredentials | null,
+): NativeIceConfiguration {
+  const configuration = createLiveIceConfiguration(relay);
+  return {
+    iceServers: configuration.iceServers.map((server) => ({
+      urls: [...server.urls],
+      ...(server.username === undefined ? {} : { username: server.username }),
+      ...(server.credential === undefined
+        ? {}
+        : { credential: server.credential }),
+      ...(server.credentialType === undefined
+        ? {}
+        : { credentialType: server.credentialType }),
+    })),
+  };
+}
 
 function messageFor(error: unknown): string {
   return error instanceof Error && error.message
@@ -241,6 +280,11 @@ export default function LiveMedia({
     let polling = false;
     let pollTimer: ReturnType<typeof setInterval> | undefined;
     let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+    let relayRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+    let relayRefreshPromise: Promise<void> | null = null;
+    let relay: LiveTurnCredentials | null = null;
+    let iceConfiguration: NativeIceConfiguration | null = null;
+    let relayVersion = 0;
     let cursor = 0;
     let generation: number | null = null;
     let hostId: number | null = null;
@@ -274,6 +318,7 @@ export default function LiveMedia({
     const stopTransport = () => {
       if (pollTimer) clearInterval(pollTimer);
       if (heartbeatTimer) clearInterval(heartbeatTimer);
+      if (relayRefreshTimer) clearTimeout(relayRefreshTimer);
       stopAllPeers();
       const localStream = localStreamRef.current;
       localStreamRef.current = null;
@@ -317,6 +362,120 @@ export default function LiveMedia({
       return generation;
     };
 
+    const requireIceConfiguration = (): NativeIceConfiguration => {
+      if (!iceConfiguration)
+        throw new Error("Live relay credentials are unavailable. Please retry.");
+      return iceConfiguration;
+    };
+
+    const scheduleRelayRefresh = () => {
+      if (relayRefreshTimer) clearTimeout(relayRefreshTimer);
+      relayRefreshTimer = undefined;
+      if (!active || relay === null) return;
+      const refreshInMs = Math.max(
+        1_000,
+        liveRelayExpiryMs(relay) - Date.now() - LIVE_RELAY_REFRESH_SKEW_MS,
+      );
+      relayRefreshTimer = setTimeout(() => {
+        void refreshRelay().catch(report);
+      }, refreshInMs);
+    };
+
+    const sendHostOffer = async (
+      viewerId: number,
+      peer: PeerState,
+      iceRestart = false,
+    ) => {
+      if (
+        !active ||
+        peersRef.current.get(viewerId) !== peer ||
+        peer.connection.signalingState !== "stable"
+      ) {
+        if (iceRestart && active && peersRef.current.get(viewerId) === peer) {
+          peer.restartPending = true;
+        }
+        return;
+      }
+      const offer = await peer.connection.createOffer(
+        iceRestart ? { iceRestart: true } : undefined,
+      );
+      if (!active || peersRef.current.get(viewerId) !== peer) return;
+      await peer.connection.setLocalDescription(offer);
+      if (
+        !active ||
+        peersRef.current.get(viewerId) !== peer ||
+        !peer.connection.localDescription
+      ) {
+        return;
+      }
+      try {
+        await api.live.signal.mutate({
+          streamId,
+          toId: viewerId,
+          kind: "offer",
+          generation: requireGeneration(),
+          payload: JSON.stringify(peer.connection.localDescription),
+        });
+      } catch (error) {
+        closePeer(viewerId);
+        throw error;
+      }
+    };
+
+    const restartHostPeerOffers = async () => {
+      if (!host || !active) return;
+      for (const [viewerId, peer] of [...peersRef.current.entries()]) {
+        await sendHostOffer(viewerId, peer, true);
+      }
+    };
+
+    const applyRelayCredentials = async (
+      nextRelay: LiveTurnCredentials | null,
+      restartHostPeers: boolean,
+    ) => {
+      const nextConfiguration = nativeIceConfiguration(nextRelay);
+      relay = nextRelay;
+      iceConfiguration = nextConfiguration;
+      relayVersion += 1;
+      for (const peer of peersRef.current.values()) {
+        peer.connection.setConfiguration(nextConfiguration);
+      }
+      scheduleRelayRefresh();
+      if (restartHostPeers) await restartHostPeerOffers();
+    };
+
+    const refreshRelay = async (force = false): Promise<void> => {
+      if (relay === null) return;
+      if (!force && !liveRelayNeedsRefresh(relay)) {
+        scheduleRelayRefresh();
+        return;
+      }
+      if (relayRefreshPromise) return relayRefreshPromise;
+
+      const expectedGeneration = requireGeneration();
+      const expectedRelayVersion = relayVersion;
+      const refreshPromise = (async () => {
+        const refreshed = await api.live.relay.query({
+          streamId,
+          generation: expectedGeneration,
+        });
+        if (
+          !active ||
+          generation !== expectedGeneration ||
+          relayVersion !== expectedRelayVersion
+        ) {
+          return;
+        }
+        await applyRelayCredentials(refreshed.ice, host);
+      })();
+      relayRefreshPromise = refreshPromise;
+      try {
+        await refreshPromise;
+      } finally {
+        if (relayRefreshPromise === refreshPromise) relayRefreshPromise = null;
+      }
+    };
+
     const signalIce = (participantId: number, candidate: NativeCandidate) => {
       if (!active || generation === null) return;
       const serialized = candidate.toJSON ? candidate.toJSON() : candidate;
@@ -331,14 +490,24 @@ export default function LiveMedia({
         .catch(report);
     };
 
-    const hostPeer = (viewerId: number): PeerState => {
+    const hostPeer = async (
+      viewerId: number,
+    ): Promise<PeerState | null> => {
       const existing = peersRef.current.get(viewerId);
       if (existing) return existing;
+      await refreshRelay();
+      if (!active) return null;
       const localStream = localStreamRef.current;
       if (!localStream) throw new Error("Camera and microphone are not ready.");
 
-      const connection = new webRtc.RTCPeerConnection(ICE_CONFIGURATION);
-      const peer: PeerState = { connection, pendingIce: [] };
+      const connection = new webRtc.RTCPeerConnection(
+        requireIceConfiguration(),
+      );
+      const peer: PeerState = {
+        connection,
+        pendingIce: [],
+        restartPending: false,
+      };
       peersRef.current.set(viewerId, peer);
       localStream
         .getTracks()
@@ -356,8 +525,14 @@ export default function LiveMedia({
     const viewerPeer = (hostId: number): PeerState => {
       const existing = peersRef.current.get(hostId);
       if (existing) return existing;
-      const connection = new webRtc.RTCPeerConnection(ICE_CONFIGURATION);
-      const peer: PeerState = { connection, pendingIce: [] };
+      const connection = new webRtc.RTCPeerConnection(
+        requireIceConfiguration(),
+      );
+      const peer: PeerState = {
+        connection,
+        pendingIce: [],
+        restartPending: false,
+      };
       peersRef.current.set(hostId, peer);
       connection.onicecandidate = (event) => {
         if (active && event.candidate) signalIce(hostId, event.candidate);
@@ -408,6 +583,7 @@ export default function LiveMedia({
         hostId = session.hostId;
         hostGeneration = session.hostGeneration;
         cursor = session.signalCursor;
+        await applyRelayCredentials(session.ice, false);
       } catch (error) {
         report(error);
       } finally {
@@ -431,23 +607,9 @@ export default function LiveMedia({
 
       if (host) {
         if (signal.kind === "join") {
-          const peer = hostPeer(signal.fromId);
-          const offer = await peer.connection.createOffer();
-          if (!active) return;
-          await peer.connection.setLocalDescription(offer);
-          if (!active || !peer.connection.localDescription) return;
-          try {
-            await api.live.signal.mutate({
-              streamId,
-              toId: signal.fromId,
-              kind: "offer",
-              generation: requireGeneration(),
-              payload: JSON.stringify(peer.connection.localDescription),
-            });
-          } catch (error) {
-            closePeer(signal.fromId);
-            throw error;
-          }
+          const peer = await hostPeer(signal.fromId);
+          if (!peer) return;
+          await sendHostOffer(signal.fromId, peer);
           return;
         }
         if (signal.kind === "answer") {
@@ -459,6 +621,10 @@ export default function LiveMedia({
             ),
           );
           await addQueuedIce(peer);
+          if (peer.restartPending) {
+            peer.restartPending = false;
+            void sendHostOffer(signal.fromId, peer, true).catch(report);
+          }
           return;
         }
         if (signal.kind === "ice") {
@@ -471,6 +637,11 @@ export default function LiveMedia({
       }
 
       if (signal.kind === "offer") {
+        const existingPeer = peersRef.current.get(signal.fromId);
+        // A host relay renewal is an ICE-restart offer. Refresh before the
+        // answer so a throttled viewer never responds with expired TURN data.
+        await refreshRelay(existingPeer?.connection.remoteDescription !== null);
+        if (!active) return;
         const peer = viewerPeer(signal.fromId);
         await peer.connection.setRemoteDescription(
           new webRtc.RTCSessionDescription(
@@ -529,6 +700,7 @@ export default function LiveMedia({
         cursor = session.signalCursor;
         joined = true;
         if (!active) return;
+        await applyRelayCredentials(session.ice, false);
 
         if (host) {
           const stream = await webRtc.mediaDevices.getUserMedia({

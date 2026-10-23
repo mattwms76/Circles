@@ -50,3 +50,7 @@ Run isolated TypeScript, lint, tests and API build with real credentials removed
 Use [verification-and-evidence.md](references/verification-and-evidence.md) to verify patch application, checksums, strict endpoint coverage and user-facing status. Close finite DB/HTTP/test resources. Do not create recurring monitoring simply to wait for current work.
 
 Deliver the requested script, exact-base patches and concise usage/rollout guide. State what was applied, what was only generated/mock-tested and what still requires schema, real authentication, service-manager, device/provider or network validation. For skill delivery, run skill-creator validation and attach this SKILL.md; do not claim installation until the user selects Add to My Skills.
+
+## Current durable OAuth and relay recovery
+
+Use `/api/ready` when available to distinguish restricted database/private OAuth-store readiness from process-only `/api/health`; retain actual read-only query checks. Apply the private `circles_auth` helper migration before the changed OAuth code and recreate pending state empty during recovery. The current Circles verifier has15 reviewed queries, including authenticated `live.relay`. Relay and signal reads both require an already authorized current stream/generation from a private fixture or reviewed endpoint manifest; never guess a generation or join/create a stream to pass verification. Preserve server-only TURN settings in trusted runtime refresh, never Expo/public settings, and do not equate configuration/synthetic ICE tests with real relay/native network proof.
