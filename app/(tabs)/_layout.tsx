@@ -68,13 +68,13 @@ function TabBar({ state, navigation }: TabBarProps) {
               <Icon
                 name={selected ? item[1] : item[0]}
                 size={23}
-                color={selected ? C.coral : "#8B9083"}
+                color={selected ? C.coral : C.secondary}
               />
               <T
                 style={{
                   fontSize: 12,
                   lineHeight: 17,
-                  color: selected ? C.coral : C.muted,
+                  color: selected ? C.coral : C.secondary,
                   fontWeight: selected ? "700" : "500",
                 }}
               >

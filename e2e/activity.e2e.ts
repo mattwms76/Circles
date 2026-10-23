@@ -745,7 +745,7 @@ describe.sequential("Activity Inbox isolated HTTP E2E", () => {
     }
   });
 
-  it("keeps all 25 app tables private with Activity RLS/runtime grants and a healthy catalog-only operations check", async () => {
+  it("keeps all 27 app tables private with Activity RLS/runtime grants and a healthy catalog-only operations check", async () => {
     const tableCount = await adminPool!.query<{ count: string }>(
       `SELECT count(*)::text AS count
          FROM pg_catalog.pg_class relation_catalog
@@ -754,7 +754,7 @@ describe.sequential("Activity Inbox isolated HTTP E2E", () => {
         WHERE namespace_catalog.nspname = 'circles_app'
           AND relation_catalog.relkind IN ('r', 'p')`,
     );
-    expect(Number(tableCount.rows[0]?.count ?? 0)).toBe(25);
+    expect(Number(tableCount.rows[0]?.count ?? 0)).toBe(27);
 
     const boundary = await adminPool!.query<{
       relname: string;

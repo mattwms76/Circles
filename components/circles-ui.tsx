@@ -12,14 +12,23 @@ import {
 import { Image } from "@/components/media-image";
 import { Ionicons } from "@expo/vector-icons";
 import Svg, { Circle as SvgCircle } from "react-native-svg";
+import {
+  buttonVisualTokens,
+  UI_ACCESSIBLE_COLORS,
+} from "@/lib/ui-accessibility";
 
 export const C = {
   bg: "#F9F8F5",
   paper: "#FFFFFF",
   ink: "#242825",
   muted: "#888B84",
+  secondary: UI_ACCESSIBLE_COLORS.secondary,
   border: "#E8E9E2",
   coral: "#ED604A",
+  action: UI_ACCESSIBLE_COLORS.action,
+  actionPressed: UI_ACCESSIBLE_COLORS.actionPressed,
+  actionDisabled: UI_ACCESSIBLE_COLORS.actionDisabled,
+  actionText: UI_ACCESSIBLE_COLORS.actionText,
   soft: "#FFF0EB",
   sage: "#E9EEE5",
   green: "#718569",
@@ -125,6 +134,28 @@ export function Avatar({
           style={{ width: size, height: size, borderRadius: size }}
           contentFit="cover"
           transition={180}
+          fallback={
+            <View
+              style={{
+                width: size,
+                height: size,
+                borderRadius: size,
+                backgroundColor: C.sage,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <T
+                style={{
+                  fontWeight: "700",
+                  color: C.green,
+                  fontSize: size * 0.34,
+                }}
+              >
+                {name.slice(0, 1).toUpperCase() || "C"}
+              </T>
+            </View>
+          }
         />
       ) : (
         <View
@@ -149,6 +180,7 @@ export function Avatar({
 }
 export function Button({
   title,
+  accessibilityLabel,
   onPress,
   icon,
   secondary = false,
@@ -157,6 +189,7 @@ export function Button({
   style,
 }: {
   title: string;
+  accessibilityLabel?: string;
   onPress: () => void;
   icon?: IconName;
   secondary?: boolean;
@@ -164,37 +197,58 @@ export function Button({
   disabled?: boolean;
   style?: ViewStyle;
 }) {
+  const isDisabled = disabled || loading;
+  const restingTokens = buttonVisualTokens({
+    secondary,
+    disabled,
+    loading,
+    pressed: false,
+  });
+
   return (
     <Pressable
       accessibilityRole="button"
-      disabled={disabled || loading}
-      onPress={onPress}
-      style={({ pressed }) => [
-        {
-          backgroundColor: secondary ? C.paper : C.coral,
-          borderRadius: 14,
-          paddingHorizontal: 18,
-          paddingVertical: 13,
-          alignItems: "center",
-          justifyContent: "center",
-          flexDirection: "row",
-          gap: 8,
-          borderWidth: secondary ? 1 : 0,
-          borderColor: C.border,
-          opacity: disabled || loading ? 0.6 : pressed ? 0.8 : 1,
-        },
-        style,
-        { minHeight: 48 },
-      ]}
+      accessibilityLabel={accessibilityLabel ?? title}
+      accessibilityState={{ disabled: isDisabled, busy: loading }}
+      disabled={isDisabled}
+      onPress={() => {
+        if (!isDisabled) onPress();
+      }}
+      style={({ pressed }) => {
+        const visual = buttonVisualTokens({
+          secondary,
+          disabled,
+          loading,
+          pressed,
+        });
+        return [
+          {
+            backgroundColor: visual.backgroundColor,
+            borderRadius: 14,
+            paddingHorizontal: 18,
+            paddingVertical: 13,
+            alignItems: "center",
+            justifyContent: "center",
+            flexDirection: "row",
+            gap: 8,
+            borderWidth: secondary ? 1 : 0,
+            borderColor: visual.borderColor ?? C.border,
+          },
+          style,
+          { minHeight: 48 },
+        ];
+      }}
     >
       {loading ? (
-        <ActivityIndicator color={secondary ? C.coral : "#fff"} />
+        <ActivityIndicator color={restingTokens.foregroundColor} />
       ) : (
         <>
           {icon && (
-            <Icon name={icon} size={18} color={secondary ? C.ink : "#fff"} />
+            <Icon name={icon} size={18} color={restingTokens.foregroundColor} />
           )}
-          <T style={{ color: secondary ? C.ink : "#fff", fontWeight: "700" }}>
+          <T
+            style={{ color: restingTokens.foregroundColor, fontWeight: "700" }}
+          >
             {title}
           </T>
         </>
@@ -324,6 +378,9 @@ export function Input({
   multiline,
   label,
   secureTextEntry,
+  accessibilityLabel,
+  style,
+  ...inputProps
 }: {
   value: string;
   onChangeText: (value: string) => void;
@@ -331,33 +388,48 @@ export function Input({
   multiline?: boolean;
   label?: string;
   secureTextEntry?: boolean;
-}) {
+  accessibilityLabel?: string;
+} & Omit<
+  React.ComponentProps<typeof TextInput>,
+  | "value"
+  | "onChangeText"
+  | "placeholder"
+  | "multiline"
+  | "secureTextEntry"
+  | "accessibilityLabel"
+>) {
+  const resolvedAccessibilityLabel = accessibilityLabel ?? label ?? placeholder;
   return (
     <View style={{ gap: 7 }}>
       {label && (
-        <T style={{ fontSize: 12, fontWeight: "700", color: C.muted }}>
+        <T style={{ fontSize: 12, fontWeight: "700", color: C.secondary }}>
           {label}
         </T>
       )}
       <TextInput
+        {...inputProps}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor="#A0A299"
+        accessibilityLabel={resolvedAccessibilityLabel}
+        placeholderTextColor={inputProps.placeholderTextColor ?? "#A0A299"}
         multiline={multiline}
         secureTextEntry={secureTextEntry}
-        style={{
-          backgroundColor: C.bg,
-          padding: 14,
-          borderWidth: 1,
-          borderColor: C.border,
-          borderRadius: 12,
-          color: C.ink,
-          fontSize: 16,
-          lineHeight: 22,
-          minHeight: multiline ? 110 : 48,
-          textAlignVertical: multiline ? "top" : "center",
-        }}
+        style={[
+          {
+            backgroundColor: C.bg,
+            padding: 14,
+            borderWidth: 1,
+            borderColor: C.border,
+            borderRadius: 12,
+            color: C.ink,
+            fontSize: 16,
+            lineHeight: 22,
+            minHeight: multiline ? 110 : 48,
+            textAlignVertical: multiline ? "top" : "center",
+          },
+          style,
+        ]}
       />
     </View>
   );

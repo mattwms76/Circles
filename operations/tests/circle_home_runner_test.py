@@ -88,9 +88,47 @@ class RunnerSafety(unittest.TestCase):
         self.assertEqual(activity_run[activity_run.index("--config") + 1], "e2e/activity.e2e.config.ts")
         with patch.object(Path, "is_file", return_value=True):
             self.assertEqual(
-                runner.fixture_migrations("activity")[-2:],
+                runner.fixture_migrations("activity")[-4:-2],
                 runner.ACTIVITY_MIGRATIONS,
             )
+            self.assertEqual(
+                runner.fixture_migrations("moderation")[-2:],
+                runner.MODERATION_MIGRATIONS,
+            )
+
+        moderation_code, moderation_evidence, _moderation_calls, processes, moderation_remains = self.simulate(suite="moderation")
+        self.assertEqual(moderation_code, 0)
+        self.assertEqual(moderation_evidence["suite"], "moderation-isolated-http-e2e")
+        self.assertFalse(moderation_remains)
+        moderation_run = next(argv for argv in processes if "vitest.mjs" in argv[1])
+        self.assertEqual(
+            moderation_run[moderation_run.index("--config") + 1],
+            "e2e/moderation.e2e.config.ts",
+        )
+
+    def test_moderation_migration_pair_is_never_orphaned(self):
+        available = {
+            "operations/migrations/0010_circles_activity_inbox.sql",
+            "operations/migrations/0011_circles_ops_activity_health.sql",
+            "operations/migrations/0012_circles_moderation.sql",
+        }
+
+        class FixtureRoot:
+            def joinpath(self, path):
+                return types.SimpleNamespace(is_file=lambda: path in available)
+
+        with patch.object(runner, "PROJECT_ROOT", FixtureRoot()):
+            # Existing suites do not receive an orphan schema migration while it is authored.
+            self.assertNotIn(
+                "operations/migrations/0012_circles_moderation.sql",
+                runner.fixture_migrations("circle-home"),
+            )
+            self.assertNotIn(
+                "operations/migrations/0012_circles_moderation.sql",
+                runner.fixture_migrations("activity"),
+            )
+            with self.assertRaisesRegex(RuntimeError, "0012 and 0013"):
+                runner.fixture_migrations("moderation")
 
     def test_stop_failure_cannot_report_success_or_remove_live_data(self):
         code, evidence, calls, _processes, remains = self.simulate(stop_fails=True)

@@ -18,7 +18,7 @@ describe("Circle Home isolated E2E safety", () => {
       },
     );
     expect(result.status).toBe(0);
-    expect(result.stderr).toContain("Ran 4 tests");
+    expect(result.stderr).toContain("Ran 5 tests");
     expect(result.stderr).toContain("OK");
   });
 

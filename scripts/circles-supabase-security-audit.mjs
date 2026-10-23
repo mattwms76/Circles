@@ -964,8 +964,8 @@ export function evaluateRuntimePrivileges(appNames, markerTable, runtimeRows) {
       !row ||
       !row.can_select ||
       !row.can_insert ||
-      !row.can_update ||
-      !row.can_delete ||
+      (name === "moderationActions" ? row.can_update : !row.can_update) ||
+      (name === "moderationActions" ? row.can_delete : !row.can_delete) ||
       row.can_truncate ||
       row.can_references ||
       row.can_trigger ||
@@ -1117,7 +1117,7 @@ export function evaluateDefaultPrivileges(
       grantable: row.is_grantable,
     };
     // PostgreSQL's built-in PUBLIC USAGE default for types applies only to
-    // future types. It is not part of the 25-table contract and, while current
+    // future types. It is not part of the 27-table contract and, while current
     // ordinary/API-role schema USAGE is denied, cannot by itself expose a
     // current table or establish current Data API disclosure. Preserve it as a
     // conditional future-access condition rather than hiding it or calling it a
@@ -1492,7 +1492,7 @@ export function renderMarkdown(report) {
     "",
     "## Table inventory, RLS, and ownership",
     "",
-    `Expected inventory: **24 application tables + \`${MARKER_TABLE}\` = 25 tables**.`,
+    `Expected inventory: **26 application tables + \`${MARKER_TABLE}\` = 27 tables**.`,
     "",
     markdownTable(
       ["Table", "Owner", "RLS enabled", "RLS forced", "Policy count"],
@@ -1682,7 +1682,7 @@ export function renderMarkdown(report) {
       : "No non-owner effective default privilege row was returned after global-override and schema-additive merging.",
     "",
     conditionalTypeUsage.length
-      ? `> **Conditional future type usage:** ${conditionalTypeUsage.length} default TYPE USAGE row(s) were retained as metadata. Current non-owner schema USAGE is **${toMarkdownCell(defaultPrivilegeEvaluation?.schema_usage_for_current_nonowners)}**; TYPE USAGE is not part of the 25-table contract and does not by itself establish current Data API disclosure. It becomes relevant if schema USAGE or an exposure path changes.`
+      ? `> **Conditional future type usage:** ${conditionalTypeUsage.length} default TYPE USAGE row(s) were retained as metadata. Current non-owner schema USAGE is **${toMarkdownCell(defaultPrivilegeEvaluation?.schema_usage_for_current_nonowners)}**; TYPE USAGE is not part of the 27-table contract and does not by itself establish current Data API disclosure. It becomes relevant if schema USAGE or an exposure path changes.`
       : "No conditional default TYPE USAGE row was returned.",
     "",
     futureFunctionDefaultGrants.length
@@ -2523,8 +2523,8 @@ export async function runAudit(options) {
         context,
         "private_table_inventory",
         inventory,
-        "Exactly 25 expected private tables were cataloged (24 application tables plus _dataMigrations).",
-        "Private table inventory differs from the 25 expected objects.",
+        "Exactly 27 expected private tables were cataloged (26 application tables plus _dataMigrations).",
+        "Private table inventory differs from the 27 expected objects.",
       ),
     );
 
@@ -2818,7 +2818,7 @@ export async function runAudit(options) {
       ),
     );
     report.summary = {
-      expected_table_count: 25,
+      expected_table_count: null,
       cataloged_table_count: null,
       external_catalog_grants: null,
       reviewed_provider_managed_capability_flags: null,

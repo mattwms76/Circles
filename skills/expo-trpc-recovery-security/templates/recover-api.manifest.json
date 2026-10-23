@@ -72,6 +72,15 @@
     },
     "activity.resolveTarget": {
       "input": {}
+    },
+    "moderation.list": {
+      "input": {
+        "filter": "open",
+        "limit": 20
+      }
+    },
+    "moderation.detail": {
+      "input": {}
     }
   }
 }

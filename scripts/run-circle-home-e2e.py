@@ -46,7 +46,11 @@ ACTIVITY_MIGRATIONS = (
     "operations/migrations/0010_circles_activity_inbox.sql",
     "operations/migrations/0011_circles_ops_activity_health.sql",
 )
-SUITES = ("circle-home", "activity")
+MODERATION_MIGRATIONS = (
+    "operations/migrations/0012_circles_moderation.sql",
+    "operations/migrations/0013_circles_ops_moderation_health.sql",
+)
+SUITES = ("circle-home", "activity", "moderation")
 
 
 def fail(message: str) -> NoReturn:
@@ -61,30 +65,42 @@ def parse_suite(argv: list[str] | None = None) -> str:
 
 
 def fixture_migrations(suite: str) -> tuple[str, ...]:
-    """Return reviewed fixed migrations, requiring both Activity additions for that suite."""
+    """Return fixed reviewed pairs, refusing orphan feature/health migrations."""
     available_activity = tuple(
         relative_path
         for relative_path in ACTIVITY_MIGRATIONS
         if PROJECT_ROOT.joinpath(relative_path).is_file()
     )
+    available_moderation = tuple(
+        relative_path
+        for relative_path in MODERATION_MIGRATIONS
+        if PROJECT_ROOT.joinpath(relative_path).is_file()
+    )
     if suite == "activity" and available_activity != ACTIVITY_MIGRATIONS:
         fail("Activity E2E requires the reviewed 0010 and 0011 fixture migrations")
+    if suite == "moderation" and available_activity != ACTIVITY_MIGRATIONS:
+        fail("Moderation E2E requires the reviewed Activity schema and health pair")
+    if suite == "moderation" and available_moderation != MODERATION_MIGRATIONS:
+        fail("Moderation E2E requires the reviewed 0012 and 0013 fixture migrations")
     # Circle Home keeps running during a concurrent additive migration rollout: it receives the
     # exact Activity schema/health pair together, never an orphan health definition that expects
     # tables not yet present. Activity mode above remains stricter and refuses a partial pair.
-    return (
-        BASELINE_AND_FEATURE_MIGRATIONS + ACTIVITY_MIGRATIONS
-        if available_activity == ACTIVITY_MIGRATIONS
-        else BASELINE_AND_FEATURE_MIGRATIONS
-    )
+    migrations = BASELINE_AND_FEATURE_MIGRATIONS
+    if available_activity == ACTIVITY_MIGRATIONS:
+        migrations += ACTIVITY_MIGRATIONS
+    # Every currently runnable suite gets moderation only as its complete schema/health pair.
+    # Moderation mode is stricter above: it never silently tests a pre-feature fixture.
+    if available_moderation == MODERATION_MIGRATIONS:
+        migrations += MODERATION_MIGRATIONS
+    return migrations
 
 
 def suite_config(suite: str) -> str:
-    return (
-        "e2e/activity.e2e.config.ts"
-        if suite == "activity"
-        else "e2e/circle-home.e2e.config.ts"
-    )
+    if suite == "activity":
+        return "e2e/activity.e2e.config.ts"
+    if suite == "moderation":
+        return "e2e/moderation.e2e.config.ts"
+    return "e2e/circle-home.e2e.config.ts"
 
 
 def checked(argv: list[str], env: dict[str, str], *, timeout: int = 90) -> None:
@@ -147,7 +163,14 @@ def apply_fixture_schema(
         db.execute("INSERT INTO e2e_fixture.guard(token) VALUES (%s)", (FIXTURE_TOKEN,))
         for role in ("anon", "authenticated", "service_role"):
             db.execute(f"CREATE ROLE {role} NOLOGIN NOSUPERUSER NOBYPASSRLS")
-        for relative_path in migrations:
+        # 0012 maps pre-existing eligible reports. Apply all preceding reviewed migrations,
+        # then seed only synthetic legacy report rows, before executing that mapping. This
+        # deliberately verifies the actual migration path rather than a post-migration stand-in.
+        moderation_present = all(path in migrations for path in MODERATION_MIGRATIONS)
+        initial_migrations = tuple(
+            path for path in migrations if path not in MODERATION_MIGRATIONS
+        )
+        for relative_path in initial_migrations:
             db.execute((PROJECT_ROOT / relative_path).read_text(encoding="utf-8"))
 
         # The current health function verifies the historical marker without reading application data.
@@ -161,15 +184,6 @@ def apply_fixture_schema(
                 "manifest-sha256:1196b25e66280952d905d860e3488fa82af9d082983c5315f28ead30b35172a7",
             ),
         )
-        if "operations/migrations/0011_circles_ops_activity_health.sql" in migrations:
-            # This catalog-only local health call proves the paired 25-table Activity extension
-            # remains compatible with the longstanding Circle Home fixture before either suite
-            # starts. It reads no application rows and writes only private local ops history.
-            health = db.execute(
-                "SELECT healthy, error_code FROM circles_ops.run_daily_migration_health()"
-            ).fetchone()
-            if health != (True, None):
-                fail("paired Activity operations health contract is unhealthy")
         db.execute(
             """
             INSERT INTO circles_app.users(id, "openId", name)
@@ -179,7 +193,8 @@ def apply_fixture_schema(
               (3, 'circle-home-e2e-member', 'Fixture member'),
               (4, 'circle-home-e2e-pending', 'Fixture pending'),
               (5, 'circle-home-e2e-outsider', 'Fixture outsider'),
-              (6, 'circle-home-e2e-author', 'Fixture author')
+              (6, 'circle-home-e2e-author', 'Fixture author'),
+              (7, 'circle-home-e2e-reporter', 'Fixture reporter')
             """
         )
         db.execute(
@@ -191,7 +206,8 @@ def apply_fixture_schema(
               (3, 'Fixture member', 'fixture-member', '', ''),
               (4, 'Fixture pending', 'fixture-pending', '', ''),
               (5, 'Fixture outsider', 'fixture-outsider', '', ''),
-              (6, 'Fixture author', 'fixture-author', '', '')
+              (6, 'Fixture author', 'fixture-author', '', ''),
+              (7, 'Fixture reporter', 'fixture-reporter', '', '')
             """
         )
         db.execute(
@@ -208,6 +224,7 @@ def apply_fixture_schema(
             INSERT INTO circles_app.memberships("circleId", "userId", role)
             VALUES
               (11, 1, 'owner'), (11, 2, 'moderator'), (11, 3, 'member'), (11, 4, 'pending'),
+              (11, 7, 'member'),
               (12, 1, 'owner'), (12, 3, 'member'), (12, 4, 'pending'),
               (13, 5, 'owner')
             """
@@ -229,12 +246,36 @@ def apply_fixture_schema(
               (102, 6, 11, 'Same-circle fixture post'),
               (103, 6, 11, 'Replacement fixture post'),
               (104, 6, 13, 'Foreign fixture post'),
-              (105, 6, 12, 'Private fixture post')
+              (105, 6, 12, 'Private fixture post'),
+              (106, 1, 11, 'Owner-authored fixture post')
             """
         )
+        if moderation_present:
+            # These rows model legacy per-reporter report capture. They remain fixture-local;
+            # 0012 itself is responsible for creating the aggregate moderation cases.
+            db.execute(
+                """
+                INSERT INTO circles_app.reports("postId", "reporterId", reason)
+                VALUES
+                  (101, 3, 'Legacy abuse'),
+                  (101, 7, 'Legacy abuse'),
+                  (106, 3, 'Legacy self-review case')
+                """
+            )
+            for relative_path in MODERATION_MIGRATIONS:
+                db.execute((PROJECT_ROOT / relative_path).read_text(encoding="utf-8"))
+        if "operations/migrations/0011_circles_ops_activity_health.sql" in migrations:
+            # This catalog-only local health call validates the current paired feature schema:
+            # Activity alone while moderation is absent, or the 0013 replacement after 0012.
+            # It reads no application rows and writes only private local ops history.
+            health = db.execute(
+                "SELECT healthy, error_code FROM circles_ops.run_daily_migration_health()"
+            ).fetchone()
+            if health != (True, None):
+                fail("paired feature operations health contract is unhealthy")
         # Explicit ids keep request assertions stable; future fixture writes remain safe too.
-        membership_sequence_value = 10 if suite == "activity" else 8
-        for sequence, value in (("users_id_seq", 6), ("profiles_id_seq", 6), ("circles_id_seq", 13), ("memberships_id_seq", membership_sequence_value), ("posts_id_seq", 105)):
+        membership_sequence_value = 11 if suite == "activity" else 9
+        for sequence, value in (("users_id_seq", 7), ("profiles_id_seq", 7), ("circles_id_seq", 13), ("memberships_id_seq", membership_sequence_value), ("posts_id_seq", 106)):
             db.execute("SELECT setval(%s, %s, true)", (f"circles_app.{sequence}", value))
 
 

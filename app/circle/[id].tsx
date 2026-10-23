@@ -619,6 +619,21 @@ export default function CircleScreen() {
                 Owners appoint moderators. Owners and moderators keep the circle
                 welcoming.
               </T>
+              {isAdmin && (
+                <View style={[s.card, { padding: 16, gap: 10 }]}>
+                  <T style={{ fontSize: 17, fontWeight: "700" }}>Reports</T>
+                  <T style={{ color: C.muted, fontSize: 14, lineHeight: 21 }}>
+                    Review reported moments and record a final Keep or Remove decision.
+                  </T>
+                  <Button
+                    title="Open Reports"
+                    secondary
+                    icon="flag-outline"
+                    onPress={() => router.push(`/moderation/${circleId}`)}
+                    style={{ alignSelf: "flex-start" }}
+                  />
+                </View>
+              )}
               <View style={{ gap: 12 }}>
                 <T style={{ fontSize: 17, fontWeight: "700" }}>Circle Home</T>
                 {homeEditorIsOpen ? (

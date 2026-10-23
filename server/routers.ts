@@ -9,8 +9,10 @@ import { liveRouter } from "./live-router";
 import { onboardingRouter } from "./onboarding-router";
 import { circleHomeRouter } from "./circle-home-router";
 import { activityRouter } from "./activity-router";
+import { moderationRouter } from "./moderation-router";
 
 export const appRouter = router({
+  moderation: moderationRouter,
   activity: activityRouter,
   circleHome: circleHomeRouter,
   onboarding: onboardingRouter,
