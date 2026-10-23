@@ -35,6 +35,16 @@ describe("private Supabase PostgreSQL configuration", () => {
       rejectUnauthorized: true,
       servername: "aws-0-eu-west-1.pooler.supabase.com",
     });
+    expect(options).toMatchObject({
+      connectionTimeoutMillis: expect.any(Number),
+      query_timeout: expect.any(Number),
+      statement_timeout: expect.any(Number),
+      lock_timeout: expect.any(Number),
+      idle_in_transaction_session_timeout: expect.any(Number),
+    });
+    expect(options.connectionTimeoutMillis).toBeGreaterThan(0);
+    expect(options.query_timeout).toBeGreaterThan(0);
+    expect(options.statement_timeout).toBeGreaterThan(0);
     expect(
       typeof (options.ssl as { checkServerIdentity?: unknown })
         .checkServerIdentity,

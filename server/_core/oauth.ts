@@ -17,6 +17,7 @@ import {
   configuredFrontendOrigins,
   parseExactFrontendOrigin,
 } from "./frontend-origins";
+import { isLoopbackApiHost, trustedFrontendWebOrigins } from "./cors";
 import {
   oauthPendingStateStore,
   type ConsumedWebOAuthPendingState,
@@ -425,6 +426,53 @@ function setApplicationSession(
   });
 }
 
+function requestHeader(req: Request, name: string): string | undefined {
+  const value = req.headers[name.toLowerCase()];
+  return typeof value === "string" ? value : undefined;
+}
+
+function presentedBearer(req: Request): string | null {
+  const authorization = requestHeader(req, "authorization");
+  const match = authorization ? /^Bearer\s+(\S+)$/.exec(authorization) : null;
+  return match?.[1] ?? null;
+}
+
+/**
+ * Browser cookie logout needs an explicit origin check beyond CORS. Origin-less
+ * traffic is reserved for native callers and must present a bearer that the
+ * caller authenticates before durable revocation. REST and tRPC share this
+ * exact gate so neither endpoint becomes the weaker logout route.
+ */
+export function isAllowedLogoutOrigin(req: Request, origin: string): boolean {
+  if (trustedFrontendWebOrigins().has(origin)) return true;
+  return (
+    isLoopbackApiHost(req.hostname) &&
+    configuredFrontendOrigins().has(origin)
+  );
+}
+
+export async function authorizeLogoutRequest(req: Request): Promise<void> {
+  const origin = requestHeader(req, "origin");
+  if (origin) {
+    if (!isAllowedLogoutOrigin(req, origin)) {
+      throw new Error("Logout origin is not allowed");
+    }
+    return;
+  }
+
+  const bearer = presentedBearer(req);
+  if (!bearer) {
+    throw new Error("Logout requires an origin or bearer credential");
+  }
+
+  // This validates the signed claim and matching active durable record without
+  // loading/synchronizing a user row. It therefore cannot silently validate a
+  // supplied bad bearer by falling back to any cookie on the request.
+  if (!(await sdk.verifySession(bearer))) {
+    throw new Error("Logout requires a valid bearer credential");
+  }
+}
+
 export function registerOAuthRoutes(app: Express) {
   app.get("/api/oauth/start", async (req: Request, res: Response) => {
     const redirectUri = getQueryParam(req, "redirectUri");
@@ -581,6 +629,14 @@ export function registerOAuthRoutes(app: Express) {
   });
 
   app.post("/api/auth/logout", async (req: Request, res: Response) => {
+    try {
+      await authorizeLogoutRequest(req);
+    } catch {
+      clearAcceptedSessionCookies(req, res);
+      res.status(403).json({ error: "Logout request was not accepted" });
+      return;
+    }
+
     try {
       await sdk.revokeRequestSessions(req);
       clearAcceptedSessionCookies(req, res);

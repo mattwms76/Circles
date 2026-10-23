@@ -25,6 +25,27 @@
     },
     "live.relay": {
       "input": {}
+    },
+    "social.feedPage": {
+      "input": {
+        "filter": "for-you",
+        "limit": 20
+      }
+    },
+    "social.circlesPage": {
+      "input": {
+        "limit": 20
+      }
+    },
+    "social.profilesPage": {
+      "input": {
+        "limit": 20
+      }
+    },
+    "social.membersPage": {
+      "input": {
+        "limit": 20
+      }
     }
   }
 }

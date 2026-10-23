@@ -40,6 +40,7 @@ import {
   socialUploads,
   users,
 } from "../drizzle/schema";
+import { streams } from "../drizzle/live-schema";
 import type {
   Circle,
   Comment,
@@ -63,6 +64,7 @@ export type CircleRole = "owner" | "moderator" | "member" | "pending";
 type ApprovedCircleRole = Exclude<CircleRole, "pending">;
 type Database = CirclesDatabase;
 type ConversationMutationTransaction = CirclesTransaction;
+type SocialTransaction = CirclesTransaction;
 type FeedFilter = "for-you" | "following" | "circles" | "saved";
 
 const APPROVED_ROLES: readonly ApprovedCircleRole[] = [
@@ -227,7 +229,7 @@ export function canReadCircleContent(
 }
 
 async function membershipRoleWithDb(
-  db: Database,
+  db: Database | SocialTransaction,
   userId: number | null | undefined,
   circleId: number,
 ): Promise<CircleRole | null> {
@@ -242,7 +244,10 @@ async function membershipRoleWithDb(
   return (rows[0]?.role as CircleRole | undefined) ?? null;
 }
 
-async function circleRowOrThrow(db: Database, circleId: number) {
+async function circleRowOrThrow(
+  db: Database | SocialTransaction,
+  circleId: number,
+) {
   const rows = await db
     .select()
     .from(circles)
@@ -252,7 +257,39 @@ async function circleRowOrThrow(db: Database, circleId: number) {
   return rows[0];
 }
 
-async function postRowOrThrow(db: Database, postId: number) {
+/**
+ * Membership removal and every protected circle write take this same parent-row lock. A removal
+ * that commits first therefore makes the later write re-check fail; a write that commits first is
+ * the last action authorized by the still-approved membership.
+ */
+async function lockCircleForProtectedMutation(
+  tx: SocialTransaction,
+  circleId: number,
+) {
+  const rows = await tx
+    .select()
+    .from(circles)
+    .where(eq(circles.id, circleId))
+    .limit(1)
+    .for("update");
+  if (!rows[0]) socialError("NOT_FOUND", "Circle not found");
+  return rows[0];
+}
+
+async function lockCircleAccessForProtectedMutation(
+  tx: SocialTransaction,
+  userId: number,
+  circleId: number,
+) {
+  const circle = await lockCircleForProtectedMutation(tx, circleId);
+  const role = await membershipRoleWithDb(tx, userId, circleId);
+  return { circle, role };
+}
+
+async function postRowOrThrow(
+  db: Database | SocialTransaction,
+  postId: number,
+) {
   const rows = await db
     .select()
     .from(posts)
@@ -474,6 +511,70 @@ export async function getCircle(
   return circleOutputWithDb(db, circleId, viewerId);
 }
 
+export type DateIdCursor = { createdAt: Date; id: number };
+export type IdCursor = { id: number };
+export type CursorPage<Item, Cursor> = {
+  items: Item[];
+  nextCursor: Cursor | null;
+  hasMore: boolean;
+};
+
+const SOCIAL_PAGE_DEFAULT_LIMIT = 20;
+const SOCIAL_PAGE_MAX_LIMIT = 50;
+
+function socialPageLimit(value: number | undefined): number {
+  return Math.min(
+    Math.max(Math.floor(value ?? SOCIAL_PAGE_DEFAULT_LIMIT), 1),
+    SOCIAL_PAGE_MAX_LIMIT,
+  );
+}
+
+export async function listCirclesPage(
+  viewerId: number | null,
+  filters: { search?: string; category?: string; cursor?: DateIdCursor; limit?: number },
+): Promise<CursorPage<Circle, DateIdCursor>> {
+  const db = await requireDb();
+  const clauses: SQL[] = [];
+  if (filters.search?.trim()) {
+    const needle = `%${filters.search.trim()}%`;
+    clauses.push(
+      or(ilike(circles.name, needle), ilike(circles.description, needle))!,
+    );
+  }
+  if (filters.category?.trim()) {
+    clauses.push(ilike(circles.category, filters.category.trim()));
+  }
+  if (filters.cursor) {
+    clauses.push(
+      or(
+        lt(circles.createdAt, filters.cursor.createdAt),
+        and(
+          eq(circles.createdAt, filters.cursor.createdAt),
+          lt(circles.id, filters.cursor.id),
+        ),
+      )!,
+    );
+  }
+  const limit = socialPageLimit(filters.limit);
+  const rows = await db
+    .select()
+    .from(circles)
+    .where(clauses.length ? and(...clauses) : undefined)
+    .orderBy(desc(circles.createdAt), desc(circles.id))
+    .limit(limit + 1);
+  const pageRows = rows.slice(0, limit);
+  const hasMore = rows.length > limit;
+  const last = pageRows[pageRows.length - 1];
+  return {
+    items: await Promise.all(
+      pageRows.map((circle) => circleOutputWithDb(db, circle.id, viewerId)),
+    ),
+    nextCursor:
+      hasMore && last ? { createdAt: last.createdAt, id: last.id } : null,
+    hasMore,
+  };
+}
+
 export async function listProfiles(
   viewerId: number | null,
   search?: string,
@@ -507,8 +608,44 @@ export async function findProfile(
   return findProfileWithDb(db, userId, viewerId);
 }
 
+export async function listProfilesPage(
+  viewerId: number | null,
+  options: { search?: string; cursor?: IdCursor; limit?: number },
+): Promise<CursorPage<Profile, IdCursor>> {
+  const db = await requireDb();
+  const term = options.search?.trim();
+  const clauses: SQL[] = [];
+  if (term) {
+    clauses.push(
+      or(
+        ilike(profiles.name, `%${term}%`),
+        ilike(profiles.handle, `%${term}%`),
+      )!,
+    );
+  }
+  if (options.cursor) clauses.push(gt(profiles.userId, options.cursor.id));
+  const limit = socialPageLimit(options.limit);
+  const rows = await db
+    .select({ userId: profiles.userId })
+    .from(profiles)
+    .where(clauses.length ? and(...clauses) : undefined)
+    .orderBy(asc(profiles.userId))
+    .limit(limit + 1);
+  const pageRows = rows.slice(0, limit);
+  const hasMore = rows.length > limit;
+  const last = pageRows[pageRows.length - 1];
+  const items = await Promise.all(
+    pageRows.map((row) => findProfileWithDb(db, row.userId, viewerId)),
+  );
+  return {
+    items: items.filter((profile): profile is Profile => profile !== null),
+    nextCursor: hasMore && last ? { id: last.userId } : null,
+    hasMore,
+  };
+}
+
 async function assertCircleContentAccess(
-  db: Database,
+  db: Database | SocialTransaction,
   userId: number | null,
   circleId: number,
 ) {
@@ -524,7 +661,7 @@ async function assertCircleContentAccess(
 }
 
 async function assertPostAccess(
-  db: Database,
+  db: Database | SocialTransaction,
   userId: number | null,
   postId: number,
 ) {
@@ -536,6 +673,29 @@ async function assertPostAccess(
     userId,
     post.circleId,
   );
+  return { post, circle, role };
+}
+
+async function assertPostAccessForProtectedMutation(
+  tx: SocialTransaction,
+  userId: number,
+  postId: number,
+) {
+  const post = await postRowOrThrow(tx, postId);
+  if (!post.circleId) {
+    return { post, circle: null, role: null as CircleRole | null };
+  }
+  const { circle, role } = await lockCircleAccessForProtectedMutation(
+    tx,
+    userId,
+    post.circleId,
+  );
+  if (!canReadCircleContent(circle.privacy, role)) {
+    socialError(
+      "FORBIDDEN",
+      "You must be an approved member to access this private circle",
+    );
+  }
   return { post, circle, role };
 }
 
@@ -554,7 +714,7 @@ async function postOutputWithDb(
     : [];
   const [author, likesResult, commentsResult, likedRows, savedRows] =
     await Promise.all([
-      displayProfileWithDb(db, post.authorId, post.authorId),
+      displayProfileWithDb(db, post.authorId, viewerId),
       db
         .select({ total: sql<number>`count(*)` })
         .from(reactions)
@@ -607,14 +767,19 @@ async function postOutputWithDb(
 
 const FEED_PAGE_SIZE = 100;
 const FEED_SCAN_BATCH_SIZE = 200;
+const FEED_MAX_SCAN_BATCHES = 10;
 
-type FeedScanCursor = {
-  createdAt: Date;
-  id: number;
-};
+type FeedScanCursor = DateIdCursor;
 
 type FeedScanCandidate = FeedScanCursor & {
   circleId: number | null;
+};
+
+export type FeedPageOptions = {
+  /** Exclusive compound cursor from the last returned post. */
+  cursor?: FeedScanCursor;
+  /** Optional bounded page size; omission preserves the historical 100-item array response. */
+  limit?: number;
 };
 
 /**
@@ -624,27 +789,62 @@ type FeedScanCandidate = FeedScanCursor & {
 export async function collectEligibleFeedPostIds(
   readPage: (cursor: FeedScanCursor | null) => Promise<FeedScanCandidate[]>,
   isEligible: (post: FeedScanCandidate) => Promise<boolean>,
+  options: FeedPageOptions = {},
 ): Promise<number[]> {
-  const eligiblePostIds: number[] = [];
-  let cursor: FeedScanCursor | null = null;
+  return (await collectEligibleFeedPage(readPage, isEligible, options)).items;
+}
 
-  while (eligiblePostIds.length < FEED_PAGE_SIZE) {
+export type EligibleFeedPage = CursorPage<number, FeedScanCursor>;
+
+/**
+ * A bounded feed scan can advance through inaccessible private candidates without calling the
+ * end of the feed. Its continuation names the final consumed candidate, including empty pages.
+ */
+export async function collectEligibleFeedPage(
+  readPage: (cursor: FeedScanCursor | null) => Promise<FeedScanCandidate[]>,
+  isEligible: (post: FeedScanCandidate) => Promise<boolean>,
+  options: FeedPageOptions = {},
+): Promise<EligibleFeedPage> {
+  const eligiblePostIds: number[] = [];
+  let cursor: FeedScanCursor | null = options.cursor ?? null;
+  const pageSize = Math.min(Math.max(Math.floor(options.limit ?? FEED_PAGE_SIZE), 1), FEED_PAGE_SIZE);
+  let scannedBatches = 0;
+
+  while (eligiblePostIds.length < pageSize && scannedBatches < FEED_MAX_SCAN_BATCHES) {
+    scannedBatches += 1;
     const candidates = await readPage(cursor);
     if (!candidates.length) break;
 
-    for (const candidate of candidates) {
+    for (const [index, candidate] of candidates.entries()) {
       if (await isEligible(candidate)) {
         eligiblePostIds.push(candidate.id);
-        if (eligiblePostIds.length === FEED_PAGE_SIZE) return eligiblePostIds;
+        if (eligiblePostIds.length === pageSize) {
+          const hasMore =
+            index < candidates.length - 1 ||
+            candidates.length === FEED_SCAN_BATCH_SIZE;
+          return {
+            items: eligiblePostIds,
+            nextCursor: hasMore
+              ? { createdAt: candidate.createdAt, id: candidate.id }
+              : null,
+            hasMore,
+          };
+        }
       }
     }
 
-    if (candidates.length < FEED_SCAN_BATCH_SIZE) break;
+    if (candidates.length < FEED_SCAN_BATCH_SIZE) {
+      return { items: eligiblePostIds, nextCursor: null, hasMore: false };
+    }
     const oldestCandidate = candidates[candidates.length - 1];
     cursor = { createdAt: oldestCandidate.createdAt, id: oldestCandidate.id };
   }
 
-  return eligiblePostIds;
+  return {
+    items: eligiblePostIds,
+    nextCursor: cursor,
+    hasMore: cursor !== null,
+  };
 }
 
 export async function feed(
@@ -652,6 +852,7 @@ export async function feed(
   filter: FeedFilter,
   circleId?: number,
   authorId?: number,
+  options: FeedPageOptions = {},
 ): Promise<Post[]> {
   const db = await requireDb();
   const clauses: SQL[] = [];
@@ -732,15 +933,19 @@ export async function feed(
     },
     async (post) => {
       if (!post.circleId) return true;
-      const circle = await db
-        .select()
+      const circleRows = await db
+        .select({ id: circles.id, privacy: circles.privacy })
         .from(circles)
         .where(eq(circles.id, post.circleId))
         .limit(1);
-      if (!circle[0]) return false;
-      const role = await membershipRoleWithDb(db, viewerId, post.circleId);
-      return canReadCircleContent(circle[0].privacy, role);
+      const circle = circleRows[0];
+      if (!circle) return false;
+      if (circle.privacy === "public") return true;
+      return isApprovedCircleRole(
+        await membershipRoleWithDb(db, viewerId, post.circleId),
+      );
     },
+    options,
   );
 
   const output = await Promise.all(
@@ -749,8 +954,99 @@ export async function feed(
   return output;
 }
 
+export async function feedPage(
+  viewerId: number | null,
+  filter: FeedFilter,
+  circleId?: number,
+  authorId?: number,
+  options: FeedPageOptions = {},
+): Promise<CursorPage<Post, FeedScanCursor>> {
+  const db = await requireDb();
+  const clauses: SQL[] = [];
+  if (circleId) clauses.push(eq(posts.circleId, circleId));
+  if (authorId) clauses.push(eq(posts.authorId, authorId));
+
+  if (filter === "following") {
+    if (!viewerId) return { items: [], nextCursor: null, hasMore: false };
+    const followRows = await db
+      .select({ followingId: follows.followingId })
+      .from(follows)
+      .where(eq(follows.followerId, viewerId));
+    if (!followRows.length) return { items: [], nextCursor: null, hasMore: false };
+    clauses.push(inArray(posts.authorId, followRows.map((row) => row.followingId)));
+  }
+  if (filter === "circles") {
+    if (!viewerId) return { items: [], nextCursor: null, hasMore: false };
+    const membershipRows = await db
+      .select({ circleId: memberships.circleId })
+      .from(memberships)
+      .where(
+        and(
+          eq(memberships.userId, viewerId),
+          inArray(memberships.role, ["owner", "moderator", "member"]),
+        ),
+      );
+    if (!membershipRows.length) return { items: [], nextCursor: null, hasMore: false };
+    clauses.push(inArray(posts.circleId, membershipRows.map((row) => row.circleId)));
+  }
+  if (filter === "saved") {
+    if (!viewerId) return { items: [], nextCursor: null, hasMore: false };
+    const savedRows = await db
+      .select({ postId: bookmarks.postId })
+      .from(bookmarks)
+      .where(eq(bookmarks.userId, viewerId));
+    if (!savedRows.length) return { items: [], nextCursor: null, hasMore: false };
+    clauses.push(inArray(posts.id, savedRows.map((row) => row.postId)));
+  }
+
+  const page = await collectEligibleFeedPage(
+    async (cursor) => {
+      const cursorClauses = cursor
+        ? [
+            ...clauses,
+            or(
+              lt(posts.createdAt, cursor.createdAt),
+              and(
+                eq(posts.createdAt, cursor.createdAt),
+                lt(posts.id, cursor.id),
+              ),
+            ),
+          ]
+        : clauses;
+      return db
+        .select()
+        .from(posts)
+        .where(cursorClauses.length ? and(...cursorClauses) : undefined)
+        .orderBy(desc(posts.createdAt), desc(posts.id))
+        .limit(FEED_SCAN_BATCH_SIZE);
+    },
+    async (post) => {
+      if (!post.circleId) return true;
+      const circleRows = await db
+        .select({ id: circles.id, privacy: circles.privacy })
+        .from(circles)
+        .where(eq(circles.id, post.circleId))
+        .limit(1);
+      const circle = circleRows[0];
+      if (!circle) return false;
+      if (circle.privacy === "public") return true;
+      return isApprovedCircleRole(
+        await membershipRoleWithDb(db, viewerId, post.circleId),
+      );
+    },
+    { ...options, limit: socialPageLimit(options.limit) },
+  );
+  return {
+    items: await Promise.all(
+      page.items.map((postId) => postOutputWithDb(db, postId, viewerId)),
+    ),
+    nextCursor: page.nextCursor,
+    hasMore: page.hasMore,
+  };
+}
+
 async function assertMediaOwnership(
-  db: Database,
+  db: Database | SocialTransaction,
   userId: number,
   media?: string,
 ) {
@@ -786,6 +1082,111 @@ async function assertMediaOwnership(
   }
 }
 
+/** Marks an owned managed upload as committed only after the referencing write succeeds. */
+async function claimMediaOwnership(
+  db: Database | SocialTransaction,
+  userId: number,
+  media?: string | null,
+): Promise<void> {
+  if (!media) return;
+  const key = managedSocialMediaKeyFromUrl(media);
+  if (!key) return;
+  await assertMediaOwnership(db, userId, media);
+  await db
+    .update(socialUploads)
+    .set({ claimedAt: new Date() })
+    .where(
+      and(eq(socialUploads.userId, userId), eq(socialUploads.storageKey, key)),
+    );
+}
+
+const CIRCLE_COVER_IMAGE_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+
+export function isCircleCoverImageMime(mimeType: string): boolean {
+  return CIRCLE_COVER_IMAGE_MIME_TYPES.has(mimeType);
+}
+
+/** A managed circle cover must retain its server-recorded image MIME, not just a picker hint. */
+async function assertCircleCoverImageOwnership(
+  db: Database | SocialTransaction,
+  userId: number,
+  media?: string,
+): Promise<void> {
+  await assertMediaOwnership(db, userId, media);
+  if (!media) return;
+  const key = managedSocialMediaKeyFromUrl(media);
+  // Starter assets are an explicit trusted allowlist and have no socialUploads metadata row.
+  if (!key) return;
+  const rows = await db
+    .select({ mimeType: socialUploads.mimeType, url: socialUploads.url })
+    .from(socialUploads)
+    .where(
+      and(eq(socialUploads.userId, userId), eq(socialUploads.storageKey, key)),
+    )
+    .limit(1);
+  if (!rows[0] || rows[0].url !== media) {
+    socialError("FORBIDDEN", "You can only attach your own uploaded media");
+  }
+  if (!isCircleCoverImageMime(rows[0].mimeType)) {
+    socialError("BAD_REQUEST", "A circle cover must be a JPEG, PNG, or WEBP image");
+  }
+}
+
+/**
+ * Removes only the authorization metadata for a caller's still-unclaimed upload. The encrypted
+ * object remains opaque and no longer has an application route after this succeeds; physical
+ * object deletion requires a separately authorized storage delete capability.
+ */
+export async function discardUnusedUpload(
+  userId: number,
+  media: string,
+): Promise<{ success: true }> {
+  const key = managedSocialMediaKeyFromUrl(media);
+  if (!key) socialError("BAD_REQUEST", "Upload must be a canonical managed media URL");
+  const db = await requireDb();
+  await db.transaction(async (tx) => {
+    const rows = await tx
+      .select({ id: socialUploads.id, url: socialUploads.url, claimedAt: socialUploads.claimedAt })
+      .from(socialUploads)
+      .where(
+        and(eq(socialUploads.userId, userId), eq(socialUploads.storageKey, key)),
+      )
+      .limit(1)
+      .for("update");
+    const upload = rows[0];
+    if (!upload || upload.url !== media) socialError("NOT_FOUND", "Upload not found");
+    if (upload.claimedAt) socialError("CONFLICT", "A referenced upload cannot be discarded");
+
+    const [profileReference, circleReference, postReference, messageReference, streamReference] =
+      await Promise.all([
+        tx
+          .select({ id: profiles.id })
+          .from(profiles)
+          .where(or(eq(profiles.avatar, media), eq(profiles.cover, media)))
+          .limit(1),
+        tx.select({ id: circles.id }).from(circles).where(eq(circles.image, media)).limit(1),
+        tx.select({ id: posts.id }).from(posts).where(eq(posts.media, media)).limit(1),
+        tx.select({ id: messages.id }).from(messages).where(eq(messages.media, media)).limit(1),
+        tx.select({ id: streams.id }).from(streams).where(eq(streams.thumbnail, media)).limit(1),
+      ]);
+    if (
+      profileReference.length ||
+      circleReference.length ||
+      postReference.length ||
+      messageReference.length ||
+      streamReference.length
+    ) {
+      socialError("CONFLICT", "A referenced upload cannot be discarded");
+    }
+    await tx.delete(socialUploads).where(eq(socialUploads.id, upload.id));
+  });
+  return { success: true };
+}
+
 export async function updateProfile(
   userId: number,
   input: { name: string; handle: string; bio: string; avatar?: string },
@@ -802,16 +1203,19 @@ export async function updateProfile(
     socialError("INTERNAL_SERVER_ERROR", "Profile is unavailable");
 
   try {
-    await db
-      .update(profiles)
-      .set({
-        name: input.name.trim(),
-        handle: input.handle.trim().replace(/^@+/, "").toLowerCase(),
-        bio: input.bio.trim(),
-        updatedAt: new Date(),
-        ...(input.avatar !== undefined ? { avatar: input.avatar } : {}),
-      })
-      .where(eq(profiles.userId, userId));
+    await db.transaction(async (tx) => {
+      await tx
+        .update(profiles)
+        .set({
+          name: input.name.trim(),
+          handle: input.handle.trim().replace(/^@+/, "").toLowerCase(),
+          bio: input.bio.trim(),
+          updatedAt: new Date(),
+          ...(input.avatar !== undefined ? { avatar: input.avatar } : {}),
+        })
+        .where(eq(profiles.userId, userId));
+      await claimMediaOwnership(tx, userId, input.avatar);
+    });
   } catch (error) {
     if (isPostgresUniqueViolation(error)) {
       socialError("CONFLICT", "That handle is already in use");
@@ -825,6 +1229,7 @@ export async function updateProfile(
 export async function toggleFollow(
   userId: number,
   targetUserId: number,
+  desiredFollowing?: boolean,
 ): Promise<{ following: boolean }> {
   if (userId === targetUserId)
     socialError("BAD_REQUEST", "You cannot follow yourself");
@@ -836,24 +1241,39 @@ export async function toggleFollow(
     .limit(1);
   if (!target.length) socialError("NOT_FOUND", "Profile not found");
 
-  const existing = await db
-    .select({ id: follows.id })
-    .from(follows)
-    .where(
-      and(
-        eq(follows.followerId, userId),
-        eq(follows.followingId, targetUserId),
-      ),
-    )
-    .limit(1);
-  if (existing[0]) {
-    await db.delete(follows).where(eq(follows.id, existing[0].id));
-    return { following: false };
-  }
-  await db
-    .insert(follows)
-    .values({ followerId: userId, followingId: targetUserId });
-  return { following: true };
+  return db.transaction(async (tx) => {
+    const existing = await tx
+      .select({ id: follows.id })
+      .from(follows)
+      .where(
+        and(
+          eq(follows.followerId, userId),
+          eq(follows.followingId, targetUserId),
+        ),
+      )
+      .limit(1);
+    // Omitted desired state is the legacy toggle contract. Concurrent legacy retries converge on
+    // the state observed by this transaction rather than throwing a unique-key error.
+    const following = desiredFollowing ?? !existing.length;
+    if (!following) {
+      await tx
+        .delete(follows)
+        .where(
+          and(
+            eq(follows.followerId, userId),
+            eq(follows.followingId, targetUserId),
+          ),
+        );
+      return { following: false };
+    }
+    await tx
+      .insert(follows)
+      .values({ followerId: userId, followingId: targetUserId })
+      .onConflictDoNothing({
+        target: [follows.followerId, follows.followingId],
+      });
+    return { following: true };
+  });
 }
 
 export async function createCircle(
@@ -869,7 +1289,7 @@ export async function createCircle(
 ): Promise<Circle> {
   const db = await requireDb();
   await ensureProfileWithDb(db, userId);
-  await assertMediaOwnership(db, userId, input.image);
+  await assertCircleCoverImageOwnership(db, userId, input.image);
   const circleId = await db.transaction(async (tx) => {
     const created = await tx
       .insert(circles)
@@ -888,6 +1308,7 @@ export async function createCircle(
     await tx
       .insert(memberships)
       .values({ circleId: id, userId, role: "owner" });
+    await claimMediaOwnership(tx, userId, input.image);
     return id;
   });
   return circleOutputWithDb(db, circleId, userId);
@@ -897,40 +1318,72 @@ export async function joinCircle(
   userId: number,
   circleId: number,
 ): Promise<{ role: string | null }> {
+  const result = await setCircleMembership(userId, circleId, true);
+  return { role: result.role };
+}
+
+export type CircleMembershipState = {
+  role: CircleRole | null;
+  joined: boolean;
+};
+
+/**
+ * The only desired-state membership writer. The parent circle row lock serializes applications,
+ * approvals/removals, and cancellation so duplicate requests converge without a stale toggle.
+ */
+export async function setCircleMembership(
+  userId: number,
+  circleId: number,
+  desiredJoined: boolean,
+  options: { requireExistingWhenLeaving?: boolean } = {},
+): Promise<CircleMembershipState> {
   const db = await requireDb();
-  const circle = await circleRowOrThrow(db, circleId);
-  const requestedRole: CircleRole =
-    circle.privacy === "private" ? "pending" : "member";
-
-  // Preserve an existing pending or privileged role when concurrent join requests collide.
-  await db
-    .insert(memberships)
-    .values({ circleId, userId, role: requestedRole })
-    .onConflictDoNothing({
-      target: [memberships.circleId, memberships.userId],
-    });
-
-  const persistedRole = await membershipRoleWithDb(db, userId, circleId);
-  if (!persistedRole) {
-    socialError("INTERNAL_SERVER_ERROR", "Unable to confirm circle membership");
-  }
-  return { role: persistedRole };
+  return db.transaction(async (tx) => {
+    const circle = await lockCircleForProtectedMutation(tx, circleId);
+    const role = await membershipRoleWithDb(tx, userId, circleId);
+    if (desiredJoined) {
+      if (!role) {
+        const requestedRole: CircleRole =
+          circle.privacy === "private" ? "pending" : "member";
+        await tx
+          .insert(memberships)
+          .values({ circleId, userId, role: requestedRole })
+          .onConflictDoNothing({
+            target: [memberships.circleId, memberships.userId],
+          });
+      }
+    } else if (role) {
+      if (role === "owner") {
+        socialError("FORBIDDEN", "The circle owner cannot leave their circle");
+      }
+      await tx
+        .delete(memberships)
+        .where(
+          and(eq(memberships.circleId, circleId), eq(memberships.userId, userId)),
+        );
+    } else if (options.requireExistingWhenLeaving) {
+      socialError("NOT_FOUND", "You are not a member of this circle");
+    }
+    const persistedRole = desiredJoined
+      ? await membershipRoleWithDb(tx, userId, circleId)
+      : null;
+    if (desiredJoined && !persistedRole) {
+      socialError("INTERNAL_SERVER_ERROR", "Unable to confirm circle membership");
+    }
+    return {
+      role: persistedRole,
+      joined: isApprovedCircleRole(persistedRole),
+    };
+  });
 }
 
 export async function leaveCircle(
   userId: number,
   circleId: number,
 ): Promise<{ success: true }> {
-  const db = await requireDb();
-  const role = await membershipRoleWithDb(db, userId, circleId);
-  if (!role) socialError("NOT_FOUND", "You are not a member of this circle");
-  if (role === "owner")
-    socialError("FORBIDDEN", "The circle owner cannot leave their circle");
-  await db
-    .delete(memberships)
-    .where(
-      and(eq(memberships.circleId, circleId), eq(memberships.userId, userId)),
-    );
+  await setCircleMembership(userId, circleId, false, {
+    requireExistingWhenLeaving: true,
+  });
   return { success: true };
 }
 
@@ -964,15 +1417,75 @@ export async function listMembers(
     .orderBy(asc(memberships.createdAt));
   const output = await Promise.all(
     rows.map(async (row) => {
-      const user = await displayProfileWithDb(db, row.userId, row.userId);
+      const user = await displayProfileWithDb(db, row.userId, userId);
       return { user, role: row.role as CircleRole };
     }),
   );
   return output;
 }
 
+export async function listMembersPage(
+  userId: number | null,
+  circleId: number,
+  options: { cursor?: DateIdCursor; limit?: number } = {},
+): Promise<CursorPage<Member, DateIdCursor>> {
+  const db = await requireDb();
+  const circle = await circleRowOrThrow(db, circleId);
+  const viewerRole = await membershipRoleWithDb(db, userId, circleId);
+  if (
+    circle.privacy === "private" &&
+    !canReadCircleContent(circle.privacy, viewerRole)
+  ) {
+    socialError(
+      "FORBIDDEN",
+      "You must be an approved member to access this private circle",
+    );
+  }
+  const clauses: SQL[] = [eq(memberships.circleId, circleId)];
+  if (!canViewPendingMembers(viewerRole)) {
+    clauses.push(ne(memberships.role, "pending"));
+  }
+  if (options.cursor) {
+    clauses.push(
+      or(
+        gt(memberships.createdAt, options.cursor.createdAt),
+        and(
+          eq(memberships.createdAt, options.cursor.createdAt),
+          gt(memberships.id, options.cursor.id),
+        ),
+      )!,
+    );
+  }
+  const limit = socialPageLimit(options.limit);
+  const rows = await db
+    .select({
+      id: memberships.id,
+      userId: memberships.userId,
+      role: memberships.role,
+      createdAt: memberships.createdAt,
+    })
+    .from(memberships)
+    .where(and(...clauses))
+    .orderBy(asc(memberships.createdAt), asc(memberships.id))
+    .limit(limit + 1);
+  const pageRows = rows.slice(0, limit);
+  const hasMore = rows.length > limit;
+  const last = pageRows[pageRows.length - 1];
+  return {
+    items: await Promise.all(
+      pageRows.map(async (row) => ({
+        user: await displayProfileWithDb(db, row.userId, userId),
+        role: row.role as CircleRole,
+      })),
+    ),
+    nextCursor:
+      hasMore && last ? { createdAt: last.createdAt, id: last.id } : null,
+    hasMore,
+  };
+}
+
 async function getActorAndTargetRoles(
-  db: Database,
+  db: Database | SocialTransaction,
   actorId: number,
   circleId: number,
   targetUserId: number,
@@ -994,27 +1507,30 @@ export async function setMemberRole(
   role: "moderator" | "member",
 ): Promise<{ success: true }> {
   const db = await requireDb();
-  const { actorRole, targetRole } = await getActorAndTargetRoles(
-    db,
-    actorId,
-    circleId,
-    targetUserId,
-  );
-  if (!canSetCircleRole(actorRole, targetRole) || targetRole === "pending") {
-    socialError(
-      "FORBIDDEN",
-      "Only the owner may change a non-owner member’s role",
+  await db.transaction(async (tx) => {
+    await lockCircleForProtectedMutation(tx, circleId);
+    const { actorRole, targetRole } = await getActorAndTargetRoles(
+      tx,
+      actorId,
+      circleId,
+      targetUserId,
     );
-  }
-  await db
-    .update(memberships)
-    .set({ role, updatedAt: new Date() })
-    .where(
-      and(
-        eq(memberships.circleId, circleId),
-        eq(memberships.userId, targetUserId),
-      ),
-    );
+    if (!canSetCircleRole(actorRole, targetRole) || targetRole === "pending") {
+      socialError(
+        "FORBIDDEN",
+        "Only the owner may change a non-owner member’s role",
+      );
+    }
+    await tx
+      .update(memberships)
+      .set({ role, updatedAt: new Date() })
+      .where(
+        and(
+          eq(memberships.circleId, circleId),
+          eq(memberships.userId, targetUserId),
+        ),
+      );
+  });
   return { success: true };
 }
 
@@ -1024,23 +1540,26 @@ export async function removeMember(
   targetUserId: number,
 ): Promise<{ success: true }> {
   const db = await requireDb();
-  const { actorRole, targetRole } = await getActorAndTargetRoles(
-    db,
-    actorId,
-    circleId,
-    targetUserId,
-  );
-  if (!canRemoveCircleMember(actorRole, targetRole)) {
-    socialError("FORBIDDEN", "You cannot remove this circle member");
-  }
-  await db
-    .delete(memberships)
-    .where(
-      and(
-        eq(memberships.circleId, circleId),
-        eq(memberships.userId, targetUserId),
-      ),
+  await db.transaction(async (tx) => {
+    await lockCircleForProtectedMutation(tx, circleId);
+    const { actorRole, targetRole } = await getActorAndTargetRoles(
+      tx,
+      actorId,
+      circleId,
+      targetUserId,
     );
+    if (!canRemoveCircleMember(actorRole, targetRole)) {
+      socialError("FORBIDDEN", "You cannot remove this circle member");
+    }
+    await tx
+      .delete(memberships)
+      .where(
+        and(
+          eq(memberships.circleId, circleId),
+          eq(memberships.userId, targetUserId),
+        ),
+      );
+  });
   return { success: true };
 }
 
@@ -1050,27 +1569,30 @@ export async function approveMember(
   targetUserId: number,
 ): Promise<{ success: true }> {
   const db = await requireDb();
-  const { actorRole, targetRole } = await getActorAndTargetRoles(
-    db,
-    actorId,
-    circleId,
-    targetUserId,
-  );
-  if (!canModerateCircle(actorRole) || targetRole !== "pending") {
-    socialError(
-      "FORBIDDEN",
-      "Only an owner or moderator may approve a pending member",
+  await db.transaction(async (tx) => {
+    await lockCircleForProtectedMutation(tx, circleId);
+    const { actorRole, targetRole } = await getActorAndTargetRoles(
+      tx,
+      actorId,
+      circleId,
+      targetUserId,
     );
-  }
-  await db
-    .update(memberships)
-    .set({ role: "member", updatedAt: new Date() })
-    .where(
-      and(
-        eq(memberships.circleId, circleId),
-        eq(memberships.userId, targetUserId),
-      ),
-    );
+    if (!canModerateCircle(actorRole) || targetRole !== "pending") {
+      socialError(
+        "FORBIDDEN",
+        "Only an owner or moderator may approve a pending member",
+      );
+    }
+    await tx
+      .update(memberships)
+      .set({ role: "member", updatedAt: new Date() })
+      .where(
+        and(
+          eq(memberships.circleId, circleId),
+          eq(memberships.userId, targetUserId),
+        ),
+      );
+  });
   return { success: true };
 }
 
@@ -1085,28 +1607,33 @@ export async function createPost(
 ): Promise<Post> {
   const db = await requireDb();
   await ensureProfileWithDb(db, userId);
-  if (input.circleId) {
-    const { role } = await assertCircleContentAccess(
-      db,
-      userId,
-      input.circleId,
-    );
-    if (!isApprovedCircleRole(role)) {
-      socialError("FORBIDDEN", "Only approved members may post to this circle");
-    }
-  }
   await assertMediaOwnership(db, userId, input.media);
-  const created = await db
-    .insert(posts)
-    .values({
-      authorId: userId,
-      circleId: input.circleId ?? null,
-      text: input.text.trim(),
-      media: input.media?.trim() || null,
-      mediaType: input.mediaType,
-    })
-    .returning({ id: posts.id });
-  const postId = created[0]?.id;
+  const postId = await db.transaction(async (tx) => {
+    if (input.circleId) {
+      const { role } = await lockCircleAccessForProtectedMutation(
+        tx,
+        userId,
+        input.circleId,
+      );
+      if (!isApprovedCircleRole(role)) {
+        socialError("FORBIDDEN", "Only approved members may post to this circle");
+      }
+    }
+    const created = await tx
+      .insert(posts)
+      .values({
+        authorId: userId,
+        circleId: input.circleId ?? null,
+        text: input.text.trim(),
+        media: input.media?.trim() || null,
+        mediaType: input.mediaType,
+      })
+      .returning({ id: posts.id });
+    const id = created[0]?.id;
+    if (!id) socialError("INTERNAL_SERVER_ERROR", "Unable to create post");
+    await claimMediaOwnership(tx, userId, input.media);
+    return id;
+  });
   if (!postId) socialError("INTERNAL_SERVER_ERROR", "Unable to create post");
   return postOutputWithDb(db, postId, userId);
 }
@@ -1114,39 +1641,61 @@ export async function createPost(
 export async function toggleLike(
   userId: number,
   postId: number,
+  desiredLiked?: boolean,
 ): Promise<{ liked: boolean }> {
   const db = await requireDb();
-  await assertPostAccess(db, userId, postId);
-  const existing = await db
-    .select({ id: reactions.id })
-    .from(reactions)
-    .where(and(eq(reactions.postId, postId), eq(reactions.userId, userId)))
-    .limit(1);
-  if (existing[0]) {
-    await db.delete(reactions).where(eq(reactions.id, existing[0].id));
-    return { liked: false };
-  }
-  await db.insert(reactions).values({ postId, userId, type: "like" });
-  return { liked: true };
+  return db.transaction(async (tx) => {
+    await assertPostAccessForProtectedMutation(tx, userId, postId);
+    const existing = await tx
+      .select({ id: reactions.id })
+      .from(reactions)
+      .where(and(eq(reactions.postId, postId), eq(reactions.userId, userId)))
+      .limit(1);
+    const liked = desiredLiked ?? !existing.length;
+    if (!liked) {
+      await tx
+        .delete(reactions)
+        .where(
+          and(eq(reactions.postId, postId), eq(reactions.userId, userId)),
+        );
+      return { liked: false };
+    }
+    await tx
+      .insert(reactions)
+      .values({ postId, userId, type: "like" })
+      .onConflictDoNothing({ target: [reactions.postId, reactions.userId] });
+    return { liked: true };
+  });
 }
 
 export async function toggleSave(
   userId: number,
   postId: number,
+  desiredSaved?: boolean,
 ): Promise<{ saved: boolean }> {
   const db = await requireDb();
-  await assertPostAccess(db, userId, postId);
-  const existing = await db
-    .select({ id: bookmarks.id })
-    .from(bookmarks)
-    .where(and(eq(bookmarks.postId, postId), eq(bookmarks.userId, userId)))
-    .limit(1);
-  if (existing[0]) {
-    await db.delete(bookmarks).where(eq(bookmarks.id, existing[0].id));
-    return { saved: false };
-  }
-  await db.insert(bookmarks).values({ postId, userId });
-  return { saved: true };
+  return db.transaction(async (tx) => {
+    await assertPostAccessForProtectedMutation(tx, userId, postId);
+    const existing = await tx
+      .select({ id: bookmarks.id })
+      .from(bookmarks)
+      .where(and(eq(bookmarks.postId, postId), eq(bookmarks.userId, userId)))
+      .limit(1);
+    const saved = desiredSaved ?? !existing.length;
+    if (!saved) {
+      await tx
+        .delete(bookmarks)
+        .where(
+          and(eq(bookmarks.postId, postId), eq(bookmarks.userId, userId)),
+        );
+      return { saved: false };
+    }
+    await tx
+      .insert(bookmarks)
+      .values({ postId, userId })
+      .onConflictDoNothing({ target: [bookmarks.postId, bookmarks.userId] });
+    return { saved: true };
+  });
 }
 
 export async function listComments(
@@ -1163,7 +1712,7 @@ export async function listComments(
   return Promise.all(
     rows.map(async (row) => ({
       id: row.id,
-      author: await displayProfileWithDb(db, row.authorId, row.authorId),
+      author: await displayProfileWithDb(db, row.authorId, userId),
       text: row.text,
       createdAt: toIso(row.createdAt),
     })),
@@ -1176,17 +1725,19 @@ export async function createComment(
   text: string,
 ): Promise<Comment> {
   const db = await requireDb();
-  await assertPostAccess(db, userId, postId);
   await ensureProfileWithDb(db, userId);
-  const created = await db
-    .insert(comments)
-    .values({ authorId: userId, postId, text: text.trim() })
-    .returning({
-      id: comments.id,
-      text: comments.text,
-      createdAt: comments.createdAt,
-    });
-  const row = created[0];
+  const row = await db.transaction(async (tx) => {
+    await assertPostAccessForProtectedMutation(tx, userId, postId);
+    const created = await tx
+      .insert(comments)
+      .values({ authorId: userId, postId, text: text.trim() })
+      .returning({
+        id: comments.id,
+        text: comments.text,
+        createdAt: comments.createdAt,
+      });
+    return created[0];
+  });
   if (!row) socialError("INTERNAL_SERVER_ERROR", "Unable to create comment");
   return {
     id: row.id,
@@ -1201,14 +1752,20 @@ export async function deletePost(
   postId: number,
 ): Promise<{ success: true }> {
   const db = await requireDb();
-  const { post, role } = await assertPostAccess(db, userId, postId);
-  if (post.authorId !== userId && !canModerateCircle(role)) {
-    socialError(
-      "FORBIDDEN",
-      "Only the author or a circle moderator can delete this post",
+  await db.transaction(async (tx) => {
+    const { post, role } = await assertPostAccessForProtectedMutation(
+      tx,
+      userId,
+      postId,
     );
-  }
-  await db.delete(posts).where(eq(posts.id, postId));
+    if (post.authorId !== userId && !canModerateCircle(role)) {
+      socialError(
+        "FORBIDDEN",
+        "Only the author or a circle moderator can delete this post",
+      );
+    }
+    await tx.delete(posts).where(eq(posts.id, postId));
+  });
   return { success: true };
 }
 
@@ -1218,19 +1775,21 @@ export async function reportPost(
   reason: string,
 ): Promise<{ success: true }> {
   const db = await requireDb();
-  await assertPostAccess(db, userId, postId);
-  await db
-    .insert(reports)
-    .values({ postId, reporterId: userId, reason: reason.trim() })
-    .onConflictDoUpdate({
-      target: [reports.postId, reports.reporterId],
-      set: { reason: reason.trim(), updatedAt: new Date() },
-    });
+  await db.transaction(async (tx) => {
+    await assertPostAccessForProtectedMutation(tx, userId, postId);
+    await tx
+      .insert(reports)
+      .values({ postId, reporterId: userId, reason: reason.trim() })
+      .onConflictDoUpdate({
+        target: [reports.postId, reports.reporterId],
+        set: { reason: reason.trim(), updatedAt: new Date() },
+      });
+  });
   return { success: true };
 }
 
 async function ensureConversationParticipant(
-  db: Database,
+  db: Database | SocialTransaction,
   conversationId: number,
   userId: number,
 ) {
@@ -1245,7 +1804,10 @@ async function ensureConversationParticipant(
     });
 }
 
-async function conversationRowOrThrow(db: Database, conversationId: number) {
+async function conversationRowOrThrow(
+  db: Database | SocialTransaction,
+  conversationId: number,
+) {
   const rows = await db
     .select()
     .from(conversations)
@@ -1274,10 +1836,13 @@ async function lockConversationForMessageMutation(
 
 /** Enforces direct participation or live approved circle membership on every message request. */
 async function assertConversationAccess(
-  db: Database,
+  db: Database | SocialTransaction,
   userId: number,
   conversationId: number,
-  options: { ensureCircleParticipant?: boolean } = {},
+  options: {
+    ensureCircleParticipant?: boolean;
+    lockCircleForProtectedMutation?: boolean;
+  } = {},
 ) {
   const conversation = await conversationRowOrThrow(db, conversationId);
   if (conversation.kind === "direct") {
@@ -1304,7 +1869,15 @@ async function assertConversationAccess(
       "INTERNAL_SERVER_ERROR",
       "Circle conversation is missing its circle",
     );
-  const role = await membershipRoleWithDb(db, userId, conversation.circleId);
+  const role = options.lockCircleForProtectedMutation
+    ? (
+        await lockCircleAccessForProtectedMutation(
+          db as SocialTransaction,
+          userId,
+          conversation.circleId,
+        )
+      ).role
+    : await membershipRoleWithDb(db, userId, conversation.circleId);
   if (!isApprovedCircleRole(role)) {
     socialError(
       "FORBIDDEN",
@@ -1325,7 +1898,7 @@ async function conversationOutputWithDb(
   const conversation = await conversationRowOrThrow(db, conversationId);
   const [lastRows, participantRows] = await Promise.all([
     db
-      .select({ text: messages.text })
+      .select({ text: messages.text, media: messages.media })
       .from(messages)
       .where(eq(messages.conversationId, conversation.id))
       .orderBy(desc(messages.createdAt), desc(messages.id))
@@ -1364,7 +1937,7 @@ async function conversationOutputWithDb(
       avatar: circle.image,
       kind: "circle",
       circleId: circle.id,
-      lastMessage: lastRows[0]?.text ?? "No messages yet",
+      lastMessage: messagePreview(lastRows[0]),
       updatedAt: toIso(conversation.updatedAt),
       unread: countValue(unreadRows[0]?.total),
     };
@@ -1377,7 +1950,7 @@ async function conversationOutputWithDb(
     ? await displayProfileWithDb(
         db,
         otherParticipant.userId,
-        otherParticipant.userId,
+        userId,
       )
     : null;
   return {
@@ -1386,7 +1959,7 @@ async function conversationOutputWithDb(
     avatar: other?.avatar ?? DEFAULT_AVATAR,
     kind: "direct",
     circleId: null,
-    lastMessage: lastRows[0]?.text ?? "No messages yet",
+    lastMessage: messagePreview(lastRows[0]),
     updatedAt: toIso(conversation.updatedAt),
     unread: countValue(unreadRows[0]?.total),
   };
@@ -1500,39 +2073,45 @@ export async function openCircleChat(
   circleId: number,
 ): Promise<{ id: number }> {
   const db = await requireDb();
-  const { role } = await assertCircleContentAccess(db, userId, circleId);
-  if (!isApprovedCircleRole(role))
-    socialError("FORBIDDEN", "Only approved members may enter circle chat");
+  return db.transaction(async (tx) => {
+    const { role } = await lockCircleAccessForProtectedMutation(
+      tx,
+      userId,
+      circleId,
+    );
+    if (!isApprovedCircleRole(role))
+      socialError("FORBIDDEN", "Only approved members may enter circle chat");
 
-  const existing = await db
-    .select({ id: conversations.id })
-    .from(conversations)
-    .where(eq(conversations.circleId, circleId))
-    .limit(1);
-  const id = existing[0]?.id;
-  if (id) {
-    await ensureConversationParticipant(db, id, userId);
-    return { id };
-  }
+    const existing = await tx
+      .select({ id: conversations.id })
+      .from(conversations)
+      .where(eq(conversations.circleId, circleId))
+      .limit(1);
+    const id = existing[0]?.id;
+    if (id) {
+      await ensureConversationParticipant(tx, id, userId);
+      return { id };
+    }
 
-  const created = await db
-    .insert(conversations)
-    .values({ kind: "circle", circleId })
-    .onConflictDoNothing({ target: conversations.circleId })
-    .returning({ id: conversations.id });
-  const createdId =
-    created[0]?.id ??
-    (
-      await db
-        .select({ id: conversations.id })
-        .from(conversations)
-        .where(eq(conversations.circleId, circleId))
-        .limit(1)
-    )[0]?.id;
-  if (!createdId)
-    socialError("INTERNAL_SERVER_ERROR", "Unable to open circle conversation");
-  await ensureConversationParticipant(db, createdId, userId);
-  return { id: createdId };
+    const created = await tx
+      .insert(conversations)
+      .values({ kind: "circle", circleId })
+      .onConflictDoNothing({ target: conversations.circleId })
+      .returning({ id: conversations.id });
+    const createdId =
+      created[0]?.id ??
+      (
+        await tx
+          .select({ id: conversations.id })
+          .from(conversations)
+          .where(eq(conversations.circleId, circleId))
+          .limit(1)
+      )[0]?.id;
+    if (!createdId)
+      socialError("INTERNAL_SERVER_ERROR", "Unable to open circle conversation");
+    await ensureConversationParticipant(tx, createdId, userId);
+    return { id: createdId };
+  });
 }
 
 export type ReadReceiptParticipant = {
@@ -1621,6 +2200,21 @@ export function hasMessageContent(
   return Boolean(text.trim() || media?.trim());
 }
 
+/** Opaque, client-generated retry nonce; URL-safe to survive native transports and logs. */
+const CLIENT_MESSAGE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{15,95}$/;
+
+export function isValidClientMessageId(value: string): boolean {
+  return CLIENT_MESSAGE_ID.test(value);
+}
+
+/** Inbox previews must distinguish an attachment from an empty conversation. */
+export function messagePreview(
+  message: { text: string; media: string | null } | undefined,
+): string {
+  if (!message) return "No messages yet";
+  return message.text.trim() || (message.media ? "Attachment" : "No messages yet");
+}
+
 export type MessagePageOptions = {
   /** Exclusive older-than message ID. Omit it to receive the newest live page. */
   cursor?: number;
@@ -1694,7 +2288,7 @@ export async function listMessages(
     rows.map(async (row) => ({
       id: row.id,
       conversationId: row.conversationId,
-      author: await displayProfileWithDb(db, row.authorId, row.authorId),
+      author: await displayProfileWithDb(db, row.authorId, userId),
       text: row.text,
       media: row.media,
       createdAt: toIso(row.createdAt),
@@ -1718,19 +2312,48 @@ export async function listMessages(
 export async function sendMessage(
   userId: number,
   conversationId: number,
-  input: { text: string; media?: string },
+  input: { text: string; media?: string; clientMessageId?: string },
 ): Promise<Message> {
   const text = input.text.trim();
   const media = input.media?.trim() || undefined;
+  const clientMessageId = input.clientMessageId?.trim() || undefined;
   if (!hasMessageContent(text, media))
     socialError("BAD_REQUEST", "A message needs text or media");
+  if (clientMessageId && !isValidClientMessageId(clientMessageId)) {
+    socialError("BAD_REQUEST", "Invalid client message ID");
+  }
   const db = await requireDb();
-  await assertConversationAccess(db, userId, conversationId, {
-    ensureCircleParticipant: true,
-  });
-  await assertMediaOwnership(db, userId, media);
-  const row = await db.transaction(async (tx) => {
+  const { row } = await db.transaction(async (tx) => {
     await lockConversationForMessageMutation(tx, conversationId);
+    await assertConversationAccess(tx, userId, conversationId, {
+      ensureCircleParticipant: true,
+      lockCircleForProtectedMutation: true,
+    });
+    if (clientMessageId) {
+      const existing = await tx
+        .select()
+        .from(messages)
+        .where(
+          and(
+            eq(messages.conversationId, conversationId),
+            eq(messages.authorId, userId),
+            eq(messages.clientMessageId, clientMessageId),
+          ),
+        )
+        .limit(1);
+      if (existing[0]) {
+        if (existing[0].text !== text || existing[0].media !== (media ?? null)) {
+          socialError(
+            "CONFLICT",
+            "A client message ID cannot be reused with different content",
+          );
+        }
+        return { row: existing[0] };
+      }
+    }
+    // The attachment check and ownership claim live with message insertion. A failed insert
+    // cannot consume an upload, and a nonce retry rejects changed payload before new media work.
+    await assertMediaOwnership(tx, userId, media);
     const created = await tx
       .insert(messages)
       .values({
@@ -1738,17 +2361,19 @@ export async function sendMessage(
         authorId: userId,
         text,
         media: media ?? null,
+        clientMessageId: clientMessageId ?? null,
       })
       .returning();
     const message = created[0];
     if (!message)
       socialError("INTERNAL_SERVER_ERROR", "Unable to send message");
+    await claimMediaOwnership(tx, userId, media);
     // Keep message allocation and list recency in the same transaction and conversation lock.
     await tx
       .update(conversations)
       .set({ updatedAt: new Date() })
       .where(eq(conversations.id, conversationId));
-    return message;
+    return { row: message };
   });
   return {
     id: row.id,
@@ -1757,7 +2382,7 @@ export async function sendMessage(
     text: row.text,
     media: row.media,
     createdAt: toIso(row.createdAt),
-    // No recipient has had an opportunity to advance a read cursor at send time.
+    // The existing response contract has no per-recipient receipt in this mutation result.
     read: false,
   };
 }
@@ -1768,11 +2393,12 @@ export async function markConversationRead(
   throughMessageId: number,
 ): Promise<{ success: true }> {
   const db = await requireDb();
-  await assertConversationAccess(db, userId, conversationId, {
-    ensureCircleParticipant: true,
-  });
   await db.transaction(async (tx) => {
     await lockConversationForMessageMutation(tx, conversationId);
+    await assertConversationAccess(tx, userId, conversationId, {
+      ensureCircleParticipant: true,
+      lockCircleForProtectedMutation: true,
+    });
     const delivered = await tx
       .select({ id: messages.id })
       .from(messages)

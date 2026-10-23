@@ -1,10 +1,17 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
   createLiveIceConfiguration,
+  isLiveOfferEpoch,
   LIVE_RELAY_REFRESH_SKEW_MS,
   liveRelayExpiryMs,
   liveRelayNeedsRefresh,
+  planLiveViewerRecovery,
+  queuePendingLiveIce,
+  splitPendingLiveIceForOfferEpoch,
   type LiveTurnCredentials,
+  type LiveIceCandidateEnvelope,
+  type LiveOfferEpoch,
+  withLiveOfferEpoch,
 } from "@/lib/live-ice";
 import { createTRPCClient } from "@/lib/trpc";
 import { hostGenerationFromRestartSignal } from "@/shared/live-generation-restart";
@@ -27,10 +34,17 @@ type Signal = {
   payload: string;
 };
 
+type WebCandidate = RTCIceCandidateInit & LiveIceCandidateEnvelope;
+type WebDescription = RTCSessionDescriptionInit & LiveOfferEpoch;
+
 type PeerState = {
   connection: RTCPeerConnection;
-  pendingIce: RTCIceCandidateInit[];
+  pendingIce: WebCandidate[];
   restartPending: boolean;
+  /** Monotonically tags offers created by the host peer. */
+  localOfferEpoch: number;
+  /** The exact offer epoch whose remote description has been applied. */
+  remoteOfferEpoch: number | null;
 };
 
 type DeferredTeardown = {
@@ -38,6 +52,11 @@ type DeferredTeardown = {
   host: boolean;
   controller: AbortController;
 };
+
+const MAX_VIEWER_REJOIN_ATTEMPTS = 2;
+const VIEWER_REJOIN_BASE_DELAY_MS = 700;
+// Must expire before the server's setup deadline; this is not a broadcast-ready lease.
+const HOST_SETUP_CLIENT_DEADLINE_MS = 85_000;
 
 function browserIceConfiguration(
   relay: LiveTurnCredentials | null,
@@ -66,24 +85,36 @@ function messageFor(error: unknown): string {
 function parseDescription(
   payload: string,
   type: "offer" | "answer",
-): RTCSessionDescriptionInit {
+): WebDescription {
   const value: unknown = JSON.parse(payload);
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("Invalid session description.");
-  const description = value as RTCSessionDescriptionInit;
+  const description = value as WebDescription;
   if (description.type !== type || typeof description.sdp !== "string") {
     throw new Error("Invalid session description.");
+  }
+  if (
+    description.liveOfferEpoch !== undefined &&
+    !isLiveOfferEpoch(description.liveOfferEpoch)
+  ) {
+    throw new Error("Invalid live offer epoch.");
   }
   return description;
 }
 
-function parseCandidate(payload: string): RTCIceCandidateInit {
+function parseCandidate(payload: string): WebCandidate {
   const value: unknown = JSON.parse(payload);
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new Error("Invalid ICE candidate.");
-  const candidate = value as RTCIceCandidateInit;
+  const candidate = value as WebCandidate;
   if (typeof candidate.candidate !== "string" || !candidate.candidate) {
     throw new Error("Invalid ICE candidate.");
+  }
+  if (
+    candidate.liveOfferEpoch !== undefined &&
+    !isLiveOfferEpoch(candidate.liveOfferEpoch)
+  ) {
+    throw new Error("Invalid live offer epoch.");
   }
   return candidate;
 }
@@ -132,6 +163,8 @@ export default function LiveMedia({
     let pollTimer: ReturnType<typeof setInterval> | undefined;
     let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
     let relayRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+    let viewerRecoveryTimer: ReturnType<typeof setTimeout> | undefined;
+    let setupDeadlineTimer: ReturnType<typeof setTimeout> | undefined;
     let relayRefreshPromise: Promise<void> | null = null;
     let relay: LiveTurnCredentials | null = null;
     let iceConfiguration: RTCConfiguration | null = null;
@@ -141,7 +174,9 @@ export default function LiveMedia({
     let hostId: number | null = null;
     let hostGeneration: number | null = null;
     let viewerRestarting = false;
+    let viewerRecoveryAttempts = 0;
     let viewerMediaReady = false;
+    let hostMediaReady = false;
     let terminal = false;
     let pageHideHandler: (() => void) | null = null;
 
@@ -171,6 +206,8 @@ export default function LiveMedia({
       if (pollTimer) clearInterval(pollTimer);
       if (heartbeatTimer) clearInterval(heartbeatTimer);
       if (relayRefreshTimer) clearTimeout(relayRefreshTimer);
+      if (viewerRecoveryTimer) clearTimeout(viewerRecoveryTimer);
+      if (setupDeadlineTimer) clearTimeout(setupDeadlineTimer);
       stopAllPeers();
       const localStream = localStreamRef.current;
       localStreamRef.current = null;
@@ -190,18 +227,35 @@ export default function LiveMedia({
 
     const addQueuedIce = async (peer: PeerState) => {
       if (!peer.connection.remoteDescription) return;
-      const pending = peer.pendingIce.splice(0);
-      for (const candidate of pending) {
+      const { apply, retain } = splitPendingLiveIceForOfferEpoch(
+        peer.pendingIce,
+        peer.remoteOfferEpoch,
+      );
+      peer.pendingIce = retain;
+      for (const candidate of apply) {
         await peer.connection.addIceCandidate(new RTCIceCandidate(candidate));
       }
     };
 
     const receiveIce = async (peer: PeerState, payload: string) => {
       const candidate = parseCandidate(payload);
+      const candidateEpoch = candidate.liveOfferEpoch;
       if (!peer.connection.remoteDescription) {
-        peer.pendingIce.push(candidate);
+        peer.pendingIce = queuePendingLiveIce(peer.pendingIce, candidate);
         return;
       }
+      if (candidateEpoch === undefined) {
+        await peer.connection.addIceCandidate(new RTCIceCandidate(candidate));
+        return;
+      }
+      if (
+        peer.remoteOfferEpoch === null ||
+        candidateEpoch > peer.remoteOfferEpoch
+      ) {
+        peer.pendingIce = queuePendingLiveIce(peer.pendingIce, candidate);
+        return;
+      }
+      if (candidateEpoch < peer.remoteOfferEpoch) return;
       await peer.connection.addIceCandidate(new RTCIceCandidate(candidate));
     };
 
@@ -213,7 +267,9 @@ export default function LiveMedia({
 
     const requireIceConfiguration = (): RTCConfiguration => {
       if (!iceConfiguration)
-        throw new Error("Live relay credentials are unavailable. Please retry.");
+        throw new Error(
+          "Live relay credentials are unavailable. Please retry.",
+        );
       return iceConfiguration;
     };
 
@@ -245,6 +301,8 @@ export default function LiveMedia({
         }
         return;
       }
+      const offerEpoch = peer.localOfferEpoch + 1;
+      peer.localOfferEpoch = offerEpoch;
       const offer = await peer.connection.createOffer(
         iceRestart ? { iceRestart: true } : undefined,
       );
@@ -263,7 +321,9 @@ export default function LiveMedia({
           toId: viewerId,
           kind: "offer",
           generation: requireGeneration(),
-          payload: JSON.stringify(peer.connection.localDescription),
+          payload: JSON.stringify(
+            withLiveOfferEpoch(peer.connection.localDescription, offerEpoch),
+          ),
         });
       } catch (error) {
         closePeer(viewerId);
@@ -325,7 +385,11 @@ export default function LiveMedia({
       }
     };
 
-    const signalIce = (participantId: number, candidate: RTCIceCandidate) => {
+    const signalIce = (
+      participantId: number,
+      candidate: RTCIceCandidate,
+      liveOfferEpoch: number | null,
+    ) => {
       if (!active || generation === null) return;
       const serialized = candidate.toJSON ? candidate.toJSON() : candidate;
       void api.live.signal
@@ -334,14 +398,16 @@ export default function LiveMedia({
           toId: participantId,
           kind: "ice",
           generation,
-          payload: JSON.stringify(serialized),
+          payload: JSON.stringify(
+            liveOfferEpoch === null
+              ? serialized
+              : withLiveOfferEpoch(serialized, liveOfferEpoch),
+          ),
         })
         .catch(report);
     };
 
-    const hostPeer = async (
-      viewerId: number,
-    ): Promise<PeerState | null> => {
+    const hostPeer = async (viewerId: number): Promise<PeerState | null> => {
       const existing = peersRef.current.get(viewerId);
       if (existing) return existing;
       await refreshRelay();
@@ -354,13 +420,16 @@ export default function LiveMedia({
         connection,
         pendingIce: [],
         restartPending: false,
+        localOfferEpoch: 0,
+        remoteOfferEpoch: null,
       };
       peersRef.current.set(viewerId, peer);
       localStream
         .getTracks()
         .forEach((track) => connection.addTrack(track, localStream));
       connection.onicecandidate = (event) => {
-        if (active && event.candidate) signalIce(viewerId, event.candidate);
+        if (active && event.candidate)
+          signalIce(viewerId, event.candidate, peer.localOfferEpoch || null);
       };
       connection.onconnectionstatechange = () => {
         if (["failed", "closed"].includes(connection.connectionState))
@@ -378,10 +447,13 @@ export default function LiveMedia({
         connection,
         pendingIce: [],
         restartPending: false,
+        localOfferEpoch: 0,
+        remoteOfferEpoch: null,
       };
       peersRef.current.set(hostId, peer);
       connection.onicecandidate = (event) => {
-        if (active && event.candidate) signalIce(hostId, event.candidate);
+        if (active && event.candidate)
+          signalIce(hostId, event.candidate, peer.remoteOfferEpoch);
       };
       connection.ontrack = (event) => {
         const stream = event.streams[0];
@@ -392,13 +464,14 @@ export default function LiveMedia({
         }
         if (active && !viewerMediaReady) {
           viewerMediaReady = true;
+          viewerRecoveryAttempts = 0;
           setStatus("Live");
           callbackRef.current.onReady?.();
         }
       };
       connection.onconnectionstatechange = () => {
         if (connection.connectionState === "failed" && active) {
-          report(new Error("The live video connection failed."));
+          void restartViewer(hostId, null);
         }
       };
       return peer;
@@ -412,22 +485,59 @@ export default function LiveMedia({
      */
     const restartViewer = async (
       restartedHostId: number,
-      restartedHostGeneration: number,
+      restartedHostGeneration: number | null,
     ) => {
       if (
         host ||
         !active ||
         viewerRestarting ||
-        (hostGeneration !== null && restartedHostGeneration <= hostGeneration)
+        (restartedHostGeneration !== null &&
+          hostGeneration !== null &&
+          restartedHostGeneration <= hostGeneration)
       ) {
         return;
       }
+      const recoveringFailedPeer = restartedHostGeneration === null;
+      const recoveryPlan = recoveringFailedPeer
+        ? planLiveViewerRecovery(
+            viewerRecoveryAttempts,
+            MAX_VIEWER_REJOIN_ATTEMPTS,
+            VIEWER_REJOIN_BASE_DELAY_MS,
+          )
+        : null;
+      if (recoveryPlan?.terminal) {
+        const ownedGeneration = generation;
+        closePeer(restartedHostId);
+        if (ownedGeneration !== null) {
+          void api.live.leave
+            .mutate({ streamId, generation: ownedGeneration })
+            .catch(() => undefined);
+        }
+        terminate({
+          message:
+            "The live video connection could not be restored. Reopen this live moment to try again.",
+        });
+        return;
+      }
+      if (viewerRecoveryTimer) {
+        clearTimeout(viewerRecoveryTimer);
+        viewerRecoveryTimer = undefined;
+      }
       viewerRestarting = true;
+      if (recoveryPlan && !recoveryPlan.terminal) {
+        viewerRecoveryAttempts = recoveryPlan.attempt;
+      }
+      const ownedGeneration = generation;
       closePeer(restartedHostId);
       viewerMediaReady = false;
       if (remoteVideo) remoteVideo.srcObject = null;
       setStatus("Rejoining live stream…");
       try {
+        if (ownedGeneration !== null) {
+          await api.live.leave
+            .mutate({ streamId, generation: ownedGeneration })
+            .catch(() => undefined);
+        }
         const session = await api.live.join.mutate({ streamId });
         if (!active) return;
         generation = session.generation;
@@ -435,8 +545,35 @@ export default function LiveMedia({
         hostGeneration = session.hostGeneration;
         cursor = session.signalCursor;
         await applyRelayCredentials(session.ice, false);
-      } catch (error) {
-        report(error);
+      } catch {
+        const nextRecoveryPlan = recoveringFailedPeer
+          ? planLiveViewerRecovery(
+              viewerRecoveryAttempts,
+              MAX_VIEWER_REJOIN_ATTEMPTS,
+              VIEWER_REJOIN_BASE_DELAY_MS,
+            )
+          : null;
+        if (!recoveringFailedPeer || nextRecoveryPlan?.terminal) {
+          const currentGeneration = generation;
+          if (
+            currentGeneration !== null &&
+            currentGeneration !== ownedGeneration
+          ) {
+            void api.live.leave
+              .mutate({ streamId, generation: currentGeneration })
+              .catch(() => undefined);
+          }
+          terminate({
+            message:
+              "The live video connection could not be restored. Reopen this live moment to try again.",
+          });
+          return;
+        }
+        setStatus("Reconnecting live video…");
+        viewerRecoveryTimer = setTimeout(() => {
+          viewerRecoveryTimer = undefined;
+          void restartViewer(restartedHostId, null);
+        }, recoveryPlan?.retryDelayMs ?? VIEWER_REJOIN_BASE_DELAY_MS);
       } finally {
         viewerRestarting = false;
       }
@@ -466,9 +603,17 @@ export default function LiveMedia({
         if (signal.kind === "answer") {
           const peer = peersRef.current.get(signal.fromId);
           if (!peer) return;
-          await peer.connection.setRemoteDescription(
-            parseDescription(signal.payload, "answer"),
-          );
+          const answer = parseDescription(signal.payload, "answer");
+          if (
+            answer.liveOfferEpoch !== undefined &&
+            answer.liveOfferEpoch !== peer.localOfferEpoch
+          ) {
+            throw new Error("Live answer does not match the active offer.");
+          }
+          await peer.connection.setRemoteDescription(answer);
+          // The host created this offer, so its local epoch is authoritative
+          // even when supporting a deliberately untagged legacy answer.
+          peer.remoteOfferEpoch = peer.localOfferEpoch;
           await addQueuedIce(peer);
           if (peer.restartPending) {
             peer.restartPending = false;
@@ -492,9 +637,11 @@ export default function LiveMedia({
         await refreshRelay(existingPeer?.connection.remoteDescription !== null);
         if (!active) return;
         const peer = viewerPeer(signal.fromId);
-        await peer.connection.setRemoteDescription(
-          parseDescription(signal.payload, "offer"),
-        );
+        const offer = parseDescription(signal.payload, "offer");
+        await peer.connection.setRemoteDescription(offer);
+        // An untagged legacy offer stays explicitly unknown. That path can
+        // apply untagged ICE, but never guesses that tagged ICE belongs here.
+        peer.remoteOfferEpoch = offer.liveOfferEpoch ?? null;
         await addQueuedIce(peer);
         const answer = await peer.connection.createAnswer();
         if (!active) return;
@@ -505,7 +652,14 @@ export default function LiveMedia({
           toId: signal.fromId,
           kind: "answer",
           generation: requireGeneration(),
-          payload: JSON.stringify(peer.connection.localDescription),
+          payload: JSON.stringify(
+            peer.remoteOfferEpoch === null
+              ? peer.connection.localDescription
+              : withLiveOfferEpoch(
+                  peer.connection.localDescription,
+                  peer.remoteOfferEpoch,
+                ),
+          ),
         });
         return;
       }
@@ -577,6 +731,29 @@ export default function LiveMedia({
           if (typeof window !== "undefined") {
             window.addEventListener("pagehide", pageHideHandler);
           }
+          const renewHostHeartbeat = () => {
+            if (!active) return;
+            void api.live.heartbeat
+              .mutate({
+                streamId,
+                generation: hostCleanupGeneration,
+                ...(hostMediaReady ? {} : { setup: true }),
+              })
+              .catch(report);
+          };
+          // Permissions can legitimately take longer than the initial lease.
+          // This remains provisional (readyAt stays null) and is bounded on both
+          // client and server rather than becoming an invisible indefinite live.
+          renewHostHeartbeat();
+          heartbeatTimer = setInterval(renewHostHeartbeat, 5_000);
+          setupDeadlineTimer = setTimeout(() => {
+            if (!active || hostMediaReady) return;
+            void endHostedStream(hostCleanupGeneration);
+            terminate({
+              message:
+                "Camera setup timed out. Start a new live moment to try again.",
+            });
+          }, HOST_SETUP_CLIENT_DEADLINE_MS);
           const stream = await navigator.mediaDevices.getUserMedia({
             audio: true,
             video: { facingMode: "user" },
@@ -598,6 +775,9 @@ export default function LiveMedia({
             generation: hostCleanupGeneration,
           });
           if (!active) return ownedHostGeneration;
+          hostMediaReady = true;
+          if (setupDeadlineTimer) clearTimeout(setupDeadlineTimer);
+          setupDeadlineTimer = undefined;
           setStatus("Live");
           callbackRef.current.onReady?.(hostCleanupGeneration);
         } else {
@@ -606,20 +786,24 @@ export default function LiveMedia({
 
         await poll();
         if (active) pollTimer = setInterval(() => void poll(), 900);
-        if (active) {
+        if (active && !heartbeatTimer) {
           heartbeatTimer = setInterval(() => {
-            const heartbeatGeneration = host
-              ? ownedHostGeneration
-              : generation;
+            if (viewerRestarting) return;
+            const heartbeatGeneration = host ? ownedHostGeneration : generation;
             if (heartbeatGeneration === null) return;
             void api.live.heartbeat
-              .mutate({ streamId, generation: heartbeatGeneration })
+              .mutate({
+                streamId,
+                generation: heartbeatGeneration,
+                ...(host && !hostMediaReady ? { setup: true } : {}),
+              })
               .catch(report);
           }, 5_000);
         }
         return ownedHostGeneration;
       } catch (error) {
         report(error);
+        if (host) stopTransport();
         if (
           host &&
           ownedHostGeneration !== null &&

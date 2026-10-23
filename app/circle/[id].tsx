@@ -5,6 +5,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
 import { resolveFnd001QueryDisplayState } from "@/lib/fnd001-query-display-state";
+import { parsePositiveSafeId } from "@/lib/feed-ui-helpers";
 import { AppShell } from "@/components/app-shell";
 import { PostCard } from "@/components/post-card";
 import {
@@ -20,60 +21,74 @@ import {
 } from "@/components/circles-ui";
 
 export default function CircleScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
-  const circleId = Number(id);
+  const { id } = useLocalSearchParams<{ id?: string | string[] }>();
+  const routeCircleId = parsePositiveSafeId(id);
+  const circleId = routeCircleId ?? 0;
   const router = useRouter();
   const { width } = useWindowDimensions();
   const narrowActions = width < 390;
   const coverAspectRatio = width < 600 ? 16 / 10 : 3;
   const { user, requireAuth, notify } = useCircles();
   const [tab, setTab] = useState("Feed");
-  const circle = trpc.social.circle.useQuery({ id: circleId });
-  const group = circle.data;
+  const circle = trpc.social.circle.useQuery(
+    { id: circleId },
+    { enabled: !!routeCircleId },
+  );
+  const group = routeCircleId ? circle.data : undefined;
   const circleDisplayState = resolveFnd001QueryDisplayState({
     isLoading: circle.isLoading,
     isError: circle.isError,
     hasContent: !!group,
   });
-  const members = trpc.social.members.useQuery(
-    { circleId },
-    { enabled: !!group && (group.privacy === "public" || !!group.joined) },
+  const members = trpc.social.membersPage.useInfiniteQuery(
+    { circleId, limit: 20 },
+    {
+      enabled:
+        !!routeCircleId &&
+        !!group &&
+        (group.privacy === "public" || !!group.joined),
+      getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    },
   );
-  const feed = trpc.social.feed.useQuery(
-    { filter: "for-you", circleId },
-    { enabled: !!group && (group.privacy === "public" || !!group.joined) },
+  const feed = trpc.social.feedPage.useInfiniteQuery(
+    { filter: "for-you", circleId, limit: 20 },
+    {
+      enabled:
+        !!routeCircleId &&
+        !!group &&
+        (group.privacy === "public" || !!group.joined),
+      getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    },
   );
+  const memberItems = members.data?.pages.flatMap((page) => page.items) ?? [];
+  const feedItems = feed.data?.pages.flatMap((page) => page.items) ?? [];
   const membersDisplayState = resolveFnd001QueryDisplayState({
     isLoading: members.isLoading,
     isError: members.isError,
-    hasContent: !!members.data?.length,
+    hasContent: memberItems.length > 0 || !!members.hasNextPage,
   });
   const feedDisplayState = resolveFnd001QueryDisplayState({
     isLoading: feed.isLoading,
     isError: feed.isError,
-    hasContent: !!feed.data?.length,
+    hasContent: feedItems.length > 0 || !!feed.hasNextPage,
   });
   const utils = trpc.useUtils();
   const refresh = () => {
     void circle.refetch();
     void members.refetch();
+    void feed.refetch();
     void utils.social.circles.invalidate();
   };
-  const join = trpc.social.joinCircle.useMutation({
+  const membership = trpc.social.setMembership.useMutation({
     onSuccess: (result) => {
       refresh();
       notify(
         result.role === "pending"
           ? "Your request has been sent to the owner."
-          : "You’re in. Make yourself at home.",
+          : result.joined
+            ? "You’re in. Make yourself at home."
+            : "You’ve left this circle.",
       );
-    },
-    onError: (e) => notify(e.message),
-  });
-  const leave = trpc.social.leaveCircle.useMutation({
-    onSuccess: () => {
-      refresh();
-      notify("You’ve left this circle.");
     },
     onError: (e) => notify(e.message),
   });
@@ -115,7 +130,14 @@ export default function CircleScreen() {
   const isAdmin = group?.role === "owner" || group?.role === "moderator";
   return (
     <AppShell>
-      {circleDisplayState === "loading" ? (
+      {!routeCircleId ? (
+        <Empty
+          title="This circle link isn’t valid."
+          text="Find a circle that feels like home."
+          action="Find circles"
+          onAction={() => router.replace("/circles")}
+        />
+      ) : circleDisplayState === "loading" ? (
         <Loading />
       ) : circleDisplayState === "error" ? (
         <Empty
@@ -245,9 +267,13 @@ export default function CircleScreen() {
                         : "Join this circle"
                   }
                   icon={group.role === "pending" ? "time-outline" : "add"}
-                  loading={join.isPending}
+                  loading={membership.isPending}
                   disabled={group.role === "pending"}
-                  onPress={() => requireAuth(() => join.mutate({ circleId }))}
+                  onPress={() =>
+                    requireAuth(() =>
+                      membership.mutate({ circleId, joined: true }),
+                    )
+                  }
                   style={{ flex: 1 }}
                 />
               )}
@@ -256,8 +282,8 @@ export default function CircleScreen() {
               <Button
                 title="Cancel membership request"
                 secondary
-                loading={leave.isPending}
-                onPress={() => leave.mutate({ circleId })}
+                loading={membership.isPending}
+                onPress={() => membership.mutate({ circleId, joined: false })}
               />
             )}
           </View>
@@ -309,9 +335,27 @@ export default function CircleScreen() {
                 }
               />
             ) : (
-              (feed.data ?? []).map((post) => (
+              feedItems.map((post) => (
                 <PostCard key={post.id} post={post} />
               ))
+            ))}
+          {tab === "Feed" &&
+            (group.privacy === "public" || !!group.joined) &&
+            feedDisplayState === "content" &&
+            (feed.hasNextPage ? (
+              <Button
+                title="Show more moments"
+                secondary
+                loading={feed.isFetchingNextPage}
+                onPress={() => void feed.fetchNextPage()}
+                style={{ alignSelf: "center", marginTop: 8 }}
+              />
+            ) : (
+              <T
+                style={{ color: C.muted, fontSize: 12, textAlign: "center", paddingVertical: 14 }}
+              >
+                You’ve reached the end of these moments.
+              </T>
             ))}
           {tab === "Members" &&
             (group.privacy === "private" && !group.joined ? (
@@ -332,7 +376,7 @@ export default function CircleScreen() {
               />
             ) : (
               <View style={{ gap: 16 }}>
-                {members.data
+                {memberItems
                   ?.filter((member) => member.role !== "pending")
                   .map((member) => (
                     <Pressable
@@ -390,6 +434,24 @@ export default function CircleScreen() {
                   ))}
               </View>
             ))}
+          {tab === "Members" &&
+            (group.privacy === "public" || !!group.joined) &&
+            membersDisplayState === "content" &&
+            (members.hasNextPage ? (
+              <Button
+                title="Show more members"
+                secondary
+                loading={members.isFetchingNextPage}
+                onPress={() => void members.fetchNextPage()}
+                style={{ alignSelf: "center", marginTop: 8 }}
+              />
+            ) : (
+              <T
+                style={{ color: C.muted, fontSize: 12, textAlign: "center", paddingVertical: 14 }}
+              >
+                You’ve reached the end of these members.
+              </T>
+            ))}
           {tab === "About" && (
             <View style={[s.card, { padding: 22, gap: 16 }]}>
               <T style={{ fontSize: 19, fontWeight: "700" }}>
@@ -432,8 +494,8 @@ export default function CircleScreen() {
                 <Button
                   title="Leave this circle"
                   secondary
-                  onPress={() => leave.mutate({ circleId })}
-                  loading={leave.isPending}
+                  onPress={() => membership.mutate({ circleId, joined: false })}
+                  loading={membership.isPending}
                 />
               )}
               {group.role === "owner" && (
@@ -453,7 +515,7 @@ export default function CircleScreen() {
                 Owners appoint moderators. Owners and moderators keep the circle
                 welcoming.
               </T>
-              {members.data?.map((member) => (
+              {memberItems.map((member) => (
                 <View
                   key={member.user.id}
                   style={[s.card, { padding: 15, gap: 12 }]}
@@ -554,7 +616,7 @@ export default function CircleScreen() {
               <T style={{ fontSize: 17, fontWeight: "700", marginTop: 8 }}>
                 Moderate posts
               </T>
-              {feed.data?.map((post) => (
+              {feedItems.map((post) => (
                 <View key={post.id} style={[s.card, { padding: 14, gap: 10 }]}>
                   <T
                     style={{ fontWeight: "600", fontSize: 14, lineHeight: 20 }}

@@ -5,6 +5,10 @@ import { checkServerIdentity } from "node:tls";
 
 export const PRIVATE_SCHEMA = "circles_app";
 export const RUNTIME_ROLE = "circles_app_runtime";
+export const POSTGRES_CONNECTION_TIMEOUT_MS = 5_000;
+export const POSTGRES_QUERY_TIMEOUT_MS = 8_000;
+export const POSTGRES_STATEMENT_TIMEOUT_MS = 8_000;
+export const POSTGRES_IDLE_TRANSACTION_TIMEOUT_MS = 10_000;
 
 const PROJECT_REF = "vvclcsqletcxzoaayqzq";
 const DATABASE_NAME = "postgres";
@@ -93,6 +97,16 @@ export function getPostgresConnectionOptions(env = process.env, projectRoot = pr
     database: DATABASE_NAME,
     user: SESSION_POOLER_USER,
     password,
+    // These limits apply before application code sees a client, including
+    // readiness and the role-initialization query. They are intentionally
+    // finite because the server must fail closed rather than strand handlers.
+    connectionTimeoutMillis: POSTGRES_CONNECTION_TIMEOUT_MS,
+    query_timeout: POSTGRES_QUERY_TIMEOUT_MS,
+    statement_timeout: POSTGRES_STATEMENT_TIMEOUT_MS,
+    lock_timeout: POSTGRES_STATEMENT_TIMEOUT_MS,
+    idle_in_transaction_session_timeout: POSTGRES_IDLE_TRANSACTION_TIMEOUT_MS,
+    max: 10,
+    idleTimeoutMillis: 30_000,
     ssl: {
       ca,
       rejectUnauthorized: true,

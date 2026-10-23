@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, count, desc, eq, gt, ilike, isNull, or } from "drizzle-orm";
+import { and, count, desc, eq, gt, ilike, isNull, lt, or } from "drizzle-orm";
 import { z } from "zod";
 import {
   activeHostLeases,
@@ -26,8 +26,21 @@ import {
   getProfile,
 } from "./social-service";
 
-const MAX_SIGNAL_BYTES = 32_768;
-const MAX_ICE_CANDIDATE_BYTES = 8_192;
+export const MAX_SIGNAL_BYTES = 32_768;
+export const MAX_ICE_CANDIDATE_BYTES = 8_192;
+export const MAX_ICE_SDP_MID_BYTES = 256;
+/** Direct P2P fans out a media stream per viewer; this is deliberately not SFU scalability. */
+export const P2P_VIEWER_LIMIT = 4;
+/** One signal poll has a small, bounded protocol work unit. */
+export const MAX_LIVE_SIGNAL_BATCH = 64;
+/** Expiry prevents an abandoned participant from retaining durable signals indefinitely. */
+export const LIVE_SIGNAL_TTL_MS = 2 * 60_000;
+export const MAX_LIVE_SIGNALS_PER_STREAM = 512;
+export const MAX_LIVE_SIGNALS_PER_PARTICIPANT = 128;
+export const LIVE_SIGNAL_RATE_WINDOW_MS = 10_000;
+export const MAX_LIVE_SIGNALS_PER_PARTICIPANT_PER_WINDOW = 48;
+/** Provisional setup heartbeats cannot keep an unready stream alive forever. */
+export const HOST_SETUP_DEADLINE_MS = 90_000;
 /** A crashed host disappears quickly without requiring a browser unload event. */
 export const HOST_LEASE_MS = 45_000;
 /** Viewer counts and signaling do not retain abandoned browser sessions. */
@@ -75,6 +88,27 @@ export function hasActiveViewerLease(
   return (
     viewer.leftAt === null &&
     hasActiveLease(viewer.lastSeenAt, now, VIEWER_LEASE_MS)
+  );
+}
+
+export function isP2pAudienceAtCapacity(activeViewerCount: number): boolean {
+  return activeViewerCount >= P2P_VIEWER_LIMIT;
+}
+
+/**
+ * This predicate is evaluated with the stream row locked, immediately before
+ * an insert. It limits both retained rows and burst work per participant.
+ */
+export function wouldExceedLiveSignalQuota(input: {
+  streamSignals: number;
+  participantSignals: number;
+  recentParticipantSignals: number;
+}): boolean {
+  return (
+    input.streamSignals >= MAX_LIVE_SIGNALS_PER_STREAM ||
+    input.participantSignals >= MAX_LIVE_SIGNALS_PER_PARTICIPANT ||
+    input.recentParticipantSignals >=
+      MAX_LIVE_SIGNALS_PER_PARTICIPANT_PER_WINDOW
   );
 }
 
@@ -195,25 +229,42 @@ function forbidden(
   throw new TRPCError({ code: "FORBIDDEN", message });
 }
 
-function signalPayloadIsValid(kind: SignalKind, payload: string): boolean {
+export function signalPayloadIsValid(
+  kind: SignalKind,
+  payload: string,
+): boolean {
   try {
+    if (Buffer.byteLength(payload, "utf8") > MAX_SIGNAL_BYTES) return false;
     const value: unknown = JSON.parse(payload);
     if (!value || typeof value !== "object" || Array.isArray(value))
       return false;
     const signal = value as Record<string, unknown>;
+    const liveOfferEpoch = signal.liveOfferEpoch;
+    if (
+      liveOfferEpoch !== undefined &&
+      (typeof liveOfferEpoch !== "number" ||
+        !Number.isInteger(liveOfferEpoch) ||
+        liveOfferEpoch <= 0)
+    ) {
+      return false;
+    }
 
     if (kind === "ice") {
       return (
         typeof signal.candidate === "string" &&
         signal.candidate.length > 0 &&
-        signal.candidate.length <= MAX_ICE_CANDIDATE_BYTES &&
+        Buffer.byteLength(signal.candidate, "utf8") <=
+          MAX_ICE_CANDIDATE_BYTES &&
         (signal.sdpMid === null ||
           signal.sdpMid === undefined ||
-          typeof signal.sdpMid === "string") &&
+          (typeof signal.sdpMid === "string" &&
+            Buffer.byteLength(signal.sdpMid, "utf8") <=
+              MAX_ICE_SDP_MID_BYTES)) &&
         (signal.sdpMLineIndex === null ||
           signal.sdpMLineIndex === undefined ||
           (typeof signal.sdpMLineIndex === "number" &&
-            Number.isInteger(signal.sdpMLineIndex)))
+            Number.isInteger(signal.sdpMLineIndex) &&
+            signal.sdpMLineIndex >= 0))
       );
     }
 
@@ -221,7 +272,7 @@ function signalPayloadIsValid(kind: SignalKind, payload: string): boolean {
       signal.type === kind &&
       typeof signal.sdp === "string" &&
       signal.sdp.length > 0 &&
-      signal.sdp.length <= MAX_SIGNAL_BYTES
+      Buffer.byteLength(signal.sdp, "utf8") <= MAX_SIGNAL_BYTES
     );
   } catch {
     return false;
@@ -430,6 +481,7 @@ async function renewHostLeaseAtomically(
   hostId: number,
   streamId: number,
   ready: boolean | undefined,
+  setup: boolean | undefined,
   expectedGeneration: number,
 ): Promise<void> {
   await db.transaction(async (tx) => {
@@ -444,6 +496,26 @@ async function renewHostLeaseAtomically(
     }
 
     const now = new Date();
+    if (ready && setup) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "A host setup heartbeat cannot mark a stream ready.",
+      });
+    }
+    if (stream.readyAt === null && ready !== true) {
+      if (setup !== true) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "Live setup must send a provisional heartbeat before media is ready.",
+        });
+      }
+      if (now.getTime() - stream.createdAt.getTime() >= HOST_SETUP_DEADLINE_MS) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "Live camera setup timed out. Start a new live moment.",
+        });
+      }
+    }
     const active = await reconcileActiveHostLease(tx, lease, hostId, now);
     if (active?.id !== stream.id) notFound();
 
@@ -451,7 +523,7 @@ async function renewHostLeaseAtomically(
       .update(streams)
       .set({
         lastHeartbeatAt: now,
-        ...(ready && stream.readyAt === null ? { readyAt: now } : {}),
+        ...(ready === true && stream.readyAt === null ? { readyAt: now } : {}),
       })
       .where(and(eq(streams.id, stream.id), eq(streams.status, "live")));
     await tx
@@ -591,6 +663,107 @@ async function signalHighWaterMarkInTransaction(
     .orderBy(desc(liveSignals.id))
     .limit(1);
   return latest?.id ?? 0;
+}
+
+/** Every retained signal is short lived; this runs under the already-held stream lock. */
+async function purgeExpiredLiveSignalsInTransaction(
+  tx: LiveTransaction,
+  streamId: number,
+  now: Date,
+): Promise<void> {
+  await tx
+    .delete(liveSignals)
+    .where(
+      and(
+        eq(liveSignals.streamId, streamId),
+        lt(liveSignals.createdAt, new Date(now.getTime() - LIVE_SIGNAL_TTL_MS)),
+        or(
+          eq(liveSignals.kind, "offer"),
+          eq(liveSignals.kind, "answer"),
+          eq(liveSignals.kind, "ice"),
+        ),
+      ),
+    );
+}
+
+async function assertLiveSignalCapacityInTransaction(
+  tx: LiveTransaction,
+  input: { streamId: number; participantId: number; now: Date },
+): Promise<void> {
+  const recentCutoff = new Date(
+    input.now.getTime() - LIVE_SIGNAL_RATE_WINDOW_MS,
+  );
+  const [streamRows, participantRows, recentParticipantRows] = await Promise.all(
+    [
+      tx
+        .select({ total: count() })
+        .from(liveSignals)
+        .where(eq(liveSignals.streamId, input.streamId)),
+      tx
+        .select({ total: count() })
+        .from(liveSignals)
+        .where(
+          and(
+            eq(liveSignals.streamId, input.streamId),
+            eq(liveSignals.fromId, input.participantId),
+          ),
+        ),
+      tx
+        .select({ total: count() })
+        .from(liveSignals)
+        .where(
+          and(
+            eq(liveSignals.streamId, input.streamId),
+            eq(liveSignals.fromId, input.participantId),
+            gt(liveSignals.createdAt, recentCutoff),
+          ),
+        ),
+    ],
+  );
+  const [streamTotal] = streamRows;
+  const [participantTotal] = participantRows;
+  const [recentParticipantTotal] = recentParticipantRows;
+  if (
+    wouldExceedLiveSignalQuota({
+      streamSignals: Number(streamTotal?.total ?? 0),
+      participantSignals: Number(participantTotal?.total ?? 0),
+      recentParticipantSignals: Number(recentParticipantTotal?.total ?? 0),
+    })
+  ) {
+    throw new TRPCError({
+      code: "TOO_MANY_REQUESTS",
+      message: "Live signaling is busy. Please wait and retry.",
+    });
+  }
+}
+
+async function hasDuplicateLiveIceInTransaction(
+  tx: LiveTransaction,
+  input: {
+    streamId: number;
+    fromId: number;
+    toId: number;
+    fromGeneration: number;
+    toGeneration: number;
+    payload: string;
+  },
+): Promise<boolean> {
+  const [duplicate] = await tx
+    .select({ id: liveSignals.id })
+    .from(liveSignals)
+    .where(
+      and(
+        eq(liveSignals.streamId, input.streamId),
+        eq(liveSignals.fromId, input.fromId),
+        eq(liveSignals.toId, input.toId),
+        eq(liveSignals.kind, "ice"),
+        eq(liveSignals.fromGeneration, input.fromGeneration),
+        eq(liveSignals.toGeneration, input.toGeneration),
+        eq(liveSignals.payload, input.payload),
+      ),
+    )
+    .limit(1);
+  return !!duplicate;
 }
 
 /** Remove only messages belonging to the media lifecycle that was superseded. */
@@ -763,6 +936,8 @@ export const liveRouter = router({
     .input(
       idInput.extend({
         ready: z.boolean().optional(),
+        /** Hosts renew this only while waiting for capture permission/media. */
+        setup: z.literal(true).optional(),
         // Every media lifecycle, including a host's lease renewal, is bound to
         // the generation allocated by join. Legacy host calls fail closed.
         generation: z.number().int().positive(),
@@ -782,6 +957,7 @@ export const liveRouter = router({
           ctx.user.id,
           stream.id,
           input.ready,
+          input.setup,
           input.generation,
         );
         return { success: true } as const;
@@ -844,6 +1020,7 @@ export const liveRouter = router({
       // targets the newer host generation; it can never fall between them.
       const stream = await lockLiveStream(tx, input.streamId);
       if (!streamHasActiveHostLease(stream, now.getTime())) notFound();
+      await purgeExpiredLiveSignalsInTransaction(tx, stream.id, now);
 
       // The host does not inflate viewer counts, but a reload is a fresh media
       // lifecycle. The locked stream serializes each increment and snapshot.
@@ -906,7 +1083,11 @@ export const liveRouter = router({
       if (stream.readyAt === null) notFound();
 
       const [existingViewer] = await tx
-        .select({ generation: liveViewers.generation })
+        .select({
+          generation: liveViewers.generation,
+          lastSeenAt: liveViewers.lastSeenAt,
+          leftAt: liveViewers.leftAt,
+        })
         .from(liveViewers)
         .where(
           and(
@@ -916,6 +1097,29 @@ export const liveRouter = router({
         )
         .for("update")
         .limit(1);
+      const isAlreadyActive =
+        existingViewer !== undefined &&
+        hasActiveViewerLease(existingViewer, now.getTime());
+      if (!isAlreadyActive) {
+        const cutoff = new Date(now.getTime() - VIEWER_LEASE_MS);
+        const [activeViewerTotal] = await tx
+          .select({ total: count() })
+          .from(liveViewers)
+          .where(
+            and(
+              eq(liveViewers.streamId, stream.id),
+              isNull(liveViewers.leftAt),
+              gt(liveViewers.lastSeenAt, cutoff),
+            ),
+          );
+        if (isP2pAudienceAtCapacity(Number(activeViewerTotal?.total ?? 0))) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "This live moment has reached its small direct audience limit. Please try again later.",
+          });
+        }
+      }
       const generation = (existingViewer?.generation ?? 0) + 1;
       await tx
         .insert(liveViewers)
@@ -1107,52 +1311,59 @@ export const liveRouter = router({
     .query(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) unavailable();
-      const stream = await getStreamOrThrow(input.streamId);
-      const currentGeneration = await assertActiveParticipant(
-        stream,
-        ctx.user.id,
-      );
-      if (
-        !hasCurrentLiveSignalGeneration(input.generation, currentGeneration)
-      ) {
-        forbidden("This live media session has been replaced.");
-      }
+      const accessibleStream = await getStreamOrThrow(input.streamId);
+      await assertCircleAccess(ctx.user.id, accessibleStream.circleId);
+      return db.transaction(async (tx) => {
+        const stream = await lockLiveStream(tx, input.streamId);
+        const now = new Date();
+        await purgeExpiredLiveSignalsInTransaction(tx, stream.id, now);
+        const currentGeneration = await assertActiveParticipantInTransaction(
+          tx,
+          stream,
+          ctx.user.id,
+        );
+        if (
+          !hasCurrentLiveSignalGeneration(input.generation, currentGeneration)
+        ) {
+          forbidden("This live media session has been replaced.");
+        }
 
-      const conditions = [
-        eq(liveSignals.streamId, stream.id),
-        eq(liveSignals.toId, ctx.user.id),
-        eq(liveSignals.toGeneration, currentGeneration),
-      ];
-      if (input.afterId !== undefined)
-        conditions.push(gt(liveSignals.id, input.afterId));
-      const rows = await db
-        .select({
-          id: liveSignals.id,
-          fromId: liveSignals.fromId,
-          toId: liveSignals.toId,
-          kind: liveSignals.kind,
-          toGeneration: liveSignals.toGeneration,
-          payload: liveSignals.payload,
-        })
-        .from(liveSignals)
-        .where(and(...conditions))
-        .orderBy(liveSignals.id)
-        .limit(100);
+        const conditions = [
+          eq(liveSignals.streamId, stream.id),
+          eq(liveSignals.toId, ctx.user.id),
+          eq(liveSignals.toGeneration, currentGeneration),
+        ];
+        if (input.afterId !== undefined)
+          conditions.push(gt(liveSignals.id, input.afterId));
+        const rows = await tx
+          .select({
+            id: liveSignals.id,
+            fromId: liveSignals.fromId,
+            toId: liveSignals.toId,
+            kind: liveSignals.kind,
+            toGeneration: liveSignals.toGeneration,
+            payload: liveSignals.payload,
+          })
+          .from(liveSignals)
+          .where(and(...conditions))
+          .orderBy(liveSignals.id)
+          .limit(MAX_LIVE_SIGNAL_BATCH);
 
-      return rows
-        .filter((row) =>
-          isLiveSignalVisibleToSession(row, {
-            generation: currentGeneration,
-            cursor: input.afterId ?? 0,
-          }),
-        )
-        .map((row) => ({
-          id: row.id,
-          fromId: row.fromId,
-          toId: row.toId,
-          kind: row.kind as LiveSignalKind,
-          payload: row.payload,
-        }));
+        return rows
+          .filter((row) =>
+            isLiveSignalVisibleToSession(row, {
+              generation: currentGeneration,
+              cursor: input.afterId ?? 0,
+            }),
+          )
+          .map((row) => ({
+            id: row.id,
+            fromId: row.fromId,
+            toId: row.toId,
+            kind: row.kind as LiveSignalKind,
+            payload: row.payload,
+          }));
+      });
     }),
 
   signal: protectedProcedure
@@ -1183,6 +1394,8 @@ export const liveRouter = router({
       await db.transaction(async (tx) => {
         const stream = await lockLiveStream(tx, input.streamId);
         if (!streamIsReadyAndActive(stream)) notFound();
+        const now = new Date();
+        await purgeExpiredLiveSignalsInTransaction(tx, stream.id, now);
         const [senderGeneration, recipientGeneration] = await Promise.all([
           ctx.user.id === stream.hostId
             ? Promise.resolve(stream.hostGeneration)
@@ -1247,6 +1460,27 @@ export const liveRouter = router({
         ) {
           forbidden("This WebRTC signal is not allowed for these participants.");
         }
+
+        if (
+          input.kind === "ice" &&
+          (await hasDuplicateLiveIceInTransaction(tx, {
+            streamId: stream.id,
+            fromId: ctx.user.id,
+            toId: input.toId,
+            fromGeneration: senderGeneration,
+            toGeneration: recipientGeneration,
+            payload: input.payload,
+          }))
+        ) {
+          // ICE retransmission is normal; keeping one durable copy avoids
+          // inflating both the recipient queue and the quota counters.
+          return;
+        }
+        await assertLiveSignalCapacityInTransaction(tx, {
+          streamId: stream.id,
+          participantId: ctx.user.id,
+          now,
+        });
 
         await tx.insert(liveSignals).values({
           streamId: stream.id,

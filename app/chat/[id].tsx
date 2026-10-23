@@ -29,10 +29,22 @@ import {
 import { useVideoPlayer, VideoView } from "expo-video";
 import { assetBase64, supportedMime } from "@/lib/media";
 import {
+  createMessageCompositionRetryId,
+  readReceiptRetryDelayMs,
+} from "@/lib/message-composition";
+import {
   mergeMessageHistoryPages,
   MESSAGE_PAGE_DEFAULT_LIMIT,
   olderMessagePageCursor,
 } from "@/shared/message-pagination";
+
+type ReadReceiptState = {
+  scope: string;
+  acknowledgedThrough: number;
+  targetMessageId: number;
+  failedAttempts: number;
+  inFlight: boolean;
+};
 
 function ChatVideo({ uri, width }: { uri: string; width: number }) {
   const source = useMediaSource(uri);
@@ -54,9 +66,25 @@ export default function ChatScreen() {
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
   const scroll = useRef<ScrollView>(null);
+  const receiptRetryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const readReceipt = useRef<ReadReceiptState>({
+    scope: "",
+    acknowledgedThrough: 0,
+    targetMessageId: 0,
+    failedAttempts: 0,
+    inFlight: false,
+  });
+  const compositionRetryId = useRef<string | null>(null);
+  const uploadedMediaUrl = useRef<string | null>(null);
+  const compositionRetryScope = useRef<string | null>(null);
   const [text, setText] = useState("");
   const [sendingMedia, setSendingMedia] = useState(false);
   const [asset, setAsset] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  const compositionScope = `${user?.id ?? "guest"}:${conversationId}`;
+  const [uncertainDeliveryScope, setUncertainDeliveryScope] = useState<
+    string | null
+  >(null);
+  const deliveryUncertain = uncertainDeliveryScope === compositionScope;
   const chatMediaWidth = Math.min(
     220,
     Math.max(120, Math.floor((windowWidth - 44) * 0.8) - 26),
@@ -69,7 +97,7 @@ export default function ChatScreen() {
       getNextPageParam: (lastPage) => olderMessagePageCursor(lastPage),
     },
   );
-  const { mutate: markRead } = trpc.social.markRead.useMutation();
+  const { mutateAsync: markRead } = trpc.social.markRead.useMutation();
   const utils = trpc.useUtils();
   const loadedMessages = mergeMessageHistoryPages(messages.data?.pages ?? []);
   const newestLivePage = messages.data?.pages[0] ?? [];
@@ -77,23 +105,81 @@ export default function ChatScreen() {
   const userId = user?.id;
   const send = trpc.social.sendMessage.useMutation({
     onSuccess: () => {
+      compositionRetryId.current = null;
+      uploadedMediaUrl.current = null;
+      compositionRetryScope.current = null;
+      setUncertainDeliveryScope(null);
       setText("");
       setAsset(null);
       void messages.refetch();
       void utils.social.conversations.invalidate();
     },
-    onError: (e) => notify(e.message),
   });
   const upload = trpc.social.upload.useMutation();
   useEffect(() => {
     if (!userId || !newestDeliveredMessageId) return;
-    // MSG-002 owns the durable markRead router input. This isolated MSG-001 workspace sends the
-    // required delivered ID now; its current archived router strips it until that API patch lands.
-    const acknowledgement = {
-      conversationId,
-      throughMessageId: newestDeliveredMessageId,
+    const scope = `${userId}:${conversationId}`;
+    let state = readReceipt.current;
+    if (state.scope !== scope) {
+      state = {
+        scope,
+        acknowledgedThrough: 0,
+        targetMessageId: newestDeliveredMessageId,
+        failedAttempts: 0,
+        inFlight: false,
+      };
+      readReceipt.current = state;
+    } else if (newestDeliveredMessageId > state.targetMessageId) {
+      // A new delivered message is a new acknowledgement target. Do not let a
+      // previous terminal failure suppress its bounded retry budget.
+      state.targetMessageId = newestDeliveredMessageId;
+      state.failedAttempts = 0;
+    }
+    if (state.acknowledgedThrough >= state.targetMessageId) return;
+
+    let disposed = false;
+    const acknowledgeLatest = async () => {
+      if (
+        disposed ||
+        state.scope !== scope ||
+        state.inFlight ||
+        state.acknowledgedThrough >= state.targetMessageId
+      ) {
+        return;
+      }
+      const throughMessageId = state.targetMessageId;
+      state.inFlight = true;
+      try {
+        await markRead({ conversationId, throughMessageId });
+        if (state.scope !== scope) return;
+        state.acknowledgedThrough = Math.max(
+          state.acknowledgedThrough,
+          throughMessageId,
+        );
+        state.failedAttempts = 0;
+      } catch {
+        if (state.scope !== scope || state.targetMessageId !== throughMessageId)
+          return;
+        state.failedAttempts += 1;
+        const retryDelay = readReceiptRetryDelayMs(state.failedAttempts);
+        if (retryDelay !== null && !disposed) {
+          receiptRetryTimer.current = setTimeout(() => {
+            receiptRetryTimer.current = null;
+            void acknowledgeLatest();
+          }, retryDelay);
+        }
+      } finally {
+        if (state.scope === scope) state.inFlight = false;
+      }
     };
-    markRead(acknowledgement);
+    void acknowledgeLatest();
+    return () => {
+      disposed = true;
+      if (receiptRetryTimer.current) {
+        clearTimeout(receiptRetryTimer.current);
+        receiptRetryTimer.current = null;
+      }
+    };
   }, [conversationId, markRead, newestDeliveredMessageId, userId]);
   useEffect(() => {
     scroll.current?.scrollToEnd({ animated: true });
@@ -104,13 +190,19 @@ export default function ChatScreen() {
   }
 
   async function selectMedia() {
+    if (deliveryUncertain) return;
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ["images", "videos"],
         quality: 0.7,
         base64: true,
       });
-      if (!result.canceled) setAsset(result.assets[0]);
+      if (!result.canceled) {
+        compositionRetryId.current = null;
+        uploadedMediaUrl.current = null;
+        compositionRetryScope.current = compositionScope;
+        setAsset(result.assets[0]);
+      }
     } catch {
       notify("Your photo library could not open.");
     }
@@ -120,18 +212,39 @@ export default function ChatScreen() {
       return;
     setSendingMedia(true);
     try {
-      let media: string | undefined;
-      if (asset) {
+      if (compositionRetryScope.current !== compositionScope) {
+        compositionRetryId.current = null;
+        uploadedMediaUrl.current = null;
+        compositionRetryScope.current = compositionScope;
+      }
+      const clientMessageId =
+        compositionRetryId.current ?? createMessageCompositionRetryId();
+      compositionRetryId.current = clientMessageId;
+      let media = uploadedMediaUrl.current ?? undefined;
+      if (asset && !media) {
         media = (
           await upload.mutateAsync({
             base64: await assetBase64(asset),
             mimeType: supportedMime(asset),
           })
         ).url;
+        uploadedMediaUrl.current = media;
       }
-      await send.mutateAsync({ conversationId, text: text.trim(), media });
-    } catch (e) {
-      notify(e instanceof Error ? e.message : "Message could not send.");
+      // `clientMessageId` is deliberately retained through an ambiguous
+      // transport failure. The coordinated server contract deduplicates this
+      // sender/conversation operation and returns its settled message.
+      const messageInput = {
+        conversationId,
+        text: text.trim(),
+        media,
+        clientMessageId,
+      };
+      await send.mutateAsync(messageInput);
+    } catch {
+      setUncertainDeliveryScope(compositionScope);
+      notify(
+        "We couldn’t confirm this message. Retry sends the same message, not a duplicate.",
+      );
     } finally {
       setSendingMedia(false);
     }
@@ -358,7 +471,24 @@ export default function ChatScreen() {
                   Ready to share{" "}
                   {asset.type === "video" ? "a video" : "a photo"}
                 </T>
-                <IconButton icon="close" onPress={() => setAsset(null)} />
+                <IconButton
+                  icon="close"
+                  disabled={deliveryUncertain}
+                  onPress={() => {
+                    uploadedMediaUrl.current = null;
+                    compositionRetryId.current = null;
+                    compositionRetryScope.current = null;
+                    setAsset(null);
+                  }}
+                />
+              </View>
+            )}
+            {deliveryUncertain && (
+              <View style={{ paddingHorizontal: 22, paddingBottom: 8 }}>
+                <T style={{ color: C.coral, fontSize: 12, lineHeight: 18 }}>
+                  Delivery is unconfirmed. Retry sends this same message and
+                  attachment without creating a new one.
+                </T>
               </View>
             )}
             <View
@@ -379,10 +509,12 @@ export default function ChatScreen() {
                 color={C.green}
                 onPress={selectMedia}
                 label="Attach photo or video"
+                disabled={deliveryUncertain}
               />
               <TextInput
                 value={text}
                 onChangeText={setText}
+                editable={!deliveryUncertain}
                 placeholder="Say something kind…"
                 placeholderTextColor={C.muted}
                 onSubmitEditing={sendMessage}
@@ -404,7 +536,11 @@ export default function ChatScreen() {
               <Pressable
                 disabled={send.isPending || sendingMedia}
                 onPress={sendMessage}
-                accessibilityLabel="Send message"
+                accessibilityLabel={
+                  deliveryUncertain
+                    ? "Retry message delivery"
+                    : "Send message"
+                }
                 style={{
                   width: 44,
                   height: 44,

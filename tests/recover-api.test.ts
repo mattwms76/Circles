@@ -9,6 +9,8 @@ import {
   PROJECT_ROOT,
   REQUIRED_APPLICATION_COLUMNS,
   REQUIRED_APPLICATION_TABLES,
+  REQUIRED_IDENTITY_SEQUENCES,
+  REQUIRED_RUNTIME_POLICIES,
   callReadOnlyQuery,
   checkApplicationSchema,
   checkDatabaseReady,
@@ -151,7 +153,9 @@ function mockTrpcFetch(calls: MockCall[]) {
           : null
         : route === "system.health"
           ? { ok: true }
-          : route === "live.relay"
+          : route.endsWith("Page")
+            ? { items: [], nextCursor: null, hasMore: false }
+            : route === "live.relay"
             ? { ice: null }
             : ["social.circle", "social.profile"].includes(route)
               ? { id: 1 }
@@ -172,7 +176,14 @@ describe("guarded API recovery", () => {
       mode: "apply",
       configuration: configuration(),
       referenceEnvironment: clearedEnvironment(),
-      auth: { bearerToken: "synthetic-bearer", ids: existingIds },
+      auth: {
+        bearerToken: "synthetic-bearer",
+        ids: existingIds,
+        activeLiveContext: {
+          streamId: existingIds.streamId,
+          generation: existingIds.liveGeneration,
+        },
+      },
       serviceName: "circles-api",
       databaseReady: async () => true,
       schemaCheck: async () => true,
@@ -185,11 +196,11 @@ describe("guarded API recovery", () => {
 
     expect(report.ok).toBe(true);
     expect(restartCalls).toBe(1);
-    expect(report.inventory.declaredQueries).toBe(15);
+    expect(report.inventory.declaredQueries).toBe(19);
     expect(report.verification.summary).toMatchObject({
       failed: 0,
       skipped: 0,
-      completedPositiveQueries: 15,
+      completedPositiveQueries: 19,
     });
     expect(calls.every((call) => call.method === "GET")).toBe(true);
     expect(
@@ -239,7 +250,11 @@ describe("guarded API recovery", () => {
       configuration: trustedPreviewConfiguration(),
       operatorBaseUrl: "https://current-preview.manus.computer",
       endpointManifest,
-      auth: { bearerToken: "synthetic-bearer", ids: idsWithoutGeneration },
+      auth: {
+        bearerToken: "synthetic-bearer",
+        ids: idsWithoutGeneration,
+        activeLiveContext: { streamId: existingIds.streamId, generation: 27 },
+      },
       fetchImpl: mockTrpcFetch(calls),
     });
 
@@ -590,6 +605,41 @@ describe("guarded API recovery", () => {
       pgModule: makePgModule(
         (query) => {
           schemaQueries.push(query);
+          if (query.text.includes("p.polname AS policy_name")) {
+            return {
+              rows: Object.entries(REQUIRED_RUNTIME_POLICIES).map(
+                ([table, policy]) => ({
+                  table_name: table,
+                  policy_name: policy.name,
+                  policy_command: policy.command,
+                  policy_permissive: true,
+                  runtime_role_only: true,
+                  using_expression: "true",
+                  with_check_expression: policy.command === "r" ? null : "true",
+                }),
+              ),
+            };
+          }
+          if (query.text.includes("WITH expected(table_name")) {
+            return {
+              rows: Object.entries(REQUIRED_IDENTITY_SEQUENCES).map(
+                ([table, sequence]) => ({
+                  table_name: table,
+                  expected_sequence_name: sequence,
+                  sequence_name: sequence,
+                  owner_table_name: table,
+                  owner_column_name: "id",
+                  is_identity: true,
+                  can_use_sequence: true,
+                  can_select_sequence: true,
+                  can_update_sequence: false,
+                  observed_sequence_count: Object.keys(
+                    REQUIRED_IDENTITY_SEQUENCES,
+                  ).length,
+                }),
+              ),
+            };
+          }
           if (query.text.includes("FROM pg_roles")) {
             return {
               rows: [
@@ -630,9 +680,9 @@ describe("guarded API recovery", () => {
       ),
     });
     expect(schema).toBe(true);
-    expect(schemaQueries).toHaveLength(6);
+    expect(schemaQueries).toHaveLength(7);
     expect(
-      schemaQueries.every((query) => query.text.startsWith("SELECT")),
+      schemaQueries.every((query) => /^(SELECT|WITH) /.test(query.text)),
     ).toBe(true);
     expect(schemaQueries.every((query) => query.query_timeout === 8_000)).toBe(
       true,
@@ -734,7 +784,14 @@ describe("guarded API recovery", () => {
       projectDir: PROJECT_ROOT,
       configuration: trustedPreviewConfiguration(),
       operatorBaseUrl: "https://current-preview.manus.computer",
-      auth: { bearerToken: "synthetic-bearer", ids: existingIds },
+      auth: {
+        bearerToken: "synthetic-bearer",
+        ids: existingIds,
+        activeLiveContext: {
+          streamId: existingIds.streamId,
+          generation: existingIds.liveGeneration,
+        },
+      },
       databaseReady: async () => {
         databaseChecks += 1;
         return false;
@@ -758,7 +815,7 @@ describe("guarded API recovery", () => {
     expect(databaseChecks).toBe(0);
     expect(schemaChecks).toBe(0);
     expect(restarts).toBe(0);
-    expect(report.inventory.declaredQueries).toBe(15);
+    expect(report.inventory.declaredQueries).toBe(19);
     expect(calls.every((call) => call.method === "GET")).toBe(true);
   });
 
@@ -791,7 +848,7 @@ describe("guarded API recovery", () => {
     expect(child.status).toBe(1);
     const report = JSON.parse(child.stdout);
     expect(report.configuration.ok).toBe(true);
-    expect(report.inventory.declaredQueries).toBe(15);
+    expect(report.inventory.declaredQueries).toBe(19);
     expect(report.restart.attempted).toBe(false);
     expect(report.database.required).toBe(false);
   });

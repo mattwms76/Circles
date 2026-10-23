@@ -1,5 +1,5 @@
 import express from "express";
-import { createServer } from "http";
+import { createServer, type Server } from "http";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
@@ -8,8 +8,80 @@ import { createContext } from "./context";
 import { createCorsMiddleware } from "./cors";
 import { clearLegacySessionCookie } from "./cookies";
 import { checkBackendReadiness } from "./readiness";
+import { closePostgresPool } from "../db";
+import { withOperationDeadline } from "./bounded-network";
 
-async function startServer() {
+export const SHUTDOWN_DRAIN_TIMEOUT_MS = 10_000;
+
+function assertTrustedProductionRuntime(): void {
+  if (process.env.NODE_ENV !== "production") return;
+  const required = [
+    "MANUS_PROJECT_ID",
+    "MANUS_JWT_SECRET",
+    "MANUS_OAUTH_API_URL",
+    "MANUS_OAUTH_PORTAL_URL",
+    "SUPABASE_DATABASE_URL",
+  ];
+  if (required.some((name) => !process.env[name]) || process.env.DATABASE_URL) {
+    throw new Error("Trusted production runtime configuration is unavailable");
+  }
+}
+
+function closeHttpServer(server: Server): Promise<void> {
+  return new Promise((resolve) => {
+    server.close(() => resolve());
+  });
+}
+
+export type GracefulShutdownOptions = {
+  closePool?: () => Promise<void>;
+  exit?: (code: number) => void;
+  drainTimeoutMs?: number;
+};
+
+/** Stops acceptance first, then bounds HTTP drain and restricted-pool closure exactly once. */
+export function createGracefulShutdown(
+  server: Server,
+  options: GracefulShutdownOptions = {},
+): () => Promise<void> {
+  let shutdown: Promise<void> | null = null;
+  const timeoutMs = options.drainTimeoutMs ?? SHUTDOWN_DRAIN_TIMEOUT_MS;
+  const closePool = options.closePool ?? closePostgresPool;
+  const exit = options.exit ?? ((code: number) => process.exit(code));
+
+  return () => {
+    if (shutdown) return shutdown;
+    shutdown = (async () => {
+      try {
+        await withOperationDeadline(closeHttpServer(server), timeoutMs);
+      } catch {
+        server.closeAllConnections?.();
+      }
+      try {
+        await withOperationDeadline(closePool(), timeoutMs);
+      } catch {
+        // The process exits after the bounded drain; no subsequent restart is attempted here.
+      }
+      exit(0);
+    })();
+    return shutdown;
+  };
+}
+
+export function installGracefulShutdown(server: Server): () => void {
+  const shutdown = createGracefulShutdown(server);
+  const onSignal = () => {
+    void shutdown();
+  };
+  process.once("SIGTERM", onSignal);
+  process.once("SIGINT", onSignal);
+  return () => {
+    process.off("SIGTERM", onSignal);
+    process.off("SIGINT", onSignal);
+  };
+}
+
+export function createApiServer() {
   const app = express();
   const server = createServer(app);
 
@@ -44,13 +116,28 @@ async function startServer() {
     }),
   );
 
-  const port = parseInt(process.env.PORT || "3000");
-  server.listen(port, () => {
-    console.log("[api] server listening");
-  });
+  return { app, server };
 }
 
-startServer().catch(() => {
-  console.error("[api] server failed to start");
-  process.exitCode = 1;
-});
+export async function startServer() {
+  assertTrustedProductionRuntime();
+  const { server } = createApiServer();
+  const port = parseInt(process.env.PORT || "3000", 10);
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  installGracefulShutdown(server);
+  console.log("[api] server listening");
+  return server;
+}
+
+if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
+  void startServer().catch(() => {
+    console.error("[api] server failed to start");
+    process.exitCode = 1;
+  });
+}

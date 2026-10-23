@@ -1,5 +1,8 @@
 import { getDb } from "../db";
 import { loadTurnConfiguration } from "../turn-config";
+import { withOperationDeadline } from "./bounded-network";
+
+export const READINESS_DATABASE_DEADLINE_MS = 5_000;
 
 export type ReadinessEvidence = {
   runtime_role: string;
@@ -43,12 +46,27 @@ export const READINESS_SQL = `
   LIMIT 1
 `;
 
-export async function checkBackendReadiness() {
+export type ReadinessDependencies = {
+  getDatabase?: typeof getDb;
+  databaseDeadlineMs?: number;
+};
+
+export async function checkBackendReadiness(
+  dependencies: ReadinessDependencies = {},
+) {
   let evidence: ReadinessEvidence | null = null;
   try {
-    const db = await getDb();
+    const deadline =
+      dependencies.databaseDeadlineMs ?? READINESS_DATABASE_DEADLINE_MS;
+    const db = await withOperationDeadline(
+      (dependencies.getDatabase ?? getDb)(),
+      deadline,
+    );
     if (db) {
-      const result = await db.$client.query<ReadinessEvidence>(READINESS_SQL);
+      const result = await withOperationDeadline(
+        db.$client.query<ReadinessEvidence>(READINESS_SQL),
+        deadline,
+      );
       evidence = result.rows[0] ?? null;
     }
   } catch {

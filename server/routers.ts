@@ -1,7 +1,9 @@
 import { clearAcceptedSessionCookies } from "./_core/cookies";
+import { authorizeLogoutRequest } from "./_core/oauth";
 import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
+import { TRPCError } from "@trpc/server";
 import { socialRouter } from "./social-router";
 import { liveRouter } from "./live-router";
 
@@ -14,6 +16,14 @@ export const appRouter = router({
     me: publicProcedure.query((opts) => opts.ctx.user),
     logout: publicProcedure.mutation(async ({ ctx }) => {
       try {
+        try {
+          await authorizeLogoutRequest(ctx.req);
+        } catch {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Logout request was not accepted",
+          });
+        }
         await sdk.revokeRequestSessions(ctx.req);
         return {
           success: true,

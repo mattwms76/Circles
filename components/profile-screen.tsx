@@ -119,7 +119,13 @@ function ProfileEditModal({
   );
 }
 
-export default function ProfileScreen({ personId }: { personId?: number }) {
+export default function ProfileScreen({
+  personId,
+  invalidPersonRoute = false,
+}: {
+  personId?: number;
+  invalidPersonRoute?: boolean;
+}) {
   const router = useRouter();
   const { user, requireAuth, notify, showLogin, logout } = useCircles();
   const insets = useSafeAreaInsets();
@@ -128,7 +134,7 @@ export default function ProfileScreen({ personId }: { personId?: number }) {
   const own = !personId || personId === user?.id;
   const profile = trpc.social.profile.useQuery(
     personId ? { id: personId } : {},
-    { enabled: !!personId || !!user },
+    { enabled: !invalidPersonRoute && (!!personId || !!user) },
   );
   const [tab, setTab] = useState("Moments");
   const feed = trpc.social.feed.useQuery(
@@ -145,6 +151,9 @@ export default function ProfileScreen({ personId }: { personId?: number }) {
       setEdit(false);
       void profile.refetch();
       void utils.social.profiles.invalidate();
+      void utils.social.profile.invalidate();
+      void utils.social.feed.invalidate();
+      void utils.social.conversations.invalidate();
       notify("Your profile feels a little more you.");
     },
     onError: (e) => notify(e.message),
@@ -175,7 +184,15 @@ export default function ProfileScreen({ personId }: { personId?: number }) {
   });
   return (
     <AppShell>
-      {!personId && !user ? (
+      {invalidPersonRoute ? (
+        <Empty
+          icon="person-outline"
+          title="This person couldn’t be found."
+          text="Try exploring other creators."
+          action="Discover people"
+          onAction={() => router.push("/discover")}
+        />
+      ) : !personId && !user ? (
         <Empty
           icon="person-outline"
           title="A space that’s all you."

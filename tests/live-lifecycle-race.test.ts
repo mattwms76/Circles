@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { liveRouter } from "../server/live-router";
+import {
+  HOST_SETUP_DEADLINE_MS,
+  liveRouter,
+} from "../server/live-router";
 import {
   LiveLifecycleRaceFixture,
   type FixtureStream,
@@ -216,6 +219,41 @@ describe("LIV-RACE stream-row lifecycle serialization", () => {
     expect(fixture.stream.lastHeartbeatAt).not.toBe(
       heartbeatBeforeRejectedCalls,
     );
+  });
+
+  it("requires a provisional setup heartbeat, keeps readyAt null, and only publishes after ready", async () => {
+    const preparingStream = stream();
+    preparingStream.readyAt = null;
+    const fixture = new LiveLifecycleRaceFixture({ stream: preparingStream });
+    useFixture(fixture);
+
+    await expect(
+      caller(10).heartbeat({ streamId: 71, generation: 1 }),
+    ).rejects.toThrow("provisional heartbeat");
+    expect(fixture.stream.readyAt).toBeNull();
+
+    await expect(
+      caller(10).heartbeat({ streamId: 71, generation: 1, setup: true }),
+    ).resolves.toEqual({ success: true });
+    expect(fixture.stream.readyAt).toBeNull();
+
+    await expect(
+      caller(10).heartbeat({ streamId: 71, generation: 1, ready: true }),
+    ).resolves.toEqual({ success: true });
+    expect(fixture.stream.readyAt).toBeInstanceOf(Date);
+  });
+
+  it("does not let setup heartbeats revive camera setup after the server deadline", async () => {
+    const expiredSetup = stream();
+    expiredSetup.readyAt = null;
+    expiredSetup.createdAt = new Date(Date.now() - HOST_SETUP_DEADLINE_MS * 2);
+    const fixture = new LiveLifecycleRaceFixture({ stream: expiredSetup });
+    useFixture(fixture);
+
+    await expect(
+      caller(10).heartbeat({ streamId: 71, generation: 1, setup: true }),
+    ).rejects.toThrow("setup timed out");
+    expect(fixture.stream.readyAt).toBeNull();
   });
 
   it("serializes a committed host join, viewer leave, and current host end", async () => {

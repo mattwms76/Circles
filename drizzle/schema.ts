@@ -1,4 +1,5 @@
 import {
+  check,
   index,
   integer,
   jsonb,
@@ -226,6 +227,14 @@ export const conversations = circlesApp.table(
     uniqueIndex("conversations_direct_key_unique").on(table.directKey),
     uniqueIndex("conversations_circle_id_unique").on(table.circleId),
     index("conversations_kind_updated_idx").on(table.kind, table.updatedAt),
+    check(
+      "conversations_kind_target_check",
+      sql`(
+        (${table.kind} = 'direct' AND ${table.directKey} IS NOT NULL AND ${table.circleId} IS NULL)
+        OR
+        (${table.kind} = 'circle' AND ${table.directKey} IS NULL AND ${table.circleId} IS NOT NULL)
+      )`,
+    ),
   ],
 );
 
@@ -266,12 +275,30 @@ export const messages = circlesApp.table(
       .references(() => users.id, { onDelete: "cascade" }),
     text: text("text").notNull(),
     media: varchar("media", { length: 2048 }),
+    /**
+     * A caller-generated nonce unique per sender/conversation. It remains nullable for legacy
+     * clients and old rows during the staged mobile rollout.
+     */
+    clientMessageId: varchar("clientMessageId", { length: 96 }),
     createdAt: createdAt(),
   },
   (table) => [
     index("messages_conversation_created_idx").on(
       table.conversationId,
       table.createdAt,
+    ),
+    uniqueIndex("messages_conversation_author_client_message_id_unique").on(
+      table.conversationId,
+      table.authorId,
+      table.clientMessageId,
+    ).where(sql`${table.clientMessageId} IS NOT NULL`),
+    check(
+      "messages_content_check",
+      sql`btrim(${table.text}) <> '' OR ${table.media} IS NOT NULL`,
+    ),
+    check(
+      "messages_client_message_id_check",
+      sql`${table.clientMessageId} IS NULL OR ${table.clientMessageId} ~ '^[A-Za-z0-9][A-Za-z0-9_-]{15,95}$'`,
     ),
   ],
 );
@@ -294,6 +321,10 @@ export const follows = circlesApp.table(
       table.followingId,
     ),
     index("follows_following_idx").on(table.followingId),
+    check(
+      "follows_not_self_check",
+      sql`${table.followerId} <> ${table.followingId}`,
+    ),
   ],
 );
 
@@ -333,6 +364,8 @@ export const socialUploads = circlesApp.table(
     mimeType: varchar("mimeType", { length: 128 }).notNull(),
     bytes: integer("bytes").notNull(),
     createdAt: createdAt(),
+    /** Null until an owning social mutation commits; allows safe client abort/retry cleanup. */
+    claimedAt: timestamp("claimedAt", { withTimezone: true }),
   },
   (table) => [
     uniqueIndex("social_uploads_storage_key_unique").on(table.storageKey),
