@@ -3,7 +3,7 @@ import { Image as ExpoImage, type ImageProps } from "expo-image";
 import { Platform } from "react-native";
 import { getApiBaseUrl, getApiRequestUrl } from "@/constants/oauth";
 import { getSessionToken } from "@/lib/_core/auth";
-import { useCircles } from "@/hooks/circles-context";
+import { useCircles } from "@/hooks/circles-context-core";
 import {
   nativeMediaRequestKey,
   nativeMediaTokenForRequest,
@@ -37,31 +37,31 @@ export function useMediaSource(uri: string) {
   useEffect(() => {
     if (!requiresNativeAuthorization) return;
     let active = true;
-    void getSessionToken().then((value) => {
-      if (active) setTokenState({ requestKey, settled: true, token: value });
-    }, () => {
-      if (active) setTokenState({ requestKey, settled: true, token: null });
-    });
+    void getSessionToken().then(
+      (value) => {
+        if (active) setTokenState({ requestKey, settled: true, token: value });
+      },
+      () => {
+        if (active) setTokenState({ requestKey, settled: true, token: null });
+      },
+    );
     return () => {
       active = false;
     };
   }, [requestKey, requiresNativeAuthorization]);
-  return useMemo(
-    () => {
-      if (requiresNativeAuthorization) {
-        const token = nativeMediaTokenForRequest(tokenState, requestKey);
-        // Returning null keeps Expo Image/Video idle rather than prefetching the
-        // authenticated proxy URI without a bearer or with a stale account's one.
-        if (!token) return null;
-        return {
-          uri: resolvedUri,
-          headers: { Authorization: `Bearer ${token}` },
-        };
-      }
-      return { uri: resolvedUri };
-    },
-    [requestKey, requiresNativeAuthorization, resolvedUri, tokenState],
-  );
+  return useMemo(() => {
+    if (requiresNativeAuthorization) {
+      const token = nativeMediaTokenForRequest(tokenState, requestKey);
+      // Returning null keeps Expo Image/Video idle rather than prefetching the
+      // authenticated proxy URI without a bearer or with a stale account's one.
+      if (!token) return null;
+      return {
+        uri: resolvedUri,
+        headers: { Authorization: `Bearer ${token}` },
+      };
+    }
+    return { uri: resolvedUri };
+  }, [requestKey, requiresNativeAuthorization, resolvedUri, tokenState]);
 }
 export function Image(props: ImageProps) {
   const original = props.source;
