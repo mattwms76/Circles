@@ -45,7 +45,11 @@ export function parsePositiveSafeId(value: unknown): number | undefined {
 }
 
 export function isCircleCoverMime(mimeType: string): boolean {
-  return mimeType === "image/jpeg" || mimeType === "image/png" || mimeType === "image/webp";
+  return (
+    mimeType === "image/jpeg" ||
+    mimeType === "image/png" ||
+    mimeType === "image/webp"
+  );
 }
 
 export function validateComposerDraft({
@@ -66,17 +70,22 @@ export function validateComposerDraft({
 
   if (mode === "post") {
     if (!trimmedText && !hasMedia) return "Add a moment or a few words first.";
-    if (trimmedText.length > 10_000) return "Keep your moment under 10,000 characters.";
+    if (trimmedText.length > 10_000)
+      return "Keep your moment under 10,000 characters.";
     return undefined;
   }
 
   if (mode === "circle") {
-    if (trimmedName.length < 2) return "Give your circle a name with at least 2 characters.";
-    if (trimmedName.length > 140) return "Keep your circle name under 140 characters.";
+    if (trimmedName.length < 2)
+      return "Give your circle a name with at least 2 characters.";
+    if (trimmedName.length > 140)
+      return "Keep your circle name under 140 characters.";
     if (!trimmedText) return "Tell people what brings your circle together.";
-    if (trimmedText.length > 5_000) return "Keep your circle description under 5,000 characters.";
+    if (trimmedText.length > 5_000)
+      return "Keep your circle description under 5,000 characters.";
     if (!category.trim()) return "Choose a category for your circle.";
-    if (category.trim().length > 80) return "Keep your circle category under 80 characters.";
+    if (category.trim().length > 80)
+      return "Keep your circle category under 80 characters.";
     return undefined;
   }
 
@@ -122,7 +131,10 @@ export function getBoundedLoadedCollection<T>(
   endState: LoadedCollectionEndState;
 } {
   const items = Array.isArray(source) ? [...source] : [];
-  const safePageSize = Number.isSafeInteger(pageSize) && pageSize > 0 ? pageSize : UI_COLLECTION_PAGE_SIZE;
+  const safePageSize =
+    Number.isSafeInteger(pageSize) && pageSize > 0
+      ? pageSize
+      : UI_COLLECTION_PAGE_SIZE;
   const requestedCount = Number.isFinite(visibleCount)
     ? Math.max(0, Math.floor(visibleCount))
     : safePageSize;

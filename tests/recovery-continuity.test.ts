@@ -19,11 +19,14 @@ let previousMediaOrigin: string | undefined;
 
 beforeEach(() => {
   previousMediaOrigin = process.env.EXPO_PUBLIC_API_BASE_URL;
-  process.env.EXPO_PUBLIC_API_BASE_URL = "https://current-preview.manus.computer";
+  process.env.EXPO_PUBLIC_API_BASE_URL =
+    "https://current-preview.manus.computer";
 });
 
 function temporaryDirectory() {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "circles-continuity-test-"));
+  const directory = fs.mkdtempSync(
+    path.join(os.tmpdir(), "circles-continuity-test-"),
+  );
   fs.chmodSync(directory, 0o700);
   temporaryDirectories.push(directory);
   return directory;
@@ -66,7 +69,8 @@ afterEach(() => {
   while (temporaryDirectories.length) {
     fs.rmSync(temporaryDirectories.pop()!, { recursive: true, force: true });
   }
-  if (previousMediaOrigin === undefined) delete process.env.EXPO_PUBLIC_API_BASE_URL;
+  if (previousMediaOrigin === undefined)
+    delete process.env.EXPO_PUBLIC_API_BASE_URL;
   else process.env.EXPO_PUBLIC_API_BASE_URL = previousMediaOrigin;
 });
 
@@ -81,8 +85,11 @@ describe("recovery continuity", () => {
     });
 
     const malformed = syntheticInventory();
-    malformed.media[0].url = "https://untrusted.example.test/manus-storage/not-allowed";
-    expect(() => validateInventoryDocument(malformed)).toThrow("inventory_invalid");
+    malformed.media[0].url =
+      "https://untrusted.example.test/manus-storage/not-allowed";
+    expect(() => validateInventoryDocument(malformed)).toThrow(
+      "inventory_invalid",
+    );
   });
 
   it("uses a bounded read-only transaction and only fixed application metadata queries", async () => {
@@ -127,13 +134,29 @@ describe("recovery continuity", () => {
       },
     };
 
-    const inventory = await collectMediaInventory({ client, maxObjects: DEFAULT_MAX_OBJECTS, maxTotalBytes: 100 });
-    expect(inventory.summary).toMatchObject({ objects: 1, bytes: 3, referenced_objects: 1 });
+    const inventory = await collectMediaInventory({
+      client,
+      maxObjects: DEFAULT_MAX_OBJECTS,
+      maxTotalBytes: 100,
+    });
+    expect(inventory.summary).toMatchObject({
+      objects: 1,
+      bytes: 3,
+      referenced_objects: 1,
+    });
     expect(ended).toBe(true);
-    expect(commands).toContain("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
+    expect(commands).toContain(
+      "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY",
+    );
     expect(commands).toContain("SET LOCAL lock_timeout = '5s'");
     expect(commands).toContain("SET LOCAL statement_timeout = '30s'");
-    expect(commands.some((command) => /\b(?:INSERT|UPDATE|DELETE|ALTER|CREATE|DROP|GRANT|REVOKE)\b/i.test(command))).toBe(false);
+    expect(
+      commands.some((command) =>
+        /\b(?:INSERT|UPDATE|DELETE|ALTER|CREATE|DROP|GRANT|REVOKE)\b/i.test(
+          command,
+        ),
+      ),
+    ).toBe(false);
   });
 
   it("rejects non-app media origins before a request and fetches only the exact media proxy route", async () => {
@@ -165,8 +188,14 @@ describe("recovery continuity", () => {
     });
     expect(bytes).toEqual(Buffer.from([1, 2, 3]));
     expect(requested).toContain(`/api/media/${syntheticKey()} GET error`);
-    expect(isAllowedMediaOrigin("https://current-preview.manus.computer")).toBeInstanceOf(URL);
-    expect(isAllowedMediaOrigin("https://current-preview.manus.computer/not-an-origin")).toBeNull();
+    expect(
+      isAllowedMediaOrigin("https://current-preview.manus.computer"),
+    ).toBeInstanceOf(URL);
+    expect(
+      isAllowedMediaOrigin(
+        "https://current-preview.manus.computer/not-an-origin",
+      ),
+    ).toBeNull();
   });
 
   it("requires explicit signing-material opt-in and never accepts it as an automatic export input", () => {
@@ -184,19 +213,35 @@ describe("recovery continuity", () => {
       "/private/continuity.age",
     ];
     expect(parseCliArguments(exportArgs).includeSigningMaterial).toBe(false);
-    expect(() => parseCliArguments([...exportArgs, "--signing-material-file", "/private/key"])).toThrow(
-      "signing_material_not_opted_in",
-    );
-    expect(() => parseCliArguments([...exportArgs, "--include-signing-material"])).toThrow(
-      "signing_material_file_required",
-    );
+    expect(() =>
+      parseCliArguments([
+        ...exportArgs,
+        "--signing-material-file",
+        "/private/key",
+      ]),
+    ).toThrow("signing_material_not_opted_in");
+    expect(() =>
+      parseCliArguments([...exportArgs, "--include-signing-material"]),
+    ).toThrow("signing_material_file_required");
   });
 
   it("encrypts a complete synthetic package to the approved public recipient and leaves no plaintext output", async () => {
     const directory = temporaryDirectory();
-    const inventoryFile = privateFile(directory, "inventory.json", JSON.stringify(syntheticInventory()));
-    const authFile = privateFile(directory, "auth.json", JSON.stringify({ bearerToken: "synthetic-bearer" }));
-    const recipientFile = privateFile(directory, "recipient.txt", `${EXPECTED_BACKUP_RECIPIENT}\n`);
+    const inventoryFile = privateFile(
+      directory,
+      "inventory.json",
+      JSON.stringify(syntheticInventory()),
+    );
+    const authFile = privateFile(
+      directory,
+      "auth.json",
+      JSON.stringify({ bearerToken: "synthetic-bearer" }),
+    );
+    const recipientFile = privateFile(
+      directory,
+      "recipient.txt",
+      `${EXPECTED_BACKUP_RECIPIENT}\n`,
+    );
     const outputFile = path.join(directory, "circles-media-continuity.age");
 
     const result = await exportContinuityPackage({
@@ -212,10 +257,21 @@ describe("recovery continuity", () => {
         }),
     });
 
-    expect(result).toMatchObject({ objects: 1, bytes: 3, signing_material_included: false });
-    expect(fs.readFileSync(outputFile).subarray(0, 21).toString("utf8")).toBe("age-encryption.org/v1");
+    expect(result).toMatchObject({
+      objects: 1,
+      bytes: 3,
+      signing_material_included: false,
+    });
+    expect(fs.readFileSync(outputFile).subarray(0, 21).toString("utf8")).toBe(
+      "age-encryption.org/v1",
+    );
     expect(fs.statSync(outputFile).mode & 0o777).toBe(0o600);
-    expect(fs.readdirSync(directory)).toEqual(["auth.json", "circles-media-continuity.age", "inventory.json", "recipient.txt"]);
+    expect(fs.readdirSync(directory)).toEqual([
+      "auth.json",
+      "circles-media-continuity.age",
+      "inventory.json",
+      "recipient.txt",
+    ]);
   });
 
   it("fails closed when a database inventory exceeds its object cap", async () => {
@@ -224,17 +280,22 @@ describe("recovery continuity", () => {
       end: async () => undefined,
       query: async (request: string | { text: string; values: unknown[] }) => {
         const text = typeof request === "string" ? request : request.text;
-        return text.includes('FROM "circles_app"."socialUploads"') ? { rows: [{}, {}] } : { rows: [] };
+        return text.includes('FROM "circles_app"."socialUploads"')
+          ? { rows: [{}, {}] }
+          : { rows: [] };
       },
     };
-    await expect(collectMediaInventory({ client, maxObjects: 1, maxTotalBytes: 100 })).rejects.toThrow(
-      "inventory_object_limit_exceeded",
-    );
+    await expect(
+      collectMediaInventory({ client, maxObjects: 1, maxTotalBytes: 100 }),
+    ).rejects.toThrow("inventory_object_limit_exceeded");
   });
 
   it("uses stable non-sensitive errors rather than echoing invalid inputs", () => {
     try {
-      validateInventoryDocument({ format: "circles-media-inventory-v1", media: [{ storage_key: "not-a-key" }] });
+      validateInventoryDocument({
+        format: "circles-media-inventory-v1",
+        media: [{ storage_key: "not-a-key" }],
+      });
       throw new Error("expected failure");
     } catch (error) {
       expect(error).toBeInstanceOf(ContinuitySafetyError);

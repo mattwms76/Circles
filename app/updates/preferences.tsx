@@ -1,11 +1,17 @@
-import React from "react";
 import { View } from "react-native";
 import { useRouter } from "expo-router";
 import { ActivityPreferencesPanel } from "@/components/activity-preferences";
 import { AppShell } from "@/components/app-shell";
 import { useCircles } from "@/hooks/circles-context";
 import { activityScopeKey } from "@/lib/activity-ui";
-import { Button, Empty, IconButton, Loading, s, T } from "@/components/circles-ui";
+import {
+  Button,
+  Empty,
+  IconButton,
+  Loading,
+  s,
+  T,
+} from "@/components/circles-ui";
 
 export default function ActivityPreferencesScreen() {
   const router = useRouter();
@@ -25,7 +31,7 @@ export default function ActivityPreferencesScreen() {
         />
       ) : (
         <View style={{ gap: 18 }}>
-          <View style={[s.between, { gap: 12 }]}> 
+          <View style={[s.between, { gap: 12 }]}>
             <View style={{ flex: 1, minWidth: 0, gap: 5 }}>
               <T style={s.eyebrow}>YOUR ACTIVITY</T>
               <T style={s.title}>Update preferences</T>

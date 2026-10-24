@@ -1,0 +1,31 @@
+# Dependencies and generated outputs
+node_modules/
+.pnpm-store/
+.expo/
+dist/
+artifacts/
+web-build/
+.cache/
+**/__pycache__/
+**/*.py[cod]
+**/*.tsbuildinfo
+
+# Protected local inputs and signing material (templates are not formatter targets)
+.env
+.env.*
+**/*.key
+**/*.pem
+**/*.p8
+**/*.p12
+**/*.jks
+**/*.mobileprovision
+
+# Tool-owned snapshots, historical evidence and synchronized skill resources
+pnpm-lock.yaml
+drizzle/meta/
+drizzle/postgres/meta/
+design-audit/
+skills/
+
+# This Host-evaluated function body is not a standalone JavaScript module.
+scripts/design-audit-workflow.js

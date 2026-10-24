@@ -40,7 +40,9 @@ export type GenerateImageResponse = {
   url?: string;
 };
 
-export async function generateImage(options: GenerateImageOptions): Promise<GenerateImageResponse> {
+export async function generateImage(
+  options: GenerateImageOptions,
+): Promise<GenerateImageResponse> {
   if (!ENV.forgeApiUrl) {
     throw new Error("BUILT_IN_FORGE_API_URL is not configured");
   }
@@ -49,11 +51,18 @@ export async function generateImage(options: GenerateImageOptions): Promise<Gene
   }
 
   // Build the full URL by appending the service path to the base URL
-  const baseUrl = ENV.forgeApiUrl.endsWith("/") ? ENV.forgeApiUrl : `${ENV.forgeApiUrl}/`;
-  const fullUrl = new URL("images.v1.ImageService/GenerateImage", baseUrl).toString();
+  const baseUrl = ENV.forgeApiUrl.endsWith("/")
+    ? ENV.forgeApiUrl
+    : `${ENV.forgeApiUrl}/`;
+  const fullUrl = new URL(
+    "images.v1.ImageService/GenerateImage",
+    baseUrl,
+  ).toString();
 
   const model = options.model ?? DEFAULT_IMAGE_MODEL;
-  const quality = options.quality ?? (model === DEFAULT_IMAGE_MODEL ? DEFAULT_IMAGE_QUALITY : undefined);
+  const quality =
+    options.quality ??
+    (model === DEFAULT_IMAGE_MODEL ? DEFAULT_IMAGE_QUALITY : undefined);
 
   const response = await fetch(fullUrl, {
     method: "POST",
@@ -88,7 +97,11 @@ export async function generateImage(options: GenerateImageOptions): Promise<Gene
   const buffer = Buffer.from(base64Data, "base64");
 
   // Save to S3
-  const { url } = await storagePut(`generated/${Date.now()}.png`, buffer, result.image.mimeType);
+  const { url } = await storagePut(
+    `generated/${Date.now()}.png`,
+    buffer,
+    result.image.mimeType,
+  );
   return {
     url,
   };
@@ -117,8 +130,13 @@ export async function listImageModels(): Promise<ListImageModelsResponse> {
     throw new Error("BUILT_IN_FORGE_API_KEY is not configured");
   }
 
-  const baseUrl = ENV.forgeApiUrl.endsWith("/") ? ENV.forgeApiUrl : `${ENV.forgeApiUrl}/`;
-  const fullUrl = new URL("images.v1.ImageService/ListModels", baseUrl).toString();
+  const baseUrl = ENV.forgeApiUrl.endsWith("/")
+    ? ENV.forgeApiUrl
+    : `${ENV.forgeApiUrl}/`;
+  const fullUrl = new URL(
+    "images.v1.ImageService/ListModels",
+    baseUrl,
+  ).toString();
 
   const response = await fetch(fullUrl, {
     method: "POST",

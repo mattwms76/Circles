@@ -33,19 +33,50 @@ function table(name, columns, primaryKey, options = {}) {
 export const LEGACY_TABLES = Object.freeze([
   table(
     "users",
-    ["id", "openId", "name", "email", "loginMethod", "role", "createdAt", "updatedAt", "lastSignedIn"],
+    [
+      "id",
+      "openId",
+      "name",
+      "email",
+      "loginMethod",
+      "role",
+      "createdAt",
+      "updatedAt",
+      "lastSignedIn",
+    ],
     ["id"],
     { identityColumn: "id" },
   ),
   table(
     "profiles",
-    ["id", "userId", "name", "handle", "bio", "avatar", "cover", "createdAt", "updatedAt"],
+    [
+      "id",
+      "userId",
+      "name",
+      "handle",
+      "bio",
+      "avatar",
+      "cover",
+      "createdAt",
+      "updatedAt",
+    ],
     ["id"],
     { identityColumn: "id" },
   ),
   table(
     "circles",
-    ["id", "ownerId", "name", "description", "category", "privacy", "image", "color", "createdAt", "updatedAt"],
+    [
+      "id",
+      "ownerId",
+      "name",
+      "description",
+      "category",
+      "privacy",
+      "image",
+      "color",
+      "createdAt",
+      "updatedAt",
+    ],
     ["id"],
     { identityColumn: "id" },
   ),
@@ -57,7 +88,16 @@ export const LEGACY_TABLES = Object.freeze([
   ),
   table(
     "posts",
-    ["id", "authorId", "circleId", "text", "media", "mediaType", "createdAt", "updatedAt"],
+    [
+      "id",
+      "authorId",
+      "circleId",
+      "text",
+      "media",
+      "mediaType",
+      "createdAt",
+      "updatedAt",
+    ],
     ["id"],
     { identityColumn: "id" },
   ),
@@ -117,7 +157,14 @@ export const LEGACY_TABLES = Object.freeze([
   table("socialSeedMarkers", ["key", "completedAt"], ["key"]),
   table(
     "applicationSessions",
-    ["sessionFingerprint", "userOpenId", "appId", "expiresAt", "revokedAt", "createdAt"],
+    [
+      "sessionFingerprint",
+      "userOpenId",
+      "appId",
+      "expiresAt",
+      "revokedAt",
+      "createdAt",
+    ],
     ["sessionFingerprint"],
   ),
   table(
@@ -138,7 +185,11 @@ export const LEGACY_TABLES = Object.freeze([
     ["id"],
     { identityColumn: "id" },
   ),
-  table("activeHostLeases", ["hostId", "streamId", "lastHeartbeatAt"], ["hostId"]),
+  table(
+    "activeHostLeases",
+    ["hostId", "streamId", "lastHeartbeatAt"],
+    ["hostId"],
+  ),
   table(
     "liveViewers",
     ["streamId", "userId", "joinedAt", "lastSeenAt", "generation", "leftAt"],
@@ -168,8 +219,12 @@ export const LEGACY_TABLES = Object.freeze([
   ),
 ]);
 
-export const LEGACY_TABLE_BY_NAME = new Map(LEGACY_TABLES.map((entry) => [entry.name, entry]));
-export const LEGACY_TABLE_NAMES = Object.freeze(LEGACY_TABLES.map((entry) => entry.name));
+export const LEGACY_TABLE_BY_NAME = new Map(
+  LEGACY_TABLES.map((entry) => [entry.name, entry]),
+);
+export const LEGACY_TABLE_NAMES = Object.freeze(
+  LEGACY_TABLES.map((entry) => entry.name),
+);
 
 /** The marker's sourceTree is a stable fingerprint of the reviewed source-to-target mapping. */
 export const SOURCE_TREE = `manifest-sha256:${createHash("sha256")
@@ -177,12 +232,14 @@ export const SOURCE_TREE = `manifest-sha256:${createHash("sha256")
     JSON.stringify({
       version: MANIFEST_VERSION,
       schema: PRIVATE_SCHEMA,
-      tables: LEGACY_TABLES.map(({ name, columns, primaryKey, identityColumn }) => ({
-        name,
-        columns,
-        primaryKey,
-        identityColumn,
-      })),
+      tables: LEGACY_TABLES.map(
+        ({ name, columns, primaryKey, identityColumn }) => ({
+          name,
+          columns,
+          primaryKey,
+          identityColumn,
+        }),
+      ),
     }),
   )
   .digest("hex")}`;
@@ -192,5 +249,7 @@ export function isAllowedTable(name) {
 }
 
 export function isAllowedColumn(tableName, columnName) {
-  return LEGACY_TABLE_BY_NAME.get(tableName)?.columns.includes(columnName) ?? false;
+  return (
+    LEGACY_TABLE_BY_NAME.get(tableName)?.columns.includes(columnName) ?? false
+  );
 }

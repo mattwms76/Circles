@@ -101,28 +101,22 @@ describe("live signaling session boundaries", () => {
   it("rejects a rejoined viewer's superseded generation", () => {
     const rejoinedViewerGeneration = 3;
 
-    expect(
-      hasCurrentLiveSignalGeneration(2, rejoinedViewerGeneration),
-    ).toBe(false);
-    expect(
-      hasCurrentLiveSignalGeneration(3, rejoinedViewerGeneration),
-    ).toBe(true);
+    expect(hasCurrentLiveSignalGeneration(2, rejoinedViewerGeneration)).toBe(
+      false,
+    );
+    expect(hasCurrentLiveSignalGeneration(3, rejoinedViewerGeneration)).toBe(
+      true,
+    );
   });
 
   it("requires a cursor to advance past the join high-water mark", () => {
     const joinedSession = { generation: 4, cursor: 99 };
 
     expect(
-      isLiveSignalVisibleToSession(
-        { id: 99, toGeneration: 4 },
-        joinedSession,
-      ),
+      isLiveSignalVisibleToSession({ id: 99, toGeneration: 4 }, joinedSession),
     ).toBe(false);
     expect(
-      isLiveSignalVisibleToSession(
-        { id: 100, toGeneration: 4 },
-        joinedSession,
-      ),
+      isLiveSignalVisibleToSession({ id: 100, toGeneration: 4 }, joinedSession),
     ).toBe(true);
   });
 });

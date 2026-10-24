@@ -13,7 +13,8 @@ vi.mock("../server/storage", () => ({
   storagePut: socialUploadMocks.storagePut,
 }));
 vi.mock("../server/social-service", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../server/social-service")>();
+  const actual =
+    await importOriginal<typeof import("../server/social-service")>();
   return {
     ...actual,
     encryptSocialMedia: socialUploadMocks.encryptSocialMedia,
@@ -29,7 +30,12 @@ describe("social upload request cancellation", () => {
     const response = Object.assign(new EventEmitter(), { writableEnded: true });
     let receivedSignal: AbortSignal | undefined;
     socialUploadMocks.storagePut.mockImplementation(
-      async (_key: string, _bytes: Buffer, _contentType: string, options: { signal?: AbortSignal }) => {
+      async (
+        _key: string,
+        _bytes: Buffer,
+        _contentType: string,
+        options: { signal?: AbortSignal },
+      ) => {
         receivedSignal = options.signal;
         return {
           key: "social-encrypted/7/synthetic.jpg.enc",
@@ -48,7 +54,10 @@ describe("social upload request cancellation", () => {
     });
     const bytes = Buffer.from([0xff, 0xd8, 0xff, 0x00]);
     await expect(
-      caller.upload({ base64: bytes.toString("base64"), mimeType: "image/jpeg" }),
+      caller.upload({
+        base64: bytes.toString("base64"),
+        mimeType: "image/jpeg",
+      }),
     ).resolves.toEqual({
       url: "/manus-storage/social-encrypted/7/synthetic.jpg.enc",
     });

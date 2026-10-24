@@ -29,8 +29,5 @@ export function nativeMediaTokenForRequest(
  * rendering an already-cached private image while authorization is rechecked.
  */
 export async function clearPrivateImageCaches(): Promise<void> {
-  await Promise.allSettled([
-    Image.clearMemoryCache(),
-    Image.clearDiskCache(),
-  ]);
+  await Promise.allSettled([Image.clearMemoryCache(), Image.clearDiskCache()]);
 }

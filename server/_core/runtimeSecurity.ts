@@ -9,7 +9,8 @@ export const PREVIEW_PROXY_HEADER = "x-manus-preview-proxy";
 export const PREVIEW_LIMITER_TTL_SECONDS = 24 * 60 * 60;
 export const OUTBOUND_FETCH_TIMEOUT_MS = 15_000;
 
-const LIMITER_TOKEN_PATTERN = /^v1\.([A-Za-z0-9_-]{16,64})\.(\d{10})\.([A-Za-z0-9_-]{43})$/;
+const LIMITER_TOKEN_PATTERN =
+  /^v1\.([A-Za-z0-9_-]{16,64})\.(\d{10})\.([A-Za-z0-9_-]{43})$/;
 
 export class OutboundRequestTimeoutError extends Error {
   constructor() {
@@ -28,11 +29,17 @@ export function signPreviewLimiterIdentity(
   expiresAtSeconds: number,
   secret = ENV.cookieSecret,
 ): string | null {
-  if (!secret || !/^[A-Za-z0-9_-]{16,64}$/.test(identity) || !Number.isSafeInteger(expiresAtSeconds)) {
+  if (
+    !secret ||
+    !/^[A-Za-z0-9_-]{16,64}$/.test(identity) ||
+    !Number.isSafeInteger(expiresAtSeconds)
+  ) {
     return null;
   }
   const payload = `v1.${identity}.${expiresAtSeconds}`;
-  const signature = createHmac("sha256", secret).update(payload).digest("base64url");
+  const signature = createHmac("sha256", secret)
+    .update(payload)
+    .digest("base64url");
   return `${payload}.${signature}`;
 }
 
@@ -55,19 +62,31 @@ export function verifyPreviewLimiterIdentity(
     return null;
   }
 
-  const expected = signPreviewLimiterIdentity(identity, expiresAtSeconds, secret);
+  const expected = signPreviewLimiterIdentity(
+    identity,
+    expiresAtSeconds,
+    secret,
+  );
   if (!expected) return null;
   const expectedSignature = expected.slice(expected.lastIndexOf(".") + 1);
   const supplied = Buffer.from(suppliedSignature, "base64url");
   const expectedBytes = Buffer.from(expectedSignature, "base64url");
-  if (supplied.length !== expectedBytes.length || !timingSafeEqual(supplied, expectedBytes)) return null;
+  if (
+    supplied.length !== expectedBytes.length ||
+    !timingSafeEqual(supplied, expectedBytes)
+  )
+    return null;
   return identity;
 }
 
 function loopbackAddress(address: string | undefined): boolean {
   if (!address) return false;
   const normalized = address.toLowerCase().replace(/^::ffff:/, "");
-  return normalized === "::1" || normalized === "127.0.0.1" || normalized.startsWith("127.");
+  return (
+    normalized === "::1" ||
+    normalized === "127.0.0.1" ||
+    normalized.startsWith("127.")
+  );
 }
 
 function parseIpv4Address(value: string): number | null {
@@ -79,7 +98,7 @@ function parseIpv4Address(value: string): number | null {
     if (!/^\d{1,3}$/.test(octet)) return null;
     const number = Number(octet);
     if (number > 255) return null;
-    address = (address * 256) + number;
+    address = address * 256 + number;
   }
   return address;
 }
@@ -113,20 +132,32 @@ function parseIpv6Address(value: string): bigint | null {
   let normalized = value;
   if (normalized.includes(".")) {
     const lastColon = normalized.lastIndexOf(":");
-    const ipv4 = lastColon === -1 ? null : parseIpv4Address(normalized.slice(lastColon + 1));
+    const ipv4 =
+      lastColon === -1
+        ? null
+        : parseIpv4Address(normalized.slice(lastColon + 1));
     if (ipv4 === null) return null;
     normalized = `${normalized.slice(0, lastColon + 1)}${(ipv4 >>> 16).toString(16)}:${(ipv4 & 0xffff).toString(16)}`;
   }
 
   const doubleColon = normalized.indexOf("::");
   if (doubleColon !== normalized.lastIndexOf("::")) return null;
-  const [leftText, rightText] = doubleColon === -1
-    ? [normalized, ""]
-    : [normalized.slice(0, doubleColon), normalized.slice(doubleColon + 2)];
+  const [leftText, rightText] =
+    doubleColon === -1
+      ? [normalized, ""]
+      : [normalized.slice(0, doubleColon), normalized.slice(doubleColon + 2)];
   const left = leftText ? leftText.split(":") : [];
   const right = rightText ? rightText.split(":") : [];
-  if (left.length + right.length > 8 || (doubleColon === -1 && left.length !== 8)) return null;
-  const parts = [...left, ...Array(8 - left.length - right.length).fill("0"), ...right];
+  if (
+    left.length + right.length > 8 ||
+    (doubleColon === -1 && left.length !== 8)
+  )
+    return null;
+  const parts = [
+    ...left,
+    ...Array(8 - left.length - right.length).fill("0"),
+    ...right,
+  ];
 
   let address = 0n;
   for (const part of parts) {
@@ -137,12 +168,12 @@ function parseIpv6Address(value: string): bigint | null {
 }
 
 function isIpv6Range(address: bigint, prefix: bigint, bits: number): boolean {
-  return (address >> BigInt(128 - bits)) === (prefix >> BigInt(128 - bits));
+  return address >> BigInt(128 - bits) === prefix >> BigInt(128 - bits);
 }
 
 function isPublicIpv6Address(address: bigint): boolean {
   const mappedIpv4Prefix = 0xffffn;
-  if ((address >> 32n) === mappedIpv4Prefix) {
+  if (address >> 32n === mappedIpv4Prefix) {
     // URL normalization renders mapped addresses as hex (for example, ::ffff:a00:1),
     // so classify the final 32 bits numerically instead of inspecting text prefixes.
     return isPublicIpv4Address(Number(address & 0xffff_ffffn));
@@ -190,11 +221,16 @@ export function isTrustedPreviewProxyRequest(
 }
 
 export function previewLimiterIdentityFromRequest(req: Request): string | null {
-  if (!isTrustedPreviewProxyRequest(req, "http") && !isTrustedPreviewProxyRequest(req, "https")) {
+  if (
+    !isTrustedPreviewProxyRequest(req, "http") &&
+    !isTrustedPreviewProxyRequest(req, "https")
+  ) {
     return null;
   }
   const header = req.headers[PREVIEW_LIMITER_HEADER];
-  return typeof header === "string" ? verifyPreviewLimiterIdentity(header) : null;
+  return typeof header === "string"
+    ? verifyPreviewLimiterIdentity(header)
+    : null;
 }
 
 export async function fetchWithDeadline(
@@ -244,7 +280,8 @@ export async function readBoundedResponseBody(
       if (done) break;
       if (!value?.byteLength) continue;
       received += value.byteLength;
-      if (received > maxBytes) throw new Error("Response body exceeded configured limit");
+      if (received > maxBytes)
+        throw new Error("Response body exceeded configured limit");
       chunks.push(Buffer.from(value));
     }
     return Buffer.concat(chunks, received);
@@ -258,8 +295,16 @@ export async function readBoundedResponseBody(
 
 /** Rejects direct/private IP literals before any outbound managed-storage request is attempted. */
 export function isPublicInternetHostname(hostname: string): boolean {
-  const normalized = hostname.trim().toLowerCase().replace(/^\[|\]$/g, "");
-  if (!normalized || normalized === "localhost" || normalized.endsWith(".localhost")) return false;
+  const normalized = hostname
+    .trim()
+    .toLowerCase()
+    .replace(/^\[|\]$/g, "");
+  if (
+    !normalized ||
+    normalized === "localhost" ||
+    normalized.endsWith(".localhost")
+  )
+    return false;
   const family = isIP(normalized);
   if (family === 0) return true;
   if (family === 4) {

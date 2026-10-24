@@ -80,13 +80,18 @@ describe("auth/runtime remediation contracts", () => {
       controller.signal,
     );
     controller.abort();
-    await expect(operation).rejects.toMatchObject({ name: "RequestAbortedError" });
+    await expect(operation).rejects.toMatchObject({
+      name: "RequestAbortedError",
+    });
   });
 
   it("aborts handler-owned downstream work on client disconnect, not normal response close", () => {
     const request = Object.assign(new EventEmitter(), { aborted: false });
     const response = Object.assign(new EventEmitter(), { writableEnded: true });
-    const cancellation = requestCancellation(request as never, response as never);
+    const cancellation = requestCancellation(
+      request as never,
+      response as never,
+    );
     response.emit("close");
     expect(cancellation.signal.aborted).toBe(false);
     request.emit("aborted");
@@ -96,9 +101,11 @@ describe("auth/runtime remediation contracts", () => {
 
   it("drains a synthetic listener and its pool exactly once when shutdown is called repeatedly", async () => {
     const app = express();
-    const server = await new Promise<ReturnType<typeof app.listen>>((resolve) => {
-      const listener = app.listen(0, "127.0.0.1", () => resolve(listener));
-    });
+    const server = await new Promise<ReturnType<typeof app.listen>>(
+      (resolve) => {
+        const listener = app.listen(0, "127.0.0.1", () => resolve(listener));
+      },
+    );
     const poolClose = vi.fn(async () => undefined);
     const exit = vi.fn();
     const shutdown = createGracefulShutdown(server, {
@@ -114,6 +121,6 @@ describe("auth/runtime remediation contracts", () => {
 
     expect(poolClose).toHaveBeenCalledOnce();
     expect(exit).toHaveBeenCalledWith(0);
-    expect((server.address() as AddressInfo | null)).toBeNull();
+    expect(server.address() as AddressInfo | null).toBeNull();
   });
 });

@@ -43,6 +43,10 @@ tests/fixtures/.env*
 # typescript
 *.tsbuildinfo
 
+# Python fixture-runner bytecode
+__pycache__/
+*.py[cod]
+
 app-example
 
 # generated native folders

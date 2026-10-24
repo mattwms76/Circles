@@ -383,7 +383,9 @@ describe("auth.logout", () => {
         cookie: `${APPLICATION_SESSION_COOKIE_NAME}=${browserCookie}`,
       });
       delete ctx.req.headers.origin;
-      await expect(appRouter.createCaller(ctx).auth.logout()).rejects.toMatchObject({
+      await expect(
+        appRouter.createCaller(ctx).auth.logout(),
+      ).rejects.toMatchObject({
         code: "FORBIDDEN",
       });
       await expect(sdk.verifySession(browserCookie)).resolves.not.toBeNull();

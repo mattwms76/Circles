@@ -1,10 +1,4 @@
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TextInput, View } from "react-native";
 import { trpc } from "@/lib/trpc";
 import { createSingleFlightSubmitter } from "@/lib/single-flight-submit";

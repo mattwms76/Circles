@@ -45,17 +45,48 @@ const PORTRAITS = [
 ] as const;
 
 const CREATORS = [
-  { openId: "circles-example-ada", name: "Ada Moreno", handle: "ada-m", bio: "Noticing the generous little details.", avatar: PORTRAITS[0] },
-  { openId: "circles-example-jules", name: "Jules Park", handle: "jules-parks", bio: "Outside whenever possible.", avatar: PORTRAITS[1] },
-  { openId: "circles-example-mina", name: "Mina Patel", handle: "mina-makes", bio: "Designing with people, not around them.", avatar: PORTRAITS[2] },
-  { openId: "circles-example-sam", name: "Sam Okafor", handle: "sam-sees", bio: "Collecting light and honest moments.", avatar: PORTRAITS[3] },
-  { openId: "circles-example-rory", name: "Rory Chen", handle: "rory-runs", bio: "A run is better with company.", avatar: PORTRAITS[4] },
+  {
+    openId: "circles-example-ada",
+    name: "Ada Moreno",
+    handle: "ada-m",
+    bio: "Noticing the generous little details.",
+    avatar: PORTRAITS[0],
+  },
+  {
+    openId: "circles-example-jules",
+    name: "Jules Park",
+    handle: "jules-parks",
+    bio: "Outside whenever possible.",
+    avatar: PORTRAITS[1],
+  },
+  {
+    openId: "circles-example-mina",
+    name: "Mina Patel",
+    handle: "mina-makes",
+    bio: "Designing with people, not around them.",
+    avatar: PORTRAITS[2],
+  },
+  {
+    openId: "circles-example-sam",
+    name: "Sam Okafor",
+    handle: "sam-sees",
+    bio: "Collecting light and honest moments.",
+    avatar: PORTRAITS[3],
+  },
+  {
+    openId: "circles-example-rory",
+    name: "Rory Chen",
+    handle: "rory-runs",
+    bio: "A run is better with company.",
+    avatar: PORTRAITS[4],
+  },
 ] as const;
 
 const CIRCLE_DEFINITIONS = [
   {
     name: "Slow Living",
-    description: "Small rituals, unhurried tables, and room to notice what matters.",
+    description:
+      "Small rituals, unhurried tables, and room to notice what matters.",
     category: "coffee",
     image: COFFEE,
     color: "#B66A4D",
@@ -71,7 +102,8 @@ const CIRCLE_DEFINITIONS = [
   },
   {
     name: "Design People",
-    description: "Thoughtful process, useful critique, and kind creative company.",
+    description:
+      "Thoughtful process, useful critique, and kind creative company.",
     category: "design",
     image: PORTRAITS[2],
     color: "#6B6A9E",
@@ -79,7 +111,8 @@ const CIRCLE_DEFINITIONS = [
   },
   {
     name: "Through the Lens",
-    description: "Photographs with a point of view and the stories just outside the frame.",
+    description:
+      "Photographs with a point of view and the stories just outside the frame.",
     category: "photo",
     image: PORTRAITS[3],
     color: "#536F86",
@@ -205,18 +238,19 @@ async function applySeed(tx: CirclesTransaction) {
     creatorIds.set(creator.openId, user.id);
 
     await tx.insert(profiles).values({
-        userId: user.id,
-        name: creator.name,
-        handle: creator.handle,
-        bio: creator.bio,
-        avatar: creator.avatar,
+      userId: user.id,
+      name: creator.name,
+      handle: creator.handle,
+      bio: creator.bio,
+      avatar: creator.avatar,
     });
   }
 
   const circleIds = new Map<string, number>();
   for (const definition of CIRCLE_DEFINITIONS) {
     const ownerId = creatorIds.get(definition.ownerOpenId);
-    if (!ownerId) throw new Error(`Missing demo owner ${definition.ownerOpenId}`);
+    if (!ownerId)
+      throw new Error(`Missing demo owner ${definition.ownerOpenId}`);
     const [circle] = await tx
       .insert(circles)
       .values({
@@ -240,14 +274,15 @@ async function applySeed(tx: CirclesTransaction) {
   for (const post of PUBLIC_PHOTO_POSTS) {
     const circleId = circleIds.get(post.circleName);
     const authorId = creatorIds.get(post.authorOpenId);
-    if (!circleId || !authorId) throw new Error(`Missing post relationship for ${post.circleName}`);
+    if (!circleId || !authorId)
+      throw new Error(`Missing post relationship for ${post.circleName}`);
     await tx.insert(posts).values({
-        circleId,
-        authorId,
-        text: post.text,
-        media: post.media,
-        mediaType: "photo",
-        createdAt: post.createdAt,
+      circleId,
+      authorId,
+      text: post.text,
+      media: post.media,
+      mediaType: "photo",
+      createdAt: post.createdAt,
     });
   }
 
@@ -289,7 +324,9 @@ if (
   path.resolve(fileURLToPath(import.meta.url)) === path.resolve(process.argv[1])
 ) {
   main().catch(() => {
-    console.error("Circles social seed refused or failed without applying a partial seed.");
+    console.error(
+      "Circles social seed refused or failed without applying a partial seed.",
+    );
     process.exitCode = 1;
   });
 }

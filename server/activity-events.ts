@@ -1,5 +1,9 @@
 import { and, eq, inArray } from "drizzle-orm";
-import { activityCirclePreferences, activityItems, activityPreferences } from "../drizzle/activity-schema";
+import {
+  activityCirclePreferences,
+  activityItems,
+  activityPreferences,
+} from "../drizzle/activity-schema";
 import { memberships, users } from "../drizzle/schema";
 import type { CirclesTransaction } from "./db";
 
@@ -96,10 +100,14 @@ export async function recordCommentActivity(
 ): Promise<void> {
   if (source.recipientId === source.actorId) return;
   if (!(await lockActivityRecipient(tx, source.recipientId))) return;
-  if (!(await categoryEnabled(tx, source.recipientId, "commentsEnabled"))) return;
+  if (!(await categoryEnabled(tx, source.recipientId, "commentsEnabled")))
+    return;
   if (source.circleId !== null) {
     // Public-circle activity is still recipient-member-only; public visibility is not inbox authority.
-    if (!(await isCurrentApprovedMember(tx, source.recipientId, source.circleId))) return;
+    if (
+      !(await isCurrentApprovedMember(tx, source.recipientId, source.circleId))
+    )
+      return;
     if (await isMutedForCircle(tx, source.recipientId, source.circleId)) return;
   }
   await tx
@@ -113,7 +121,11 @@ export async function recordCommentActivity(
       postId: source.postId,
     })
     .onConflictDoNothing({
-      target: [activityItems.recipientId, activityItems.kind, activityItems.sourceId],
+      target: [
+        activityItems.recipientId,
+        activityItems.kind,
+        activityItems.sourceId,
+      ],
     });
 }
 
@@ -124,7 +136,14 @@ export async function recordMembershipApprovalActivity(
 ): Promise<void> {
   if (source.recipientId === source.actorId) return;
   if (!(await lockActivityRecipient(tx, source.recipientId))) return;
-  if (!(await categoryEnabled(tx, source.recipientId, "membershipApprovalsEnabled"))) return;
+  if (
+    !(await categoryEnabled(
+      tx,
+      source.recipientId,
+      "membershipApprovalsEnabled",
+    ))
+  )
+    return;
   if (await isMutedForCircle(tx, source.recipientId, source.circleId)) return;
   await tx
     .insert(activityItems)
@@ -137,6 +156,10 @@ export async function recordMembershipApprovalActivity(
       postId: null,
     })
     .onConflictDoNothing({
-      target: [activityItems.recipientId, activityItems.kind, activityItems.sourceId],
+      target: [
+        activityItems.recipientId,
+        activityItems.kind,
+        activityItems.sourceId,
+      ],
     });
 }

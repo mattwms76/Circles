@@ -99,7 +99,11 @@ describe("feed UI pure safety contracts", () => {
       resolveAuthGateState({ isLoading: false, isError: true, hasUser: false }),
     ).toBe("error");
     expect(
-      resolveAuthGateState({ isLoading: false, isError: false, hasUser: false }),
+      resolveAuthGateState({
+        isLoading: false,
+        isError: false,
+        hasUser: false,
+      }),
     ).toBe("guest");
     expect(
       resolveAuthGateState({ isLoading: false, isError: false, hasUser: true }),
@@ -107,8 +111,14 @@ describe("feed UI pure safety contracts", () => {
   });
 
   it("reveals loaded items in bounded pages and never calls an exact legacy-cap response an end", () => {
-    const source = Array.from({ length: UI_COLLECTION_PAGE_SIZE + 3 }, (_, id) => id);
-    const firstPage = getBoundedLoadedCollection(source, UI_COLLECTION_PAGE_SIZE);
+    const source = Array.from(
+      { length: UI_COLLECTION_PAGE_SIZE + 3 },
+      (_, id) => id,
+    );
+    const firstPage = getBoundedLoadedCollection(
+      source,
+      UI_COLLECTION_PAGE_SIZE,
+    );
     expect(firstPage.items).toHaveLength(UI_COLLECTION_PAGE_SIZE);
     expect(firstPage.canAppend).toBe(true);
     expect(firstPage.nextVisibleCount).toBe(source.length);

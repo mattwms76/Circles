@@ -27,9 +27,13 @@ describe("runtime security boundaries", () => {
     const secret = "test-only-runtime-limiter-secret";
     const token = signPreviewLimiterIdentity(identity, now + 60, secret);
 
-    expect(verifyPreviewLimiterIdentity(token ?? undefined, now, secret)).toBe(identity);
+    expect(verifyPreviewLimiterIdentity(token ?? undefined, now, secret)).toBe(
+      identity,
+    );
     expect(verifyPreviewLimiterIdentity(`${token}x`, now, secret)).toBeNull();
-    expect(verifyPreviewLimiterIdentity(token ?? undefined, now + 61, secret)).toBeNull();
+    expect(
+      verifyPreviewLimiterIdentity(token ?? undefined, now + 61, secret),
+    ).toBeNull();
   });
 
   it("fails closed for request-like Preview inputs without a loopback socket", () => {
@@ -40,9 +44,18 @@ describe("runtime security boundaries", () => {
       },
     };
 
-    expect(() => isTrustedPreviewProxyRequest(requestLike as never, "https")).not.toThrow();
-    expect(isTrustedPreviewProxyRequest(requestLike as never, "https")).toBe(false);
-    expect(isTrustedPreviewProxyRequest({ headers: requestLike.headers, socket: {} } as never, "https")).toBe(false);
+    expect(() =>
+      isTrustedPreviewProxyRequest(requestLike as never, "https"),
+    ).not.toThrow();
+    expect(isTrustedPreviewProxyRequest(requestLike as never, "https")).toBe(
+      false,
+    );
+    expect(
+      isTrustedPreviewProxyRequest(
+        { headers: requestLike.headers, socket: {} } as never,
+        "https",
+      ),
+    ).toBe(false);
   });
 
   it("rejects private and reserved IPv4-mapped IPv6 after URL normalization", () => {
@@ -62,7 +75,15 @@ describe("runtime security boundaries", () => {
   });
 
   it("rejects general reserved IPv6 ranges while permitting global unicast", () => {
-    for (const hostname of ["::", "::1", "fc00::1", "fe80::1", "ff02::1", "2001:db8::1", "2002::1"]) {
+    for (const hostname of [
+      "::",
+      "::1",
+      "fc00::1",
+      "fe80::1",
+      "ff02::1",
+      "2001:db8::1",
+      "2002::1",
+    ]) {
       expect(isPublicInternetHostname(hostname), hostname).toBe(false);
     }
     expect(isPublicInternetHostname("2606:4700:4700::1111")).toBe(true);
@@ -70,30 +91,40 @@ describe("runtime security boundaries", () => {
 
   it("caps response streams before an oversized body is accumulated", async () => {
     await expect(
-      readBoundedResponseBody(body([Uint8Array.from([1, 2]), Uint8Array.from([3])]), 2),
+      readBoundedResponseBody(
+        body([Uint8Array.from([1, 2]), Uint8Array.from([3])]),
+        2,
+      ),
     ).rejects.toThrow("exceeded configured limit");
-    await expect(readBoundedResponseBody(body([Uint8Array.from([1, 2])]), 2)).resolves.toEqual(
-      Buffer.from([1, 2]),
-    );
+    await expect(
+      readBoundedResponseBody(body([Uint8Array.from([1, 2])]), 2),
+    ).resolves.toEqual(Buffer.from([1, 2]));
   });
 
   it("turns a stalled outbound request into a fixed timeout category", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(
-      (_input, init) => new Promise<Response>((_resolve, reject) => {
-        init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
-      }),
+      (_input, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        }),
     );
     try {
-      await expect(fetchWithDeadline("https://example.test", {}, 5)).rejects.toBeInstanceOf(
-        OutboundRequestTimeoutError,
-      );
+      await expect(
+        fetchWithDeadline("https://example.test", {}, 5),
+      ).rejects.toBeInstanceOf(OutboundRequestTimeoutError);
     } finally {
       fetchSpy.mockRestore();
     }
   });
 
   it("accepts canonical managed-storage paths but rejects URL, traversal, and malformed input", () => {
-    expect(canonicalManagedStorageKey("/manus-storage/audio/abc.webm")).toBe("audio/abc.webm");
+    expect(canonicalManagedStorageKey("/manus-storage/audio/abc.webm")).toBe(
+      "audio/abc.webm",
+    );
     expect(canonicalManagedStorageKey("audio/abc.webm")).toBe("audio/abc.webm");
     for (const value of [
       "https://127.0.0.1/private.wav",

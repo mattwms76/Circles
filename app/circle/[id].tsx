@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Pressable, ScrollView, useWindowDimensions, View } from "react-native";
 import { Image } from "@/components/media-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -623,7 +623,8 @@ export default function CircleScreen() {
                 <View style={[s.card, { padding: 16, gap: 10 }]}>
                   <T style={{ fontSize: 17, fontWeight: "700" }}>Reports</T>
                   <T style={{ color: C.muted, fontSize: 14, lineHeight: 21 }}>
-                    Review reported moments and record a final Keep or Remove decision.
+                    Review reported moments and record a final Keep or Remove
+                    decision.
                   </T>
                   <Button
                     title="Open Reports"

@@ -32,9 +32,16 @@ describe("managed audio SSRF boundary", () => {
   });
 
   it("rejects private DNS answers before a connector can be created", async () => {
-    const resolver = vi.fn(async () => [{ address: "::ffff:a00:1", family: 6 }]);
+    const resolver = vi.fn(async () => [
+      { address: "::ffff:a00:1", family: 6 },
+    ]);
 
-    await expect(resolveManagedStorageTarget("https://storage.example.test/audio.webm", resolver)).resolves.toBeNull();
+    await expect(
+      resolveManagedStorageTarget(
+        "https://storage.example.test/audio.webm",
+        resolver,
+      ),
+    ).resolves.toBeNull();
     expect(resolver).toHaveBeenCalledExactlyOnceWith("storage.example.test");
   });
 

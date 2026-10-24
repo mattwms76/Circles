@@ -45,7 +45,9 @@ export async function cleanupFailedNativeLoginConfirmation(
   }
 
   return {
-    localCleanupFailed: localCleanup.some((result) => result.status === "rejected"),
+    localCleanupFailed: localCleanup.some(
+      (result) => result.status === "rejected",
+    ),
     remoteRevocationFailed,
   };
 }

@@ -1,8 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  HOST_SETUP_DEADLINE_MS,
-  liveRouter,
-} from "../server/live-router";
+import { HOST_SETUP_DEADLINE_MS, liveRouter } from "../server/live-router";
 import {
   LiveLifecycleRaceFixture,
   type FixtureStream,
@@ -85,10 +82,9 @@ describe("LIV-RACE stream-row lifecycle serialization", () => {
       caller(10).join({ streamId: 71 }),
     ]);
 
-    expect([first.generation, second.generation].sort((a, b) => a - b)).toEqual([
-      2,
-      3,
-    ]);
+    expect([first.generation, second.generation].sort((a, b) => a - b)).toEqual(
+      [2, 3],
+    );
     expect(fixture.stream.hostGeneration).toBe(3);
     expect(fixture.streamLockCount).toBe(2);
   });
@@ -106,10 +102,9 @@ describe("LIV-RACE stream-row lifecycle serialization", () => {
       caller(20).join({ streamId: 71 }),
     ]);
 
-    expect([first.generation, second.generation].sort((a, b) => a - b)).toEqual([
-      9,
-      10,
-    ]);
+    expect([first.generation, second.generation].sort((a, b) => a - b)).toEqual(
+      [9, 10],
+    );
     expect(fixture.viewer).toMatchObject({ generation: 10, leftAt: null });
     expect(fixture.viewerUpsertCount).toBe(2);
     expect(fixture.streamLockCount).toBe(2);

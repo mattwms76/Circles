@@ -27,9 +27,7 @@ function compareReasons(
  * Builds a snapshot from the current one-row-per-reporter legacy report state. This makes a
  * retry or changed reason replace its aggregate contribution instead of incrementing it twice.
  */
-export function aggregateModerationReasons(
-  rows: readonly StoredReport[],
-): {
+export function aggregateModerationReasons(rows: readonly StoredReport[]): {
   reportCount: number;
   reasons: ModerationReason[];
   lastReportedAt: Date;

@@ -13,11 +13,15 @@ const webSource = readFileSync(
 function expectEpochTransportParity(source: string): void {
   expect(source).toContain("localOfferEpoch: 0");
   expect(source).toContain("remoteOfferEpoch: null");
-  expect(source).toContain("peer.remoteOfferEpoch = offer.liveOfferEpoch ?? null");
+  expect(source).toContain(
+    "peer.remoteOfferEpoch = offer.liveOfferEpoch ?? null",
+  );
   expect(source).toContain("withLiveOfferEpoch(");
   expect(source).toContain("planLiveViewerRecovery(");
   expect(source).toContain("splitPendingLiveIceForOfferEpoch(");
-  expect(source).toContain("signalIce(hostId, event.candidate, peer.remoteOfferEpoch)");
+  expect(source).toContain(
+    "signalIce(hostId, event.candidate, peer.remoteOfferEpoch)",
+  );
 }
 
 describe("LIV-ADAPTER-001 live-media transport parity", () => {
@@ -35,15 +39,22 @@ describe("LIV-ADAPTER-001 live-media transport parity", () => {
     expect(recovery.indexOf("api.live.leave")).toBeLessThan(
       recovery.indexOf("api.live.join.mutate"),
     );
-    expect(nativeSource).toContain("if (viewerRecoveryTimer) clearTimeout(viewerRecoveryTimer)");
-    expect(nativeSource).toContain("if (setupDeadlineTimer) clearTimeout(setupDeadlineTimer)");
+    expect(nativeSource).toContain(
+      "if (viewerRecoveryTimer) clearTimeout(viewerRecoveryTimer)",
+    );
+    expect(nativeSource).toContain(
+      "if (setupDeadlineTimer) clearTimeout(setupDeadlineTimer)",
+    );
     expect(nativeSource).toContain("void restartViewer(hostId, null)");
     expect(nativeSource).toContain("viewerRecoveryAttempts = 0;");
   });
 
   it("keeps native camera setup provisional and bounded until the ready heartbeat succeeds", () => {
     const hostSetupStart = nativeSource.indexOf("const renewHostHeartbeat");
-    const hostSetupEnd = nativeSource.indexOf("const stream = await webRtc.mediaDevices.getUserMedia", hostSetupStart);
+    const hostSetupEnd = nativeSource.indexOf(
+      "const stream = await webRtc.mediaDevices.getUserMedia",
+      hostSetupStart,
+    );
     const setup = nativeSource.slice(hostSetupStart, hostSetupEnd);
 
     expect(setup).toContain("{ setup: true }");

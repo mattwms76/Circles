@@ -7,7 +7,8 @@ export async function apiCall<T>(
   options: RequestInit = {},
 ): Promise<T> {
   const headers = new Headers(options.headers);
-  if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  if (!headers.has("Content-Type"))
+    headers.set("Content-Type", "application/json");
 
   // Determine the auth method:
   // - Native platform: use stored session token as Bearer auth

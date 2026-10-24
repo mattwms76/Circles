@@ -26,7 +26,10 @@ async function listen(handler: RequestListener) {
   };
 }
 
-async function proxyFor(port: number, publicOrigin = "https://preview.example.test") {
+async function proxyFor(
+  port: number,
+  publicOrigin = "https://preview.example.test",
+) {
   const proxy = createPreviewApiProxy({
     port,
     publicOrigin,

@@ -48,7 +48,10 @@ describe("activity source-event safety", () => {
   });
 
   it("declares exact private table ordering, runtime-only RLS policy names, and no global grant", () => {
-    const migration = readFileSync("operations/migrations/0010_circles_activity_inbox.sql", "utf8");
+    const migration = readFileSync(
+      "operations/migrations/0010_circles_activity_inbox.sql",
+      "utf8",
+    );
     const table = migration.slice(
       migration.indexOf('CREATE TABLE circles_app."activityItems"'),
       migration.indexOf('CREATE TABLE circles_app."activityPreferences"'),
@@ -63,9 +66,13 @@ describe("activity source-event safety", () => {
     ]) {
       expect(migration).toContain(`CREATE POLICY ${policy}`);
     }
-    expect(migration).toContain('FORCE ROW LEVEL SECURITY');
-    expect(migration).toContain('GRANT USAGE, SELECT ON SEQUENCE circles_app."activityItems_id_seq"');
-    expect(migration).toContain("FROM PUBLIC, anon, authenticated, service_role");
+    expect(migration).toContain("FORCE ROW LEVEL SECURITY");
+    expect(migration).toContain(
+      'GRANT USAGE, SELECT ON SEQUENCE circles_app."activityItems_id_seq"',
+    );
+    expect(migration).toContain(
+      "FROM PUBLIC, anon, authenticated, service_role",
+    );
     expect(migration).not.toContain("ALTER DEFAULT PRIVILEGES");
   });
 });

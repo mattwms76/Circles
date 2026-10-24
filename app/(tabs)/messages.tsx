@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { Pressable, TextInput, View } from "react-native";
 import { useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";

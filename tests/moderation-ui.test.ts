@@ -22,7 +22,10 @@ import {
 
 const scope = { circleId: 42, viewerScope: 7 };
 
-const moderationCase = (id: number, overrides: Partial<ModerationCase> = {}): ModerationCase => ({
+const moderationCase = (
+  id: number,
+  overrides: Partial<ModerationCase> = {},
+): ModerationCase => ({
   id,
   circleId: 42,
   postId: 91,
@@ -36,7 +39,10 @@ const moderationCase = (id: number, overrides: Partial<ModerationCase> = {}): Mo
   ...overrides,
 });
 
-const page = (viewerScope: number, items: ModerationCase[]): ModerationPage => ({
+const page = (
+  viewerScope: number,
+  items: ModerationCase[],
+): ModerationPage => ({
   circleId: 42,
   viewerScope,
   items,
@@ -97,7 +103,11 @@ describe("Moderation UI account and freshness contracts", () => {
         isFetching: true,
         isError: false,
       }),
-    ).toMatchObject({ items: [], isLoading: true, isAuthorityAvailable: false });
+    ).toMatchObject({
+      items: [],
+      isLoading: true,
+      isAuthorityAvailable: false,
+    });
 
     const refreshing = resolveModerationDetailUiState({
       detail: detail(11),
@@ -140,13 +150,33 @@ describe("Moderation UI account and freshness contracts", () => {
       isError: false,
     });
     expect(state.items.map((item) => item.id)).toEqual([12, 11, 10]);
-    expect(uniqueModerationCases([moderationCase(3), moderationCase(3)])).toHaveLength(1);
+    expect(
+      uniqueModerationCases([moderationCase(3), moderationCase(3)]),
+    ).toHaveLength(1);
   });
 
   it("captures completion scope and response scope before mutating current UI state", () => {
-    expect(isCurrentModerationScope("moderation:42:7:case:11", "moderation:42:7:case:11", true)).toBe(true);
-    expect(isCurrentModerationScope("moderation:42:7:case:11", "moderation:42:8:case:11", true)).toBe(false);
-    expect(isCurrentModerationScope("moderation:42:7:case:11", "moderation:42:7:case:11", false)).toBe(false);
+    expect(
+      isCurrentModerationScope(
+        "moderation:42:7:case:11",
+        "moderation:42:7:case:11",
+        true,
+      ),
+    ).toBe(true);
+    expect(
+      isCurrentModerationScope(
+        "moderation:42:7:case:11",
+        "moderation:42:8:case:11",
+        true,
+      ),
+    ).toBe(false);
+    expect(
+      isCurrentModerationScope(
+        "moderation:42:7:case:11",
+        "moderation:42:7:case:11",
+        false,
+      ),
+    ).toBe(false);
 
     expect(
       isCurrentModerationResolution(
@@ -176,10 +206,18 @@ describe("Moderation UI account and freshness contracts", () => {
   });
 
   it("recognizes only explicit session or role authority denial as a draft-clearing boundary", () => {
-    expect(isConfirmedModerationAuthorityLoss({ data: { code: "FORBIDDEN" } })).toBe(true);
-    expect(isConfirmedModerationAuthorityLoss({ data: { code: "UNAUTHORIZED" } })).toBe(true);
-    expect(isConfirmedModerationAuthorityLoss({ data: { code: "BAD_REQUEST" } })).toBe(false);
-    expect(isConfirmedModerationAuthorityLoss(new Error("network"))).toBe(false);
+    expect(
+      isConfirmedModerationAuthorityLoss({ data: { code: "FORBIDDEN" } }),
+    ).toBe(true);
+    expect(
+      isConfirmedModerationAuthorityLoss({ data: { code: "UNAUTHORIZED" } }),
+    ).toBe(true);
+    expect(
+      isConfirmedModerationAuthorityLoss({ data: { code: "BAD_REQUEST" } }),
+    ).toBe(false);
+    expect(isConfirmedModerationAuthorityLoss(new Error("network"))).toBe(
+      false,
+    );
     expect(moderationDecisionLabel("keep")).toBe("Kept");
     expect(moderationDecisionLabel("remove")).toBe("Removed");
   });
@@ -203,12 +241,12 @@ describe("Moderation UI account and freshness contracts", () => {
     expect(workspace).toContain("trpc.moderation.resolve.useMutation");
     expect(workspace).toContain("resolveModerationPagesUiState");
     expect(workspace).toContain("resolveModerationDetailUiState");
-    expect(workspace).toContain("Platform.OS === \"web\"");
+    expect(workspace).toContain('Platform.OS === "web"');
     expect(workspace).toContain("Alert.alert(");
     expect(workspace).toContain("<PostCard post={selected.post} />");
     expect(workspace).not.toMatch(/reporterId|reporterName/);
     expect(route).toContain("key={moderationScopeKey(scope)}");
     expect(circle).toContain('title="Open Reports"');
-    expect(circle).toContain('router.push(`/moderation/${circleId}`)');
+    expect(circle).toContain("router.push(`/moderation/${circleId}`)");
   });
 });

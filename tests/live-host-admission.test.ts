@@ -68,7 +68,9 @@ class SyntheticActiveHostLeaseFixture {
 
   async end(hostId: number, streamId: number): Promise<void> {
     await this.withHostLeaseTransaction(hostId, async () => {
-      const stream = this.streams.find((candidate) => candidate.id === streamId);
+      const stream = this.streams.find(
+        (candidate) => candidate.id === streamId,
+      );
       if (!stream || stream.hostId !== hostId || stream.status !== "live") {
         throw new Error("Synthetic stream is not an active host stream.");
       }
@@ -160,7 +162,9 @@ describe("LIV-002 active host admission", () => {
     const next = await fixture.create(42);
 
     expect(next?.id).toBeGreaterThan(first.id);
-    expect(fixture.streamsFor(42).filter((stream) => stream.status === "live")).toHaveLength(1);
+    expect(
+      fixture.streamsFor(42).filter((stream) => stream.status === "live"),
+    ).toHaveLength(1);
     expect(HOST_LEASE_MS).toBe(45_000);
   });
 });

@@ -23,7 +23,9 @@ export class RuntimeRoleInitializationError extends Error {
  * Executes before application code sees a checked-out connection. Failure
  * destroys the client rather than returning it to the pool as postgres.
  */
-export async function initializeRuntimeRole(client: PoolClient): Promise<PoolClient> {
+export async function initializeRuntimeRole(
+  client: PoolClient,
+): Promise<PoolClient> {
   try {
     await withOperationDeadline(
       client.query(SET_RUNTIME_ROLE_SQL),
@@ -63,8 +65,16 @@ export class RuntimeRolePool extends Pool {
     if (!callback) return acquisition;
 
     void acquisition.then(
-      (client) => callback(undefined, client, (releaseError) => client.release(releaseError)),
-      () => callback(new RuntimeRoleInitializationError(), undefined, () => undefined),
+      (client) =>
+        callback(undefined, client, (releaseError) =>
+          client.release(releaseError),
+        ),
+      () =>
+        callback(
+          new RuntimeRoleInitializationError(),
+          undefined,
+          () => undefined,
+        ),
     );
   }
 }

@@ -19,7 +19,12 @@ const log = (_msg: string) => {
 };
 
 type MessageType = "appDevServerReady";
-type SafeAreaInsets = { top: number; right: number; bottom: number; left: number };
+type SafeAreaInsets = {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+};
 type SafeAreaCallback = (metrics: Metrics) => void;
 
 interface SpacePreviewerMessage {
@@ -45,7 +50,10 @@ function isWeb(): boolean {
   return Platform.OS === "web";
 }
 
-function sendToParent(type: MessageType, payload: Record<string, unknown> = {}): void {
+function sendToParent(
+  type: MessageType,
+  payload: Record<string, unknown> = {},
+): void {
   // NOTE: Validate parent origin if we need to transfer sensitive data
   if (!isWeb() || !isInIframe()) return;
 
@@ -60,7 +68,9 @@ function sendToParent(type: MessageType, payload: Record<string, unknown> = {}):
 let initialized = false;
 let safeAreaCallback: SafeAreaCallback | null = null;
 
-function isValidInsets(payload: Record<string, unknown>): payload is SafeAreaInsets {
+function isValidInsets(
+  payload: Record<string, unknown>,
+): payload is SafeAreaInsets {
   return (
     typeof payload.top === "number" &&
     typeof payload.bottom === "number" &&
@@ -77,9 +87,18 @@ function handleMessage(event: MessageEvent<unknown>): void {
   const { payload } = data;
   if (!payload || payload.to !== "content") return;
 
-  if (payload.type === "setSafeAreaInsets" && isValidInsets(payload.payload) && safeAreaCallback) {
+  if (
+    payload.type === "setSafeAreaInsets" &&
+    isValidInsets(payload.payload) &&
+    safeAreaCallback
+  ) {
     const insets = payload.payload;
-    const frame = { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight };
+    const frame = {
+      x: 0,
+      y: 0,
+      width: window.innerWidth,
+      height: window.innerHeight,
+    };
     safeAreaCallback({ insets, frame });
     log(
       `Received safe area insets from parent: top=${insets.top}, bottom=${insets.bottom}, left=${insets.left}, right=${insets.right}`,
@@ -90,7 +109,9 @@ function handleMessage(event: MessageEvent<unknown>): void {
 /**
  * Subscribe to safe area updates from the parent container.
  */
-export function subscribeSafeAreaInsets(callback: SafeAreaCallback): () => void {
+export function subscribeSafeAreaInsets(
+  callback: SafeAreaCallback,
+): () => void {
   safeAreaCallback = callback;
   return () => {
     if (safeAreaCallback === callback) {

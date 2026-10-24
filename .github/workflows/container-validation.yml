@@ -4,28 +4,28 @@ on:
   push:
     branches: [main]
     paths:
-      - 'server/**'
-      - 'shared/**'
-      - 'drizzle/**'
-      - 'patches/**'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-      - 'Dockerfile'
-      - '.dockerignore'
-      - '.npmrc'
-      - '.github/workflows/container-validation.yml'
+      - "server/**"
+      - "shared/**"
+      - "drizzle/**"
+      - "patches/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "Dockerfile"
+      - ".dockerignore"
+      - ".npmrc"
+      - ".github/workflows/container-validation.yml"
   pull_request:
     paths:
-      - 'server/**'
-      - 'shared/**'
-      - 'drizzle/**'
-      - 'patches/**'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-      - 'Dockerfile'
-      - '.dockerignore'
-      - '.npmrc'
-      - '.github/workflows/container-validation.yml'
+      - "server/**"
+      - "shared/**"
+      - "drizzle/**"
+      - "patches/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "Dockerfile"
+      - ".dockerignore"
+      - ".npmrc"
+      - ".github/workflows/container-validation.yml"
   workflow_dispatch:
 
 permissions:
