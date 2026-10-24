@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
+import { appShellLayout } from "@/lib/app-shell-layout";
 import {
   Avatar,
   Button,
@@ -68,19 +69,20 @@ export function AppShell({
   sidebar?: boolean;
 }) {
   const { width } = useWindowDimensions();
-  const wide = width >= 900;
-  const gutter = wide ? 30 : width <= 360 ? 16 : 20;
   const router = useRouter();
   const path = usePathname();
   const { user, requireAuth, showLogin } = useCircles();
   const insets = useSafeAreaInsets();
+  const layout = appShellLayout(width, insets);
+  const { wide, gutter } = layout;
   const myProfile = trpc.social.profile.useQuery({}, { enabled: !!user });
   return (
     <View
+      testID="app-shell-frame"
       style={{
         flex: 1,
         backgroundColor: C.bg,
-        paddingTop: wide ? 0 : insets.top,
+        ...layout.framePadding,
       }}
     >
       <View
@@ -91,13 +93,18 @@ export function AppShell({
         }}
       >
         <View
+          testID="app-shell-header"
           style={{
             width: "100%",
             maxWidth: 1270,
             alignSelf: "center",
-            height: wide ? 86 : 70,
-            paddingHorizontal: wide ? 32 : gutter,
+            minHeight: wide ? 86 : 70,
+            paddingHorizontal: layout.headerGutter,
+            paddingVertical: 12,
             flexDirection: "row",
+            flexWrap: "wrap",
+            columnGap: 16,
+            rowGap: 8,
             alignItems: "center",
             justifyContent: "space-between",
           }}
@@ -106,15 +113,22 @@ export function AppShell({
             accessibilityRole="button"
             accessibilityLabel="Circles home"
             onPress={() => router.push("/")}
-            style={{ minHeight: 44, justifyContent: "center" }}
+            style={{
+              minHeight: 44,
+              maxWidth: "100%",
+              justifyContent: "center",
+            }}
           >
             <Wordmark />
           </Pressable>
           {wide && (
             <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Search Circles"
               onPress={() => router.push("/discover")}
               style={{
                 width: 370,
+                maxWidth: "100%",
                 borderWidth: 1,
                 borderColor: C.border,
                 backgroundColor: "#F1F2EB",
@@ -128,7 +142,7 @@ export function AppShell({
               }}
             >
               <Icon name="search-outline" size={18} color={C.muted} />
-              <T style={{ fontSize: 12, color: C.muted }}>
+              <T style={{ flex: 1, minWidth: 0, fontSize: 12, color: C.muted }}>
                 Find your people, circles, and inspiration
               </T>
               <View
@@ -144,7 +158,18 @@ export function AppShell({
               </View>
             </Pressable>
           )}
-          <View style={[s.row, { gap: wide ? 13 : 6 }]}>
+          <View
+            testID="app-shell-header-actions"
+            style={[
+              s.row,
+              {
+                gap: wide ? 13 : 6,
+                flexWrap: "nowrap",
+                flexShrink: 0,
+                marginLeft: "auto",
+              },
+            ]}
+          >
             {!wide && (
               <IconButton
                 icon="search-outline"
@@ -339,7 +364,7 @@ export function AppShell({
             </View>
           )}
         </View>
-        {wide && width > 1130 && sidebar && (
+        {layout.showSidebar && sidebar && (
           <ScrollView
             showsHorizontalScrollIndicator={false}
             style={{
