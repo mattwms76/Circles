@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { AppShell } from "@/components/app-shell";
@@ -14,7 +14,13 @@ import {
 import { trpc } from "@/lib/trpc";
 import { Button, C, Empty, Icon, Loading, s, T } from "@/components/circles-ui";
 
-function ActivityDetail({ viewerId, activityId }: { viewerId: number; activityId: number }) {
+function ActivityDetail({
+  viewerId,
+  activityId,
+}: {
+  viewerId: number;
+  activityId: number;
+}) {
   const router = useRouter();
   const scope = { viewerId };
   const scopeKey = `${activityScopeKey(scope)}:detail:${activityId}`;
@@ -124,7 +130,7 @@ function ActivityDetail({ viewerId, activityId }: { viewerId: number; activityId
 
   return (
     <View style={{ gap: 16 }}>
-      <View style={[s.between, { gap: 12 }]}> 
+      <View style={[s.between, { gap: 12 }]}>
         <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
           <T style={s.eyebrow}>UPDATE</T>
           <T style={{ fontSize: 21, fontWeight: "700" }}>Here’s what’s new</T>
@@ -138,12 +144,14 @@ function ActivityDetail({ viewerId, activityId }: { viewerId: number; activityId
           style={{ minWidth: 128 }}
         />
       </View>
-      {writeError && <T style={{ color: "#B44335", fontSize: 13 }}>{writeError}</T>}
+      {writeError && (
+        <T style={{ color: "#B44335", fontSize: 13 }}>{writeError}</T>
+      )}
       {resolved.type === "post" ? (
         <PostCard post={resolved.post} />
       ) : (
         <View style={[s.card, { padding: 20, gap: 13 }]}>
-          <View style={[s.row, { gap: 10 }]}> 
+          <View style={[s.row, { gap: 10 }]}>
             <View
               accessible={false}
               style={{
@@ -158,7 +166,9 @@ function ActivityDetail({ viewerId, activityId }: { viewerId: number; activityId
               <Icon name="ellipse-outline" color={C.green} size={22} />
             </View>
             <View style={{ flex: 1, minWidth: 0 }}>
-              <T style={{ fontSize: 17, fontWeight: "700" }}>Your circle update</T>
+              <T style={{ fontSize: 17, fontWeight: "700" }}>
+                Your circle update
+              </T>
               <T style={{ color: C.muted, fontSize: 13 }}>
                 Open the circle to see what’s happening now.
               </T>

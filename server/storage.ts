@@ -50,11 +50,15 @@ function appendHashSuffix(relKey: string): string {
   return `${relKey.slice(0, lastDot)}_${hash}${relKey.slice(lastDot)}`;
 }
 
-async function storageFetch(input: Parameters<typeof fetch>[0], init: RequestInit): Promise<Response> {
+async function storageFetch(
+  input: Parameters<typeof fetch>[0],
+  init: RequestInit,
+): Promise<Response> {
   try {
     return await fetchWithDeadline(input, init);
   } catch (error) {
-    if (error instanceof OutboundRequestTimeoutError) throw new StorageOperationTimeoutError();
+    if (error instanceof OutboundRequestTimeoutError)
+      throw new StorageOperationTimeoutError();
     throw new StorageOperationError();
   }
 }
@@ -65,14 +69,20 @@ async function discardErrorResponse(response: Response): Promise<void> {
 
 async function parsePresignedUrl(response: Response): Promise<string> {
   try {
-    const responseBody = await readBoundedResponseBody(response.body, 64 * 1024);
+    const responseBody = await readBoundedResponseBody(
+      response.body,
+      64 * 1024,
+    );
     const body = JSON.parse(responseBody.toString("utf8")) as { url?: unknown };
     if (typeof body.url !== "string") throw new Error("missing url");
     const url = new URL(body.url);
-    if (url.protocol !== "https:" || url.username || url.password) throw new Error("unsafe url");
+    if (url.protocol !== "https:" || url.username || url.password)
+      throw new Error("unsafe url");
     return url.toString();
   } catch {
-    throw new StorageOperationError("Storage service returned an invalid response");
+    throw new StorageOperationError(
+      "Storage service returned an invalid response",
+    );
   }
 }
 
@@ -84,7 +94,9 @@ export async function storagePut(
 ): Promise<{ key: string; url: string }> {
   const { forgeUrl, forgeKey } = getForgeConfig();
   const normalizedKey = normalizeKey(relKey);
-  const key = options.stableKey ? normalizedKey : appendHashSuffix(normalizedKey);
+  const key = options.stableKey
+    ? normalizedKey
+    : appendHashSuffix(normalizedKey);
 
   const presignUrl = new URL("v1/storage/presign/put", forgeUrl + "/");
   presignUrl.searchParams.set("path", key);
@@ -118,7 +130,9 @@ export async function storagePut(
   return { key, url: `/manus-storage/${key}` };
 }
 
-export async function storageGet(relKey: string): Promise<{ key: string; url: string }> {
+export async function storageGet(
+  relKey: string,
+): Promise<{ key: string; url: string }> {
   const key = normalizeKey(relKey);
   return { key, url: `/manus-storage/${key}` };
 }

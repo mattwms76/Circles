@@ -61,7 +61,11 @@ describe("messages/profile/media UI retry controls", () => {
       17,
       "https://api.example/api/media/synthetic-b",
     );
-    const settled = { requestKey: firstRequest, settled: true, token: "synthetic-token" };
+    const settled = {
+      requestKey: firstRequest,
+      settled: true,
+      token: "synthetic-token",
+    };
 
     expect(nativeMediaTokenForRequest(settled, firstRequest)).toBe(
       "synthetic-token",
@@ -77,12 +81,16 @@ describe("messages/profile/media UI retry controls", () => {
   });
 
   it("keeps one message operation and upload across an explicit uncertain retry", () => {
-    expect(chatScreen).toContain("compositionRetryId.current ?? createMessageCompositionRetryId()");
+    expect(chatScreen).toContain(
+      "compositionRetryId.current ?? createMessageCompositionRetryId()",
+    );
     expect(chatScreen).toContain("uploadedMediaUrl.current ?? undefined");
     expect(chatScreen).toContain("clientMessageId,");
     expect(chatScreen).toContain("setUncertainDeliveryScope(compositionScope)");
     expect(chatScreen).toContain("Retry message delivery");
-    expect(chatScreen).toContain("readReceiptRetryDelayMs(state.failedAttempts)");
+    expect(chatScreen).toContain(
+      "readReceiptRetryDelayMs(state.failedAttempts)",
+    );
     expect(chatScreen).toContain("acknowledgedThrough");
   });
 
@@ -95,9 +103,15 @@ describe("messages/profile/media UI retry controls", () => {
   });
 
   it("uses a real empty-conversation fallback and defers protected native media", () => {
-    expect(inboxScreen).toContain('conversation.lastMessage || "No messages yet."');
-    expect(inboxScreen).not.toContain('conversation.lastMessage || "Say something kind."');
+    expect(inboxScreen).toContain(
+      'conversation.lastMessage || "No messages yet."',
+    );
+    expect(inboxScreen).not.toContain(
+      'conversation.lastMessage || "Say something kind."',
+    );
     expect(mediaImage).toContain("if (!token) return null");
-    expect(mediaImage).toContain("nativeMediaRequestKey(user?.id, resolvedUri)");
+    expect(mediaImage).toContain(
+      "nativeMediaRequestKey(user?.id, resolvedUri)",
+    );
   });
 });

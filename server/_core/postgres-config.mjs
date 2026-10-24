@@ -15,7 +15,8 @@ const DATABASE_NAME = "postgres";
 const DIRECT_HOST = `db.${PROJECT_REF}.supabase.co`;
 const SESSION_POOLER_HOST = "aws-0-eu-west-1.pooler.supabase.com";
 const SESSION_POOLER_USER = `postgres.${PROJECT_REF}`;
-const SUPABASE_ROOT_CA_SHA256 = "807025ad50d4ed219d2c9c7d299c004f824eb00cf7f65afef607d07b72e6cafa";
+const SUPABASE_ROOT_CA_SHA256 =
+  "807025ad50d4ed219d2c9c7d299c004f824eb00cf7f65afef607d07b72e6cafa";
 const SUPABASE_CA_RELATIVE_PATH = "server/certificates/supabase-root-2021.crt";
 
 function configurationError(message) {
@@ -36,41 +37,63 @@ function decodeComponent(value, message) {
  * logged, and known direct URLs are converted in memory to the verified IPv4
  * session pooler endpoint.
  */
-export function getPostgresConnectionOptions(env = process.env, projectRoot = process.cwd()) {
+export function getPostgresConnectionOptions(
+  env = process.env,
+  projectRoot = process.cwd(),
+) {
   const suppliedUrl = env.SUPABASE_DATABASE_URL;
   if (typeof suppliedUrl !== "string" || suppliedUrl.length === 0) {
-    throw configurationError("SUPABASE_DATABASE_URL is required for PostgreSQL");
+    throw configurationError(
+      "SUPABASE_DATABASE_URL is required for PostgreSQL",
+    );
   }
 
   let parsed;
   try {
     parsed = new URL(suppliedUrl);
   } catch {
-    throw configurationError("SUPABASE_DATABASE_URL is not a valid PostgreSQL URL");
+    throw configurationError(
+      "SUPABASE_DATABASE_URL is not a valid PostgreSQL URL",
+    );
   }
 
   if (parsed.protocol !== "postgres:" && parsed.protocol !== "postgresql:") {
     throw configurationError("SUPABASE_DATABASE_URL must use a PostgreSQL URL");
   }
-  if (parsed.pathname !== `/${DATABASE_NAME}` || (parsed.port && parsed.port !== "5432")) {
-    throw configurationError("SUPABASE_DATABASE_URL targets an unexpected database");
+  if (
+    parsed.pathname !== `/${DATABASE_NAME}` ||
+    (parsed.port && parsed.port !== "5432")
+  ) {
+    throw configurationError(
+      "SUPABASE_DATABASE_URL targets an unexpected database",
+    );
   }
 
   const sourceHost = parsed.hostname.toLowerCase();
-  const sourceUser = decodeComponent(parsed.username, "SUPABASE_DATABASE_URL has an invalid username");
+  const sourceUser = decodeComponent(
+    parsed.username,
+    "SUPABASE_DATABASE_URL has an invalid username",
+  );
   const isKnownDirectHost = sourceHost === DIRECT_HOST;
   const isKnownSessionPooler = sourceHost === SESSION_POOLER_HOST;
   if (!isKnownDirectHost && !isKnownSessionPooler) {
-    throw configurationError("SUPABASE_DATABASE_URL targets an unexpected host");
+    throw configurationError(
+      "SUPABASE_DATABASE_URL targets an unexpected host",
+    );
   }
   if (
     (isKnownDirectHost && sourceUser !== "postgres") ||
     (isKnownSessionPooler && sourceUser !== SESSION_POOLER_USER)
   ) {
-    throw configurationError("SUPABASE_DATABASE_URL targets an unexpected database user");
+    throw configurationError(
+      "SUPABASE_DATABASE_URL targets an unexpected database user",
+    );
   }
 
-  const password = decodeComponent(parsed.password, "SUPABASE_DATABASE_URL has an invalid password");
+  const password = decodeComponent(
+    parsed.password,
+    "SUPABASE_DATABASE_URL has an invalid password",
+  );
   if (password.length === 0) {
     throw configurationError("SUPABASE_DATABASE_URL requires a password");
   }
@@ -83,7 +106,9 @@ export function getPostgresConnectionOptions(env = process.env, projectRoot = pr
   }
   let caFingerprint;
   try {
-    caFingerprint = new X509Certificate(ca).fingerprint256.replaceAll(":", "").toLowerCase();
+    caFingerprint = new X509Certificate(ca).fingerprint256
+      .replaceAll(":", "")
+      .toLowerCase();
   } catch {
     throw configurationError("Supabase TLS certificate verification failed");
   }
@@ -113,7 +138,9 @@ export function getPostgresConnectionOptions(env = process.env, projectRoot = pr
       servername: SESSION_POOLER_HOST,
       checkServerIdentity(host, certificate) {
         if (host !== SESSION_POOLER_HOST) {
-          return configurationError("Supabase TLS hostname verification failed");
+          return configurationError(
+            "Supabase TLS hostname verification failed",
+          );
         }
         return checkServerIdentity(SESSION_POOLER_HOST, certificate);
       },

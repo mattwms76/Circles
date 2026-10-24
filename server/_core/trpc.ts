@@ -3,7 +3,8 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { TrpcContext } from "./context";
 
-export const UNEXPECTED_ERROR_MESSAGE = "The service is temporarily unavailable.";
+export const UNEXPECTED_ERROR_MESSAGE =
+  "The service is temporarily unavailable.";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,

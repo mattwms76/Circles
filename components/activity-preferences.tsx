@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 import { trpc } from "@/lib/trpc";
 import {
@@ -195,7 +195,8 @@ export function ActivityPreferencesPanel({ viewerId }: { viewerId: number }) {
       <View style={{ gap: 5 }}>
         <T style={styles.panelTitle}>Choose what’s new</T>
         <T style={styles.muted}>
-          These choices affect future Updates. Anything already in your inbox stays there.
+          These choices affect future Updates. Anything already in your inbox
+          stays there.
         </T>
       </View>
       <ActivityToggle
@@ -280,7 +281,8 @@ export function CircleActivityPreference({
   const muted = desiredMuted ?? state.value?.circle?.muted;
 
   const toggleMuted = useCallback(() => {
-    if (!state.isAuthorityAvailable || typeof muted !== "boolean" || pending) return;
+    if (!state.isAuthorityAvailable || typeof muted !== "boolean" || pending)
+      return;
     const capturedScope = scopeKey;
     const nextMuted = !muted;
     setDesiredMuted(nextMuted);

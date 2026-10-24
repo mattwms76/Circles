@@ -102,13 +102,16 @@ describe("environment configuration contract", () => {
   });
 
   it("only accepts a MySQL URL when the optional managed source is retained", () => {
-    const secret = "postgresql://private-secret-must-not-appear@example.test/postgres";
+    const secret =
+      "postgresql://private-secret-must-not-appear@example.test/postgres";
     const result = validateEnvironment(
       { ...canonicalRuntimeEnvironment(), DATABASE_URL: secret },
       "runtime",
     );
     expect(result.ok).toBe(false);
-    expect(result.errors).toContainEqual(expect.objectContaining({ name: "DATABASE_URL" }));
+    expect(result.errors).toContainEqual(
+      expect.objectContaining({ name: "DATABASE_URL" }),
+    );
     expect(JSON.stringify(result.errors)).not.toContain(secret);
   });
 

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { Pressable, ScrollView, TextInput, View } from "react-native";
 import { Image } from "@/components/media-image";
 import { useRouter } from "expo-router";

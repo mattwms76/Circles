@@ -3,7 +3,10 @@ import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { getTableConfig } from "drizzle-orm/pg-core";
 import type { TrpcContext } from "../server/_core/context";
-import { moderationActions, moderationCases } from "../drizzle/moderation-schema";
+import {
+  moderationActions,
+  moderationCases,
+} from "../drizzle/moderation-schema";
 
 const serviceMocks = vi.hoisted(() => ({
   listModerationCases: vi.fn(),
@@ -112,7 +115,9 @@ describe("moderation router authority and strict contract", () => {
 
 describe("moderation private storage contract", () => {
   it("declares only aggregate/minimal case and action columns in the required order", () => {
-    expect(getTableConfig(moderationCases).columns.map((column) => column.name)).toEqual([
+    expect(
+      getTableConfig(moderationCases).columns.map((column) => column.name),
+    ).toEqual([
       "id",
       "circleId",
       "postId",
@@ -125,31 +130,43 @@ describe("moderation private storage contract", () => {
       "lastReportedAt",
       "resolvedAt",
     ]);
-    expect(getTableConfig(moderationActions).columns.map((column) => column.name)).toEqual([
-      "id",
-      "caseId",
-      "reviewerId",
-      "decision",
-      "note",
-      "createdAt",
-    ]);
+    expect(
+      getTableConfig(moderationActions).columns.map((column) => column.name),
+    ).toEqual(["id", "caseId", "reviewerId", "decision", "note", "createdAt"]);
   });
 
   it("keeps the migration backend-only, idempotently maps eligible circle reports, and avoids routine exposure", () => {
     const migration = readFileSync(
-      resolve(import.meta.dirname, "../operations/migrations/0012_circles_moderation.sql"),
+      resolve(
+        import.meta.dirname,
+        "../operations/migrations/0012_circles_moderation.sql",
+      ),
       "utf8",
     );
-    expect(migration).toContain('CREATE TABLE IF NOT EXISTS circles_app."moderationCases"');
-    expect(migration).toContain('CREATE TABLE IF NOT EXISTS circles_app."moderationActions"');
-    expect(migration).toContain('"postId" integer REFERENCES circles_app.posts(id) ON DELETE SET NULL');
-    expect(migration).toContain('"subjectUserId" integer REFERENCES circles_app.users(id) ON DELETE SET NULL');
-    expect(migration).toContain('"reviewerId" integer REFERENCES circles_app.users(id) ON DELETE SET NULL');
-    expect(migration).toContain("ON CONFLICT (\"circleId\", \"sourcePostId\") DO UPDATE");
+    expect(migration).toContain(
+      'CREATE TABLE IF NOT EXISTS circles_app."moderationCases"',
+    );
+    expect(migration).toContain(
+      'CREATE TABLE IF NOT EXISTS circles_app."moderationActions"',
+    );
+    expect(migration).toContain(
+      '"postId" integer REFERENCES circles_app.posts(id) ON DELETE SET NULL',
+    );
+    expect(migration).toContain(
+      '"subjectUserId" integer REFERENCES circles_app.users(id) ON DELETE SET NULL',
+    );
+    expect(migration).toContain(
+      '"reviewerId" integer REFERENCES circles_app.users(id) ON DELETE SET NULL',
+    );
+    expect(migration).toContain(
+      'ON CONFLICT ("circleId", "sourcePostId") DO UPDATE',
+    );
     expect(migration).toContain("runtime_moderation_cases_policy");
     expect(migration).toContain("runtime_moderation_actions_policy");
     expect(migration).toContain("FORCE ROW LEVEL SECURITY");
-    expect(migration).toContain("FROM PUBLIC, anon, authenticated, service_role");
+    expect(migration).toContain(
+      "FROM PUBLIC, anon, authenticated, service_role",
+    );
     expect(migration).toContain("FILTER (WHERE position <= 20)");
     expect(migration).not.toMatch(/CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION/i);
     expect(migration).not.toMatch(/GRANT\s+EXECUTE/i);

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { Pressable, ScrollView, TextInput, View } from "react-native";
 import { Image } from "@/components/media-image";
 import { useRouter } from "expo-router";
@@ -248,11 +248,10 @@ export default function CirclesScreen() {
             }
           />
         ) : (
-          items.map((circle) => (
-            <CircleCard key={circle.id} circle={circle} />
-          ))
+          items.map((circle) => <CircleCard key={circle.id} circle={circle} />)
         )}
-        {!circles.isLoading && !circles.error &&
+        {!circles.isLoading &&
+          !circles.error &&
           (circles.hasNextPage ? (
             <Button
               title="Show more circles"
@@ -263,7 +262,12 @@ export default function CirclesScreen() {
             />
           ) : (
             <T
-              style={{ color: C.muted, fontSize: 12, textAlign: "center", paddingVertical: 14 }}
+              style={{
+                color: C.muted,
+                fontSize: 12,
+                textAlign: "center",
+                paddingVertical: 14,
+              }}
             >
               You’ve reached the end of these circles.
             </T>

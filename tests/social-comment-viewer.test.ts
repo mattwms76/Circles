@@ -8,7 +8,11 @@ vi.mock("../server/db", () => ({ getDb: commentViewerDbMock.getDb }));
 
 afterEach(() => commentViewerDbMock.getDb.mockReset());
 
-function conditionContains(value: unknown, expected: number, seen = new Set<unknown>()): boolean {
+function conditionContains(
+  value: unknown,
+  expected: number,
+  seen = new Set<unknown>(),
+): boolean {
   if (value === expected) return true;
   if (!value || typeof value !== "object" || seen.has(value)) return false;
   seen.add(value);

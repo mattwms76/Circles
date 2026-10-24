@@ -1,5 +1,5 @@
 import { Image, useMediaSource } from "@/components/media-image";
-import React, { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -537,9 +537,7 @@ export default function ChatScreen() {
                 disabled={send.isPending || sendingMedia}
                 onPress={sendMessage}
                 accessibilityLabel={
-                  deliveryUncertain
-                    ? "Retry message delivery"
-                    : "Send message"
+                  deliveryUncertain ? "Retry message delivery" : "Send message"
                 }
                 style={{
                   width: 44,

@@ -122,7 +122,10 @@ export function normalizeCircleHomeTextInput(
   if (circleHomeTextLength(welcomeMessage) > CIRCLE_HOME_WELCOME_MAX) {
     socialError("BAD_REQUEST", "Welcome message is too long");
   }
-  if (!Array.isArray(input.rules) || input.rules.length > CIRCLE_HOME_RULES_MAX) {
+  if (
+    !Array.isArray(input.rules) ||
+    input.rules.length > CIRCLE_HOME_RULES_MAX
+  ) {
     socialError("BAD_REQUEST", "Too many circle rules");
   }
 
@@ -135,7 +138,10 @@ export function normalizeCircleHomeTextInput(
       socialError("BAD_REQUEST", "Circle rules must be single-line");
     }
     const normalized = rule.trim();
-    if (!normalized || circleHomeTextLength(normalized) > CIRCLE_HOME_RULE_MAX) {
+    if (
+      !normalized ||
+      circleHomeTextLength(normalized) > CIRCLE_HOME_RULE_MAX
+    ) {
       socialError("BAD_REQUEST", "Circle rule is blank or too long");
     }
     const duplicateKey = circleHomeRuleKey(normalized);
@@ -603,7 +609,12 @@ function socialPageLimit(value: number | undefined): number {
 
 export async function listCirclesPage(
   viewerId: number | null,
-  filters: { search?: string; category?: string; cursor?: DateIdCursor; limit?: number },
+  filters: {
+    search?: string;
+    category?: string;
+    cursor?: DateIdCursor;
+    limit?: number;
+  },
 ): Promise<CursorPage<Circle, DateIdCursor>> {
   const db = await requireDb();
   const clauses: SQL[] = [];
@@ -864,7 +875,10 @@ export async function getActivityPostTarget(
       return await postOutputWithDb(tx, postId, viewerId);
     } catch (error) {
       // A deletion/revocation may win after the verified lookup. Do not sanitize operational errors.
-      if (error instanceof TRPCError && (error.code === "NOT_FOUND" || error.code === "FORBIDDEN")) {
+      if (
+        error instanceof TRPCError &&
+        (error.code === "NOT_FOUND" || error.code === "FORBIDDEN")
+      ) {
         return null;
       }
       throw error;
@@ -925,10 +939,7 @@ async function circleHomeOutputWithDb(
       .select({ id: posts.id })
       .from(posts)
       .where(
-        and(
-          eq(posts.id, circle.pinnedPostId),
-          eq(posts.circleId, circle.id),
-        ),
+        and(eq(posts.id, circle.pinnedPostId), eq(posts.circleId, circle.id)),
       )
       .limit(1);
     if (pinnedRows[0]) {
@@ -937,7 +948,8 @@ async function circleHomeOutputWithDb(
       } catch (error) {
         // A post deletion may commit between the verified lookup and DTO mapper on a read path.
         // The FK clears metadata; meanwhile, omit the no-longer-current pinned item safely.
-        if (!(error instanceof TRPCError) || error.code !== "NOT_FOUND") throw error;
+        if (!(error instanceof TRPCError) || error.code !== "NOT_FOUND")
+          throw error;
       }
     }
   }
@@ -989,7 +1001,8 @@ export async function updateCircleHome(
     const sameRules =
       circle.rules.length === normalized.rules.length &&
       circle.rules.every((rule, index) => rule === normalized.rules[index]);
-    if (circle.welcomeMessage === normalized.welcomeMessage && sameRules) return;
+    if (circle.welcomeMessage === normalized.welcomeMessage && sameRules)
+      return;
     await tx
       .update(circles)
       .set({
@@ -1089,10 +1102,16 @@ export async function collectEligibleFeedPage(
 ): Promise<EligibleFeedPage> {
   const eligiblePostIds: number[] = [];
   let cursor: FeedScanCursor | null = options.cursor ?? null;
-  const pageSize = Math.min(Math.max(Math.floor(options.limit ?? FEED_PAGE_SIZE), 1), FEED_PAGE_SIZE);
+  const pageSize = Math.min(
+    Math.max(Math.floor(options.limit ?? FEED_PAGE_SIZE), 1),
+    FEED_PAGE_SIZE,
+  );
   let scannedBatches = 0;
 
-  while (eligiblePostIds.length < pageSize && scannedBatches < FEED_MAX_SCAN_BATCHES) {
+  while (
+    eligiblePostIds.length < pageSize &&
+    scannedBatches < FEED_MAX_SCAN_BATCHES
+  ) {
     scannedBatches += 1;
     const candidates = await readPage(cursor);
     if (!candidates.length) break;
@@ -1254,8 +1273,14 @@ export async function feedPage(
       .select({ followingId: follows.followingId })
       .from(follows)
       .where(eq(follows.followerId, viewerId));
-    if (!followRows.length) return { items: [], nextCursor: null, hasMore: false };
-    clauses.push(inArray(posts.authorId, followRows.map((row) => row.followingId)));
+    if (!followRows.length)
+      return { items: [], nextCursor: null, hasMore: false };
+    clauses.push(
+      inArray(
+        posts.authorId,
+        followRows.map((row) => row.followingId),
+      ),
+    );
   }
   if (filter === "circles") {
     if (!viewerId) return { items: [], nextCursor: null, hasMore: false };
@@ -1268,8 +1293,14 @@ export async function feedPage(
           inArray(memberships.role, ["owner", "moderator", "member"]),
         ),
       );
-    if (!membershipRows.length) return { items: [], nextCursor: null, hasMore: false };
-    clauses.push(inArray(posts.circleId, membershipRows.map((row) => row.circleId)));
+    if (!membershipRows.length)
+      return { items: [], nextCursor: null, hasMore: false };
+    clauses.push(
+      inArray(
+        posts.circleId,
+        membershipRows.map((row) => row.circleId),
+      ),
+    );
   }
   if (filter === "saved") {
     if (!viewerId) return { items: [], nextCursor: null, hasMore: false };
@@ -1277,8 +1308,14 @@ export async function feedPage(
       .select({ postId: bookmarks.postId })
       .from(bookmarks)
       .where(eq(bookmarks.userId, viewerId));
-    if (!savedRows.length) return { items: [], nextCursor: null, hasMore: false };
-    clauses.push(inArray(posts.id, savedRows.map((row) => row.postId)));
+    if (!savedRows.length)
+      return { items: [], nextCursor: null, hasMore: false };
+    clauses.push(
+      inArray(
+        posts.id,
+        savedRows.map((row) => row.postId),
+      ),
+    );
   }
 
   const page = await collectEligibleFeedPage(
@@ -1414,7 +1451,10 @@ async function assertCircleCoverImageOwnership(
     socialError("FORBIDDEN", "You can only attach your own uploaded media");
   }
   if (!isCircleCoverImageMime(rows[0].mimeType)) {
-    socialError("BAD_REQUEST", "A circle cover must be a JPEG, PNG, or WEBP image");
+    socialError(
+      "BAD_REQUEST",
+      "A circle cover must be a JPEG, PNG, or WEBP image",
+    );
   }
 }
 
@@ -1428,33 +1468,64 @@ export async function discardUnusedUpload(
   media: string,
 ): Promise<{ success: true }> {
   const key = managedSocialMediaKeyFromUrl(media);
-  if (!key) socialError("BAD_REQUEST", "Upload must be a canonical managed media URL");
+  if (!key)
+    socialError("BAD_REQUEST", "Upload must be a canonical managed media URL");
   const db = await requireDb();
   await db.transaction(async (tx) => {
     const rows = await tx
-      .select({ id: socialUploads.id, url: socialUploads.url, claimedAt: socialUploads.claimedAt })
+      .select({
+        id: socialUploads.id,
+        url: socialUploads.url,
+        claimedAt: socialUploads.claimedAt,
+      })
       .from(socialUploads)
       .where(
-        and(eq(socialUploads.userId, userId), eq(socialUploads.storageKey, key)),
+        and(
+          eq(socialUploads.userId, userId),
+          eq(socialUploads.storageKey, key),
+        ),
       )
       .limit(1)
       .for("update");
     const upload = rows[0];
-    if (!upload || upload.url !== media) socialError("NOT_FOUND", "Upload not found");
-    if (upload.claimedAt) socialError("CONFLICT", "A referenced upload cannot be discarded");
+    if (!upload || upload.url !== media)
+      socialError("NOT_FOUND", "Upload not found");
+    if (upload.claimedAt)
+      socialError("CONFLICT", "A referenced upload cannot be discarded");
 
-    const [profileReference, circleReference, postReference, messageReference, streamReference] =
-      await Promise.all([
-        tx
-          .select({ id: profiles.id })
-          .from(profiles)
-          .where(or(eq(profiles.avatar, media), eq(profiles.cover, media)))
-          .limit(1),
-        tx.select({ id: circles.id }).from(circles).where(eq(circles.image, media)).limit(1),
-        tx.select({ id: posts.id }).from(posts).where(eq(posts.media, media)).limit(1),
-        tx.select({ id: messages.id }).from(messages).where(eq(messages.media, media)).limit(1),
-        tx.select({ id: streams.id }).from(streams).where(eq(streams.thumbnail, media)).limit(1),
-      ]);
+    const [
+      profileReference,
+      circleReference,
+      postReference,
+      messageReference,
+      streamReference,
+    ] = await Promise.all([
+      tx
+        .select({ id: profiles.id })
+        .from(profiles)
+        .where(or(eq(profiles.avatar, media), eq(profiles.cover, media)))
+        .limit(1),
+      tx
+        .select({ id: circles.id })
+        .from(circles)
+        .where(eq(circles.image, media))
+        .limit(1),
+      tx
+        .select({ id: posts.id })
+        .from(posts)
+        .where(eq(posts.media, media))
+        .limit(1),
+      tx
+        .select({ id: messages.id })
+        .from(messages)
+        .where(eq(messages.media, media))
+        .limit(1),
+      tx
+        .select({ id: streams.id })
+        .from(streams)
+        .where(eq(streams.thumbnail, media))
+        .limit(1),
+    ]);
     if (
       profileReference.length ||
       circleReference.length ||
@@ -1641,7 +1712,10 @@ export async function setCircleMembership(
       await tx
         .delete(memberships)
         .where(
-          and(eq(memberships.circleId, circleId), eq(memberships.userId, userId)),
+          and(
+            eq(memberships.circleId, circleId),
+            eq(memberships.userId, userId),
+          ),
         );
     } else if (options.requireExistingWhenLeaving) {
       socialError("NOT_FOUND", "You are not a member of this circle");
@@ -1650,7 +1724,10 @@ export async function setCircleMembership(
       ? await membershipRoleWithDb(tx, userId, circleId)
       : null;
     if (desiredJoined && !persistedRole) {
-      socialError("INTERNAL_SERVER_ERROR", "Unable to confirm circle membership");
+      socialError(
+        "INTERNAL_SERVER_ERROR",
+        "Unable to confirm circle membership",
+      );
     }
     return {
       role: persistedRole,
@@ -1877,7 +1954,10 @@ export async function approveMember(
       .returning({ id: memberships.id });
     const membershipId = approved[0]?.id;
     if (!membershipId) {
-      socialError("INTERNAL_SERVER_ERROR", "Unable to approve the pending member");
+      socialError(
+        "INTERNAL_SERVER_ERROR",
+        "Unable to approve the pending member",
+      );
     }
     await recordMembershipApprovalActivity(tx, {
       recipientId: targetUserId,
@@ -1909,7 +1989,10 @@ export async function createPost(
         input.circleId,
       );
       if (!isApprovedCircleRole(role)) {
-        socialError("FORBIDDEN", "Only approved members may post to this circle");
+        socialError(
+          "FORBIDDEN",
+          "Only approved members may post to this circle",
+        );
       }
     }
     const created = await tx
@@ -1948,9 +2031,7 @@ export async function toggleLike(
     if (!liked) {
       await tx
         .delete(reactions)
-        .where(
-          and(eq(reactions.postId, postId), eq(reactions.userId, userId)),
-        );
+        .where(and(eq(reactions.postId, postId), eq(reactions.userId, userId)));
       return { liked: false };
     }
     await tx
@@ -1978,9 +2059,7 @@ export async function toggleSave(
     if (!saved) {
       await tx
         .delete(bookmarks)
-        .where(
-          and(eq(bookmarks.postId, postId), eq(bookmarks.userId, userId)),
-        );
+        .where(and(eq(bookmarks.postId, postId), eq(bookmarks.userId, userId)));
       return { saved: false };
     }
     await tx
@@ -2020,7 +2099,11 @@ export async function createComment(
   const db = await requireDb();
   await ensureProfileWithDb(db, userId);
   const row = await db.transaction(async (tx) => {
-    const access = await assertPostAccessForProtectedMutation(tx, userId, postId);
+    const access = await assertPostAccessForProtectedMutation(
+      tx,
+      userId,
+      postId,
+    );
     const created = await tx
       .insert(comments)
       .values({ authorId: userId, postId, text: text.trim() })
@@ -2091,7 +2174,11 @@ export async function deleteCirclePostForModeration(
   circleId: number,
   postId: number,
 ): Promise<boolean> {
-  const { role } = await lockCircleAccessForProtectedMutation(tx, userId, circleId);
+  const { role } = await lockCircleAccessForProtectedMutation(
+    tx,
+    userId,
+    circleId,
+  );
   if (!canModerateCircle(role)) {
     socialError(
       "FORBIDDEN",
@@ -2099,7 +2186,11 @@ export async function deleteCirclePostForModeration(
     );
   }
   const rows = await tx
-    .select({ id: posts.id, authorId: posts.authorId, circleId: posts.circleId })
+    .select({
+      id: posts.id,
+      authorId: posts.authorId,
+      circleId: posts.circleId,
+    })
     .from(posts)
     .where(and(eq(posts.id, postId), eq(posts.circleId, circleId)))
     .limit(1);
@@ -2116,7 +2207,11 @@ export async function reportPost(
 ): Promise<{ success: true }> {
   const db = await requireDb();
   await db.transaction(async (tx) => {
-    const { post } = await assertPostAccessForProtectedMutation(tx, userId, postId);
+    const { post } = await assertPostAccessForProtectedMutation(
+      tx,
+      userId,
+      postId,
+    );
     await tx
       .insert(reports)
       .values({ postId, reporterId: userId, reason: reason.trim() })
@@ -2292,11 +2387,7 @@ async function conversationOutputWithDb(
     (participant) => participant.userId !== userId,
   );
   const other = otherParticipant
-    ? await displayProfileWithDb(
-        db,
-        otherParticipant.userId,
-        userId,
-      )
+    ? await displayProfileWithDb(db, otherParticipant.userId, userId)
     : null;
   return {
     id: conversation.id,
@@ -2453,7 +2544,10 @@ export async function openCircleChat(
           .limit(1)
       )[0]?.id;
     if (!createdId)
-      socialError("INTERNAL_SERVER_ERROR", "Unable to open circle conversation");
+      socialError(
+        "INTERNAL_SERVER_ERROR",
+        "Unable to open circle conversation",
+      );
     await ensureConversationParticipant(tx, createdId, userId);
     return { id: createdId };
   });
@@ -2557,7 +2651,9 @@ export function messagePreview(
   message: { text: string; media: string | null } | undefined,
 ): string {
   if (!message) return "No messages yet";
-  return message.text.trim() || (message.media ? "Attachment" : "No messages yet");
+  return (
+    message.text.trim() || (message.media ? "Attachment" : "No messages yet")
+  );
 }
 
 export type MessagePageOptions = {
@@ -2687,7 +2783,10 @@ export async function sendMessage(
         )
         .limit(1);
       if (existing[0]) {
-        if (existing[0].text !== text || existing[0].media !== (media ?? null)) {
+        if (
+          existing[0].text !== text ||
+          existing[0].media !== (media ?? null)
+        ) {
           socialError(
             "CONFLICT",
             "A client message ID cannot be reused with different content",

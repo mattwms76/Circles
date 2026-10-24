@@ -143,7 +143,10 @@ export default function OAuthCallback() {
           ? await cleanupFailedNativeLoginConfirmation({
               capturedBearer,
               clearLocalCredentials: async () => {
-                await Promise.all([Auth.removeSessionToken(), Auth.clearUserInfo()]);
+                await Promise.all([
+                  Auth.removeSessionToken(),
+                  Auth.clearUserInfo(),
+                ]);
               },
               remoteLogout: Api.logout,
             })

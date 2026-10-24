@@ -1,4 +1,3 @@
-import React from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ModerationWorkspace } from "@/components/moderation-workspace";
 import { AppShell } from "@/components/app-shell";

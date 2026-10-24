@@ -58,9 +58,7 @@ export type LiveIceCandidateEnvelope = LiveOfferEpoch &
   }>;
 
 export function isLiveOfferEpoch(value: unknown): value is number {
-  return (
-    typeof value === "number" && Number.isInteger(value) && value > 0
-  );
+  return typeof value === "number" && Number.isInteger(value) && value > 0;
 }
 
 export function withLiveOfferEpoch<T extends object>(
@@ -70,7 +68,9 @@ export function withLiveOfferEpoch<T extends object>(
   return { ...value, liveOfferEpoch };
 }
 
-export function liveIceCandidateKey(candidate: LiveIceCandidateEnvelope): string {
+export function liveIceCandidateKey(
+  candidate: LiveIceCandidateEnvelope,
+): string {
   return [
     candidate.liveOfferEpoch ?? "legacy",
     candidate.candidate,
@@ -90,7 +90,8 @@ export function queuePendingLiveIce<T extends LiveIceCandidateEnvelope>(
   if (
     pending.length >= MAX_PENDING_LIVE_ICE_CANDIDATES ||
     pending.some(
-      (queued) => liveIceCandidateKey(queued) === liveIceCandidateKey(candidate),
+      (queued) =>
+        liveIceCandidateKey(queued) === liveIceCandidateKey(candidate),
     )
   ) {
     return [...pending];

@@ -30,7 +30,9 @@ type ExistingMessage = {
   createdAt: Date;
 };
 
-function createMessageTransactionFixture(existing: ExistingMessage | undefined) {
+function createMessageTransactionFixture(
+  existing: ExistingMessage | undefined,
+) {
   const writes: string[] = [];
   const query = <T>(rows: T[]) => {
     const value = {
@@ -66,7 +68,8 @@ function createMessageTransactionFixture(existing: ExistingMessage | undefined) 
             return query([
               {
                 id: 3,
-                storageKey: "social-encrypted/7/123e4567-e89b-42d3-a456-426614174000.jpg.enc",
+                storageKey:
+                  "social-encrypted/7/123e4567-e89b-42d3-a456-426614174000.jpg.enc",
                 url: MEDIA,
               },
             ]);
@@ -83,7 +86,8 @@ function createMessageTransactionFixture(existing: ExistingMessage | undefined) 
               },
             ]);
           }
-          if (table === follows && fields && "total" in fields) return query([{ total: 0 }]);
+          if (table === follows && fields && "total" in fields)
+            return query([{ total: 0 }]);
           if (table === follows) return query([]);
           throw new Error("Unexpected synthetic message query");
         },
@@ -91,7 +95,8 @@ function createMessageTransactionFixture(existing: ExistingMessage | undefined) 
     }),
     insert: (table: unknown) => ({
       values: () => {
-        if (table !== messages) throw new Error("Unexpected synthetic message insert");
+        if (table !== messages)
+          throw new Error("Unexpected synthetic message insert");
         writes.push("insert-message");
         return {
           returning: async () => [
@@ -116,7 +121,8 @@ function createMessageTransactionFixture(existing: ExistingMessage | undefined) 
         },
       }),
     }),
-    transaction: async <T>(callback: (tx: object) => Promise<T>) => callback(db),
+    transaction: async <T>(callback: (tx: object) => Promise<T>) =>
+      callback(db),
   };
   return { db, writes };
 }

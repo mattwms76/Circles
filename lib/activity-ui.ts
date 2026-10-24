@@ -90,7 +90,10 @@ function queryDisplayState({
   isFetching: boolean;
   hasCurrentValue: boolean;
   hasForeignValue: boolean;
-}): Pick<ActivityResponseUiState<never>, "isLoading" | "isError" | "isAuthorityAvailable"> {
+}): Pick<
+  ActivityResponseUiState<never>,
+  "isLoading" | "isError" | "isAuthorityAvailable"
+> {
   const mismatchSettled =
     queryEnabled && isFetchedAfterMount && hasForeignValue && !isFetching;
   const displayError = queryEnabled && (isError || mismatchSettled);
@@ -133,7 +136,9 @@ export function resolveActivityPagesUiState({
   isFetching: boolean;
 }): ActivityPageUiState {
   const hasPages = Array.isArray(pages) && pages.length > 0;
-  const hasForeignPage = !!pages?.some((page) => !isCurrentActivityPage(page, scope));
+  const hasForeignPage = !!pages?.some(
+    (page) => !isCurrentActivityPage(page, scope),
+  );
   const hasCurrentPages = hasPages && !hasForeignPage;
   const display = queryDisplayState({
     queryEnabled,
@@ -170,7 +175,10 @@ export function resolveActivityResponseUiState<T extends { viewerId: number }>({
   isError: boolean;
   isFetchedAfterMount: boolean;
   isFetching: boolean;
-  isCurrent?: (value: T | null | undefined, scope: ActivityViewerScope) => boolean;
+  isCurrent?: (
+    value: T | null | undefined,
+    scope: ActivityViewerScope,
+  ) => boolean;
 }): ActivityResponseUiState<T> {
   const current = isCurrent(value, scope);
   const foreign = !!value && !current;
@@ -192,7 +200,9 @@ export function resolveActivityResponseUiState<T extends { viewerId: number }>({
   };
 }
 
-export function uniqueActivityItems(items: readonly ActivityItem[]): ActivityItem[] {
+export function uniqueActivityItems(
+  items: readonly ActivityItem[],
+): ActivityItem[] {
   const seen = new Set<number>();
   return items.filter((item) => {
     if (seen.has(item.id)) return false;
@@ -202,7 +212,9 @@ export function uniqueActivityItems(items: readonly ActivityItem[]): ActivityIte
 }
 
 /** A badge never reports a negative/non-finite value and deliberately caps visual noise. */
-export function activityBadgeLabel(count: number | null | undefined): string | null {
+export function activityBadgeLabel(
+  count: number | null | undefined,
+): string | null {
   if (!Number.isFinite(count) || !count || count < 1) return null;
   return count > 99 ? "99+" : String(Math.floor(count));
 }
@@ -212,7 +224,8 @@ export function capturedUnreadThroughId(
   unread: ActivityUnread | null | undefined,
   scope: ActivityViewerScope,
 ): number | undefined {
-  if (!isCurrentActivityUnread(unread, scope) || unread.count < 1) return undefined;
+  if (!isCurrentActivityUnread(unread, scope) || unread.count < 1)
+    return undefined;
   return Number.isSafeInteger(unread.throughId) && unread.throughId > 0
     ? unread.throughId
     : undefined;
@@ -262,7 +275,9 @@ export function activityCopy(item: ActivityItem): {
       title: item.actorName
         ? `${item.actorName} commented on your moment.`
         : "Someone commented on your moment.",
-      detail: item.circleName ? `In ${item.circleName}` : "Open to see the moment.",
+      detail: item.circleName
+        ? `In ${item.circleName}`
+        : "Open to see the moment.",
     };
   }
 
@@ -270,6 +285,8 @@ export function activityCopy(item: ActivityItem): {
     title: item.circleName
       ? `Your request to join ${item.circleName} was approved.`
       : "Your membership request was approved.",
-    detail: item.actorName ? `Approved by ${item.actorName}` : "Open to visit the circle.",
+    detail: item.actorName
+      ? `Approved by ${item.actorName}`
+      : "Open to visit the circle.",
   };
 }

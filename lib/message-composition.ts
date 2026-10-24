@@ -20,9 +20,7 @@ export function createMessageCompositionRetryId(): string {
  * Retries stay intentionally short and finite while the conversation remains
  * mounted. A newer delivered message resets the caller's attempt counter.
  */
-export function readReceiptRetryDelayMs(
-  failedAttempts: number,
-): number | null {
+export function readReceiptRetryDelayMs(failedAttempts: number): number | null {
   if (
     !Number.isSafeInteger(failedAttempts) ||
     failedAttempts < 1 ||

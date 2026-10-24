@@ -1,4 +1,3 @@
-import React from "react";
 import { Pressable, View } from "react-native";
 import { Image } from "@/components/media-image";
 import { useRouter } from "expo-router";

@@ -1,5 +1,5 @@
 import { Image, useMediaSource } from "@/components/media-image";
-import React, { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Modal,
@@ -218,7 +218,10 @@ export function PostCard({ post }: { post: Post }) {
               }
               accessibilityRole="button"
               accessibilityLabel={liked ? "Unlike post" : "Like post"}
-              accessibilityState={{ disabled: like.isPending, busy: like.isPending }}
+              accessibilityState={{
+                disabled: like.isPending,
+                busy: like.isPending,
+              }}
               style={[
                 s.row,
                 {

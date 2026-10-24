@@ -76,7 +76,11 @@ describe("Activity UI account and freshness contracts", () => {
         isFetching: true,
         isError: false,
       }),
-    ).toMatchObject({ items: [], isLoading: true, isAuthorityAvailable: false });
+    ).toMatchObject({
+      items: [],
+      isLoading: true,
+      isAuthorityAvailable: false,
+    });
 
     const refreshing = resolveActivityPagesUiState({
       pages: [cached],
@@ -113,10 +117,9 @@ describe("Activity UI account and freshness contracts", () => {
       isError: false,
     });
     expect(state.items.map((entry) => entry.id)).toEqual([30, 29, 28, 27, 26]);
-    expect(uniqueActivityItems([item(5), item(5), item(4)]).map((entry) => entry.id)).toEqual([
-      5,
-      4,
-    ]);
+    expect(
+      uniqueActivityItems([item(5), item(5), item(4)]).map((entry) => entry.id),
+    ).toEqual([5, 4]);
   });
 
   it("uses only the matching server unread watermark for mark-all and caps the durable badge", () => {
@@ -138,7 +141,11 @@ describe("Activity UI account and freshness contracts", () => {
 
     expect(
       isCurrentActivityTarget(
-        { viewerId: 7, activityId: 21, target: { type: "circle", circleId: 4 } },
+        {
+          viewerId: 7,
+          activityId: 21,
+          target: { type: "circle", circleId: 4 },
+        },
         { viewerId: 7 },
         21,
       ),
@@ -155,7 +162,9 @@ describe("Activity UI account and freshness contracts", () => {
   it("drops late completions after an account or route-scope change", () => {
     const initial = "activity:7:detail:21";
     expect(isCurrentActivityScope(initial, initial, true)).toBe(true);
-    expect(isCurrentActivityScope(initial, "activity:8:detail:21", true)).toBe(false);
+    expect(isCurrentActivityScope(initial, "activity:8:detail:21", true)).toBe(
+      false,
+    );
     expect(isCurrentActivityScope(initial, initial, false)).toBe(false);
   });
 
@@ -164,7 +173,14 @@ describe("Activity UI account and freshness contracts", () => {
     expect(canUseCircleActivityPreferences("member")).toBe(true);
     expect(canUseCircleActivityPreferences(null)).toBe(false);
 
-    expect(activityCopy({ ...item(8), available: false, actorName: "Private", circleName: "Secret" })).toEqual({
+    expect(
+      activityCopy({
+        ...item(8),
+        available: false,
+        actorName: "Private",
+        circleName: "Secret",
+      }),
+    ).toEqual({
       title: "This update is no longer available.",
       detail: "It may have been removed or your access may have changed.",
     });

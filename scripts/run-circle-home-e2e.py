@@ -14,7 +14,6 @@ import secrets
 import shutil
 import socket
 import subprocess
-import sys
 import tempfile
 from typing import NoReturn
 

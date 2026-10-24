@@ -37,7 +37,11 @@ export function isCurrentModerationPage(
   page: ModerationPage | null | undefined,
   scope: ModerationUiScope,
 ): page is ModerationPage {
-  return !!page && page.circleId === scope.circleId && page.viewerScope === scope.viewerScope;
+  return (
+    !!page &&
+    page.circleId === scope.circleId &&
+    page.viewerScope === scope.viewerScope
+  );
 }
 
 export function isCurrentModerationDetail(
@@ -80,7 +84,10 @@ function queryDisplayState({
   isFetching: boolean;
   hasCurrentValue: boolean;
   hasForeignValue: boolean;
-}): Pick<ModerationDetailUiState, "isLoading" | "isError" | "isAuthorityAvailable"> {
+}): Pick<
+  ModerationDetailUiState,
+  "isLoading" | "isError" | "isAuthorityAvailable"
+> {
   const mismatchSettled =
     queryEnabled && isFetchedAfterMount && hasForeignValue && !isFetching;
   const displayError = queryEnabled && (isError || mismatchSettled);

@@ -19,11 +19,12 @@ describe("captured native logout bearer", () => {
     mocks.getSessionToken.mockReset();
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        new Response("{}", {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
+      vi.fn(
+        async () =>
+          new Response("{}", {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
       ),
     );
   });

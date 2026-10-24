@@ -15,10 +15,7 @@ import {
   getSessionCookieOptions,
   isSecureRequest,
 } from "../server/_core/cookies";
-import {
-  LEGACY_COOKIE_NAME,
-  SESSION_COOKIE_SUFFIX,
-} from "../shared/const";
+import { LEGACY_COOKIE_NAME, SESSION_COOKIE_SUFFIX } from "../shared/const";
 import { isTrustedFrontendOrigin } from "../server/_core/oauth";
 
 let server: Server | null = null;
@@ -51,18 +48,14 @@ async function testServer(
   allowedOrigins?: Set<string>,
 ): Promise<string> {
   const app = express();
-  app.use(
-    createCorsMiddleware(
-      allowedOrigins,
-      () => localApi,
-    ),
-  );
+  app.use(createCorsMiddleware(allowedOrigins, () => localApi));
   app.get("/read", (_req, res) => res.json({ ok: true }));
   app.post("/write", (_req, res) => res.json({ ok: true }));
   server = app.listen(0);
   await new Promise<void>((resolve) => server?.once("listening", resolve));
   const address = server.address();
-  if (!address || typeof address === "string") throw new Error("missing test port");
+  if (!address || typeof address === "string")
+    throw new Error("missing test port");
   return `http://127.0.0.1:${address.port}`;
 }
 
@@ -87,10 +80,13 @@ describe("Mobile API origin and cookie isolation", () => {
     "rejects credentialed %s from an unpaired web origin",
     async (method) => {
       const base = await testServer();
-      const response = await fetch(`${base}/${method === "GET" ? "read" : "write"}`, {
-        method,
-        headers: { Origin: "https://evil.example.test" },
-      });
+      const response = await fetch(
+        `${base}/${method === "GET" ? "read" : "write"}`,
+        {
+          method,
+          headers: { Origin: "https://evil.example.test" },
+        },
+      );
 
       expect(response.status).toBe(403);
       expect(response.headers.get("access-control-allow-origin")).toBeNull();
@@ -103,7 +99,9 @@ describe("Mobile API origin and cookie isolation", () => {
     "https://evil.example.test",
   ])("rejects an unpaired preview origin: %s", async (origin) => {
     const base = await testServer();
-    const response = await fetch(`${base}/read`, { headers: { Origin: origin } });
+    const response = await fetch(`${base}/read`, {
+      headers: { Origin: origin },
+    });
     expect(response.status).toBe(403);
   });
 
@@ -133,7 +131,9 @@ describe("Mobile API origin and cookie isolation", () => {
       expect([...trustedFrontendWebOrigins()]).toEqual([origin]);
 
       const base = await testServer(false);
-      const response = await fetch(`${base}/read`, { headers: { Origin: origin } });
+      const response = await fetch(`${base}/read`, {
+        headers: { Origin: origin },
+      });
       expect(response.status).toBe(200);
       expect(response.headers.get("access-control-allow-origin")).toBe(origin);
     },
@@ -144,7 +144,9 @@ describe("Mobile API origin and cookie isolation", () => {
     vi.stubEnv("EXPO_WEB_PREVIEW_URL", "http://127.0.0.1:48328");
     const base = await testServer();
     for (const origin of ["http://localhost:48081", "http://127.0.0.1:48328"]) {
-      const local = await fetch(`${base}/read`, { headers: { Origin: origin } });
+      const local = await fetch(`${base}/read`, {
+        headers: { Origin: origin },
+      });
       expect(local.status).toBe(200);
       expect(local.headers.get("access-control-allow-origin")).toBe(origin);
     }
@@ -165,7 +167,9 @@ describe("Mobile API origin and cookie isolation", () => {
     vi.stubEnv("EXPO_WEB_PREVIEW_URL", "http://127.0.0.1:48328");
     const base = await testServer(false);
     for (const origin of ["http://localhost:48081", "http://127.0.0.1:48328"]) {
-      const remote = await fetch(`${base}/read`, { headers: { Origin: origin } });
+      const remote = await fetch(`${base}/read`, {
+        headers: { Origin: origin },
+      });
       expect(remote.status).toBe(403);
     }
   });
@@ -178,7 +182,9 @@ describe("Mobile API origin and cookie isolation", () => {
       expect([...trustedFrontendWebOrigins()]).toEqual([]);
 
       const base = await testServer(false);
-      const remote = await fetch(`${base}/read`, { headers: { Origin: origin } });
+      const remote = await fetch(`${base}/read`, {
+        headers: { Origin: origin },
+      });
       expect(remote.status).toBe(403);
     },
   );
@@ -193,24 +199,25 @@ describe("Mobile API origin and cookie isolation", () => {
     "https://localhost:8081",
     "http://127.0.0.42:9090",
     "https://[::ffff:127.0.0.1]:8081",
-  ])("never promotes a loopback-equivalent origin into a remote API allowlist: %s", async (origin) => {
-    const previousPackager = process.env.EXPO_PACKAGER_PROXY_URL;
-    try {
-      process.env.EXPO_PACKAGER_PROXY_URL = origin;
-      expect([...trustedExpoWebOrigins()]).toEqual([]);
-      const base = await testServer(
-        false,
-        new Set([origin]),
-      );
-      const remote = await fetch(`${base}/read`, {
-        headers: { Origin: origin },
-      });
-      expect(remote.status).toBe(403);
-    } finally {
-      if (previousPackager === undefined) delete process.env.EXPO_PACKAGER_PROXY_URL;
-      else process.env.EXPO_PACKAGER_PROXY_URL = previousPackager;
-    }
-  });
+  ])(
+    "never promotes a loopback-equivalent origin into a remote API allowlist: %s",
+    async (origin) => {
+      const previousPackager = process.env.EXPO_PACKAGER_PROXY_URL;
+      try {
+        process.env.EXPO_PACKAGER_PROXY_URL = origin;
+        expect([...trustedExpoWebOrigins()]).toEqual([]);
+        const base = await testServer(false, new Set([origin]));
+        const remote = await fetch(`${base}/read`, {
+          headers: { Origin: origin },
+        });
+        expect(remote.status).toBe(403);
+      } finally {
+        if (previousPackager === undefined)
+          delete process.env.EXPO_PACKAGER_PROXY_URL;
+        else process.env.EXPO_PACKAGER_PROXY_URL = previousPackager;
+      }
+    },
+  );
 
   it("keeps native no-Origin requests separate", async () => {
     const base = await testServer();
@@ -306,7 +313,8 @@ describe("Mobile API origin and cookie isolation", () => {
         () => {},
       );
     } finally {
-      if (previousPackager === undefined) delete process.env.EXPO_PACKAGER_PROXY_URL;
+      if (previousPackager === undefined)
+        delete process.env.EXPO_PACKAGER_PROXY_URL;
       else process.env.EXPO_PACKAGER_PROXY_URL = previousPackager;
     }
     expect(cleared).toEqual([
@@ -331,7 +339,8 @@ describe("Mobile API origin and cookie isolation", () => {
       hostname: "api.customer.example",
     } as Request);
     expect(options.domain).toBeUndefined();
-    if (previousPackager === undefined) delete process.env.EXPO_PACKAGER_PROXY_URL;
+    if (previousPackager === undefined)
+      delete process.env.EXPO_PACKAGER_PROXY_URL;
     else process.env.EXPO_PACKAGER_PROXY_URL = previousPackager;
   });
 });

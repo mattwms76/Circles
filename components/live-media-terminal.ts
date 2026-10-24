@@ -5,7 +5,8 @@ export type LiveTerminalState = {
 
 type UnknownRecord = Record<string, unknown>;
 
-const ACCESS_REVOKED_MESSAGE = "Your access to this live moment has been revoked.";
+const ACCESS_REVOKED_MESSAGE =
+  "Your access to this live moment has been revoked.";
 const ENDED_MESSAGE = "This live moment has ended.";
 
 function isRecord(value: unknown): value is UnknownRecord {

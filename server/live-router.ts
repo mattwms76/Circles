@@ -506,10 +506,14 @@ async function renewHostLeaseAtomically(
       if (setup !== true) {
         throw new TRPCError({
           code: "CONFLICT",
-          message: "Live setup must send a provisional heartbeat before media is ready.",
+          message:
+            "Live setup must send a provisional heartbeat before media is ready.",
         });
       }
-      if (now.getTime() - stream.createdAt.getTime() >= HOST_SETUP_DEADLINE_MS) {
+      if (
+        now.getTime() - stream.createdAt.getTime() >=
+        HOST_SETUP_DEADLINE_MS
+      ) {
         throw new TRPCError({
           code: "CONFLICT",
           message: "Live camera setup timed out. Start a new live moment.",
@@ -693,8 +697,8 @@ async function assertLiveSignalCapacityInTransaction(
   const recentCutoff = new Date(
     input.now.getTime() - LIVE_SIGNAL_RATE_WINDOW_MS,
   );
-  const [streamRows, participantRows, recentParticipantRows] = await Promise.all(
-    [
+  const [streamRows, participantRows, recentParticipantRows] =
+    await Promise.all([
       tx
         .select({ total: count() })
         .from(liveSignals)
@@ -718,8 +722,7 @@ async function assertLiveSignalCapacityInTransaction(
             gt(liveSignals.createdAt, recentCutoff),
           ),
         ),
-    ],
-  );
+    ]);
   const [streamTotal] = streamRows;
   const [participantTotal] = participantRows;
   const [recentParticipantTotal] = recentParticipantRows;
@@ -770,9 +773,9 @@ async function hasDuplicateLiveIceInTransaction(
 async function purgeParticipantGenerationSignalsInTransaction(
   tx: LiveTransaction,
   input: {
-  streamId: number;
-  participantId: number;
-  generation: number;
+    streamId: number;
+    participantId: number;
+    generation: number;
   },
 ): Promise<void> {
   await tx
@@ -797,12 +800,12 @@ async function purgeParticipantGenerationSignalsInTransaction(
 async function insertSystemSignalInTransaction(
   tx: LiveTransaction,
   input: {
-  streamId: number;
-  fromId: number;
-  toId: number;
-  kind: "join" | "leave";
-  fromGeneration: number;
-  toGeneration: number;
+    streamId: number;
+    fromId: number;
+    toId: number;
+    kind: "join" | "leave";
+    fromGeneration: number;
+    toGeneration: number;
   },
 ): Promise<void> {
   await tx.insert(liveSignals).values({ ...input, payload: "{}" });
@@ -1415,7 +1418,9 @@ export const liveRouter = router({
           forbidden("This live media session has been replaced.");
         }
         if (recipientGeneration === null) {
-          forbidden("This WebRTC signal is not allowed for these participants.");
+          forbidden(
+            "This WebRTC signal is not allowed for these participants.",
+          );
         }
         const senderHasJoinedCurrentHostGeneration =
           ctx.user.id === stream.hostId ||
@@ -1458,7 +1463,9 @@ export const liveRouter = router({
             senderHasJoinedCurrentHostGeneration,
           })
         ) {
-          forbidden("This WebRTC signal is not allowed for these participants.");
+          forbidden(
+            "This WebRTC signal is not allowed for these participants.",
+          );
         }
 
         if (

@@ -1,9 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { circles, memberships } from "../drizzle/schema";
-import {
-  joinCircle,
-  setCircleMembership,
-} from "../server/social-service";
+import { joinCircle, setCircleMembership } from "../server/social-service";
 
 const socialJoinDbMock = vi.hoisted(() => ({
   getDb: vi.fn(),
@@ -56,14 +53,24 @@ function createSyntheticConcurrentJoinFixture(privacy: SyntheticCirclePrivacy) {
       }),
     }),
     insert: (table: unknown) => ({
-      values: (value: { circleId: number; userId: number; role: SyntheticJoinRole }) => {
-        if (table !== memberships) throw new Error("Unexpected synthetic join insert");
-        if (value.circleId !== SYNTHETIC_CIRCLE_ID || value.userId !== SYNTHETIC_USER_ID) {
+      values: (value: {
+        circleId: number;
+        userId: number;
+        role: SyntheticJoinRole;
+      }) => {
+        if (table !== memberships)
+          throw new Error("Unexpected synthetic join insert");
+        if (
+          value.circleId !== SYNTHETIC_CIRCLE_ID ||
+          value.userId !== SYNTHETIC_USER_ID
+        ) {
           throw new Error("Unexpected synthetic join identity");
         }
 
         return {
-          onConflictDoNothing: async (config: { target?: unknown | unknown[] }) => {
+          onConflictDoNothing: async (config: {
+            target?: unknown | unknown[];
+          }) => {
             const target = Array.isArray(config.target)
               ? config.target
               : [config.target];
@@ -71,7 +78,9 @@ function createSyntheticConcurrentJoinFixture(privacy: SyntheticCirclePrivacy) {
               !target.includes(memberships.circleId) ||
               !target.includes(memberships.userId)
             ) {
-              throw new Error("Expected the circle/user membership conflict target");
+              throw new Error(
+                "Expected the circle/user membership conflict target",
+              );
             }
             conflictWrites += 1;
             await Promise.resolve();
@@ -82,7 +91,8 @@ function createSyntheticConcurrentJoinFixture(privacy: SyntheticCirclePrivacy) {
     }),
     delete: (table: unknown) => ({
       where: async () => {
-        if (table !== memberships) throw new Error("Unexpected synthetic membership deletion");
+        if (table !== memberships)
+          throw new Error("Unexpected synthetic membership deletion");
         deleteWrites += 1;
         membershipRole = undefined;
       },

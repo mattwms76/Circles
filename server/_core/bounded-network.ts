@@ -36,7 +36,10 @@ export async function withOperationDeadline<T>(
     return await Promise.race([
       operation,
       new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new BoundedOperationTimeoutError()), timeoutMs);
+        timer = setTimeout(
+          () => reject(new BoundedOperationTimeoutError()),
+          timeoutMs,
+        );
         abortListener = () => reject(new RequestAbortedError());
         signal?.addEventListener("abort", abortListener, { once: true });
       }),

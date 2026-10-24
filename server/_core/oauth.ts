@@ -446,8 +446,7 @@ function presentedBearer(req: Request): string | null {
 export function isAllowedLogoutOrigin(req: Request, origin: string): boolean {
   if (trustedFrontendWebOrigins().has(origin)) return true;
   return (
-    isLoopbackApiHost(req.hostname) &&
-    configuredFrontendOrigins().has(origin)
+    isLoopbackApiHost(req.hostname) && configuredFrontendOrigins().has(origin)
   );
 }
 
@@ -513,7 +512,7 @@ export function registerOAuthRoutes(app: Express) {
     }
   });
 
-  app.get("/api/oauth/mobile/start", async (req: Request, res: Response) => {
+  app.get("/api/oauth/mobile/start", async (_req: Request, res: Response) => {
     try {
       // Never accept a callback receiver from the initiating request. The
       // provider is sent only the immutable URI owned by this Circles build.

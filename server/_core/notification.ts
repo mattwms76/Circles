@@ -21,7 +21,10 @@ const isNonEmptyString = (value: unknown): value is string =>
 
 const buildEndpointUrl = (baseUrl: string): string => {
   const normalizedBase = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
-  return new URL("webdevtoken.v1.WebDevService/SendNotification", normalizedBase).toString();
+  return new URL(
+    "webdevtoken.v1.WebDevService/SendNotification",
+    normalizedBase,
+  ).toString();
 };
 
 const validatePayload = (input: NotificationPayload): NotificationPayload => {
