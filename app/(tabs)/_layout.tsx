@@ -4,6 +4,7 @@ import { Pressable, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { C, Icon, T, type IconName } from "@/components/circles-ui";
 import { useCircles } from "@/hooks/circles-context";
+import { appShellLayout } from "@/lib/app-shell-layout";
 
 type TabBarProps = {
   state: { index: number; routes: { key: string; name: string }[] };
@@ -14,7 +15,8 @@ function TabBar({ state, navigation }: TabBarProps) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { requireAuth } = useCircles();
-  if (width >= 900) return null;
+  const layout = appShellLayout(width, insets);
+  if (layout.wide) return null;
   const icons: Record<string, [IconName, IconName, string]> = {
     index: ["home-outline", "home", "Home"],
     discover: ["compass-outline", "compass", "Discover"],
@@ -23,6 +25,7 @@ function TabBar({ state, navigation }: TabBarProps) {
   };
   return (
     <View
+      testID="app-shell-tab-bar"
       style={{
         backgroundColor: C.bg,
         borderTopWidth: 1,
@@ -31,7 +34,8 @@ function TabBar({ state, navigation }: TabBarProps) {
         alignItems: "center",
         paddingBottom: Math.max(10, insets.bottom),
         paddingTop: 10,
-        paddingHorizontal: 10,
+        paddingLeft: 10 + layout.framePadding.paddingLeft,
+        paddingRight: 10 + layout.framePadding.paddingRight,
       }}
     >
       {state.routes.map((route, index) => {
