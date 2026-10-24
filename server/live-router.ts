@@ -13,6 +13,7 @@ import { memberships } from "../drizzle/schema";
 import type { LiveStream } from "../shared/social";
 import { createHostGenerationRestartSignals } from "../shared/live-generation-restart";
 import { getDb } from "./db";
+import { assertPlatformFeature } from "./platform-settings";
 import {
   createTurnIceConfiguration,
   loadTurnConfiguration,
@@ -870,16 +871,22 @@ export const liveRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }): Promise<LiveStream> => {
+      const db = await getDb();
+      if (!db) unavailable();
+      // Read the authoritative feature flag before TURN acquisition or any
+      // stream/lease lifecycle work. In inactive mode this is a no-op.
+      await assertPlatformFeature(db, "liveStreamingEnabled");
       // Production must not create a stream that would later fall back to a
       // public STUN-only transport. Do this before any stream/lease write.
       loadLiveTurnConfiguration();
-      const db = await getDb();
-      if (!db) unavailable();
       const circleId = input.circleId ?? null;
       await assertApprovedCircleHost(ctx.user.id, circleId);
 
       const now = new Date();
       const stream = await db.transaction(async (tx) => {
+        // Serialize admission with the lifecycle transaction. The settings
+        // reader runs before this path locks the host lease or any stream row.
+        await assertPlatformFeature(tx, "liveStreamingEnabled");
         const lease = await lockActiveHostLease(tx, ctx.user.id);
         const active = await reconcileActiveHostLease(
           tx,

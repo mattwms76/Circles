@@ -10,8 +10,10 @@ import { onboardingRouter } from "./onboarding-router";
 import { circleHomeRouter } from "./circle-home-router";
 import { activityRouter } from "./activity-router";
 import { moderationRouter } from "./moderation-router";
+import { platformRouter } from "./platform-router";
 
 export const appRouter = router({
+  platform: platformRouter,
   moderation: moderationRouter,
   activity: activityRouter,
   circleHome: circleHomeRouter,

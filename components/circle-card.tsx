@@ -3,6 +3,7 @@ import { Image } from "@/components/media-image";
 import { useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
+import { invalidateCircleDirectories } from "@/lib/source-query-invalidation";
 import type { Circle } from "@/shared/social";
 import { Button, C, Icon, s, T } from "./circles-ui";
 
@@ -12,7 +13,7 @@ export function CircleCard({ circle }: { circle: Circle }) {
   const utils = trpc.useUtils();
   const join = trpc.social.joinCircle.useMutation({
     onSuccess: (result) => {
-      void utils.social.circles.invalidate();
+      void invalidateCircleDirectories(utils);
       notify(
         result.role === "pending"
           ? "Your request is with the circle owner."

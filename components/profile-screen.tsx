@@ -12,6 +12,7 @@ import { useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
 import { resolveFnd001QueryDisplayState } from "@/lib/fnd001-query-display-state";
+import { invalidateProfileViews } from "@/lib/source-query-invalidation";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppShell } from "./app-shell";
 import { PostCard } from "./post-card";
@@ -150,10 +151,7 @@ export default function ProfileScreen({
     onSuccess: () => {
       setEdit(false);
       void profile.refetch();
-      void utils.social.profiles.invalidate();
-      void utils.social.profile.invalidate();
-      void utils.social.feed.invalidate();
-      void utils.social.conversations.invalidate();
+      void invalidateProfileViews(utils);
       notify("Your profile feels a little more you.");
     },
     onError: (e) => notify(e.message),
@@ -161,7 +159,7 @@ export default function ProfileScreen({
   const follow = trpc.social.follow.useMutation({
     onSuccess: () => {
       void profile.refetch();
-      void utils.social.profiles.invalidate();
+      void invalidateProfileViews(utils);
     },
     onError: (e) => notify(e.message),
   });
@@ -379,7 +377,7 @@ export default function ProfileScreen({
           bottomInset={insets.bottom}
           saving={update.isPending}
           onClose={() => setEdit(false)}
-          onSave={(draft) => update.mutate(draft)}
+          onSave={(draft) => requireAuth(() => update.mutate(draft))}
         />
       )}
     </AppShell>

@@ -4,6 +4,7 @@ import { useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
 import { AppShell } from "@/components/app-shell";
+import { platformCreationIssue } from "@/lib/platform-feature-ui";
 import {
   Avatar,
   Button,
@@ -19,6 +20,15 @@ export default function LiveLobby() {
   const router = useRouter();
   const { requireAuth } = useCircles();
   const lives = trpc.live.list.useQuery({}, { refetchInterval: 5000 });
+  const platformStatus = trpc.platform.status.useQuery(undefined, {
+    staleTime: 0,
+    refetchOnMount: "always",
+    retry: false,
+  });
+  const creationIssue = platformCreationIssue(
+    platformStatus.isError ? undefined : platformStatus.data,
+    "live",
+  );
   return (
     <AppShell>
       <View style={{ gap: 17 }}>
@@ -56,8 +66,21 @@ export default function LiveLobby() {
         <Button
           title="Start a live conversation"
           icon="radio-outline"
+          disabled={!!creationIssue}
           onPress={() => requireAuth(() => router.push("/create?mode=live"))}
         />
+        {creationIssue && (
+          <View accessibilityLiveRegion="polite" style={{ gap: 8 }}>
+            <T style={{ color: C.secondary }}>{creationIssue}</T>
+            <Button
+              title="Check availability"
+              secondary
+              onPress={() => {
+                void platformStatus.refetch();
+              }}
+            />
+          </View>
+        )}
       </View>
       <View style={{ marginTop: 16 }}>
         {lives.isLoading ? (

@@ -5,6 +5,7 @@ import { useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
 import { resolveFnd001QueryDisplayState } from "@/lib/fnd001-query-display-state";
+import { invalidateProfileViews } from "@/lib/source-query-invalidation";
 import {
   getBoundedLoadedCollection,
   UI_COLLECTION_PAGE_SIZE,
@@ -87,7 +88,7 @@ export default function DiscoverScreen() {
     { getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined },
   );
   const feed = trpc.social.feedPage.useInfiniteQuery(
-    { filter: "for-you", limit: UI_COLLECTION_PAGE_SIZE },
+    { filter: "for-you", search, limit: UI_COLLECTION_PAGE_SIZE },
     { getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined },
   );
   const lives = trpc.live.list.useQuery({ search });
@@ -129,7 +130,7 @@ export default function DiscoverScreen() {
         next.delete(variables.userId);
         return next;
       });
-      void utils.social.profiles.invalidate();
+      void invalidateProfileViews(utils);
       notify("Your connections have been updated.");
     },
     onError: (e, variables) => {
@@ -145,15 +146,10 @@ export default function DiscoverScreen() {
       notify(e.message);
     },
   });
-  const posts = feedItems.filter((post) =>
-    `${post.text} ${post.author.name} ${post.circleName || ""}`
-      .toLowerCase()
-      .includes(search.toLowerCase()),
-  );
   const feedDisplayState = resolveFnd001QueryDisplayState({
     isLoading: feed.isLoading,
     isError: feed.isError,
-    hasContent: posts.length > 0 || !!feed.hasNextPage,
+    hasContent: feedItems.length > 0 || !!feed.hasNextPage,
   });
   const livesPage = getBoundedLoadedCollection(lives.data, livesVisibleCount);
   const requestFollow = (personId: number, currentlyFollowing: boolean) => {
@@ -381,7 +377,7 @@ export default function DiscoverScreen() {
               text="Try another word or explore a circle."
             />
           ) : (
-            posts.map((post) => <PostCard key={post.id} post={post} />)
+            feedItems.map((post) => <PostCard key={post.id} post={post} />)
           )}
           {feedDisplayState === "content" && (
             <CollectionFooter

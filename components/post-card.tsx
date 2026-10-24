@@ -1,5 +1,5 @@
 import { Image, useMediaSource } from "@/components/media-image";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Modal,
@@ -18,6 +18,10 @@ import { createSingleFlightSubmitter } from "@/lib/single-flight-submit";
 import type { Post } from "@/shared/social";
 import { useCircles } from "@/hooks/circles-context";
 import { resolveFnd001QueryDisplayState } from "@/lib/fnd001-query-display-state";
+import {
+  invalidateModerationViews,
+  invalidatePostFeeds,
+} from "@/lib/source-query-invalidation";
 import {
   ago,
   Avatar,
@@ -45,6 +49,18 @@ function PostVideo({ uri }: { uri: string }) {
     />
   );
 }
+
+type ScopedInteractionOptimism = {
+  scope: string;
+  source: Post;
+  value: boolean;
+};
+
+type ActivePostSource = {
+  scope: string;
+  post: Post;
+};
+
 export function PostCard({ post }: { post: Post }) {
   const router = useRouter();
   const { user, requireAuth, notify } = useCircles();
@@ -55,29 +71,131 @@ export function PostCard({ post }: { post: Post }) {
   const [commentText, setCommentText] = useState("");
   const commentSubmitter = useRef(createSingleFlightSubmitter()).current;
   const [isCommentSubmitting, setIsCommentSubmitting] = useState(false);
-  const [overrideLike, setOverrideLike] = useState<boolean | null>(null);
-  const [overrideSave, setOverrideSave] = useState<boolean | null>(null);
-  const liked = overrideLike ?? post.liked;
-  const saved = overrideSave ?? post.saved;
-  const like = trpc.social.likePost.useMutation({
-    onSuccess: (result) => {
-      setOverrideLike(result.liked);
-      void utils.social.feed.invalidate();
-    },
-    onError: (e) => notify(e.message),
-  });
-  const save = trpc.social.savePost.useMutation({
-    onSuccess: (result) => {
-      setOverrideSave(result.saved);
-      notify(
-        result.saved
-          ? "Saved to your collection."
-          : "Removed from saved posts.",
+  const [likeOptimism, setLikeOptimism] =
+    useState<ScopedInteractionOptimism | null>(null);
+  const [saveOptimism, setSaveOptimism] =
+    useState<ScopedInteractionOptimism | null>(null);
+  const sourceScope = `${user?.id ?? "guest"}:${post.id}`;
+  const currentSourceScope = useRef<ActivePostSource | null>(null);
+
+  // Setup/cleanup keeps late completion checks current across source changes and Strict Mode.
+  useEffect(() => {
+    const activeSource = { scope: sourceScope, post };
+    currentSourceScope.current = activeSource;
+    return () => {
+      if (currentSourceScope.current === activeSource) {
+        currentSourceScope.current = null;
+      }
+    };
+  }, [post, sourceScope]);
+
+  const isCurrentSource = useCallback(
+    (operationScope: string, operationPost: Post) => {
+      const activeSource = currentSourceScope.current;
+      return (
+        activeSource?.scope === operationScope &&
+        activeSource.post === operationPost
       );
-      void utils.social.feed.invalidate();
     },
-    onError: (e) => notify(e.message),
-  });
+    [],
+  );
+
+  // A new DTO, account, or post identity structurally displaces obsolete interaction state.
+  const liked =
+    likeOptimism?.source === post && likeOptimism.scope === sourceScope
+      ? likeOptimism.value
+      : post.liked;
+  const saved =
+    saveOptimism?.source === post && saveOptimism.scope === sourceScope
+      ? saveOptimism.value
+      : post.saved;
+  const like = trpc.social.likePost.useMutation();
+  const save = trpc.social.savePost.useMutation();
+  const toggleLike = useCallback(() => {
+    requireAuth(() => {
+      const operationScope = sourceScope;
+      const operationPost = post;
+      const nextLiked = !liked;
+      setLikeOptimism({
+        scope: operationScope,
+        source: operationPost,
+        value: nextLiked,
+      });
+      like.mutate(
+        { postId: post.id, liked: nextLiked },
+        {
+          onSuccess: (result) => {
+            if (!isCurrentSource(operationScope, operationPost)) return;
+            setLikeOptimism({
+              scope: operationScope,
+              source: operationPost,
+              value: result.liked,
+            });
+            void invalidatePostFeeds(utils);
+          },
+          onError: (error) => {
+            if (!isCurrentSource(operationScope, operationPost)) return;
+            setLikeOptimism(null);
+            notify(error.message);
+          },
+        },
+      );
+    });
+  }, [
+    isCurrentSource,
+    like,
+    liked,
+    notify,
+    post,
+    requireAuth,
+    sourceScope,
+    utils,
+  ]);
+  const toggleSave = useCallback(() => {
+    requireAuth(() => {
+      const operationScope = sourceScope;
+      const operationPost = post;
+      const nextSaved = !saved;
+      setSaveOptimism({
+        scope: operationScope,
+        source: operationPost,
+        value: nextSaved,
+      });
+      save.mutate(
+        { postId: post.id, saved: nextSaved },
+        {
+          onSuccess: (result) => {
+            if (!isCurrentSource(operationScope, operationPost)) return;
+            setSaveOptimism({
+              scope: operationScope,
+              source: operationPost,
+              value: result.saved,
+            });
+            notify(
+              result.saved
+                ? "Saved to your collection."
+                : "Removed from saved posts.",
+            );
+            void invalidatePostFeeds(utils);
+          },
+          onError: (error) => {
+            if (!isCurrentSource(operationScope, operationPost)) return;
+            setSaveOptimism(null);
+            notify(error.message);
+          },
+        },
+      );
+    });
+  }, [
+    isCurrentSource,
+    notify,
+    post,
+    requireAuth,
+    save,
+    saved,
+    sourceScope,
+    utils,
+  ]);
   const comments = trpc.social.comments.useQuery(
     { postId: post.id },
     { enabled: commentsOpen },
@@ -91,7 +209,7 @@ export function PostCard({ post }: { post: Post }) {
     onSuccess: () => {
       setCommentText("");
       void comments.refetch();
-      void utils.social.feed.invalidate();
+      void invalidatePostFeeds(utils);
     },
     onError: (e) => notify(e.message),
   });
@@ -118,6 +236,7 @@ export function PostCard({ post }: { post: Post }) {
   const report = trpc.social.report.useMutation({
     onSuccess: () => {
       setMenu(false);
+      void invalidateModerationViews(utils);
       notify("Report received. Thank you for looking out for your circle.");
     },
     onError: (e) => notify(e.message),
@@ -125,7 +244,8 @@ export function PostCard({ post }: { post: Post }) {
   const remove = trpc.social.deletePost.useMutation({
     onSuccess: () => {
       setMenu(false);
-      void utils.social.feed.invalidate();
+      void invalidatePostFeeds(utils);
+      void invalidateModerationViews(utils);
       notify("Post removed.");
     },
     onError: (e) => notify(e.message),
@@ -213,9 +333,7 @@ export function PostCard({ post }: { post: Post }) {
           <View style={[s.row, { gap: 15 }]}>
             <Pressable
               disabled={like.isPending}
-              onPress={() =>
-                requireAuth(() => like.mutate({ postId: post.id }))
-              }
+              onPress={toggleLike}
               accessibilityRole="button"
               accessibilityLabel={liked ? "Unlike post" : "Like post"}
               accessibilityState={{
@@ -267,7 +385,7 @@ export function PostCard({ post }: { post: Post }) {
             icon={saved ? "bookmark" : "bookmark-outline"}
             color={saved ? C.coral : C.ink}
             size={20}
-            onPress={() => requireAuth(() => save.mutate({ postId: post.id }))}
+            onPress={toggleSave}
             label={saved ? "Remove saved post" : "Save post"}
             disabled={save.isPending}
             loading={save.isPending}
@@ -464,25 +582,29 @@ export function PostCard({ post }: { post: Post }) {
             <T style={{ fontSize: 18, fontWeight: "700", marginBottom: 5 }}>
               Keep your circle kind.
             </T>
-            <Button
-              title="Report inappropriate content"
-              icon="flag-outline"
-              secondary
-              onPress={() =>
-                requireAuth(() =>
-                  report.mutate({
-                    postId: post.id,
-                    reason: "Inappropriate or harmful content",
-                  }),
-                )
-              }
-            />
+            {post.circleId !== null && (
+              <Button
+                title="Report inappropriate content"
+                icon="flag-outline"
+                secondary
+                onPress={() =>
+                  requireAuth(() =>
+                    report.mutate({
+                      postId: post.id,
+                      reason: "Inappropriate or harmful content",
+                    }),
+                  )
+                }
+              />
+            )}
             {user?.id === post.author.id && (
               <Button
                 title="Remove my post"
                 icon="trash-outline"
                 secondary
-                onPress={() => remove.mutate({ postId: post.id })}
+                onPress={() =>
+                  requireAuth(() => remove.mutate({ postId: post.id }))
+                }
               />
             )}
             <Button title="Close" secondary onPress={() => setMenu(false)} />

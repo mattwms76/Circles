@@ -66,6 +66,7 @@ import {
   type CircleHomeTextInput,
 } from "../shared/circle-home";
 import { getDb, type CirclesDatabase, type CirclesTransaction } from "./db";
+import { assertPlatformFeature } from "./platform-settings";
 import {
   recordCommentActivity,
   recordMembershipApprovalActivity,
@@ -427,7 +428,7 @@ async function findProfileWithDb(
 }
 
 async function ensureProfileWithDb(
-  db: Database,
+  db: Database | SocialTransaction,
   userId: number,
 ): Promise<Profile> {
   const existing = await findProfileWithDb(db, userId, userId);
@@ -1075,7 +1076,14 @@ export type FeedPageOptions = {
   cursor?: FeedScanCursor;
   /** Optional bounded page size; omission preserves the historical 100-item array response. */
   limit?: number;
+  /** Optional post-text search, normalized by the public router before use. */
+  search?: string;
 };
+
+/** Escapes PostgreSQL LIKE metacharacters so user search remains literal under ILIKE. */
+export function escapePostSearchLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, "\\$&");
+}
 
 /**
  * Reads newest-first post batches until the requested eligible page is full or no older posts
@@ -1266,6 +1274,10 @@ export async function feedPage(
   const clauses: SQL[] = [];
   if (circleId) clauses.push(eq(posts.circleId, circleId));
   if (authorId) clauses.push(eq(posts.authorId, authorId));
+  const search = options.search?.trim();
+  if (search) {
+    clauses.push(ilike(posts.text, `%${escapePostSearchLikePattern(search)}%`));
+  }
 
   if (filter === "following") {
     if (!viewerId) return { items: [], nextCursor: null, hasMore: false };
@@ -1641,9 +1653,10 @@ export async function createCircle(
   },
 ): Promise<Circle> {
   const db = await requireDb();
-  await ensureProfileWithDb(db, userId);
-  await assertCircleCoverImageOwnership(db, userId, input.image);
   const circleId = await db.transaction(async (tx) => {
+    await assertPlatformFeature(tx, "circleCreationEnabled");
+    await ensureProfileWithDb(tx, userId);
+    await assertCircleCoverImageOwnership(tx, userId, input.image);
     const created = await tx
       .insert(circles)
       .values({
@@ -2212,6 +2225,12 @@ export async function reportPost(
       userId,
       postId,
     );
+    if (post.circleId === null) {
+      socialError(
+        "FORBIDDEN",
+        "Only circle posts can be reported through circle moderation",
+      );
+    }
     await tx
       .insert(reports)
       .values({ postId, reporterId: userId, reason: reason.trim() })

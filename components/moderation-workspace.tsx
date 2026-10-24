@@ -29,7 +29,21 @@ import {
   serializeModerationNote,
   validateModerationNote,
 } from "@/lib/moderation-ui";
+import {
+  invalidateModerationViews,
+  invalidatePostFeeds,
+} from "@/lib/source-query-invalidation";
 import { ago, Button, C, Empty, Icon, Loading, s, T } from "./circles-ui";
+
+function isModerationConflict(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const data = (error as { data?: unknown }).data;
+  return (
+    !!data &&
+    typeof data === "object" &&
+    (data as { code?: unknown }).code === "CONFLICT"
+  );
+}
 
 function CaseRow({
   item,
@@ -132,6 +146,7 @@ export function ModerationWorkspace({
     [circleId, viewerId],
   );
   const scopeKey = moderationScopeKey(scope);
+  const utils = trpc.useUtils();
   const [filter, setFilter] = useState<ModerationFilter>("open");
   const [selectedCaseId, setSelectedCaseId] = useState<number | null>(null);
   const [note, setNote] = useState("");
@@ -214,13 +229,8 @@ export function ModerationWorkspace({
     );
   }, []);
 
-  const confirmedNoLongerResolvable =
-    detailState.isAuthorityAvailable &&
-    detailState.detail?.item.canResolve === false;
   const authorityLossScope =
-    selectedCaseId !== null &&
-    (confirmedNoLongerResolvable ||
-      isConfirmedModerationAuthorityLoss(detail.error))
+    selectedCaseId !== null && isConfirmedModerationAuthorityLoss(detail.error)
       ? `${scopeKey}:case:${selectedCaseId}`
       : null;
   if (authorityLossScope && clearedAuthorityScope !== authorityLossScope) {
@@ -275,6 +285,23 @@ export function ModerationWorkspace({
     setWriteError(null);
   }, []);
 
+  const refreshResolvedCase = useCallback(
+    async (capturedScope: string, caseId: number): Promise<boolean> => {
+      if (!isCurrentCase(capturedScope, caseId)) return false;
+      await invalidateModerationViews(utils);
+      if (!isCurrentCase(capturedScope, caseId)) return false;
+
+      // The case views must be freshly scoped before pendingDecision can release controls.
+      await Promise.all([detail.refetch(), queue.refetch()]);
+      if (!isCurrentCase(capturedScope, caseId)) return false;
+
+      // A resolution can remove the current post. Refresh every active feed source as well.
+      await invalidatePostFeeds(utils);
+      return isCurrentCase(capturedScope, caseId);
+    },
+    [detail, isCurrentCase, queue, utils],
+  );
+
   const submitResolution = useCallback(
     (decision: ModerationDecision) => {
       const caseId = selectedCaseId;
@@ -316,9 +343,19 @@ export function ModerationWorkspace({
 
           // A scope-guarded fresh detail response, not a stale mutation completion, becomes the UI authority.
           setNote("");
-          await Promise.all([detail.refetch(), queue.refetch()]);
+          await refreshResolvedCase(capturedScope, caseId);
         } catch (caught) {
           if (!isCurrentCase(capturedScope, caseId)) return;
+          if (isModerationConflict(caught)) {
+            // A competing final decision is authoritative only after fresh matching detail and
+            // queue reads. Keep the author’s note: conflict itself is not an authority loss.
+            try {
+              await refreshResolvedCase(capturedScope, caseId);
+            } catch {
+              // The original conflict remains useful feedback if a recovery read also fails.
+            }
+            if (!isCurrentCase(capturedScope, caseId)) return;
+          }
           if (isConfirmedModerationAuthorityLoss(caught)) {
             setNote("");
             setNoteError(null);
@@ -339,13 +376,12 @@ export function ModerationWorkspace({
     },
     [
       circleId,
-      detail,
       detailState.detail?.item,
       detailState.isAuthorityAvailable,
       isCurrentCase,
       note,
       pendingDecision,
-      queue,
+      refreshResolvedCase,
       resolve,
       scopeKey,
       selectedCaseId,
