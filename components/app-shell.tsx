@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
 import { appShellLayout } from "@/lib/app-shell-layout";
+import { invalidateCircleDirectories } from "../lib/source-query-invalidation";
 import {
   Avatar,
   Button,
@@ -393,7 +394,7 @@ export function CommunitySidebar() {
   const utils = trpc.useUtils();
   const join = trpc.social.joinCircle.useMutation({
     onSuccess: () => {
-      void utils.social.circles.invalidate();
+      void invalidateCircleDirectories(utils);
       notify("You’re a little closer. Circle joined!");
     },
     onError: (e) => notify(e.message),

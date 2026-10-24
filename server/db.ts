@@ -1,4 +1,5 @@
-import { eq } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
+import { eq, sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import * as coreSchema from "../drizzle/schema";
 import * as liveSchema from "../drizzle/live-schema";
@@ -12,6 +13,7 @@ import {
   createRuntimeRolePool,
   type RuntimeRolePool,
 } from "./runtime-role-pool";
+import { assertPlatformFeature } from "./platform-settings";
 
 const databaseSchema = {
   ...coreSchema,
@@ -99,11 +101,34 @@ export async function upsertUser(user: InsertUser): Promise<void> {
   }
 
   try {
-    await db.insert(users).values(values).onConflictDoUpdate({
-      target: users.openId,
-      set: updateSet,
+    await db.transaction(async (tx) => {
+      // Existing OAuth identities remain able to sign in even if registrations
+      // close or the optional settings reader is unavailable. Serialize every
+      // source identity before looking it up: a row lock alone cannot lock an
+      // absent identity. The lookup and first insert then share a transaction
+      // so a newly admitted identity is gated before any user row is written.
+      await tx.execute(
+        sql`SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('circles.registration:' || ${user.openId}, 0))`,
+      );
+      const [existing] = await tx
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.openId, user.openId))
+        .for("update")
+        .limit(1);
+      if (!existing) {
+        await assertPlatformFeature(tx, "registrationsOpen");
+      }
+
+      await tx.insert(users).values(values).onConflictDoUpdate({
+        target: users.openId,
+        set: updateSet,
+      });
     });
-  } catch {
+  } catch (error) {
+    // Feature-reader failures and explicitly disabled registrations are already
+    // safe public tRPC errors; do not turn them into an opaque database error.
+    if (error instanceof TRPCError) throw error;
     throw new PostgreSqlDatabaseUnavailableError();
   }
 }

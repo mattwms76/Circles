@@ -97,9 +97,25 @@ describe("messages/profile/media UI retry controls", () => {
   it("rejects malformed person routes and invalidates all visible embedded identities", () => {
     expect(personRoute).toContain("/^[1-9]\\d*$/");
     expect(personRoute).toContain("invalidPersonRoute");
-    expect(profileScreen).toContain("utils.social.feed.invalidate()");
-    expect(profileScreen).toContain("utils.social.conversations.invalidate()");
-    expect(profileScreen).toContain("utils.social.profile.invalidate()");
+    expect(profileScreen).toContain("invalidateProfileViews(utils)");
+    const policy = readFileSync(
+      new URL("../lib/source-query-invalidation.ts", import.meta.url),
+      "utf8",
+    );
+    const profilePolicy = policy.slice(
+      policy.indexOf("export async function invalidateProfileViews"),
+      policy.indexOf("export async function invalidateModerationViews"),
+    );
+    for (const reader of [
+      "feed",
+      "feedPage",
+      "conversations",
+      "profile",
+      "profiles",
+      "profilesPage",
+    ]) {
+      expect(profilePolicy).toContain(`utils.social.${reader},`);
+    }
   });
 
   it("uses a real empty-conversation fallback and defers protected native media", () => {

@@ -159,6 +159,11 @@ function mockTrpcFetch(calls: MockCall[]) {
       );
     }
     const activityValues: Record<string, unknown> = {
+      "platform.status": {
+        integration: "inactive",
+        feature_readiness: false,
+        settings: null,
+      },
       "moderation.list": {
         circleId: 11,
         viewerScope: 1,
@@ -195,7 +200,9 @@ function mockTrpcFetch(calls: MockCall[]) {
       "activity.resolveTarget": { viewerId: 1, activityId: 17, target: null },
     };
     const value =
-      route.startsWith("activity.") || route.startsWith("moderation.")
+      route.startsWith("activity.") ||
+      route.startsWith("moderation.") ||
+      route === "platform.status"
         ? activityValues[route]
         : route === "auth.me"
           ? authenticated
@@ -267,11 +274,11 @@ describe("guarded API recovery", () => {
 
     expect(report.ok).toBe(true);
     expect(restartCalls).toBe(1);
-    expect(report.inventory.declaredQueries).toBe(29);
+    expect(report.inventory.declaredQueries).toBe(30);
     expect(report.verification.summary).toMatchObject({
       failed: 0,
       skipped: 0,
-      completedPositiveQueries: 29,
+      completedPositiveQueries: 30,
     });
     expect(calls.every((call) => call.method === "GET")).toBe(true);
     expect(
@@ -886,7 +893,7 @@ describe("guarded API recovery", () => {
     expect(databaseChecks).toBe(0);
     expect(schemaChecks).toBe(0);
     expect(restarts).toBe(0);
-    expect(report.inventory.declaredQueries).toBe(29);
+    expect(report.inventory.declaredQueries).toBe(30);
     expect(calls.every((call) => call.method === "GET")).toBe(true);
   });
 
@@ -919,7 +926,7 @@ describe("guarded API recovery", () => {
     expect(child.status).toBe(1);
     const report = JSON.parse(child.stdout);
     expect(report.configuration.ok).toBe(true);
-    expect(report.inventory.declaredQueries).toBe(29);
+    expect(report.inventory.declaredQueries).toBe(30);
     expect(report.restart.attempted).toBe(false);
     expect(report.database.required).toBe(false);
   });

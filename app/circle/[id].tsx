@@ -6,6 +6,7 @@ import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
 import { resolveFnd001QueryDisplayState } from "@/lib/fnd001-query-display-state";
 import { parsePositiveSafeId } from "@/lib/feed-ui-helpers";
+import { invalidateCircleDirectories } from "@/lib/source-query-invalidation";
 import { AppShell } from "@/components/app-shell";
 import {
   CircleHomeEditor,
@@ -122,7 +123,7 @@ export default function CircleScreen() {
     void members.refetch();
     void feed.refetch();
     void utils.circleHome.get.invalidate({ circleId });
-    void utils.social.circles.invalidate();
+    void invalidateCircleDirectories(utils);
   };
   const membership = trpc.social.setMembership.useMutation({
     onSuccess: (result) => {

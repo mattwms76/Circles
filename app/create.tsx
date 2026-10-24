@@ -41,6 +41,14 @@ import {
 } from "@/components/circles-ui";
 import { INTRODUCTION_DRAFT } from "@/shared/onboarding";
 import { canPrefillIntroduction } from "@/lib/onboarding-introduction";
+import {
+  invalidateCircleDirectories,
+  invalidatePostFeeds,
+} from "@/lib/source-query-invalidation";
+import {
+  platformCreationIssue,
+  platformUploadLimitMb,
+} from "@/lib/platform-feature-ui";
 
 export default function CreateScreen() {
   const params = useLocalSearchParams<{
@@ -102,6 +110,20 @@ export default function CreateScreen() {
   const post = trpc.social.createPost.useMutation();
   const circle = trpc.social.createCircle.useMutation();
   const live = trpc.live.create.useMutation();
+  const platformStatus = trpc.platform.status.useQuery(undefined, {
+    staleTime: 0,
+    refetchOnMount: "always",
+    retry: false,
+  });
+  const visiblePlatformStatus = platformStatus.isError
+    ? undefined
+    : platformStatus.data;
+  const creationIssue = platformCreationIssue(
+    visiblePlatformStatus,
+    mode,
+    !!asset,
+  );
+  const maxUploadMb = platformUploadLimitMb(visiblePlatformStatus);
 
   function clearSelectedMedia() {
     setAsset(null);
@@ -109,6 +131,15 @@ export default function CreateScreen() {
   }
 
   function selectMode(nextMode: CreateMode) {
+    const issue = platformCreationIssue(
+      visiblePlatformStatus,
+      nextMode,
+      !!asset,
+    );
+    if (issue) {
+      notify(issue);
+      return;
+    }
     if (nextMode === "circle" && asset) {
       try {
         if (!isCircleCoverMime(supportedMime(asset))) {
@@ -131,6 +162,11 @@ export default function CreateScreen() {
 
   async function pickMedia() {
     try {
+      const issue = platformCreationIssue(visiblePlatformStatus, mode, true);
+      if (issue) {
+        notify(issue);
+        return;
+      }
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: mode === "circle" ? ["images"] : ["images", "videos"],
         quality: 0.8,
@@ -138,6 +174,13 @@ export default function CreateScreen() {
       });
       if (!result.canceled) {
         const nextAsset = result.assets[0];
+        if (
+          nextAsset.fileSize &&
+          nextAsset.fileSize > maxUploadMb * 1024 * 1024
+        ) {
+          notify(`Choose media no larger than ${maxUploadMb} MiB.`);
+          return;
+        }
         const mimeType = supportedMime(nextAsset);
         if (mode === "circle" && !isCircleCoverMime(mimeType)) {
           notify("Circle covers need a JPEG, PNG, or WebP photo.");
@@ -204,6 +247,13 @@ export default function CreateScreen() {
     }
     setBusy(true);
     try {
+      const currentStatus = await platformStatus.refetch();
+      const issue = platformCreationIssue(
+        currentStatus.isError ? undefined : currentStatus.data,
+        mode,
+        !!asset,
+      );
+      if (issue) throw new Error(issue);
       const media = await uploadAsset();
       if (mode === "post") {
         await post.mutateAsync({
@@ -216,7 +266,7 @@ export default function CreateScreen() {
             : "text",
           circleId,
         });
-        void utils.social.feed.invalidate();
+        void invalidatePostFeeds(utils);
         notify("Your moment is out in the world.");
         router.back();
       } else if (mode === "circle") {
@@ -229,7 +279,7 @@ export default function CreateScreen() {
             media || (category === "Outdoors" ? photo.mountains : photo.coffee),
           color: C.sage,
         });
-        void utils.social.circles.invalidate();
+        void invalidateCircleDirectories(utils);
         notify("A new circle. A new beginning.");
         router.replace(`/circle/${result.id}`);
       } else {
@@ -324,6 +374,21 @@ export default function CreateScreen() {
               onPress={() => selectMode("live")}
             />
           </View>
+          {creationIssue && user && (
+            <View
+              style={[s.card, { padding: 14, gap: 8 }]}
+              accessibilityLiveRegion="polite"
+            >
+              <T>{creationIssue}</T>
+              <Button
+                title="Check availability"
+                secondary
+                onPress={() => {
+                  void platformStatus.refetch();
+                }}
+              />
+            </View>
+          )}
           {!user ? (
             <Empty
               icon="person-outline"
@@ -480,7 +545,7 @@ export default function CreateScreen() {
                           : "a photo or video"}
                       </T>
                       <T style={{ color: C.muted, fontSize: 12 }}>
-                        JPEG, PNG, WebP or MP4 · up to 20 MB
+                        JPEG, PNG, WebP or MP4 · up to {maxUploadMb} MiB
                       </T>
                     </>
                   )}
@@ -515,6 +580,7 @@ export default function CreateScreen() {
                 }
                 icon={mode === "live" ? "radio-outline" : "arrow-up-outline"}
                 loading={busy}
+                disabled={!!creationIssue}
                 onPress={publish}
               />
               <T style={{ color: C.muted, fontSize: 12, textAlign: "center" }}>

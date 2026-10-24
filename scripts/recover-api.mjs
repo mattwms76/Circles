@@ -404,6 +404,7 @@ const SAFE_RUNTIME_KEYS = new Set([
 
 const ALLOWED_SERVICE_NAME = "circles-api";
 const SOURCE_ROUTERS = Object.freeze([
+  { file: "server/platform-router.ts", namespace: "platform", indent: 2 },
   { file: "server/moderation-router.ts", namespace: "moderation", indent: 2 },
   { file: "server/activity-router.ts", namespace: "activity", indent: 2 },
   { file: "server/social-router.ts", namespace: "social", indent: 2 },
@@ -420,6 +421,7 @@ const SOURCE_ROUTERS = Object.freeze([
  * never guessed or invoked.
  */
 const ENDPOINT_DEFINITIONS = Object.freeze({
+  "platform.status": { expected: "platform-status" },
   "moderation.list": {
     expected: "moderation-page",
     requiresAuth: true,
@@ -1275,6 +1277,38 @@ function trpcPayload(text) {
 
 function expectedShape(value, expected, input) {
   if (expected === "array") return Array.isArray(value);
+  if (expected === "platform-status") {
+    const exact = (object, fields) =>
+      plainObject(object) &&
+      fields.every((field) => Object.hasOwn(object, field)) &&
+      Object.keys(object).every((field) => fields.includes(field));
+    if (!exact(value, ["integration", "feature_readiness", "settings"]))
+      return false;
+    if (
+      !["active", "inactive"].includes(value.integration) ||
+      typeof value.feature_readiness !== "boolean"
+    )
+      return false;
+    if (value.integration === "inactive")
+      return value.feature_readiness === false && value.settings === null;
+    if (!value.feature_readiness) return value.settings === null;
+    const fields = [
+      "registrationsOpen",
+      "circleCreationEnabled",
+      "liveStreamingEnabled",
+      "maintenanceMode",
+      "maxUploadMb",
+    ];
+    return (
+      exact(value.settings, fields) &&
+      fields
+        .slice(0, 4)
+        .every((field) => typeof value.settings[field] === "boolean") &&
+      Number.isInteger(value.settings.maxUploadMb) &&
+      value.settings.maxUploadMb >= 1 &&
+      value.settings.maxUploadMb <= 20
+    );
+  }
   if (expected.startsWith("moderation-")) {
     const id = (number) => positiveInteger(number) && number <= 2_147_483_647;
     const exact = (object, fields) =>

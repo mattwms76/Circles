@@ -17,6 +17,8 @@ import {
 } from "../shared/message-pagination";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { requestCancellation } from "./_core/bounded-network";
+import { getDb } from "./db";
+import { assertPlatformUploadSize } from "./platform-settings";
 import { storagePut } from "./storage";
 import {
   approveMember,
@@ -239,6 +241,7 @@ export const socialRouter = router({
         filter: z.enum(["for-you", "following", "circles", "saved"]),
         circleId: id.optional(),
         authorId: id.optional(),
+        search: z.string().trim().max(120).optional(),
         cursor: dateIdCursor.optional(),
         limit: pageLimit,
       }),
@@ -250,6 +253,7 @@ export const socialRouter = router({
         input.circleId,
         input.authorId,
         {
+          search: input.search,
           ...(input.cursor
             ? {
                 cursor: {
@@ -604,6 +608,17 @@ export const socialRouter = router({
             code: "BAD_REQUEST",
             message: "Upload bytes do not match the declared MIME type",
           });
+        }
+        const db = await getDb().catch(() => null);
+        if (!db) {
+          if (process.env.CIRCLES_PLATFORM_SETTINGS_ENABLED === "true") {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: "Database is unavailable",
+            });
+          }
+        } else {
+          await assertPlatformUploadSize(db, bytes.length);
         }
         const extension =
           input.mimeType === "image/jpeg"
