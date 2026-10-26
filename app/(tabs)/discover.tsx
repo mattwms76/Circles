@@ -1,9 +1,15 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, TextInput, View } from "react-native";
 import { Image } from "@/components/media-image";
 import { useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
+import {
+  batch3AccountResourceScope,
+  createBatch3AccountResourceSingleFlight,
+  isCurrentBatch3AccountResourceOperation,
+  type Batch3AccountResourceOperation,
+} from "@/lib/batch3-account-resource-scope";
 import { resolveFnd001QueryDisplayState } from "@/lib/fnd001-query-display-state";
 import { invalidateProfileViews } from "@/lib/source-query-invalidation";
 import {
@@ -27,22 +33,30 @@ import {
   T,
 } from "@/components/circles-ui";
 
+type ScopedFollowValues = { scope: string; values: Record<number, boolean> };
+type ScopedFollowPending = { scope: string; ids: Set<number> };
+type ScopedFollowError = { scope: string; personId: number; message: string };
+
 function CollectionFooter({
   itemLabel,
   canAppend,
   endState,
   onAppend,
+  isLoading = false,
 }: {
   itemLabel: string;
   canAppend: boolean;
   endState: LoadedCollectionEndState;
   onAppend: () => void;
+  isLoading?: boolean;
 }) {
   if (canAppend) {
     return (
       <Button
         title={`Show more ${itemLabel}`}
         secondary
+        loading={isLoading}
+        disabled={isLoading}
         onPress={onAppend}
         style={{ alignSelf: "center", marginTop: 4 }}
       />
@@ -66,19 +80,59 @@ function CollectionFooter({
 }
 
 export default function DiscoverScreen() {
+  const { user } = useCircles();
+  const discoverScope = batch3AccountResourceScope(user?.id, "discover");
+
+  return <DiscoverScreenInstance key={discoverScope ?? "guest:discover"} />;
+}
+
+function DiscoverScreenInstance() {
   const router = useRouter();
-  const { requireAuth, notify } = useCircles();
+  const { user, requireAuth, notify } = useCircles();
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState("For you");
   const [livesVisibleCount, setLivesVisibleCount] = useState(
     UI_COLLECTION_PAGE_SIZE,
   );
-  const [followingByPersonId, setFollowingByPersonId] = useState<
-    Record<number, boolean>
-  >({});
-  const [pendingFollowIds, setPendingFollowIds] = useState<Set<number>>(
-    new Set(),
+  const [followingByPersonId, setFollowingByPersonId] =
+    useState<ScopedFollowValues | null>(null);
+  const [pendingFollow, setPendingFollow] =
+    useState<ScopedFollowPending | null>(null);
+  const [followError, setFollowError] = useState<ScopedFollowError | null>(
+    null,
   );
+  const discoverScope = batch3AccountResourceScope(user?.id, "discover");
+  const mountedScope = useRef<Batch3AccountResourceOperation | null>(null);
+  const scopeGeneration = useRef(0);
+  const followFlight = useRef(createBatch3AccountResourceSingleFlight());
+  useEffect(() => {
+    if (!discoverScope) {
+      mountedScope.current = null;
+      return;
+    }
+
+    const operation = {
+      scope: discoverScope,
+      generation: scopeGeneration.current + 1,
+    };
+    scopeGeneration.current = operation.generation;
+    mountedScope.current = operation;
+
+    return () => {
+      if (
+        isCurrentBatch3AccountResourceOperation(mountedScope.current, operation)
+      ) {
+        mountedScope.current = null;
+      }
+    };
+  }, [discoverScope]);
+  const isCurrentDiscoverScope = (
+    capturedScope: Batch3AccountResourceOperation,
+  ) =>
+    isCurrentBatch3AccountResourceOperation(
+      mountedScope.current,
+      capturedScope,
+    );
   const people = trpc.social.profilesPage.useInfiniteQuery(
     { search, limit: UI_COLLECTION_PAGE_SIZE },
     { getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined },
@@ -119,33 +173,7 @@ export default function DiscoverScreen() {
     hasContent: !!lives.data?.length,
   });
   const utils = trpc.useUtils();
-  const follow = trpc.social.follow.useMutation({
-    onSuccess: (result, variables) => {
-      setFollowingByPersonId((current) => ({
-        ...current,
-        [variables.userId]: result.following,
-      }));
-      setPendingFollowIds((current) => {
-        const next = new Set(current);
-        next.delete(variables.userId);
-        return next;
-      });
-      void invalidateProfileViews(utils);
-      notify("Your connections have been updated.");
-    },
-    onError: (e, variables) => {
-      setFollowingByPersonId((current) => {
-        const { [variables.userId]: _removed, ...rest } = current;
-        return rest;
-      });
-      setPendingFollowIds((current) => {
-        const next = new Set(current);
-        next.delete(variables.userId);
-        return next;
-      });
-      notify(e.message);
-    },
-  });
+  const follow = trpc.social.follow.useMutation();
   const feedDisplayState = resolveFnd001QueryDisplayState({
     isLoading: feed.isLoading,
     isError: feed.isError,
@@ -153,14 +181,69 @@ export default function DiscoverScreen() {
   });
   const livesPage = getBoundedLoadedCollection(lives.data, livesVisibleCount);
   const requestFollow = (personId: number, currentlyFollowing: boolean) => {
-    if (pendingFollowIds.has(personId)) return;
     requireAuth(() => {
-      setPendingFollowIds((current) => new Set(current).add(personId));
-      setFollowingByPersonId((current) => ({
-        ...current,
-        [personId]: !currentlyFollowing,
-      }));
-      follow.mutate({ userId: personId });
+      const capturedScope = mountedScope.current;
+      if (
+        !capturedScope ||
+        capturedScope.scope !== discoverScope ||
+        !followFlight.current.start(capturedScope)
+      ) {
+        return;
+      }
+      setPendingFollow((current) => {
+        const ids = new Set<number>(
+          current?.scope === capturedScope.scope ? current.ids : [],
+        );
+        ids.add(personId);
+        return { scope: capturedScope.scope, ids };
+      });
+      setFollowError((current) =>
+        current?.scope === capturedScope.scope && current.personId === personId
+          ? null
+          : current,
+      );
+      follow.mutate(
+        { userId: personId, following: !currentlyFollowing },
+        {
+          onSuccess: (result) => {
+            followFlight.current.finish(capturedScope);
+            if (!isCurrentDiscoverScope(capturedScope)) return;
+            setFollowingByPersonId((current) => ({
+              scope: capturedScope.scope,
+              values: {
+                ...(current?.scope === capturedScope.scope
+                  ? current.values
+                  : {}),
+                [personId]: result.following,
+              },
+            }));
+            setPendingFollow((current) => {
+              if (current?.scope !== capturedScope.scope) return current;
+              const ids = new Set<number>(current.ids);
+              ids.delete(personId);
+              return { scope: capturedScope.scope, ids };
+            });
+            void invalidateProfileViews(utils);
+            notify("Your connections have been updated.");
+          },
+          onError: (error) => {
+            followFlight.current.finish(capturedScope);
+            if (!isCurrentDiscoverScope(capturedScope)) return;
+            setPendingFollow((current) => {
+              if (current?.scope !== capturedScope.scope) return current;
+              const ids = new Set<number>(current.ids);
+              ids.delete(personId);
+              return { scope: capturedScope.scope, ids };
+            });
+            setFollowError({
+              scope: capturedScope.scope,
+              personId,
+              message: error.message,
+            });
+            notify(error.message);
+          },
+        },
+      );
     });
   };
   const contentWidth = {
@@ -191,6 +274,8 @@ export default function DiscoverScreen() {
             placeholder="People, passions, places…"
             value={search}
             onChangeText={changeSearch}
+            maxLength={80}
+            accessibilityLabel="Search people, circles, posts, and live moments"
             placeholderTextColor={C.muted}
             style={{
               flex: 1,
@@ -254,8 +339,17 @@ export default function DiscoverScreen() {
           ) : (
             peopleItems.map((person) => {
               const isFollowing =
-                followingByPersonId[person.id] ?? person.isFollowing;
-              const isFollowPending = pendingFollowIds.has(person.id);
+                (followingByPersonId?.scope === discoverScope
+                  ? followingByPersonId.values[person.id]
+                  : undefined) ?? person.isFollowing;
+              const isFollowPending =
+                pendingFollow?.scope === discoverScope &&
+                pendingFollow.ids.has(person.id);
+              const followErrorText =
+                followError?.scope === discoverScope &&
+                followError.personId === person.id
+                  ? followError.message
+                  : null;
               return (
                 <View
                   key={person.id}
@@ -273,12 +367,22 @@ export default function DiscoverScreen() {
                 >
                   <Pressable
                     onPress={() => router.push(`/person/${person.id}`)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`View ${person.name}'s profile`}
+                    style={{ minWidth: 48, minHeight: 48 }}
                   >
                     <Avatar uri={person.avatar} name={person.name} size={48} />
                   </Pressable>
                   <Pressable
                     onPress={() => router.push(`/person/${person.id}`)}
-                    style={{ flex: 1, minWidth: 0 }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`View ${person.name}'s profile`}
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      minHeight: 44,
+                      justifyContent: "center",
+                    }}
                   >
                     <T
                       style={{
@@ -298,6 +402,18 @@ export default function DiscoverScreen() {
                     >
                       {person.bio}
                     </T>
+                    {followErrorText && (
+                      <T
+                        accessibilityRole="alert"
+                        style={{
+                          color: C.secondary,
+                          fontSize: 12,
+                          lineHeight: 18,
+                        }}
+                      >
+                        {followErrorText} Try again when you’re ready.
+                      </T>
+                    )}
                   </Pressable>
                   <Button
                     title={isFollowing ? "Following" : "Follow"}
@@ -320,6 +436,7 @@ export default function DiscoverScreen() {
               canAppend={!!people.hasNextPage}
               endState={people.hasNextPage ? "more-loaded" : "end"}
               onAppend={() => void people.fetchNextPage()}
+              isLoading={people.isFetchingNextPage}
             />
           )}
         </View>
@@ -355,6 +472,7 @@ export default function DiscoverScreen() {
               canAppend={!!circles.hasNextPage}
               endState={circles.hasNextPage ? "more-loaded" : "end"}
               onAppend={() => void circles.fetchNextPage()}
+              isLoading={circles.isFetchingNextPage}
             />
           )}
         </View>
@@ -385,6 +503,7 @@ export default function DiscoverScreen() {
               canAppend={!!feed.hasNextPage}
               endState={feed.hasNextPage ? "more-loaded" : "end"}
               onAppend={() => void feed.fetchNextPage()}
+              isLoading={feed.isFetchingNextPage}
             />
           )}
         </View>

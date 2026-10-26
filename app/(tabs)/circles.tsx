@@ -30,19 +30,19 @@ export default function CirclesScreen() {
     {
       search,
       category: category === "All" ? undefined : category,
+      joinedOnly,
       limit: 20,
     },
     {
       getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     },
   );
-  const circleItems = circles.data?.pages.flatMap((page) => page.items) ?? [];
-  const items = circleItems.filter((circle) => !joinedOnly || circle.joined);
+  const items = circles.data?.pages.flatMap((page) => page.items) ?? [];
   return (
     <AppShell>
       <View style={{ gap: 21 }}>
-        <View style={s.between}>
-          <View>
+        <View style={[s.between, { alignItems: "flex-start", gap: 12 }]}>
+          <View style={{ flex: 1, minWidth: 0 }}>
             <T style={s.eyebrow}>A PLACE TO BELONG</T>
             <T style={[s.title, { marginTop: 6 }]}>Find your people.</T>
           </View>
@@ -63,7 +63,7 @@ export default function CirclesScreen() {
           style={{
             overflow: "hidden",
             borderRadius: 19,
-            height: 174,
+            minHeight: 174,
             backgroundColor: "#506744",
           }}
         >
@@ -104,6 +104,13 @@ export default function CirclesScreen() {
                 setCategory("Outdoors");
                 setJoinedOnly(false);
               }}
+              accessibilityRole="button"
+              accessibilityLabel="Explore outdoor circles"
+              style={{
+                alignSelf: "flex-start",
+                minHeight: 44,
+                justifyContent: "center",
+              }}
             >
               <T style={{ color: "#fff", fontWeight: "600", fontSize: 12 }}>
                 Explore the outdoors ↗
@@ -130,6 +137,8 @@ export default function CirclesScreen() {
             placeholder="Find a circle for your thing…"
             value={search}
             onChangeText={setSearch}
+            maxLength={120}
+            accessibilityLabel="Search circles"
             placeholderTextColor={C.muted}
             style={{
               flex: 1,

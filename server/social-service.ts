@@ -3,6 +3,7 @@ import {
   asc,
   desc,
   eq,
+  getTableColumns,
   gt,
   ilike,
   inArray,
@@ -591,6 +592,8 @@ export async function getCircle(
 }
 
 export type DateIdCursor = { createdAt: Date; id: number };
+/** Retains PostgreSQL microseconds across an ISO/JS Date page hop. */
+export type CircleDateIdCursor = DateIdCursor & { createdAtExact?: string };
 export type IdCursor = { id: number };
 export type CursorPage<Item, Cursor> = {
   items: Item[];
@@ -613,10 +616,15 @@ export async function listCirclesPage(
   filters: {
     search?: string;
     category?: string;
-    cursor?: DateIdCursor;
+    /** Limits the directory to the authenticated viewer's approved memberships. */
+    joinedOnly?: boolean;
+    cursor?: CircleDateIdCursor;
     limit?: number;
   },
-): Promise<CursorPage<Circle, DateIdCursor>> {
+): Promise<CursorPage<Circle, CircleDateIdCursor>> {
+  if (filters.joinedOnly && !viewerId) {
+    return { items: [], nextCursor: null, hasMore: false };
+  }
   const db = await requireDb();
   const clauses: SQL[] = [];
   if (filters.search?.trim()) {
@@ -628,12 +636,27 @@ export async function listCirclesPage(
   if (filters.category?.trim()) {
     clauses.push(ilike(circles.category, filters.category.trim()));
   }
+  if (filters.joinedOnly) {
+    // `viewerId` comes only from the request context. A pending application remains a
+    // discoverable private-circle teaser in the unfiltered directory, but is not a joined circle.
+    clauses.push(
+      sql`exists (
+        select 1 from ${memberships}
+        where ${memberships.circleId} = ${circles.id}
+          and ${memberships.userId} = ${viewerId}
+          and ${memberships.role} in ('owner', 'moderator', 'member')
+      )`,
+    );
+  }
   if (filters.cursor) {
+    const cursorCreatedAt = filters.cursor.createdAtExact
+      ? sql`${filters.cursor.createdAtExact}::timestamptz`
+      : filters.cursor.createdAt;
     clauses.push(
       or(
-        lt(circles.createdAt, filters.cursor.createdAt),
+        lt(circles.createdAt, cursorCreatedAt),
         and(
-          eq(circles.createdAt, filters.cursor.createdAt),
+          eq(circles.createdAt, cursorCreatedAt),
           lt(circles.id, filters.cursor.id),
         ),
       )!,
@@ -641,7 +664,10 @@ export async function listCirclesPage(
   }
   const limit = socialPageLimit(filters.limit);
   const rows = await db
-    .select()
+    .select({
+      ...getTableColumns(circles),
+      preciseCreatedAt: sql<string>`to_char(${circles.createdAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
+    })
     .from(circles)
     .where(clauses.length ? and(...clauses) : undefined)
     .orderBy(desc(circles.createdAt), desc(circles.id))
@@ -654,7 +680,15 @@ export async function listCirclesPage(
       pageRows.map((circle) => circleOutputWithDb(db, circle.id, viewerId)),
     ),
     nextCursor:
-      hasMore && last ? { createdAt: last.createdAt, id: last.id } : null,
+      hasMore && last
+        ? {
+            createdAt: last.createdAt,
+            id: last.id,
+            ...(last.preciseCreatedAt
+              ? { createdAtExact: last.preciseCreatedAt }
+              : {}),
+          }
+        : null,
     hasMore,
   };
 }

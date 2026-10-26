@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Modal,
@@ -9,10 +9,16 @@ import {
   View,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { trpc } from "@/lib/trpc";
 import { createSingleFlightSubmitter } from "@/lib/single-flight-submit";
 import { useCircles } from "@/hooks/circles-context";
 import { resolveFnd001QueryDisplayState } from "@/lib/fnd001-query-display-state";
+import {
+  createLiveOperationScope,
+  isCurrentLiveOperationScope,
+  type LiveOperationScope,
+} from "@/lib/batch4-live-operation-scope";
 import { AppShell } from "@/components/app-shell";
 import {
   Avatar,
@@ -27,13 +33,77 @@ import {
 } from "@/components/circles-ui";
 import LiveMedia from "@/components/live-media";
 
+function RetryableLiveError({
+  title,
+  text,
+  retrying,
+  onRetry,
+}: {
+  title: string;
+  text: string;
+  retrying: boolean;
+  onRetry: () => void;
+}) {
+  return (
+    <View
+      accessibilityLiveRegion="polite"
+      style={{ alignItems: "center", paddingVertical: 32, gap: 12 }}
+    >
+      <View
+        style={{
+          width: 66,
+          height: 66,
+          borderRadius: 33,
+          backgroundColor: C.soft,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Icon name="radio-outline" size={28} color={C.action} />
+      </View>
+      <T style={{ fontSize: 19, fontWeight: "700", textAlign: "center" }}>
+        {title}
+      </T>
+      <T style={{ color: C.secondary, textAlign: "center", maxWidth: 330 }}>
+        {text}
+      </T>
+      <Button
+        title="Try again"
+        secondary
+        loading={retrying}
+        onPress={onRetry}
+      />
+    </View>
+  );
+}
+
 export default function LiveScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const streamId = Number(id);
+
+  // A new account or route owns fresh pending/error state as well as a fresh
+  // effect lifecycle. This avoids showing an old account's pending mutation if
+  // an account changes and later changes back.
+  const { user } = useCircles();
+  const liveSessionKey = `${user?.id ?? "guest"}:${id}`;
+
+  return (
+    <LiveSessionScreen key={liveSessionKey} streamId={streamId} routeId={id} />
+  );
+}
+
+function LiveSessionScreen({
+  streamId,
+  routeId,
+}: {
+  streamId: number;
+  routeId: string;
+}) {
   const router = useRouter();
   const { user, showLogin, notify } = useCircles();
+  const insets = useSafeAreaInsets();
   const [text, setText] = useState("");
-  const liveChatSubmitter = useRef(createSingleFlightSubmitter()).current;
+  const [liveChatSubmitter] = useState(createSingleFlightSubmitter);
   const [isLiveChatSubmitting, setIsLiveChatSubmitting] = useState(false);
   const [mediaError, setMediaError] = useState("");
   const [ready, setReady] = useState(false);
@@ -42,7 +112,7 @@ export default function LiveScreen() {
     generation: number;
   } | null>(null);
   const [endConfirm, setEndConfirm] = useState(false);
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const wide = width >= 900;
   const lives = trpc.live.list.useQuery({}, { refetchInterval: 4000 });
   const live = lives.data?.find((item) => item.id === streamId);
@@ -56,6 +126,49 @@ export default function LiveScreen() {
     host && hostMediaSession?.streamId === streamId
       ? hostMediaSession.generation
       : null;
+  // This descriptor remains useful for source-level account/stream diagnostics,
+  // but is never the completion authority on its own.
+  const liveScope = `${user?.id ?? "guest"}:${streamId}`;
+  const liveOperationGenerationRef = useRef(0);
+  const currentLiveOperationScopeRef = useRef<LiveOperationScope | null>(null);
+  const contentBottomInset = Math.max(32, insets.bottom + 16);
+  const modalTopInset = Math.max(25, insets.top + 16);
+  const modalBottomInset = Math.max(25, insets.bottom + 16);
+  const endModalMaxHeight = Math.max(
+    1,
+    height - modalTopInset - modalBottomInset,
+  );
+  useLayoutEffect(() => {
+    liveOperationGenerationRef.current += 1;
+    const activeScope = createLiveOperationScope({
+      accountId: user?.id ?? null,
+      routeId: `${routeId}:${liveScope}`,
+      generation: liveOperationGenerationRef.current,
+    });
+    currentLiveOperationScopeRef.current = activeScope;
+    return () => {
+      if (
+        isCurrentLiveOperationScope(
+          activeScope,
+          currentLiveOperationScopeRef.current,
+        )
+      ) {
+        currentLiveOperationScopeRef.current = null;
+      }
+    };
+  }, [liveScope, routeId, user]);
+  const captureLiveOperationScope = useCallback(
+    () => currentLiveOperationScopeRef.current,
+    [],
+  );
+  const isCurrentLiveScope = useCallback(
+    (operationScope: LiveOperationScope | null) =>
+      isCurrentLiveOperationScope(
+        operationScope,
+        currentLiveOperationScopeRef.current,
+      ),
+    [],
+  );
   const chat = trpc.live.chat.useQuery(
     { streamId },
     { enabled: !!user && !!live, refetchInterval: 2000, retry: false },
@@ -65,44 +178,164 @@ export default function LiveScreen() {
     isError: chat.isError,
     hasContent: !!chat.data?.length,
   });
-  const send = trpc.live.sendChat.useMutation({
-    onSuccess: () => {
-      setText("");
-      void chat.refetch();
+  const refetchLiveList = useCallback(
+    async (
+      operationScope: LiveOperationScope | null = captureLiveOperationScope(),
+    ) => {
+      if (!isCurrentLiveScope(operationScope)) return;
+      try {
+        await lives.refetch();
+        if (!isCurrentLiveScope(operationScope)) return;
+      } catch {
+        if (!isCurrentLiveScope(operationScope)) return;
+      } finally {
+        if (!isCurrentLiveScope(operationScope)) return;
+      }
     },
-    onError: (e) => notify(e.message),
-  });
+    [captureLiveOperationScope, isCurrentLiveScope, lives],
+  );
+  const refetchChat = useCallback(
+    async (
+      operationScope: LiveOperationScope | null = captureLiveOperationScope(),
+    ) => {
+      if (!isCurrentLiveScope(operationScope)) return;
+      try {
+        await chat.refetch();
+        if (!isCurrentLiveScope(operationScope)) return;
+      } catch {
+        if (!isCurrentLiveScope(operationScope)) return;
+      } finally {
+        if (!isCurrentLiveScope(operationScope)) return;
+      }
+    },
+    [captureLiveOperationScope, chat, isCurrentLiveScope],
+  );
+  const retryLiveList = useCallback(() => {
+    void refetchLiveList();
+  }, [refetchLiveList]);
+  const retryChat = useCallback(() => {
+    void refetchChat();
+  }, [refetchChat]);
+  const livesRetrying = lives.isFetching && !lives.isLoading;
+  const chatRetrying = chat.isFetching && !chat.isLoading;
+  const send = trpc.live.sendChat.useMutation();
   const submitLiveChatMessage = useCallback(() => {
     const message = text.trim();
     if (!message || liveChatSubmitter.isBusy) {
       return;
     }
 
+    const operationScope = captureLiveOperationScope();
+    if (!isCurrentLiveScope(operationScope)) return;
     void liveChatSubmitter.run(async () => {
+      if (!isCurrentLiveScope(operationScope)) return;
       setIsLiveChatSubmitting(true);
       try {
-        await send
-          .mutateAsync({ streamId, text: message })
-          // The mutation's onError already gives the user the failure feedback.
-          .catch(() => undefined);
+        await send.mutateAsync({ streamId, text: message });
+        if (!isCurrentLiveScope(operationScope)) return;
+        setText("");
+        void refetchChat(operationScope);
+      } catch (error) {
+        if (!isCurrentLiveScope(operationScope)) return;
+        notify(
+          error instanceof Error ? error.message : "Unable to send message.",
+        );
       } finally {
-        setIsLiveChatSubmitting(false);
+        if (isCurrentLiveScope(operationScope)) {
+          setIsLiveChatSubmitting(false);
+        }
       }
     });
-  }, [liveChatSubmitter, send, streamId, text]);
-  const react = trpc.live.react.useMutation({
-    onSuccess: () => {
-      void chat.refetch();
+  }, [
+    captureLiveOperationScope,
+    isCurrentLiveScope,
+    liveChatSubmitter,
+    notify,
+    refetchChat,
+    send,
+    streamId,
+    text,
+  ]);
+  const react = trpc.live.react.useMutation();
+  const sendLiveReaction = useCallback(() => {
+    const operationScope = captureLiveOperationScope();
+    if (!isCurrentLiveScope(operationScope)) return;
+    react.mutate(
+      { streamId },
+      {
+        onSuccess: () => {
+          if (!isCurrentLiveScope(operationScope)) return;
+          void refetchChat(operationScope);
+        },
+        onError: (error) => {
+          if (!isCurrentLiveScope(operationScope)) return;
+          notify(error.message);
+        },
+        onSettled: () => {
+          if (!isCurrentLiveScope(operationScope)) return;
+        },
+      },
+    );
+  }, [
+    captureLiveOperationScope,
+    isCurrentLiveScope,
+    notify,
+    react,
+    refetchChat,
+    streamId,
+  ]);
+  const end = trpc.live.end.useMutation();
+  const endLiveSession = useCallback(() => {
+    if (hostGeneration === null) return;
+
+    const operationScope = captureLiveOperationScope();
+    if (!isCurrentLiveScope(operationScope)) return;
+    const generation = hostGeneration;
+    end.mutate(
+      { streamId, generation },
+      {
+        onSuccess: () => {
+          if (!isCurrentLiveScope(operationScope)) return;
+          notify("Your live moment is complete.");
+          router.replace("/live");
+        },
+        onError: (error) => {
+          if (!isCurrentLiveScope(operationScope)) return;
+          notify(error.message);
+        },
+        onSettled: () => {
+          if (!isCurrentLiveScope(operationScope)) return;
+        },
+      },
+    );
+  }, [
+    captureLiveOperationScope,
+    end,
+    hostGeneration,
+    isCurrentLiveScope,
+    notify,
+    router,
+    streamId,
+  ]);
+  const handleLiveMediaError = useCallback(
+    (message: string) => {
+      const operationScope = captureLiveOperationScope();
+      if (!isCurrentLiveScope(operationScope)) return;
+      setMediaError(message);
     },
-    onError: (e) => notify(e.message),
-  });
-  const end = trpc.live.end.useMutation({
-    onSuccess: () => {
-      notify("Your live moment is complete.");
-      router.replace("/live");
+    [captureLiveOperationScope, isCurrentLiveScope],
+  );
+  const handleLiveMediaReady = useCallback(
+    (generation?: number) => {
+      const operationScope = captureLiveOperationScope();
+      if (!isCurrentLiveScope(operationScope)) return;
+      setReady(true);
+      if (host && generation !== undefined) {
+        setHostMediaSession({ streamId, generation });
+      }
     },
-    onError: (e) => notify(e.message),
-  });
+    [captureLiveOperationScope, host, isCurrentLiveScope, streamId],
+  );
   return (
     <AppShell sidebar={false} scroll={false}>
       <KeyboardAvoidingView
@@ -115,7 +348,7 @@ export default function LiveScreen() {
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={{
             padding: wide ? 30 : 20,
-            paddingBottom: 32,
+            paddingBottom: contentBottomInset,
           }}
         >
           <View style={[s.between, { marginBottom: 20 }]}>
@@ -143,12 +376,11 @@ export default function LiveScreen() {
           ) : livesDisplayState === "loading" ? (
             <Loading />
           ) : livesDisplayState === "error" ? (
-            <Empty
-              icon="radio-outline"
+            <RetryableLiveError
               title="We couldn’t load this live moment."
               text="Check your connection and try again."
-              action="Try again"
-              onAction={() => void lives.refetch()}
+              retrying={livesRetrying}
+              onRetry={retryLiveList}
             />
           ) : !live ? (
             <Empty
@@ -170,26 +402,27 @@ export default function LiveScreen() {
                 <LiveMedia
                   streamId={streamId}
                   host={host}
-                  onError={setMediaError}
-                  onReady={(generation) => {
-                    setReady(true);
-                    if (host && generation !== undefined) {
-                      setHostMediaSession({ streamId, generation });
-                    }
-                  }}
+                  onError={handleLiveMediaError}
+                  onReady={handleLiveMediaReady}
                 />
                 <View
                   style={{
                     position: "absolute",
                     top: 14,
                     left: 14,
-                    backgroundColor: ready ? C.coral : "#6B7564",
+                    backgroundColor: ready ? C.action : C.secondary,
                     paddingHorizontal: 9,
                     paddingVertical: 5,
                     borderRadius: 6,
                   }}
                 >
-                  <T style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>
+                  <T
+                    style={{
+                      color: C.actionText,
+                      fontSize: 10,
+                      fontWeight: "700",
+                    }}
+                  >
                     {ready ? "LIVE" : "CONNECTING"} · {live.viewers} watching
                   </T>
                 </View>
@@ -203,7 +436,9 @@ export default function LiveScreen() {
                     marginTop: 15,
                   }}
                 >
-                  <T style={{ color: C.coral, fontSize: 12 }}>{mediaError}</T>
+                  <T style={{ color: C.secondary, fontSize: 12 }}>
+                    {mediaError}
+                  </T>
                 </View>
               )}
               <View style={[s.row, { gap: 13, marginVertical: 20 }]}>
@@ -224,7 +459,7 @@ export default function LiveScreen() {
                   >
                     {live.title}
                   </T>
-                  <T style={{ color: C.muted, fontSize: 12 }}>
+                  <T style={{ color: C.secondary, fontSize: 12 }}>
                     With {live.host.name}
                   </T>
                 </View>
@@ -232,8 +467,14 @@ export default function LiveScreen() {
                   icon="heart"
                   color={C.coral}
                   size={28}
-                  onPress={() => react.mutate({ streamId })}
-                  label="Send live reaction"
+                  onPress={sendLiveReaction}
+                  disabled={react.isPending}
+                  loading={react.isPending}
+                  label={
+                    react.isPending
+                      ? "Sending live reaction"
+                      : "Send live reaction"
+                  }
                   style={{
                     width: 44,
                     height: 44,
@@ -274,12 +515,11 @@ export default function LiveScreen() {
                   {chatDisplayState === "loading" ? (
                     <Loading />
                   ) : chatDisplayState === "error" ? (
-                    <Empty
-                      icon="chatbubble-ellipses-outline"
+                    <RetryableLiveError
                       title="We couldn’t load the conversation."
                       text="Check your connection and try again."
-                      action="Try again"
-                      onAction={() => void chat.refetch()}
+                      retrying={chatRetrying}
+                      onRetry={retryChat}
                     />
                   ) : chatDisplayState === "content" ? (
                     (chat.data ?? []).map((message) => (
@@ -300,7 +540,7 @@ export default function LiveScreen() {
                             style={{
                               fontSize: 14,
                               lineHeight: 21,
-                              color: C.muted,
+                              color: C.secondary,
                             }}
                           >
                             {message.text}
@@ -311,7 +551,7 @@ export default function LiveScreen() {
                   ) : (
                     <T
                       style={{
-                        color: C.muted,
+                        color: C.secondary,
                         fontSize: 14,
                         lineHeight: 21,
                         paddingVertical: 15,
@@ -337,7 +577,8 @@ export default function LiveScreen() {
                     onChangeText={setText}
                     editable={!isLiveChatSubmitting}
                     placeholder="Join the conversation…"
-                    placeholderTextColor={C.muted}
+                    placeholderTextColor={C.secondary}
+                    accessibilityLabel="Live chat message"
                     multiline
                     style={{
                       flex: 1,
@@ -359,13 +600,15 @@ export default function LiveScreen() {
                     icon="arrow-up-circle"
                     size={30}
                     color={C.coral}
-                    disabled={isLiveChatSubmitting}
+                    disabled={isLiveChatSubmitting || !text.trim()}
                     loading={isLiveChatSubmitting}
                     onPress={submitLiveChatMessage}
                     label={
                       isLiveChatSubmitting
                         ? "Sending live chat message"
-                        : "Send live chat message"
+                        : text.trim()
+                          ? "Send live chat message"
+                          : "Enter a live chat message to send"
                     }
                   />
                 </View>
@@ -385,42 +628,51 @@ export default function LiveScreen() {
               backgroundColor: "#19201B88",
               justifyContent: "center",
               alignItems: "center",
-              padding: 25,
+              paddingHorizontal: 25,
+              paddingTop: modalTopInset,
+              paddingBottom: modalBottomInset,
             }}
           >
-            <View
+            <ScrollView
               style={{
                 width: "100%",
                 maxWidth: 360,
-                backgroundColor: C.paper,
-                borderRadius: 22,
-                padding: 25,
-                gap: 17,
+                maxHeight: endModalMaxHeight,
               }}
+              contentContainerStyle={{ flexGrow: 1, justifyContent: "center" }}
+              showsHorizontalScrollIndicator={false}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
             >
-              <T style={{ fontWeight: "700", fontSize: 20 }}>
-                Wrap up the moment?
-              </T>
-              <T style={{ color: C.muted }}>
-                Ending this broadcast disconnects your viewers and turns off
-                your camera and microphone.
-              </T>
-              <Button
-                title="End live session"
-                onPress={() => {
-                  if (hostGeneration !== null) {
-                    end.mutate({ streamId, generation: hostGeneration });
-                  }
+              <View
+                style={{
+                  width: "100%",
+                  backgroundColor: C.paper,
+                  borderRadius: 22,
+                  padding: 25,
+                  gap: 17,
                 }}
-                disabled={end.isPending || hostGeneration === null}
-                loading={end.isPending}
-              />
-              <Button
-                title="Keep connecting"
-                secondary
-                onPress={() => setEndConfirm(false)}
-              />
-            </View>
+              >
+                <T style={{ fontWeight: "700", fontSize: 20 }}>
+                  Wrap up the moment?
+                </T>
+                <T style={{ color: C.secondary }}>
+                  Ending this broadcast disconnects your viewers and turns off
+                  your camera and microphone.
+                </T>
+                <Button
+                  title="End live session"
+                  onPress={endLiveSession}
+                  disabled={end.isPending || hostGeneration === null}
+                  loading={end.isPending}
+                />
+                <Button
+                  title="Keep connecting"
+                  secondary
+                  onPress={() => setEndConfirm(false)}
+                />
+              </View>
+            </ScrollView>
           </View>
         </Modal>
       </KeyboardAvoidingView>

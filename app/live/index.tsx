@@ -29,6 +29,7 @@ export default function LiveLobby() {
     platformStatus.isError ? undefined : platformStatus.data,
     "live",
   );
+  const liveRetrying = lives.isFetching && !lives.isLoading;
   return (
     <AppShell>
       <View style={{ gap: 17 }}>
@@ -54,13 +55,13 @@ export default function LiveLobby() {
                 borderRadius: 3,
               }}
             />
-            <T style={{ fontSize: 10, color: C.coral, fontWeight: "700" }}>
+            <T style={{ fontSize: 10, color: C.secondary, fontWeight: "700" }}>
               LIVE
             </T>
           </View>
         </View>
         <T style={s.title}>Be here, right now.</T>
-        <T style={{ color: C.muted, fontSize: 13 }}>
+        <T style={{ color: C.secondary, fontSize: 13 }}>
           A front-row seat to the people and passions you love.
         </T>
         <Button
@@ -75,6 +76,7 @@ export default function LiveLobby() {
             <Button
               title="Check availability"
               secondary
+              loading={platformStatus.isFetching}
               onPress={() => {
                 void platformStatus.refetch();
               }}
@@ -86,14 +88,39 @@ export default function LiveLobby() {
         {lives.isLoading ? (
           <Loading />
         ) : lives.error ? (
-          <Empty
-            title="Live connections are unavailable."
-            text={lives.error.message}
-            action="Try again"
-            onAction={() => {
-              void lives.refetch();
-            }}
-          />
+          <View
+            accessibilityLiveRegion="polite"
+            style={{ alignItems: "center", paddingVertical: 32, gap: 12 }}
+          >
+            <View
+              style={{
+                width: 66,
+                height: 66,
+                borderRadius: 33,
+                backgroundColor: C.soft,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Icon name="radio-outline" size={28} color={C.action} />
+            </View>
+            <T style={{ fontSize: 19, fontWeight: "700", textAlign: "center" }}>
+              Live connections are unavailable.
+            </T>
+            <T
+              style={{ color: C.secondary, textAlign: "center", maxWidth: 330 }}
+            >
+              {lives.error.message}
+            </T>
+            <Button
+              title="Try again"
+              secondary
+              loading={liveRetrying}
+              onPress={() => {
+                void lives.refetch();
+              }}
+            />
+          </View>
         ) : !lives.data?.length ? (
           <Empty
             icon="radio-outline"
@@ -105,6 +132,9 @@ export default function LiveLobby() {
             <Pressable
               key={live.id}
               onPress={() => requireAuth(() => router.push(`/live/${live.id}`))}
+              accessibilityRole="button"
+              accessibilityLabel={`Open live conversation: ${live.title}`}
+              accessibilityHint={`Hosted by ${live.host.name}.`}
               style={[s.card, { overflow: "hidden", marginBottom: 19 }]}
             >
               <Image
@@ -117,13 +147,19 @@ export default function LiveLobby() {
                   position: "absolute",
                   top: 13,
                   left: 13,
-                  backgroundColor: C.coral,
+                  backgroundColor: C.action,
                   paddingHorizontal: 9,
                   paddingVertical: 5,
                   borderRadius: 6,
                 }}
               >
-                <T style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>
+                <T
+                  style={{
+                    color: C.actionText,
+                    fontSize: 10,
+                    fontWeight: "700",
+                  }}
+                >
                   LIVE · {live.viewers} watching
                 </T>
               </View>
@@ -137,7 +173,7 @@ export default function LiveLobby() {
                   <T style={{ fontWeight: "700", fontSize: 15 }}>
                     {live.title}
                   </T>
-                  <T style={{ color: C.muted, fontSize: 12 }}>
+                  <T style={{ color: C.secondary, fontSize: 12 }}>
                     {live.host.name}
                   </T>
                 </View>
@@ -155,10 +191,10 @@ export default function LiveLobby() {
           gap: 7,
         }}
       >
-        <T style={{ fontSize: 13, fontWeight: "700", color: C.green }}>
+        <T style={{ fontSize: 13, fontWeight: "700", color: C.secondary }}>
           Real people. Real-time video.
         </T>
-        <T style={{ fontSize: 12, color: C.green, lineHeight: 19 }}>
+        <T style={{ fontSize: 12, color: C.secondary, lineHeight: 19 }}>
           Broadcasting uses your camera and microphone. Native WebRTC needs a
           development or release build; some networks require a TURN relay for
           reliable connections.

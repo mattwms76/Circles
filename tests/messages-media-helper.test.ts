@@ -86,7 +86,9 @@ describe("messages/profile/media UI retry controls", () => {
     );
     expect(chatScreen).toContain("uploadedMediaUrl.current ?? undefined");
     expect(chatScreen).toContain("clientMessageId,");
-    expect(chatScreen).toContain("setUncertainDeliveryScope(compositionScope)");
+    expect(chatScreen).toContain("setUncertainDeliveryOperation(operation)");
+    expect(chatScreen).toContain("isCurrentMessageCompositionOperation(");
+    expect(chatScreen).toContain("if (sendWasAttempted)");
     expect(chatScreen).toContain("Retry message delivery");
     expect(chatScreen).toContain(
       "readReceiptRetryDelayMs(state.failedAttempts)",

@@ -35,7 +35,13 @@ import {
   T,
 } from "./circles-ui";
 
-function PostVideo({ uri }: { uri: string }) {
+function PostVideo({
+  uri,
+  accessibilityLabel,
+}: {
+  uri: string;
+  accessibilityLabel: string;
+}) {
   const source = useMediaSource(uri);
   const player = useVideoPlayer(source, (p) => {
     p.loop = true;
@@ -46,6 +52,9 @@ function PostVideo({ uri }: { uri: string }) {
       style={{ width: "100%", aspectRatio: 1.38 }}
       nativeControls
       contentFit="cover"
+      accessible
+      accessibilityRole="image"
+      accessibilityLabel={accessibilityLabel}
     />
   );
 }
@@ -76,6 +85,7 @@ export function PostCard({ post }: { post: Post }) {
   const [saveOptimism, setSaveOptimism] =
     useState<ScopedInteractionOptimism | null>(null);
   const sourceScope = `${user?.id ?? "guest"}:${post.id}`;
+  const mediaAccessibilityLabel = `${post.mediaType === "video" ? "Video" : "Photo"} shared by ${post.author.name}`;
   const currentSourceScope = useRef<ActivePostSource | null>(null);
 
   // Setup/cleanup keeps late completion checks current across source changes and Strict Mode.
@@ -205,56 +215,105 @@ export function PostCard({ post }: { post: Post }) {
     isError: comments.isError,
     hasContent: !!comments.data?.length,
   });
-  const addComment = trpc.social.comment.useMutation({
-    onSuccess: () => {
-      setCommentText("");
-      void comments.refetch();
-      void invalidatePostFeeds(utils);
-    },
-    onError: (e) => notify(e.message),
-  });
+  const addComment = trpc.social.comment.useMutation();
   const submitComment = useCallback(() => {
     const text = commentText.trim();
     if (!text || commentSubmitter.isBusy) {
       return;
     }
 
+    const operationScope = sourceScope;
+    const operationPost = post;
     requireAuth(() => {
       void commentSubmitter.run(async () => {
         setIsCommentSubmitting(true);
         try {
-          await addComment
-            .mutateAsync({ postId: post.id, text })
-            // The mutation's onError already gives the user the failure feedback.
-            .catch(() => undefined);
+          await addComment.mutateAsync({ postId: operationPost.id, text });
+          if (!isCurrentSource(operationScope, operationPost)) return;
+          setCommentText("");
+          void comments.refetch();
+          void invalidatePostFeeds(utils);
+        } catch (error) {
+          if (!isCurrentSource(operationScope, operationPost)) return;
+          notify(
+            error instanceof Error ? error.message : "Unable to add comment.",
+          );
         } finally {
-          setIsCommentSubmitting(false);
+          if (isCurrentSource(operationScope, operationPost)) {
+            setIsCommentSubmitting(false);
+          }
         }
       });
     });
-  }, [addComment, commentSubmitter, commentText, post.id, requireAuth]);
-  const report = trpc.social.report.useMutation({
-    onSuccess: () => {
-      setMenu(false);
-      void invalidateModerationViews(utils);
-      notify("Report received. Thank you for looking out for your circle.");
-    },
-    onError: (e) => notify(e.message),
-  });
-  const remove = trpc.social.deletePost.useMutation({
-    onSuccess: () => {
-      setMenu(false);
-      void invalidatePostFeeds(utils);
-      void invalidateModerationViews(utils);
-      notify("Post removed.");
-    },
-    onError: (e) => notify(e.message),
-  });
+  }, [
+    addComment,
+    commentSubmitter,
+    commentText,
+    comments,
+    isCurrentSource,
+    notify,
+    post,
+    requireAuth,
+    sourceScope,
+    utils,
+  ]);
+  const report = trpc.social.report.useMutation();
+  const submitReport = useCallback(() => {
+    const operationScope = sourceScope;
+    const operationPost = post;
+    requireAuth(() => {
+      report.mutate(
+        {
+          postId: operationPost.id,
+          reason: "Inappropriate or harmful content",
+        },
+        {
+          onSuccess: () => {
+            if (!isCurrentSource(operationScope, operationPost)) return;
+            setMenu(false);
+            void invalidateModerationViews(utils);
+            notify(
+              "Report received. Thank you for looking out for your circle.",
+            );
+          },
+          onError: (error) => {
+            if (!isCurrentSource(operationScope, operationPost)) return;
+            notify(error.message);
+          },
+        },
+      );
+    });
+  }, [isCurrentSource, notify, post, report, requireAuth, sourceScope, utils]);
+  const remove = trpc.social.deletePost.useMutation();
+  const removePost = useCallback(() => {
+    const operationScope = sourceScope;
+    const operationPost = post;
+    requireAuth(() => {
+      remove.mutate(
+        { postId: operationPost.id },
+        {
+          onSuccess: () => {
+            if (!isCurrentSource(operationScope, operationPost)) return;
+            setMenu(false);
+            void invalidatePostFeeds(utils);
+            void invalidateModerationViews(utils);
+            notify("Post removed.");
+          },
+          onError: (error) => {
+            if (!isCurrentSource(operationScope, operationPost)) return;
+            notify(error.message);
+          },
+        },
+      );
+    });
+  }, [isCurrentSource, notify, post, remove, requireAuth, sourceScope, utils]);
   return (
     <View style={[s.card, { marginBottom: 20, overflow: "hidden" }]}>
       <View style={[s.between, { padding: 15, gap: 10 }]}>
         <Pressable
           onPress={() => router.push(`/person/${post.author.id}`)}
+          accessibilityRole="button"
+          accessibilityLabel={`Open ${post.author.name}'s profile`}
           style={[s.row, { gap: 10, flex: 1, minHeight: 44 }]}
         >
           <Avatar uri={post.author.avatar} name={post.author.name} size={37} />
@@ -283,8 +342,13 @@ export function PostCard({ post }: { post: Post }) {
       {post.circleName && (
         <Pressable
           onPress={() => router.push(`/circle/${post.circleId}`)}
+          accessibilityRole="button"
+          accessibilityLabel={`Open ${post.circleName} circle`}
           style={{
             alignSelf: "flex-start",
+            maxWidth: "90%",
+            minWidth: 0,
+            flexShrink: 1,
             marginHorizontal: 15,
             marginBottom: 13,
             paddingHorizontal: 10,
@@ -299,8 +363,11 @@ export function PostCard({ post }: { post: Post }) {
         >
           <Icon name="ellipse-outline" size={11} color={C.green} />
           <T
+            numberOfLines={2}
+            ellipsizeMode="tail"
             style={{
-              color: "#6D7D61",
+              color: C.secondary,
+              flexShrink: 1,
               fontSize: 10,
               lineHeight: 16,
               fontWeight: "600",
@@ -312,13 +379,19 @@ export function PostCard({ post }: { post: Post }) {
       )}
       {post.media &&
         (post.mediaType === "video" ? (
-          <PostVideo uri={post.media} />
+          <PostVideo
+            uri={post.media}
+            accessibilityLabel={mediaAccessibilityLabel}
+          />
         ) : (
           <Image
             source={{ uri: post.media }}
             style={{ width: "100%", aspectRatio: 1.38 }}
             contentFit="cover"
             transition={180}
+            accessible
+            accessibilityRole="image"
+            accessibilityLabel={mediaAccessibilityLabel}
           />
         ))}
       <View
@@ -339,12 +412,14 @@ export function PostCard({ post }: { post: Post }) {
               accessibilityState={{
                 disabled: like.isPending,
                 busy: like.isPending,
+                selected: liked,
               }}
               style={[
                 s.row,
                 {
                   gap: 5,
                   paddingVertical: 5,
+                  minWidth: 44,
                   minHeight: 44,
                   opacity: like.isPending ? 0.55 : 1,
                 },
@@ -361,7 +436,13 @@ export function PostCard({ post }: { post: Post }) {
             </Pressable>
             <Pressable
               onPress={() => setCommentsOpen(true)}
-              style={[s.row, { gap: 5, paddingVertical: 5, minHeight: 44 }]}
+              accessibilityRole="button"
+              accessibilityLabel={`Open ${post.comments} comments`}
+              accessibilityState={{ selected: commentsOpen }}
+              style={[
+                s.row,
+                { gap: 5, paddingVertical: 5, minWidth: 44, minHeight: 44 },
+              ]}
             >
               <Icon name="chatbubble-outline" size={21} />
               <T style={{ fontSize: 12 }}>{post.comments}</T>
@@ -400,7 +481,10 @@ export function PostCard({ post }: { post: Post }) {
         {post.comments > 0 && (
           <Pressable
             onPress={() => setCommentsOpen(true)}
+            accessibilityRole="button"
+            accessibilityLabel={`Open all ${post.comments} comments`}
             style={{
+              minWidth: 44,
               minHeight: 44,
               justifyContent: "center",
               alignSelf: "flex-start",
@@ -525,6 +609,7 @@ export function PostCard({ post }: { post: Post }) {
                   editable={!isCommentSubmitting}
                   placeholder="Add to the conversation…"
                   placeholderTextColor={C.muted}
+                  accessibilityLabel="Comment text"
                   style={{
                     flex: 1,
                     minHeight: 44,
@@ -541,11 +626,15 @@ export function PostCard({ post }: { post: Post }) {
                   icon="arrow-up-circle"
                   color={C.coral}
                   size={32}
-                  disabled={isCommentSubmitting}
+                  disabled={isCommentSubmitting || !commentText.trim()}
                   loading={isCommentSubmitting}
                   onPress={submitComment}
                   label={
-                    isCommentSubmitting ? "Sending comment" : "Send comment"
+                    isCommentSubmitting
+                      ? "Sending comment"
+                      : commentText.trim()
+                        ? "Send comment"
+                        : "Enter a comment to send"
                   }
                 />
               </View>
@@ -587,14 +676,9 @@ export function PostCard({ post }: { post: Post }) {
                 title="Report inappropriate content"
                 icon="flag-outline"
                 secondary
-                onPress={() =>
-                  requireAuth(() =>
-                    report.mutate({
-                      postId: post.id,
-                      reason: "Inappropriate or harmful content",
-                    }),
-                  )
-                }
+                disabled={remove.isPending}
+                loading={report.isPending}
+                onPress={submitReport}
               />
             )}
             {user?.id === post.author.id && (
@@ -602,9 +686,9 @@ export function PostCard({ post }: { post: Post }) {
                 title="Remove my post"
                 icon="trash-outline"
                 secondary
-                onPress={() =>
-                  requireAuth(() => remove.mutate({ postId: post.id }))
-                }
+                disabled={report.isPending}
+                loading={remove.isPending}
+                onPress={removePost}
               />
             )}
             <Button title="Close" secondary onPress={() => setMenu(false)} />

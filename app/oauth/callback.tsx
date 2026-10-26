@@ -11,7 +11,7 @@ import * as Api from "@/lib/_core/api";
 import * as Linking from "expo-linking";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, View } from "react-native";
+import { ActivityIndicator, ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 type MobileExchangeResponse = {
@@ -177,13 +177,15 @@ export default function OAuthCallback() {
       style={{ flex: 1, backgroundColor: C.bg }}
       edges={["top", "bottom", "left", "right"]}
     >
-      <View
-        style={{
-          flex: 1,
+      <ScrollView
+        contentContainerStyle={{
+          flexGrow: 1,
           alignItems: "center",
           justifyContent: "center",
           padding: 20,
         }}
+        showsHorizontalScrollIndicator={false}
+        showsVerticalScrollIndicator={false}
       >
         <View
           style={{
@@ -196,13 +198,13 @@ export default function OAuthCallback() {
           {status === "processing" && (
             <>
               <ActivityIndicator size="large" color={C.coral} />
-              <T style={{ color: C.muted, textAlign: "center" }}>
+              <T style={{ color: C.secondary, textAlign: "center" }}>
                 Completing secure sign-in…
               </T>
             </>
           )}
           {status === "success" && (
-            <T style={{ color: C.green, textAlign: "center" }}>
+            <T style={{ color: C.secondary, textAlign: "center" }}>
               Signed in. Opening your circles…
             </T>
           )}
@@ -210,7 +212,7 @@ export default function OAuthCallback() {
             <>
               <T
                 style={{
-                  color: C.coral,
+                  color: C.action,
                   fontSize: 20,
                   lineHeight: 28,
                   fontWeight: "700",
@@ -219,7 +221,13 @@ export default function OAuthCallback() {
               >
                 Authentication failed
               </T>
-              <T style={{ color: C.muted, textAlign: "center", maxWidth: 400 }}>
+              <T
+                style={{
+                  color: C.secondary,
+                  textAlign: "center",
+                  maxWidth: 400,
+                }}
+              >
                 {errorMessage}
               </T>
               <Button
@@ -230,7 +238,7 @@ export default function OAuthCallback() {
             </>
           )}
         </View>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }

@@ -1,0 +1,25 @@
+# Five approved Circles app-improvement batches — 26 October 2026
+
+## Scope
+
+The owner selected the next five **app** improvement batches. This is not authorization to alter Supabase managed-role defaults, install the separate admin reader, activate feature settings, create production fixtures or publish the app. Keep all 27 app tables, private helper schemas/RLS, current OAuth/session/media authority, native identifiers, removed Chats tab, fixed API3000/Metro8081 and schedules unchanged. Reuse the warm editorial design and existing assets.
+
+| Batch | Implemented source outcomes | Remaining proof boundary |
+| --- | --- | --- |
+| Follow/Join/Create | Named busy controls, scoped single-flight operations, recoverable inline errors, non-optimistic convergence, locked publishing drafts/modes, long-author reflow and account/resource-safe completions. | Real account-switch/network/picker journeys and native rendering. |
+| Messages/navigation | Named 44-point history/attachment/inbox actions; truthful unread/selection semantics; blank-message prevention; explicit retry preserving message UUID/media reuse; person-return navigation with history-aware Discover fallback. | Real authenticated conversations, keyboard, protected-media playback and screen reader. |
+| Circle/Discover | Joined-only approved membership predicate applied server-side before paging; bounded search/limits; intrinsic long-label/category/hero layouts; responsive controls and scoped action feedback. | Actual narrow/enlarged-text layout and authenticated private-circle flows. |
+| Route contrast/status/media | Measured semantic text/action/status colors; shared Empty/Loading/filter text; readable Live/OAuth recovery; Live modal/inset handling; full accessible media/action names and bounded circle badges; existing host/OAuth authority retained. | Native accessibility tree, Dynamic Type, physical safe areas, real Live host/viewer and media failure. |
+| Theme Lab | Genuinely distinct local Light/Dark token previews, named selected controls, 48-point token actions, measured contrast, wrapping and keyboard/inset-aware layout. | Native/device proof; product-wide Dark mode is intentionally not implied or changed. |
+
+## Integration corrections
+
+A read-only integration review identified incomplete instance identity across A→B→A transitions/Strict Mode, stale composer-picker results and reactive-only duplicate submission guards. These are handled as narrow app repairs with focused operation-generation and single-flight regressions, not server-authority or product expansion. Compiler/lint findings must be repaired structurally; no rule suppression or deferred-state timer is used to hide them. Existing legacy source-contract tests retain equivalent authorization/invalidation/retry checks when handler placement changes.
+
+The real local PostgreSQL directory test exposed a cursor precision defect: PostgreSQL microseconds were truncated by JavaScript Date serialization, dropping later circles with the same source timestamp. The existing `social.circlesPage` input/output now carries an **optional** `createdAtExact` UTC six-digit timestamp in `nextCursor`, checked against `createdAt`, and round-trips it as a parameterized timestamp. Legacy date/id inputs remain accepted; current clients forward the exact cursor automatically. Raw indexed `(createdAt,id)` ordering and approved/request-context membership filtering are preserved; no schema migration, raw member rows in clients or new query procedure is needed. Existing guest private-circle teasers deliberately omit membership fields and protected content.
+
+Joined-directory membership uses a correlated `EXISTS` SQL predicate, not an unbounded membership-array pre-read. The isolated HTTP harness covers complete multi-page approved results, guest/pending exclusion, caller-supplied viewer identity refusal, truthful private teaser DTOs and bounded input validation. Its fixture authentication header is test-only and is not added to production routes.
+
+## Delivery status
+
+Final local source validation passed 602 unit/regression tests in 120 files, strict unused TypeScript, zero-warning lint, formatting, auditor/template checks and API build. Isolated HTTP/PostgreSQL17 Home11, Activity12 and Moderation7 tests passed with fixtures removed and no production access/write. Canonical/mirror saves and exact-source remote CI/container outcomes are pending. Initial failed evidence is retained outside Git rather than overwritten. Source-level/mocked component tests and local synthetic HTTP/PostgreSQL fixtures do not establish native, genuine OAuth/account or provider/relay validation. Publication remains disabled and production database state is unchanged.
