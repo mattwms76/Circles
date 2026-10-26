@@ -15,9 +15,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
 import { AppShell } from "@/components/app-shell";
+import { UserAvatar } from "@/components/user-avatar";
 import {
   ago,
-  Avatar,
   C,
   Empty,
   Icon,
@@ -502,10 +502,11 @@ function ChatScreenInstance() {
                     }}
                   >
                     {!own && (
-                      <Avatar
+                      <UserAvatar
                         uri={message.author.avatar}
                         name={message.author.name}
                         size={27}
+                        userId={message.author.id}
                       />
                     )}
                     <View

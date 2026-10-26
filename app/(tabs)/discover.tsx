@@ -20,8 +20,8 @@ import {
 import { AppShell } from "@/components/app-shell";
 import { CircleCard } from "@/components/circle-card";
 import { PostCard } from "@/components/post-card";
+import { UserAvatar } from "@/components/user-avatar";
 import {
-  Avatar,
   Button,
   C,
   Empty,
@@ -371,7 +371,12 @@ function DiscoverScreenInstance() {
                     accessibilityLabel={`View ${person.name}'s profile`}
                     style={{ minWidth: 48, minHeight: 48 }}
                   >
-                    <Avatar uri={person.avatar} name={person.name} size={48} />
+                    <UserAvatar
+                      uri={person.avatar}
+                      name={person.name}
+                      size={48}
+                      userId={person.id}
+                    />
                   </Pressable>
                   <Pressable
                     onPress={() => router.push(`/person/${person.id}`)}

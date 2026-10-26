@@ -5,8 +5,8 @@ import { trpc } from "@/lib/trpc";
 import { resolveFnd001QueryDisplayState } from "@/lib/fnd001-query-display-state";
 import { AppShell } from "@/components/app-shell";
 import { PostCard } from "@/components/post-card";
+import { UserAvatar } from "@/components/user-avatar";
 import {
-  Avatar,
   Button,
   C,
   Empty,
@@ -83,10 +83,11 @@ export default function HomeScreen() {
           style={{ alignItems: "center", gap: 7 }}
         >
           <View>
-            <Avatar
+            <UserAvatar
               uri={myProfile.data?.avatar}
               name={user?.name || "You"}
               size={54}
+              userId={user?.id}
             />
             <View
               style={{
@@ -114,7 +115,13 @@ export default function HomeScreen() {
             onPress={() => router.push(`/person/${profile.id}`)}
             style={{ alignItems: "center", gap: 5 }}
           >
-            <Avatar uri={profile.avatar} name={profile.name} size={50} ring />
+            <UserAvatar
+              uri={profile.avatar}
+              name={profile.name}
+              size={50}
+              ring
+              userId={profile.id}
+            />
             <T style={{ fontSize: 10, color: C.ink }}>
               {profile.name.split(" ")[0]}
             </T>

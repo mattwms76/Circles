@@ -1,5 +1,17 @@
 import { TRPCError } from "@trpc/server";
-import { and, count, desc, eq, gt, ilike, isNull, lt, or } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  gt,
+  ilike,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  or,
+} from "drizzle-orm";
 import { z } from "zod";
 import {
   activeHostLeases,
@@ -47,6 +59,21 @@ export const HOST_LEASE_MS = 45_000;
 /** Viewer counts and signaling do not retain abandoned browser sessions. */
 export const VIEWER_LEASE_MS = 30_000;
 const idInput = z.object({ streamId: z.number().int().positive() });
+const listInput = z
+  .object({
+    search: z.string().trim().max(80).optional(),
+    hostIds: z
+      .array(z.number().int().positive())
+      .min(1)
+      .max(100)
+      .transform((hostIds) => [...new Set(hostIds)])
+      .optional(),
+    /** Restricts discovery to media-ready streams with a current host lease. */
+    readyOnly: z.boolean().optional(),
+    /** Optional client affinity check; request context remains authoritative. */
+    viewerScope: z.number().int().positive().nullable().optional(),
+  })
+  .optional();
 const signalKind = z.enum(["offer", "answer", "ice"]);
 
 type SignalKind = z.infer<typeof signalKind>;
@@ -345,8 +372,60 @@ function streamHasActiveHostLease(stream: Stream, now = Date.now()): boolean {
   );
 }
 
+function isValidDate(value: Date | null | undefined): value is Date {
+  return value instanceof Date && Number.isFinite(value.getTime());
+}
+
 function streamIsReadyAndActive(stream: Stream, now = Date.now()): boolean {
-  return streamHasActiveHostLease(stream, now) && stream.readyAt !== null;
+  return streamHasActiveHostLease(stream, now) && isValidDate(stream.readyAt);
+}
+
+/**
+ * A discovery response is allowed to show a live indicator only while the
+ * ready stream's host lease is still current. Malformed timestamps fail closed
+ * rather than creating an unbounded or fabricated indicator.
+ */
+function liveAvailability(
+  stream: Stream,
+  now: number,
+): {
+  liveReady: boolean;
+  liveExpiresAt: string | null;
+} {
+  if (!streamIsReadyAndActive(stream, now)) {
+    return { liveReady: false, liveExpiresAt: null };
+  }
+
+  const heartbeatMs = stream.lastHeartbeatAt.getTime();
+  const expiresAt = new Date(heartbeatMs + HOST_LEASE_MS);
+  if (!isValidDate(expiresAt)) {
+    return { liveReady: false, liveExpiresAt: null };
+  }
+
+  return { liveReady: true, liveExpiresAt: expiresAt.toISOString() };
+}
+
+/**
+ * A ready-only avatar must not survive a host's removal from its circle. The
+ * viewer's circle read check remains separate: both the viewer and host must
+ * currently be allowed by their respective policies before this is exposed.
+ */
+async function hostRetainsCircleMembership(
+  db: LiveDatabase,
+  stream: Stream,
+): Promise<boolean> {
+  if (stream.circleId === null) return true;
+  const [membership] = await db
+    .select({ role: memberships.role })
+    .from(memberships)
+    .where(
+      and(
+        eq(memberships.circleId, stream.circleId),
+        eq(memberships.userId, stream.hostId),
+      ),
+    )
+    .limit(1);
+  return canHostCircleRole(membership?.role);
 }
 
 /**
@@ -640,11 +719,15 @@ async function viewerCount(streamId: number): Promise<number> {
   return Number(result?.total ?? 0);
 }
 
-async function toLiveStream(stream: Stream): Promise<LiveStream> {
+async function toLiveStream(
+  stream: Stream,
+  now = Date.now(),
+): Promise<LiveStream> {
   const [host, viewers] = await Promise.all([
     getDisplayProfile(stream.hostId),
     viewerCount(stream.id),
   ]);
+  const availability = liveAvailability(stream, now);
   return {
     id: stream.id,
     host,
@@ -654,6 +737,8 @@ async function toLiveStream(stream: Stream): Promise<LiveStream> {
     viewers,
     status: stream.status,
     createdAt: stream.createdAt.toISOString(),
+    liveReady: availability.liveReady,
+    liveExpiresAt: availability.liveExpiresAt,
   };
 }
 
@@ -814,51 +899,73 @@ async function insertSystemSignalInTransaction(
 
 export const liveRouter = router({
   list: publicProcedure
-    .input(
-      z.object({ search: z.string().trim().max(80).optional() }).optional(),
-    )
+    .input(listInput)
     .query(async ({ ctx, input }): Promise<LiveStream[]> => {
+      const viewerId = ctx.user?.id ?? null;
+      if (input?.viewerScope !== undefined && input.viewerScope !== viewerId) {
+        throw new TRPCError({
+          code: viewerId === null ? "UNAUTHORIZED" : "FORBIDDEN",
+          message: "You are not allowed to access live streams.",
+        });
+      }
+
       const db = await getDb();
       if (!db) unavailable();
 
       const search = input?.search;
       const now = Date.now();
-      const viewerId = ctx.user?.id ?? null;
+      const readyOnly = input?.readyOnly === true;
+      const conditions = [eq(streams.status, "live")];
+      if (search) conditions.push(ilike(streams.title, `%${search}%`));
+      if (readyOnly) {
+        // Keep the ready-avatar source bounded in SQL before its fixed list cap.
+        conditions.push(
+          isNotNull(streams.readyAt),
+          gt(streams.lastHeartbeatAt, new Date(now - HOST_LEASE_MS)),
+        );
+      }
+      if (input?.hostIds) {
+        conditions.push(inArray(streams.hostId, input.hostIds));
+      }
       const rows = await db
         .select()
         .from(streams)
-        .where(
-          search
-            ? and(
-                eq(streams.status, "live"),
-                ilike(streams.title, `%${search}%`),
-              )
-            : eq(streams.status, "live"),
-        )
+        .where(conditions.length === 1 ? conditions[0] : and(...conditions))
         .orderBy(desc(streams.createdAt))
         .limit(100);
 
-      const visible = (
-        await Promise.all(
-          rows.map(async (stream) => {
-            // A host retains visibility of its own preparing session so its live
-            // screen can mount media, but no one else sees unready or expired data.
-            if (
-              stream.hostId !== viewerId &&
-              !streamIsReadyAndActive(stream, now)
-            ) {
-              return null;
-            }
-            if (
-              stream.circleId !== null &&
-              !(await canAccessCircle(viewerId, stream.circleId))
-            ) {
-              return null;
-            }
-            return toLiveStream(stream);
-          }),
-        )
-      ).filter((stream): stream is LiveStream => stream !== null);
+      const visible: LiveStream[] = [];
+      const readyHostIds = new Set<number>();
+      for (const stream of rows) {
+        const availability = liveAvailability(stream, now);
+        // A host retains visibility of its own preparing session in the legacy
+        // list so its live screen can mount media. Ready-only discovery never
+        // makes that exception, including for the current host.
+        if (
+          readyOnly
+            ? !availability.liveReady
+            : stream.hostId !== viewerId && !availability.liveReady
+        ) {
+          continue;
+        }
+        // Existing data can contain historical duplicate host sessions. The
+        // newest eligible ready-only row wins, rather than falling through to
+        // an older session if its circle is not readable by this viewer.
+        if (readyOnly) {
+          if (readyHostIds.has(stream.hostId)) continue;
+          readyHostIds.add(stream.hostId);
+        }
+        if (
+          stream.circleId !== null &&
+          !(await canAccessCircle(viewerId, stream.circleId))
+        ) {
+          continue;
+        }
+        if (readyOnly && !(await hostRetainsCircleMembership(db, stream))) {
+          continue;
+        }
+        visible.push(await toLiveStream(stream, now));
+      }
       return visible;
     }),
 

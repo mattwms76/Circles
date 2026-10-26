@@ -22,6 +22,7 @@ import {
   subscribeSafeAreaInsets,
 } from "@/lib/_core/manus-runtime";
 import { CirclesProvider } from "@/hooks/circles-context";
+import { LiveAvatarProvider } from "@/hooks/live-avatar-context";
 import { OnboardingNavigation } from "@/components/onboarding-navigation";
 import { SourceRevalidation } from "@/components/source-revalidation";
 import { PlatformMaintenanceNotice } from "@/components/platform-maintenance-notice";
@@ -106,22 +107,24 @@ export default function RootLayout() {
             queryClient={queryClient}
             resetProtectedNavigation={resetProtectedNavigation}
           >
-            <SourceRevalidation />
-            <OnboardingNavigation />
-            <PlatformMaintenanceNotice />
-            {/* Default to hiding native headers so raw route segments don't appear (e.g. "(tabs)", "products/[id]"). */}
-            {/* If a screen needs the native header, explicitly enable it and set a human title via Stack.Screen options. */}
-            {/* in order for ios apps tab switching to work properly, use presentation: "fullScreenModal" for login page, whenever you decide to use presentation: "modal*/}
-            <Stack screenOptions={{ headerShown: false }}>
-              <Stack.Screen name="(tabs)" />
-              <Stack.Screen name="oauth/callback" />
-              <Stack.Screen name="onboarding" />
-              <Stack.Screen name="updates/index" />
-              <Stack.Screen name="updates/preferences" />
-              <Stack.Screen name="updates/[id]" />
-              <Stack.Screen name="moderation/[circleId]" />
-            </Stack>
-            <StatusBar style="dark" />
+            <LiveAvatarProvider>
+              <SourceRevalidation />
+              <OnboardingNavigation />
+              <PlatformMaintenanceNotice />
+              {/* Default to hiding native headers so raw route segments don't appear (e.g. "(tabs)", "products/[id]"). */}
+              {/* If a screen needs the native header, explicitly enable it and set a human title via Stack.Screen options. */}
+              {/* in order for ios apps tab switching to work, use presentation: "fullScreenModal" for login page, whenever you decide to use presentation: "modal*/}
+              <Stack screenOptions={{ headerShown: false }}>
+                <Stack.Screen name="(tabs)" />
+                <Stack.Screen name="oauth/callback" />
+                <Stack.Screen name="onboarding" />
+                <Stack.Screen name="updates/index" />
+                <Stack.Screen name="updates/preferences" />
+                <Stack.Screen name="updates/[id]" />
+                <Stack.Screen name="moderation/[circleId]" />
+              </Stack>
+              <StatusBar style="dark" />
+            </LiveAvatarProvider>
           </CirclesProvider>
         </QueryClientProvider>
       </trpc.Provider>

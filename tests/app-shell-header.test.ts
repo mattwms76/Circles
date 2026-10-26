@@ -54,6 +54,7 @@ vi.mock("@/components/media-image", () => ({ Image: "Image" }));
 vi.mock("../components/activity-badge", () => ({
   ActivityBadge: "ActivityBadge",
 }));
+vi.mock("../components/user-avatar", () => ({ UserAvatar: "Avatar" }));
 vi.mock("../components/circles-ui", () => ({
   Avatar: "Avatar",
   Button: "Button",

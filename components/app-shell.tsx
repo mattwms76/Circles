@@ -14,7 +14,6 @@ import {
 } from "../lib/batch1-mutation-feedback";
 import { invalidateCircleDirectories } from "../lib/source-query-invalidation";
 import {
-  Avatar,
   Button,
   C,
   Icon,
@@ -28,6 +27,7 @@ import {
 } from "./circles-ui";
 import { Image } from "@/components/media-image";
 import { ActivityBadge } from "./activity-badge";
+import { UserAvatar } from "./user-avatar";
 
 export const navigation: {
   label: string;
@@ -217,10 +217,11 @@ export function AppShell({
                     justifyContent: "center",
                   }}
                 >
-                  <Avatar
+                  <UserAvatar
                     uri={myProfile.data?.avatar}
                     name={user?.name || "You"}
                     size={35}
+                    userId={user?.id}
                   />
                 </Pressable>
               </>

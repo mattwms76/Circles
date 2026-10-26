@@ -16,6 +16,7 @@ import {
   buttonVisualTokens,
   UI_ACCESSIBLE_COLORS,
 } from "@/lib/ui-accessibility";
+import { LiveAvatarRing } from "@/components/live-avatar-ring";
 
 export const C = {
   bg: "#F9F8F5",
@@ -104,17 +105,25 @@ export function Wordmark() {
     </View>
   );
 }
+export type AvatarProps = {
+  uri?: string | null;
+  name?: string;
+  size?: number;
+  ring?: boolean;
+  /** Decorative live state supplied by the identity-aware UserAvatar wrapper. */
+  live?: boolean;
+  /** Stops the decorative animation while the application is backgrounded. */
+  livePulse?: boolean;
+};
+
 export function Avatar({
   uri,
   name = "",
   size = 40,
   ring = false,
-}: {
-  uri?: string | null;
-  name?: string;
-  size?: number;
-  ring?: boolean;
-}) {
+  live = false,
+  livePulse = false,
+}: AvatarProps) {
   return (
     <View
       style={{
@@ -175,6 +184,12 @@ export function Avatar({
           </T>
         </View>
       )}
+      <LiveAvatarRing
+        size={size + (ring ? 8 : 0)}
+        live={live}
+        animate={livePulse}
+        inset={ring ? 4 : 0}
+      />
     </View>
   );
 }

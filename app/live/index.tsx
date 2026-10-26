@@ -4,17 +4,9 @@ import { useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
 import { AppShell } from "@/components/app-shell";
+import { UserAvatar } from "@/components/user-avatar";
 import { platformCreationIssue } from "@/lib/platform-feature-ui";
-import {
-  Avatar,
-  Button,
-  C,
-  Empty,
-  Icon,
-  Loading,
-  s,
-  T,
-} from "@/components/circles-ui";
+import { Button, C, Empty, Icon, Loading, s, T } from "@/components/circles-ui";
 
 export default function LiveLobby() {
   const router = useRouter();
@@ -164,10 +156,11 @@ export default function LiveLobby() {
                 </T>
               </View>
               <View style={[s.row, { padding: 17, gap: 12 }]}>
-                <Avatar
+                <UserAvatar
                   uri={live.host.avatar}
                   name={live.host.name}
                   size={39}
+                  userId={live.host.id}
                 />
                 <View style={{ flex: 1 }}>
                   <T style={{ fontWeight: "700", fontSize: 15 }}>

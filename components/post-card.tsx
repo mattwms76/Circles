@@ -22,9 +22,9 @@ import {
   invalidateModerationViews,
   invalidatePostFeeds,
 } from "@/lib/source-query-invalidation";
+import { UserAvatar } from "./user-avatar";
 import {
   ago,
-  Avatar,
   Button,
   C,
   Empty,
@@ -316,7 +316,12 @@ export function PostCard({ post }: { post: Post }) {
           accessibilityLabel={`Open ${post.author.name}'s profile`}
           style={[s.row, { gap: 10, flex: 1, minHeight: 44 }]}
         >
-          <Avatar uri={post.author.avatar} name={post.author.name} size={37} />
+          <UserAvatar
+            uri={post.author.avatar}
+            name={post.author.name}
+            size={37}
+            userId={post.author.id}
+          />
           <View style={{ flex: 1, minWidth: 0 }}>
             <View style={[s.row, { gap: 6 }]}>
               <T style={{ fontWeight: "700", fontSize: 14 }} numberOfLines={1}>
@@ -571,10 +576,11 @@ export function PostCard({ post }: { post: Post }) {
                       key={comment.id}
                       style={[s.row, { alignItems: "flex-start", gap: 12 }]}
                     >
-                      <Avatar
+                      <UserAvatar
                         uri={comment.author.avatar}
                         name={comment.author.name}
                         size={30}
+                        userId={comment.author.id}
                       />
                       <View style={{ flex: 1, minWidth: 0 }}>
                         <T style={{ fontWeight: "700", fontSize: 14 }}>
