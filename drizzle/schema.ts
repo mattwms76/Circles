@@ -144,7 +144,10 @@ export const circles = circlesApp.table(
     createdAt: createdAt(),
     updatedAt: updatedAt(),
     welcomeMessage: text("welcomeMessage").notNull().default(""),
-    rules: jsonb("rules").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    rules: jsonb("rules")
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     // posts is declared below; retain an explicit column annotation to avoid Drizzle's recursive FK inference.
     pinnedPostId: integer("pinnedPostId").references(
       (): AnyPgColumn => posts.id,
@@ -325,12 +328,12 @@ export const messages = circlesApp.table(
       .references(() => users.id, { onDelete: "cascade" }),
     text: text("text").notNull(),
     media: varchar("media", { length: 2048 }),
+    createdAt: createdAt(),
     /**
      * A caller-generated nonce unique per sender/conversation. It remains nullable for legacy
      * clients and old rows during the staged mobile rollout.
      */
     clientMessageId: varchar("clientMessageId", { length: 96 }),
-    createdAt: createdAt(),
   },
   (table) => [
     index("messages_conversation_created_idx").on(
