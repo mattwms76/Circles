@@ -64,8 +64,14 @@ Email/password identity SQL remains byte-identical: `3aa2fc177771c1851070f227606
 
 Local checked source: `checked working code sha256:e372d46b299abf39c7e90f04bf3df8b7521d87a3a4d2b40d5db054d437ac2f18 based on 8ae1d3b1365ccb0f3ba6217ea5cefea0af0686fe`.
 
-The supported trusted runtime refresh restored canonical fetch access during this batch. Final canonical push and matching GitHub mirror/CI evidence follow after source freezing; never infer checkpoint acceptance from a local commit alone.
+The supported trusted runtime refresh restored canonical Git access. Canonical main `5de75ccd76223ca12754f70dbf081c9b4f5a0b09` and GitHub mirror `85a84a8eade7ac6f26c421daecb648f8de024cb4` were pushed normally with identical tree `86301fce781a1cf609fbbb876c52c4b4ea67f266`. Previously pending canonical history was preserved; repository ownership was not switched. These are observed successful main pushes, not a claim of application publication.
 
-Metro had stopped with a recorded OOM. Only the missing8081 process was restored with supported Node, one worker and a larger heap; no computer reset. API remains on3000, production settings/publication unchanged. Any necessary changed-backend API-only reload is separately verified.
+Exact-source [CI run40359223581](https://github.com/mattwms76/Circles/actions/runs/40359223581) passed all four jobs, including the actual isolated authority suite, existing feature/email/session drills and Android/iOS/web JavaScript exports. [Container run40359223591](https://github.com/mattwms76/Circles/actions/runs/40359223591) passed. Exports are not signed native-device builds. Subsequent closure changes are documentation only and do not change this tested code.
+
+Metro had stopped with a recorded OOM. Only the missing8081 process was restored with supported Node, one worker and a larger heap; no computer reset. After the restricted read-only preflight passed, only the stale API was replaced on3000 so the repaired conversation/thumbnail/pagination contracts were loaded; healthy restored Metro was preserved. Final direct and same-origin readiness returned HTTP200 with `ok/database/oauthState=true`; email status remained `enabled/ready=false`. Production settings, schemas/rows, providers and publication were unchanged.
 
 Native enlarged-text/assistive-tech, physical devices, real accounts/email delivery, genuine host/viewer media/relay and full38-screen rendering remain explicit gaps. Managed-role future-function review, TURN and unrelated historical backend findings are not silently marked fixed.
+
+## Actual-source rendered boundaries
+
+Offline Chromium/Playwright bundled actual current ProfileScreen, CirclesProvider, tabs and Circle hero: **30 assertions passed, 0 failed, 5 explicitly skipped in 5 scenarios**. Profile stats reflowed without horizontal overflow at320px and a390px/fontScale1.3 source-layout boundary; root notice cleared the inset50 tab bar by15px and suppressed itself on callback route; opaque hero backplate text measured11.795/13.04 contrast. Query/auth/media/inset/route seams are synthetic. Native font scaling, safe-area touch, callback UI/provider/navigation and image-pixel/native rendering are not claimed. See the delivered renderer evidence for every assertion and screenshot.
