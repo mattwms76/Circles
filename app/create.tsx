@@ -32,7 +32,6 @@ import {
   type ReusableUpload,
 } from "@/lib/feed-ui-helpers";
 import {
-  Avatar,
   Button,
   C,
   Empty,
@@ -45,6 +44,7 @@ import {
   Wordmark,
   type IconName,
 } from "@/components/circles-ui";
+import { UserAvatar } from "@/components/user-avatar";
 import { INTRODUCTION_DRAFT } from "@/shared/onboarding";
 import { canPrefillIntroduction } from "@/lib/onboarding-introduction";
 import {
@@ -635,10 +635,11 @@ function CreateScreenForAccount() {
           ) : (
             <>
               <View style={[s.row, { gap: 12 }]}>
-                <Avatar
+                <UserAvatar
                   uri={profile.data?.avatar}
                   name={user.name || ""}
                   size={44}
+                  userId={user.id}
                 />
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <T

@@ -20,6 +20,7 @@ import {
 } from "@/components/circle-home-panel";
 import { CircleActivityPreference } from "@/components/activity-preferences";
 import { PostCard } from "@/components/post-card";
+import { UserAvatar } from "@/components/user-avatar";
 import {
   canReadCircleHome,
   circleHomeScopeKey,
@@ -27,7 +28,6 @@ import {
 } from "@/lib/circle-home-ui";
 import { canUseCircleActivityPreferences } from "@/lib/activity-ui";
 import {
-  Avatar,
   Button,
   C,
   Empty,
@@ -615,10 +615,11 @@ function CircleScreenInstance() {
                         },
                       ]}
                     >
-                      <Avatar
+                      <UserAvatar
                         uri={member.user.avatar}
                         name={member.user.name}
                         size={42}
+                        userId={member.user.id}
                       />
                       <View style={{ flex: 1, minWidth: 0 }}>
                         <T style={{ fontWeight: "700", fontSize: 13 }}>
@@ -821,10 +822,11 @@ function CircleScreenInstance() {
                   style={[s.card, { padding: 15, gap: 12 }]}
                 >
                   <View style={[s.row, { alignItems: "flex-start", gap: 10 }]}>
-                    <Avatar
+                    <UserAvatar
                       uri={member.user.avatar}
                       name={member.user.name}
                       size={35}
+                      userId={member.user.id}
                     />
                     <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
                       <T

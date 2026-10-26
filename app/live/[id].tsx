@@ -20,6 +20,7 @@ import {
   type LiveOperationScope,
 } from "@/lib/batch4-live-operation-scope";
 import { AppShell } from "@/components/app-shell";
+import { UserAvatar } from "@/components/user-avatar";
 import {
   Avatar,
   Button,
@@ -442,10 +443,11 @@ function LiveSessionScreen({
                 </View>
               )}
               <View style={[s.row, { gap: 13, marginVertical: 20 }]}>
-                <Avatar
+                <UserAvatar
                   uri={live.host.avatar}
                   name={live.host.name}
                   size={43}
+                  userId={live.host.id}
                 />
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <T

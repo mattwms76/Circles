@@ -13,6 +13,9 @@ vi.mock("react-native", () => ({
 vi.mock("@/components/media-image", () => ({ Image: "Image" }));
 vi.mock("@expo/vector-icons", () => ({ Ionicons: "Ionicons" }));
 vi.mock("react-native-svg", () => ({ default: "Svg", Circle: "SvgCircle" }));
+vi.mock("@/components/live-avatar-ring", () => ({
+  LiveAvatarRing: "LiveAvatarRing",
+}));
 vi.mock(
   "@/lib/ui-accessibility",
   async () => import("../lib/ui-accessibility"),

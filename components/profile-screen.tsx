@@ -23,8 +23,8 @@ import { invalidateProfileViews } from "@/lib/source-query-invalidation";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppShell } from "./app-shell";
 import { PostCard } from "./post-card";
+import { UserAvatar } from "./user-avatar";
 import {
-  Avatar,
   Button,
   C,
   Empty,
@@ -415,7 +415,12 @@ export default function ProfileScreen({
             <View
               style={{ backgroundColor: C.bg, borderRadius: 50, padding: 5 }}
             >
-              <Avatar uri={p.avatar} name={p.name} size={79} />
+              <UserAvatar
+                uri={p.avatar}
+                name={p.name}
+                size={79}
+                userId={p.id}
+              />
             </View>
             {own && (
               <View style={{ marginTop: 36, gap: 7, alignItems: "flex-end" }}>

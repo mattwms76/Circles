@@ -74,4 +74,8 @@ export type LiveStream = {
   viewers: number;
   status: "live" | "ended";
   createdAt: string;
+  /** Optional while older cached/API DTOs are still in circulation. */
+  liveReady?: boolean;
+  /** ISO expiry of the current ready host lease, or null when not live-ready. */
+  liveExpiresAt?: string | null;
 };
