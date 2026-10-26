@@ -4,7 +4,7 @@
 
 ## Status
 
-All **31 deduplicated audit findings have source-level repairs**. D26-21 is the documented alias of D26-07, not an additional defect. The original audit classified20 confirmed-source and11 conditional-source findings; implementing the latter does not certify their native rendering or physical accessibility behavior. Local integrated checks pass. Canonical/GitHub saving and exact-source remote CI are being recorded separately below when observed.
+All **31 deduplicated audit findings have source-level repairs**. D26-21 is the documented alias of D26-07, not an additional defect. The original audit classified20 confirmed-source and11 conditional-source findings; implementing the latter does not certify their native rendering or physical accessibility behavior. Local integrated checks and exact-source GitHub CI/container validation pass. The code is saved to GitHub with a matching local canonical tree; the Manus canonical remote/checkpoint remains blocked by unavailable managed Git authentication, as detailed below.
 
 ## Complete repair register
 
@@ -66,3 +66,15 @@ The independent live layer preserves the story frame and its4-point inset, remai
 Prepared migration `operations/migrations/0014_circles_email_identity.sql` is unchanged: SHA-256 `3aa2fc177771c1851070f227606520f8c4ce4bb63641cd690b978a1b7d7e2e50`. It creates only the private one-to-one UUID→numeric-user map, with FK cascade, postgres ownership, enabled/forced RLS and runtime-only SELECT/INSERT. Client roles and runtime UPDATE/DELETE/TRUNCATE are denied. Existing-source connection requires both the current authenticated actor and provider-verified identity; there is no email-only auto-link or role promotion. New own durable sessions bind the signed numeric actor, and existing logout/native drain protections remain.
 
 Fresh catalog-only inspection found no identity schema/table or recorded0014 installation. Both API3000 and same-origin Metro8081 remain ready; email status is **disabled/not ready**. That deployment gate is **not evidence that provider email is disabled**. This task did not apply SQL, activate the email/Google/admin/feature reader, sign in a real account, rotate credentials, restart healthy services or publish. The private backup's28/29 contract was inspected, not changed here. Live installation and opt-in require separate approval and verification.
+
+## Saved source and managed transport status
+
+The61-path reviewed source is committed locally as `0363cd8e50250f4346c86ca6eb6ca34a088cb41a` and was pushed normally to the authorized GitHub mirror as `8eace2e610eea44479e3191a61646d497e9313e4`; both trees are `e65542c5a68d29cc6a6a8033a3328cad82c0647f`. Automatic CI40336608236 is being awaited, not presumed successful.
+
+**Manus canonical remote saving is blocked:** managed Git authentication was unavailable on fetch; the documented trusted configuration refresh and single new-command retry did not restore it. No canonical push or checkpoint receipt is claimed. The provider remains Manus, remotes and history were not rewritten, and healthy services were not reset. The checked local commit and GitHub tree preserve the work; a private delta recovery bundle is also saved outside the app repository. Managed transport assistance uses [Manus help](https://help.manus.im). This blocker does not indicate a test failure or authorize a repository switch.
+
+## Final remote validation
+
+For exact GitHub source `8eace2e610eea44479e3191a61646d497e9313e4`, **CI40336608236 passed all4 jobs**, including all3 isolated feature HTTP/PG17 suites, the email roles/allocation/store/session drills, and Android/iOS/web JavaScript compilation. **Container40336802386 passed** the locked credential-free image build, nonroot TLS-certificate access and missing-data fail-closed readiness checks. This UI-only commit does not match the existing container push filters; the existing workflow was dispatched **once**, only after confirming no automatic duplicate. Neither workflow publishes the application.
+
+Final documentation closure changes no tested application code. Both fixed listeners remained healthy; Metro/API were not restarted. Email runtime/identity mapping and Google/admin/reader activation remain off/unapplied as observed, and native/real-provider/all-screen rendered gaps remain open. GitHub source acceptance does not cure the separately observed Manus-managed transport failure; no canonical remote push or checkpoint is claimed.
