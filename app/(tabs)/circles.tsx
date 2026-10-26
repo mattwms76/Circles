@@ -4,6 +4,8 @@ import { Image } from "@/components/media-image";
 import { useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
+import { resolvePagedDisplayState } from "../../lib/a26-paged-display";
+import { A26_CIRCLE_HERO_BACKPLATE_COLOR } from "../../lib/a26-directory-ui";
 import { AppShell } from "@/components/app-shell";
 import { CircleCard } from "@/components/circle-card";
 import { OnboardingEntry } from "@/components/onboarding-entry";
@@ -38,6 +40,15 @@ export default function CirclesScreen() {
     },
   );
   const items = circles.data?.pages.flatMap((page) => page.items) ?? [];
+  const circlesDisplayState = resolvePagedDisplayState({
+    isLoading: circles.isLoading,
+    isError: circles.isError,
+    hasContent: items.length > 0 || !!circles.hasNextPage,
+    isFetchingNextPage: circles.isFetchingNextPage,
+    isFetchNextPageError: circles.isFetchNextPageError,
+    isRefetchError: circles.isRefetchError,
+    error: circles.error,
+  });
   return (
     <AppShell>
       <View style={{ gap: 21 }}>
@@ -77,45 +88,57 @@ export default function CirclesScreen() {
             }}
             contentFit="cover"
           />
-          <View style={{ padding: 23, gap: 9 }}>
-            <T
-              style={{
-                color: "#EEF6E9",
-                fontSize: 10,
-                letterSpacing: 1.3,
-                fontWeight: "700",
-              }}
-            >
-              LIFE IS BETTER TOGETHER
-            </T>
-            <T
-              style={{
-                color: "#fff",
-                fontSize: 25,
-                lineHeight: 29,
-                fontWeight: "800",
-                letterSpacing: -0.7,
-              }}
-            >
-              {"Big passions.\nYour kind of people."}
-            </T>
-            <Pressable
-              onPress={() => {
-                setCategory("Outdoors");
-                setJoinedOnly(false);
-              }}
-              accessibilityRole="button"
-              accessibilityLabel="Explore outdoor circles"
+          <View style={{ padding: 23 }}>
+            <View
               style={{
                 alignSelf: "flex-start",
-                minHeight: 44,
-                justifyContent: "center",
+                maxWidth: "100%",
+                gap: 9,
+                paddingHorizontal: 14,
+                paddingVertical: 12,
+                borderRadius: 12,
+                backgroundColor: A26_CIRCLE_HERO_BACKPLATE_COLOR,
               }}
             >
-              <T style={{ color: "#fff", fontWeight: "600", fontSize: 12 }}>
-                Explore the outdoors ↗
+              <T
+                style={{
+                  color: "#EEF6E9",
+                  fontSize: 10,
+                  letterSpacing: 1.3,
+                  fontWeight: "700",
+                }}
+              >
+                LIFE IS BETTER TOGETHER
               </T>
-            </Pressable>
+              <T
+                style={{
+                  color: "#fff",
+                  fontSize: 25,
+                  lineHeight: 29,
+                  fontWeight: "800",
+                  letterSpacing: -0.7,
+                }}
+              >
+                {"Big passions.\nYour kind of people."}
+              </T>
+              <Pressable
+                onPress={() => {
+                  setCategory("Outdoors");
+                  setJoinedOnly(false);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Explore outdoor circles"
+                style={{
+                  alignSelf: "flex-start",
+                  minHeight: 44,
+                  justifyContent: "center",
+                }}
+              >
+                <T style={{ color: "#fff", fontWeight: "600", fontSize: 12 }}>
+                  Explore the outdoors ↗
+                </T>
+              </Pressable>
+            </View>
           </View>
         </View>
         <OnboardingEntry />
@@ -227,18 +250,20 @@ export default function CirclesScreen() {
         </View>
       </View>
       <View style={{ marginTop: 20 }}>
-        {circles.isLoading ? (
+        {circlesDisplayState.kind === "loading" ? (
           <Loading />
-        ) : circles.error ? (
+        ) : circlesDisplayState.kind === "error" ? (
           <Empty
             title="We couldn’t load your circles."
-            text={circles.error.message}
+            text={
+              circles.error?.message || "Check your connection and try again."
+            }
             action="Try again"
             onAction={() => {
               void circles.refetch();
             }}
           />
-        ) : !items.length && !circles.hasNextPage ? (
+        ) : circlesDisplayState.kind === "empty" ? (
           <Empty
             icon="ellipse-outline"
             title={
@@ -259,8 +284,36 @@ export default function CirclesScreen() {
         ) : (
           items.map((circle) => <CircleCard key={circle.id} circle={circle} />)
         )}
-        {!circles.isLoading &&
-          !circles.error &&
+        {circlesDisplayState.kind === "content" &&
+          circlesDisplayState.showRetainedError && (
+            <View style={{ alignItems: "center", gap: 8, marginTop: 12 }}>
+              <T
+                accessibilityRole="alert"
+                style={{ fontSize: 12, lineHeight: 18, textAlign: "center" }}
+              >
+                {circlesDisplayState.retryMode === "next"
+                  ? "We couldn’t load more circles. Your loaded circles are still here."
+                  : "We couldn’t refresh circles. Your loaded circles are still here."}
+              </T>
+              <Button
+                title={
+                  circlesDisplayState.retryMode === "next"
+                    ? "Retry loading more circles"
+                    : "Refresh circles"
+                }
+                secondary
+                onPress={() => {
+                  if (circlesDisplayState.retryMode === "next") {
+                    void circles.fetchNextPage();
+                    return;
+                  }
+                  void circles.refetch();
+                }}
+                style={{ alignSelf: "center" }}
+              />
+            </View>
+          )}
+        {circlesDisplayState.kind === "content" &&
           (circles.hasNextPage ? (
             <Button
               title="Show more circles"

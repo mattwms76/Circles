@@ -1,5 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   KeyboardAvoidingView,
   Modal,
@@ -7,6 +7,7 @@ import {
   ScrollView,
   View,
 } from "react-native";
+import * as ReactNative from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { trpc } from "@/lib/trpc";
 import { C, IconButton, Logo, T } from "@/components/circles-ui";
@@ -24,15 +25,28 @@ import {
   confirmNativeLoginAfterEmailAuthDrain,
   logoutNativeSessionAfterEmailAuthDrain,
 } from "@/hooks/native-login-transition";
+import { rootFeedbackNoticeBottom } from "../lib/a26-auth-layout";
+import { resolveProtectedActionRequest } from "../lib/a26-auth-protected-action";
 import { resolveAuthGateState } from "@/lib/feed-ui-helpers";
 import type { StatusTone } from "@/lib/status-announcement";
-import { CirclesContext as Context } from "./circles-context-core";
+import {
+  CirclesContext as Context,
+  type NativeLoginCompletionResult,
+} from "./circles-context-core";
 export { useCircles } from "./circles-context-core";
 
 type GlobalNotice = {
   message: string;
   tone: StatusTone;
 };
+
+function currentWindowWidth(): number {
+  // Minimal source-equivalent test mocks can omit Dimensions; Expo supplies it
+  // on device and web, where it follows rotations and responsive Preview size.
+  if (!("Dimensions" in ReactNative)) return 0;
+  const width = ReactNative.Dimensions.get("window").width;
+  return Number.isFinite(width) ? Math.max(0, width) : 0;
+}
 
 export function CirclesProvider({
   children,
@@ -53,7 +67,15 @@ export function CirclesProvider({
   const utils = trpc.useUtils();
   const [login, setLogin] = useState(false);
   const [notice, setNotice] = useState<GlobalNotice | null>(null);
-  const pendingProtectedAction = useRef<(() => void) | null>(null);
+  const [windowWidth, setWindowWidth] = useState(currentWindowWidth);
+  useEffect(() => {
+    if (!("Dimensions" in ReactNative)) return;
+    const subscription = ReactNative.Dimensions.addEventListener(
+      "change",
+      ({ window }) => setWindowWidth(Math.max(0, window.width)),
+    );
+    return () => subscription.remove();
+  }, []);
   const authState = resolveAuthGateState({
     isLoading: auth.isLoading,
     isError: auth.isError,
@@ -68,24 +90,16 @@ export function CirclesProvider({
     [],
   );
   const callbackOwnsRecovery = pathname === "/oauth/callback";
+  const noticeBottom = rootFeedbackNoticeBottom({
+    pathname,
+    windowWidth,
+    insets,
+  });
   useEffect(() => {
     if (!notice) return;
     const timer = setTimeout(() => setNotice(null), 4000);
     return () => clearTimeout(timer);
   }, [notice]);
-
-  useEffect(() => {
-    if (authState === "authenticated" && pendingProtectedAction.current) {
-      const action = pendingProtectedAction.current;
-      pendingProtectedAction.current = null;
-      action();
-      return;
-    }
-
-    if (authState === "guest" && pendingProtectedAction.current) {
-      setLogin(true);
-    }
-  }, [authState]);
 
   const refresh = useCallback(() => {
     void refetchAuth();
@@ -117,7 +131,7 @@ export function CirclesProvider({
     });
   }, [queryClient, resetProtectedNavigation]);
 
-  const completeNativeLogin = useCallback(async () => {
+  const completeNativeLoginWithResult = useCallback(async () => {
     const result = await confirmNativeLoginAfterEmailAuthDrain({
       drainEmailAuthRequests: cancelAndDrainEmailAuthRequests,
       getNativeBearer: () =>
@@ -160,8 +174,17 @@ export function CirclesProvider({
     } else if (!result.authenticatedUser) {
       showNotice("We couldn’t confirm sign-in. Please try again.", "error");
     }
-    return result.authenticatedUser !== null;
+    const completion: NativeLoginCompletionResult = {
+      authenticated: result.authenticatedUser !== null,
+      cleanup: result.cleanup,
+    };
+    return completion;
   }, [queryClient, refetchAuth, showNotice, utils]);
+
+  const completeNativeLogin = useCallback(
+    async () => (await completeNativeLoginWithResult()).authenticated,
+    [completeNativeLoginWithResult],
+  );
 
   const connectExistingCirclesAccount = useCallback(() => {
     router.push("/account/email");
@@ -169,25 +192,18 @@ export function CirclesProvider({
 
   const requireAuth = useCallback(
     (action?: () => void) => {
-      if (authState === "authenticated") {
+      const resolution = resolveProtectedActionRequest(authState);
+      if (resolution.kind === "run") {
         action?.();
         return true;
       }
-
-      if (authState === "checking") {
-        if (action) pendingProtectedAction.current = action;
-        showNotice("Checking your sign-in…", "info");
-        return false;
-      }
-
-      if (authState === "error") {
+      if (resolution.kind === "checking" || resolution.kind === "authError") {
         showNotice(
-          "We couldn’t confirm your sign-in. Check your connection and try again.",
-          "error",
+          resolution.message,
+          resolution.kind === "checking" ? "info" : "error",
         );
         return false;
       }
-
       setLogin(true);
       return false;
     },
@@ -214,6 +230,7 @@ export function CirclesProvider({
         },
         logout,
         completeNativeLogin,
+        completeNativeLoginWithResult,
       }}
     >
       {children}
@@ -222,7 +239,7 @@ export function CirclesProvider({
           pointerEvents="none"
           style={{
             position: "absolute",
-            bottom: 90,
+            bottom: noticeBottom,
             left: 24,
             right: 24,
             alignItems: "center",

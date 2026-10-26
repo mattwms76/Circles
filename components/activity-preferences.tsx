@@ -7,6 +7,7 @@ import {
   isCurrentActivityScope,
   resolveActivityResponseUiState,
 } from "@/lib/activity-ui";
+import { ACTIVITY_PREFERENCES_LOAD_ERROR } from "@/lib/a26-activity-repairs";
 import { StatusMessage } from "@/components/status-message";
 import { Button, C, Empty, T } from "./circles-ui";
 
@@ -203,13 +204,19 @@ export function ActivityPreferencesPanel({ viewerId }: { viewerId: number }) {
 
   if (state.isError || !state.value || !currentValues) {
     return (
-      <Empty
-        icon="options-outline"
-        title="We couldn’t load update preferences."
-        text="Check your connection and try again."
-        action="Try again"
-        onAction={() => void preferences.refetch()}
-      />
+      <View style={styles.loadError}>
+        <ActivityOutcomeStatus
+          message={ACTIVITY_PREFERENCES_LOAD_ERROR}
+          tone="error"
+        />
+        <Empty
+          icon="options-outline"
+          title="We couldn’t load update preferences."
+          text="Check your connection and try again."
+          action="Try again"
+          onAction={() => void preferences.refetch()}
+        />
+      </View>
     );
   }
 
@@ -433,4 +440,5 @@ const styles = StyleSheet.create({
   },
   circleLoading: { paddingVertical: 12, gap: 9, alignItems: "center" },
   circleError: { gap: 10, paddingTop: 8 },
+  loadError: { gap: 10 },
 });

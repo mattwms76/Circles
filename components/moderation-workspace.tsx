@@ -30,6 +30,11 @@ import {
   validateModerationNote,
 } from "@/lib/moderation-ui";
 import {
+  canReleaseModerationAuthorityLatch,
+  createModerationAuthorityLatch,
+  type ModerationAuthorityLatch,
+} from "@/lib/a26-moderation-authority";
+import {
   invalidateModerationViews,
   invalidatePostFeeds,
 } from "@/lib/source-query-invalidation";
@@ -161,12 +166,13 @@ export function ModerationWorkspace({
   const [pendingDecision, setPendingDecision] =
     useState<ModerationDecision | null>(null);
   const [webRemoveConfirmation, setWebRemoveConfirmation] = useState(false);
-  const [clearedAuthorityScope, setClearedAuthorityScope] = useState<
-    string | null
-  >(null);
+  const [authorityLatch, setAuthorityLatch] =
+    useState<ModerationAuthorityLatch | null>(null);
   const mounted = useRef(false);
   const mountedScope = useRef(scopeKey);
   const selectedCaseRef = useRef<number | null>(selectedCaseId);
+  const authorityLatchRef = useRef<ModerationAuthorityLatch | null>(null);
+  const authorityEpochRef = useRef(0);
 
   const queryEnabled =
     Number.isSafeInteger(circleId) &&
@@ -216,6 +222,57 @@ export function ModerationWorkspace({
   });
   const resolve = trpc.moderation.resolve.useMutation();
 
+  const queryAuthorityLoss =
+    isConfirmedModerationAuthorityLoss(queue.error) ||
+    (selectedCaseId !== null &&
+      isConfirmedModerationAuthorityLoss(detail.error));
+  const scopedAuthorityLatch =
+    authorityLatch?.scopeKey === scopeKey ? authorityLatch : null;
+  const authorityLatchCanRelease =
+    !queryAuthorityLoss &&
+    canReleaseModerationAuthorityLatch({
+      latch: scopedAuthorityLatch,
+      scopeKey,
+      listAuthorityAvailable: queueState.isAuthorityAvailable,
+      listDataUpdatedAt: queue.dataUpdatedAt,
+      detailAuthorityAvailable: detailState.isAuthorityAvailable,
+      detailDataUpdatedAt: detail.dataUpdatedAt,
+    });
+  const activeAuthorityLatch = authorityLatchCanRelease
+    ? null
+    : scopedAuthorityLatch;
+  // A newly received explicit denial blocks actions in this render; the effect below
+  // persists it before an older cached query result can regain authority.
+  const authorityLocked = queryAuthorityLoss || activeAuthorityLatch !== null;
+
+  const latchAuthorityLoss = useCallback(() => {
+    if (authorityLatchRef.current?.scopeKey === scopeKey) return;
+
+    const nextLatch = createModerationAuthorityLatch({
+      scopeKey,
+      listDataUpdatedAt: queue.dataUpdatedAt,
+      detailDataUpdatedAt: detail.dataUpdatedAt,
+      requiresDetail: selectedCaseId !== null,
+    });
+    authorityEpochRef.current += 1;
+    authorityLatchRef.current = nextLatch;
+    setAuthorityLatch(nextLatch);
+    setNote("");
+    setResolutionStatus(null);
+    setPendingDecision(null);
+    setWebRemoveConfirmation(false);
+  }, [
+    detail.dataUpdatedAt,
+    queue.dataUpdatedAt,
+    scopeKey,
+    selectedCaseId,
+    setAuthorityLatch,
+    setNote,
+    setResolutionStatus,
+    setPendingDecision,
+    setWebRemoveConfirmation,
+  ]);
+
   useEffect(() => {
     // Strict Mode setup must restore this after its development cleanup cycle.
     mounted.current = true;
@@ -225,32 +282,43 @@ export function ModerationWorkspace({
     };
   }, [scopeKey]);
 
-  const isCurrentCase = useCallback((capturedScope: string, caseId: number) => {
-    return (
-      isCurrentModerationScope(
-        capturedScope,
-        mountedScope.current,
-        mounted.current,
-      ) && selectedCaseRef.current === caseId
-    );
-  }, []);
+  useEffect(() => {
+    if (authorityLatchRef.current?.scopeKey === scopeKey) return;
+    authorityLatchRef.current = null;
+  }, [scopeKey]);
 
-  const authorityLossScope =
-    selectedCaseId !== null && isConfirmedModerationAuthorityLoss(detail.error)
-      ? `${scopeKey}:case:${selectedCaseId}`
-      : null;
-  if (authorityLossScope && clearedAuthorityScope !== authorityLossScope) {
-    // This guarded same-component transition converges once. Recoverable refetch errors do not
-    // enter it, while a confirmed role/session loss immediately clears the sensitive draft.
-    setClearedAuthorityScope(authorityLossScope);
-    setNote("");
-    setResolutionStatus(null);
-    setWebRemoveConfirmation(false);
-  }
+  useEffect(() => {
+    if (queryAuthorityLoss) latchAuthorityLoss();
+  }, [latchAuthorityLoss, queryAuthorityLoss]);
+
+  useEffect(() => {
+    if (authorityLatchCanRelease) {
+      authorityLatchRef.current = null;
+    }
+  }, [authorityLatchCanRelease]);
+
+  const isCurrentCase = useCallback(
+    (
+      capturedScope: string,
+      caseId: number,
+      capturedAuthorityEpoch = authorityEpochRef.current,
+    ) => {
+      return (
+        capturedAuthorityEpoch === authorityEpochRef.current &&
+        isCurrentModerationScope(
+          capturedScope,
+          mountedScope.current,
+          mounted.current,
+        ) &&
+        selectedCaseRef.current === caseId
+      );
+    },
+    [],
+  );
 
   const selectFilter = useCallback(
     (nextFilter: ModerationFilter) => {
-      if (pendingDecision) return;
+      if (authorityLocked || pendingDecision) return;
       selectedCaseRef.current = null;
       setFilter(nextFilter);
       setSelectedCaseId(null);
@@ -258,19 +326,41 @@ export function ModerationWorkspace({
       setResolutionStatus(null);
       setWebRemoveConfirmation(false);
     },
-    [pendingDecision],
+    [
+      authorityLocked,
+      pendingDecision,
+      setFilter,
+      setSelectedCaseId,
+      setNote,
+      setResolutionStatus,
+      setWebRemoveConfirmation,
+    ],
   );
 
   const selectCase = useCallback(
     (caseId: number) => {
-      if (!queueState.isAuthorityAvailable || pendingDecision) return;
+      if (
+        authorityLocked ||
+        !queueState.isAuthorityAvailable ||
+        pendingDecision
+      ) {
+        return;
+      }
       selectedCaseRef.current = caseId;
       setSelectedCaseId(caseId);
       setNote("");
       setResolutionStatus(null);
       setWebRemoveConfirmation(false);
     },
-    [pendingDecision, queueState.isAuthorityAvailable],
+    [
+      authorityLocked,
+      pendingDecision,
+      queueState.isAuthorityAvailable,
+      setSelectedCaseId,
+      setNote,
+      setResolutionStatus,
+      setWebRemoveConfirmation,
+    ],
   );
 
   const closeDetail = useCallback(() => {
@@ -280,28 +370,63 @@ export function ModerationWorkspace({
     setNote("");
     setResolutionStatus(null);
     setWebRemoveConfirmation(false);
-  }, [pendingDecision]);
+  }, [
+    pendingDecision,
+    setSelectedCaseId,
+    setNote,
+    setResolutionStatus,
+    setWebRemoveConfirmation,
+  ]);
 
-  const updateNote = useCallback((value: string) => {
-    setNote(boundModerationNote(value));
-    setResolutionStatus(null);
-  }, []);
+  const updateNote = useCallback(
+    (value: string) => {
+      if (authorityLocked) return;
+      setNote(boundModerationNote(value));
+      setResolutionStatus(null);
+    },
+    [authorityLocked, setNote, setResolutionStatus],
+  );
+
+  const refreshCurrentAuthority = useCallback(async () => {
+    await queue.refetch();
+    if (selectedCaseId !== null) await detail.refetch();
+  }, [detail, queue, selectedCaseId]);
 
   const refreshResolvedCase = useCallback(
-    async (capturedScope: string, caseId: number): Promise<boolean> => {
-      if (!isCurrentCase(capturedScope, caseId)) return false;
+    async (
+      capturedScope: string,
+      caseId: number,
+      capturedAuthorityEpoch: number,
+    ): Promise<boolean> => {
+      if (!isCurrentCase(capturedScope, caseId, capturedAuthorityEpoch)) {
+        return false;
+      }
       await invalidateModerationViews(utils);
-      if (!isCurrentCase(capturedScope, caseId)) return false;
+      if (!isCurrentCase(capturedScope, caseId, capturedAuthorityEpoch)) {
+        return false;
+      }
 
       // The case views must be freshly scoped before pendingDecision can release controls.
-      await Promise.all([detail.refetch(), queue.refetch()]);
-      if (!isCurrentCase(capturedScope, caseId)) return false;
+      const [detailResult, queueResult] = await Promise.all([
+        detail.refetch(),
+        queue.refetch(),
+      ]);
+      if (
+        isConfirmedModerationAuthorityLoss(detailResult.error) ||
+        isConfirmedModerationAuthorityLoss(queueResult.error)
+      ) {
+        latchAuthorityLoss();
+        return false;
+      }
+      if (!isCurrentCase(capturedScope, caseId, capturedAuthorityEpoch)) {
+        return false;
+      }
 
       // A resolution can remove the current post. Refresh every active feed source as well.
       await invalidatePostFeeds(utils);
-      return isCurrentCase(capturedScope, caseId);
+      return isCurrentCase(capturedScope, caseId, capturedAuthorityEpoch);
     },
-    [detail, isCurrentCase, queue, utils],
+    [detail, isCurrentCase, latchAuthorityLoss, queue, utils],
   );
 
   const submitResolution = useCallback(
@@ -311,6 +436,7 @@ export function ModerationWorkspace({
       if (
         !caseId ||
         !item ||
+        authorityLocked ||
         !detailState.isAuthorityAvailable ||
         !item.canResolve ||
         pendingDecision ||
@@ -326,6 +452,7 @@ export function ModerationWorkspace({
       }
 
       const capturedScope = scopeKey;
+      const capturedAuthorityEpoch = authorityEpochRef.current;
       const submittedNote = serializeModerationNote(note);
       setPendingDecision(decision);
       setResolutionStatus({
@@ -346,13 +473,16 @@ export function ModerationWorkspace({
             decision,
             note: submittedNote,
           });
-          if (!isCurrentCase(capturedScope, caseId)) return;
+          if (!isCurrentCase(capturedScope, caseId, capturedAuthorityEpoch)) {
+            return;
+          }
 
           // A scope-guarded fresh detail response, not a stale mutation completion, becomes the UI authority.
           setNote("");
           const isFreshResolvedCase = await refreshResolvedCase(
             capturedScope,
             caseId,
+            capturedAuthorityEpoch,
           );
           if (!isFreshResolvedCase) return;
           setResolutionStatus({
@@ -363,27 +493,34 @@ export function ModerationWorkspace({
             tone: "success",
           });
         } catch (caught) {
-          if (!isCurrentCase(capturedScope, caseId)) return;
+          if (!isCurrentCase(capturedScope, caseId, capturedAuthorityEpoch))
+            return;
           if (isModerationConflict(caught)) {
             // A competing final decision is authoritative only after fresh matching detail and
             // queue reads. Keep the author’s note: conflict itself is not an authority loss.
             try {
-              await refreshResolvedCase(capturedScope, caseId);
+              await refreshResolvedCase(
+                capturedScope,
+                caseId,
+                capturedAuthorityEpoch,
+              );
             } catch {
               // The original conflict remains useful feedback if a recovery read also fails.
             }
-            if (!isCurrentCase(capturedScope, caseId)) return;
+            if (!isCurrentCase(capturedScope, caseId, capturedAuthorityEpoch)) {
+              return;
+            }
           }
           if (isConfirmedModerationAuthorityLoss(caught)) {
-            setNote("");
-            setWebRemoveConfirmation(false);
+            latchAuthorityLoss();
+            return;
           }
           const failureMessage =
             "We couldn’t record that decision. Please try again.";
           setResolutionStatus({ message: failureMessage, tone: "error" });
           // A recoverable error intentionally leaves the user-authored note in place.
         } finally {
-          if (isCurrentCase(capturedScope, caseId)) {
+          if (isCurrentCase(capturedScope, caseId, capturedAuthorityEpoch)) {
             setPendingDecision(null);
           }
         }
@@ -393,13 +530,19 @@ export function ModerationWorkspace({
       circleId,
       detailState.detail?.item,
       detailState.isAuthorityAvailable,
+      authorityLocked,
       isCurrentCase,
+      latchAuthorityLoss,
       note,
       pendingDecision,
       refreshResolvedCase,
       resolve,
       scopeKey,
       selectedCaseId,
+      setNote,
+      setResolutionStatus,
+      setPendingDecision,
+      setWebRemoveConfirmation,
       viewerId,
     ],
   );
@@ -408,6 +551,7 @@ export function ModerationWorkspace({
     const caseId = selectedCaseId;
     if (
       !caseId ||
+      authorityLocked ||
       !detailState.isAuthorityAvailable ||
       !detailState.detail?.item.canResolve ||
       pendingDecision ||
@@ -436,22 +580,25 @@ export function ModerationWorkspace({
   }, [
     detailState.detail?.item.canResolve,
     detailState.isAuthorityAvailable,
+    authorityLocked,
     isCurrentCase,
     pendingDecision,
     scopeKey,
     selectedCaseId,
+    setWebRemoveConfirmation,
     submitResolution,
   ]);
 
-  const selected = detailState.detail;
+  const selected = authorityLocked ? undefined : detailState.detail;
   const item = selected?.item;
   const isFinal = item?.status !== "open";
   const blockedBySelf = item?.blockedReason === "self_review";
   const controlsDisabled =
+    authorityLocked ||
     !detailState.isAuthorityAvailable ||
     !item?.canResolve ||
     !!pendingDecision ||
-    webRemoveConfirmation;
+    (webRemoveConfirmation && !authorityLocked);
 
   return (
     <View style={styles.screen}>
@@ -471,6 +618,24 @@ export function ModerationWorkspace({
         <T style={s.eyebrow}>CIRCLE CARE</T>
       </View>
 
+      {authorityLocked ? (
+        <View accessibilityRole="alert" style={styles.authorityNotice}>
+          <T style={styles.authorityNoticeTitle}>
+            Your moderation access needs confirmation.
+          </T>
+          <T style={styles.muted}>
+            Your reviewer note was cleared. Refresh your current permissions
+            before taking another action.
+          </T>
+          <Button
+            title="Refresh permissions"
+            secondary
+            onPress={() => void refreshCurrentAuthority()}
+            style={{ alignSelf: "flex-start" }}
+          />
+        </View>
+      ) : null}
+
       {selectedCaseId !== null ? (
         <View style={{ gap: 16 }}>
           <Pressable
@@ -489,15 +654,23 @@ export function ModerationWorkspace({
             <T style={styles.backText}>Reports queue</T>
           </Pressable>
 
-          {detailState.isLoading ? (
+          {detailState.isLoading && !authorityLocked ? (
             <Loading />
+          ) : authorityLocked ? (
+            <Empty
+              icon="shield-outline"
+              title="Your moderation access changed."
+              text="Refresh your current permissions before viewing or reviewing this report."
+              action="Refresh permissions"
+              onAction={() => void refreshCurrentAuthority()}
+            />
           ) : detailState.isError || !selected || !item ? (
             <Empty
               icon="shield-outline"
               title="We couldn’t load this report."
               text="Reports are available only to current owners and moderators of this circle."
               action="Try again"
-              onAction={() => void detail.refetch()}
+              onAction={() => void refreshCurrentAuthority()}
             />
           ) : (
             <>
@@ -716,15 +889,18 @@ export function ModerationWorkspace({
                   accessibilityLabel={`Show ${label.toLowerCase()} reports`}
                   accessibilityState={{
                     selected: selectedFilter,
-                    disabled: !!pendingDecision,
+                    disabled: authorityLocked || !!pendingDecision,
                   }}
-                  disabled={!!pendingDecision}
+                  disabled={authorityLocked || !!pendingDecision}
                   onPress={() => selectFilter(nextFilter)}
                   style={({ pressed }) => [
                     styles.filter,
                     selectedFilter && styles.filterSelected,
-                    pressed && !pendingDecision && styles.pressed,
-                    !!pendingDecision && styles.disabled,
+                    pressed &&
+                      !authorityLocked &&
+                      !pendingDecision &&
+                      styles.pressed,
+                    (authorityLocked || !!pendingDecision) && styles.disabled,
                   ]}
                 >
                   <T
@@ -740,15 +916,23 @@ export function ModerationWorkspace({
             })}
           </View>
 
-          {queueState.isLoading ? (
+          {queueState.isLoading && !authorityLocked ? (
             <Loading />
+          ) : authorityLocked ? (
+            <Empty
+              icon="shield-outline"
+              title="Your moderation access changed."
+              text="Refresh your current permissions before viewing or acting on these reports."
+              action="Refresh permissions"
+              onAction={() => void refreshCurrentAuthority()}
+            />
           ) : queueState.isError ? (
             <Empty
               icon="shield-outline"
               title="We couldn’t load Reports."
               text="Reports are available only to current owners and moderators of this circle."
               action="Try again"
-              onAction={() => void queue.refetch()}
+              onAction={() => void refreshCurrentAuthority()}
             />
           ) : queueState.items.length === 0 ? (
             <Empty
@@ -769,7 +953,9 @@ export function ModerationWorkspace({
                   key={caseItem.id}
                   item={caseItem}
                   disabled={
-                    !queueState.isAuthorityAvailable || !!pendingDecision
+                    authorityLocked ||
+                    !queueState.isAuthorityAvailable ||
+                    !!pendingDecision
                   }
                   onOpen={() => selectCase(caseItem.id)}
                 />
@@ -780,6 +966,7 @@ export function ModerationWorkspace({
                   secondary
                   loading={queue.isFetchingNextPage}
                   disabled={
+                    authorityLocked ||
                     !queueState.isAuthorityAvailable ||
                     !!pendingDecision ||
                     queue.isFetchingNextPage
@@ -824,6 +1011,15 @@ const styles = StyleSheet.create({
   backText: { color: C.action, fontSize: 13, fontWeight: "700" },
   headingCopy: { color: C.muted, fontSize: 14, lineHeight: 21 },
   statusMessage: { fontSize: 13, lineHeight: 19 },
+  authorityNotice: {
+    gap: 8,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "#E2B7AD",
+    borderRadius: 12,
+    backgroundColor: "#FFF8F5",
+  },
+  authorityNoticeTitle: { color: "#8A3428", fontSize: 15, fontWeight: "700" },
   filters: { flexDirection: "row", gap: 8 },
   filter: {
     minHeight: 44,

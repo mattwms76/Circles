@@ -49,7 +49,7 @@ MODERATION_MIGRATIONS = (
     "operations/migrations/0012_circles_moderation.sql",
     "operations/migrations/0013_circles_ops_moderation_health.sql",
 )
-SUITES = ("circle-home", "activity", "moderation")
+SUITES = ("circle-home", "activity", "moderation", "a26-authority")
 
 
 def fail(message: str) -> NoReturn:
@@ -75,6 +75,11 @@ def fixture_migrations(suite: str) -> tuple[str, ...]:
         for relative_path in MODERATION_MIGRATIONS
         if PROJECT_ROOT.joinpath(relative_path).is_file()
     )
+    if suite == "a26-authority" and (
+        available_activity != ACTIVITY_MIGRATIONS
+        or available_moderation != MODERATION_MIGRATIONS
+    ):
+        fail("A26 authority E2E requires all current reviewed feature migration pairs")
     if suite == "activity" and available_activity != ACTIVITY_MIGRATIONS:
         fail("Activity E2E requires the reviewed 0010 and 0011 fixture migrations")
     if suite == "moderation" and available_activity != ACTIVITY_MIGRATIONS:
@@ -95,6 +100,8 @@ def fixture_migrations(suite: str) -> tuple[str, ...]:
 
 
 def suite_config(suite: str) -> str:
+    if suite == "a26-authority":
+        return "e2e/a26-authority.e2e.config.ts"
     if suite == "activity":
         return "e2e/activity.e2e.config.ts"
     if suite == "moderation":

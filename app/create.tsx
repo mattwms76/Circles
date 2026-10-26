@@ -15,6 +15,7 @@ import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
 import { StatusMessage } from "@/components/status-message";
 import { assetBase64, supportedMime } from "@/lib/media";
+import { validateA26PickedComposerMedia } from "../lib/a26-circle-ui";
 import {
   batch1OperationIdentityMatches,
   batch1OperationKey,
@@ -348,41 +349,38 @@ function CreateScreenForAccount() {
       mode,
       maxUploadMb,
     };
+    let result: ImagePicker.ImagePickerResult;
     try {
-      const result = await ImagePicker.launchImageLibraryAsync({
+      result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes:
           pickerSnapshot.mode === "circle" ? ["images"] : ["images", "videos"],
         quality: 0.8,
         base64: true,
       });
-      if (!publishScopeIsCurrent(pickerSnapshot.scope)) return;
-      if (!result.canceled) {
-        const nextAsset = result.assets[0];
-        if (
-          nextAsset.fileSize &&
-          nextAsset.fileSize > pickerSnapshot.maxUploadMb * 1024 * 1024
-        ) {
-          notify(
-            `Choose media no larger than ${pickerSnapshot.maxUploadMb} MiB.`,
-            "error",
-          );
-          return;
-        }
-        const mimeType = supportedMime(nextAsset);
-        if (pickerSnapshot.mode === "circle" && !isCircleCoverMime(mimeType)) {
-          notify("Circle covers need a JPEG, PNG, or WebP photo.", "error");
-          return;
-        }
-        setAsset(nextAsset);
-        // A changed selection cannot safely reuse the prior upload URL.
-        setReusableUpload(null);
-      }
     } catch {
       if (!publishScopeIsCurrent(pickerSnapshot.scope)) return;
       notify(
         "Photo library could not open. Check your device permissions.",
         "error",
       );
+      return;
+    }
+
+    if (!publishScopeIsCurrent(pickerSnapshot.scope)) return;
+    if (!result.canceled) {
+      const nextAsset = result.assets[0];
+      const validation = validateA26PickedComposerMedia({
+        asset: nextAsset,
+        mode: pickerSnapshot.mode,
+        maxUploadMb: pickerSnapshot.maxUploadMb,
+      });
+      if (validation.kind === "invalid") {
+        notify(validation.message, "error");
+        return;
+      }
+      setAsset(nextAsset);
+      // A changed selection cannot safely reuse the prior upload URL.
+      setReusableUpload(null);
     }
   }
   async function uploadAsset(

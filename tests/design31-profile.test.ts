@@ -105,9 +105,15 @@ const runtime = vi.hoisted(() => {
     refetch: vi.fn(),
   };
   const feedQueryResult = {
-    data: [],
+    data: { pages: [{ items: [], nextCursor: null }] },
     isLoading: false,
     isError: false,
+    isFetching: false,
+    isFetchingNextPage: false,
+    isFetchNextPageError: false,
+    isRefetchError: false,
+    hasNextPage: false,
+    fetchNextPage: vi.fn(),
     refetch: vi.fn(),
   };
   const updateMutation = { isPending: false, mutate: vi.fn() };
@@ -169,6 +175,9 @@ vi.mock("@/components/media-image", () => ({ Image: "Image" }));
 vi.mock("../components/app-shell", () => ({ AppShell: "AppShell" }));
 vi.mock("../components/post-card", () => ({ PostCard: "PostCard" }));
 vi.mock("../components/user-avatar", () => ({ UserAvatar: "UserAvatar" }));
+vi.mock("../components/status-message", () => ({
+  StatusMessage: "StatusMessage",
+}));
 vi.mock("../components/circles-ui", () => ({
   Button: "Button",
   C: {
@@ -206,6 +215,7 @@ vi.mock("@/lib/trpc", () => ({
     useUtils: () => runtime.utils,
     social: {
       feed: { useQuery: runtime.feedQuery },
+      feedPage: { useInfiniteQuery: runtime.feedQuery },
       follow: { useMutation: () => runtime.followMutation },
       openDirect: { useMutation: () => runtime.directMutation },
       profile: { useQuery: runtime.profileQuery },
@@ -219,6 +229,15 @@ vi.mock("@/lib/fnd001-query-display-state", () => ({
 vi.mock("@/lib/source-query-invalidation", () => ({
   invalidateProfileViews: runtime.invalidateProfileViews,
 }));
+vi.mock(
+  "@/lib/a26-paged-display",
+  async () => import("../lib/a26-paged-display"),
+);
+vi.mock(
+  "@/lib/a26-directory-ui",
+  async () => import("../lib/a26-directory-ui"),
+);
+vi.mock("@/lib/a26-profile", async () => import("../lib/a26-profile"));
 vi.mock(
   "@/lib/batch1-mutation-feedback",
   async () => import("../lib/batch1-mutation-feedback"),
@@ -374,6 +393,10 @@ describe("D26 Profile direct-message action", () => {
 });
 
 describe("D26 Profile name and own-action reflow", () => {
+  beforeEach(() => {
+    runtime.user = { id: runtime.profile.id, name: "Synthetic own actor" };
+  });
+
   it.each([
     { width: 320, fontScale: 1, description: "320-point width" },
     { width: 390, fontScale: 1.3, description: "scaled text" },
@@ -447,5 +470,25 @@ describe("D26 Profile name and own-action reflow", () => {
     });
     expect(flattenedStyle(actions.props.style).width).toBeUndefined();
     expect(flattenedStyle(connectEmail.props.style).width).toBeUndefined();
+  });
+});
+
+describe("A26 own-profile actor affinity", () => {
+  it("uses the actor-bound query and withholds another actor’s retained profile and feed", () => {
+    hookRuntime.beginRender();
+    const rendered = ProfileScreen({});
+    expect(runtime.profileQuery).toHaveBeenCalledWith(
+      { id: 71 },
+      expect.objectContaining({ enabled: true }),
+    );
+    expect(
+      elements(rendered).some(
+        (element) => element.props.testID === "profile-hero",
+      ),
+    ).toBe(false);
+    expect(runtime.feedQuery).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ enabled: false }),
+    );
   });
 });

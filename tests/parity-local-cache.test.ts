@@ -181,27 +181,37 @@ describe("moderation conflict and account scope lifecycle", () => {
     const submit = workspace.slice(submitStart, submitEnd);
 
     expect(refresh).toContain("await invalidateModerationViews(utils)");
-    expect(refresh).toContain(
-      "await Promise.all([detail.refetch(), queue.refetch()])",
+    expect(refresh).toMatch(
+      /await Promise\.all\(\[\s*detail\.refetch\(\),\s*queue\.refetch\(\)/,
     );
+    expect(refresh).toContain("detailResult.error");
+    expect(refresh).toContain("queueResult.error");
     expect(refresh).toContain("await invalidatePostFeeds(utils)");
     expect(
-      refresh.match(/isCurrentCase\(capturedScope, caseId\)/g),
+      refresh.match(
+        /isCurrentCase\(capturedScope, caseId, capturedAuthorityEpoch\)/g,
+      ),
     ).toHaveLength(4);
 
     const conflict = submit.slice(
       submit.indexOf("if (isModerationConflict(caught))"),
       submit.indexOf("if (isConfirmedModerationAuthorityLoss(caught))"),
     );
-    expect(conflict).toContain(
-      "await refreshResolvedCase(capturedScope, caseId)",
+    expect(conflict).toContain("await refreshResolvedCase(");
+    expect(conflict.replace(/\s+/g, "")).toContain(
+      "capturedScope,caseId,capturedAuthorityEpoch",
     );
-    expect(conflict).toContain(
-      "if (!isCurrentCase(capturedScope, caseId)) return",
+    expect(conflict.replace(/\s+/g, "")).toContain(
+      "if(!isCurrentCase(capturedScope,caseId,capturedAuthorityEpoch)){return;",
     );
-    expect(
-      submit.indexOf("await refreshResolvedCase(capturedScope, caseId)"),
-    ).toBeLessThan(submit.indexOf("setPendingDecision(null)"));
+    const normalizedSubmit = submit.replace(/\s+/g, "").replace(/,\)/g, ")");
+    const refreshIndex = normalizedSubmit.indexOf(
+      "awaitrefreshResolvedCase(capturedScope,caseId,capturedAuthorityEpoch)",
+    );
+    expect(refreshIndex).toBeGreaterThan(-1);
+    expect(refreshIndex).toBeLessThan(
+      normalizedSubmit.indexOf("setPendingDecision(null)"),
+    );
     expect(workspace).not.toContain("confirmedNoLongerResolvable");
     expect(workspace).not.toMatch(/reporterId|reporterName/);
   });

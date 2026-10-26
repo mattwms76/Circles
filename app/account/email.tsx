@@ -6,6 +6,10 @@ import { Button, C, T } from "@/components/circles-ui";
 import { EmailAuthForm } from "@/components/email-auth-form";
 import { startOAuthLogin } from "@/constants/oauth";
 import { useCircles } from "@/hooks/circles-context";
+import {
+  completeCurrentAuthOperation,
+  type CurrentAuthOperation,
+} from "../../lib/a26-auth-operation";
 
 export default function AccountEmailScreen() {
   const router = useRouter();
@@ -24,12 +28,15 @@ export default function AccountEmailScreen() {
     router.replace("/profile");
   }, [router]);
 
-  const confirmConnection = useCallback(async () => {
-    const confirmed = await completeNativeLogin();
-    if (!confirmed) return false;
-    returnToProfile();
-    return true;
-  }, [completeNativeLogin, returnToProfile]);
+  const confirmConnection = useCallback(
+    async (operation: CurrentAuthOperation) =>
+      completeCurrentAuthOperation(
+        operation,
+        completeNativeLogin,
+        returnToProfile,
+      ),
+    [completeNativeLogin, returnToProfile],
+  );
 
   const verifyExistingCirclesAccount = useCallback(async () => {
     if (startingExistingProof) return;
@@ -40,7 +47,7 @@ export default function AccountEmailScreen() {
       // old provider returns for migration enrollment. It is not advertised as
       // ordinary primary sign-in; any newly seen legacy identity still follows
       // the existing provider registration policy.
-      await startOAuthLogin();
+      await startOAuthLogin({ continuation: "/account/email" });
     } catch {
       setExistingProofError(
         "We couldn't open secure verification. Please try again.",

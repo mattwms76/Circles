@@ -48,6 +48,7 @@ export type PersistNativeBearerAfterEmailAuthDrainOptions = {
   drainEmailAuthRequests: () => Promise<void>;
   setNativeBearer: (bearer: string) => Promise<void>;
   bearer: string;
+  isCurrent?: () => boolean | Promise<boolean>;
 };
 
 export type ClearCapturedNativeCredentialsOptions = {
@@ -106,10 +107,12 @@ export async function logoutNativeSessionAfterEmailAuthDrain(
  */
 export async function persistNativeBearerAfterEmailAuthDrain(
   options: PersistNativeBearerAfterEmailAuthDrainOptions,
-): Promise<void> {
-  await runNativeCredentialTransition(async () => {
+): Promise<boolean> {
+  return runNativeCredentialTransition(async () => {
     await options.drainEmailAuthRequests();
+    if (!((await options.isCurrent?.()) ?? true)) return false;
     await options.setNativeBearer(options.bearer);
+    return true;
   });
 }
 

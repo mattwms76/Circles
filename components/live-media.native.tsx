@@ -22,6 +22,10 @@ import {
   withLiveOfferEpoch,
 } from "@/lib/live-ice";
 import { createTRPCClient } from "@/lib/trpc";
+import type {
+  A26LiveMediaPhase,
+  A26LiveMediaPhaseChange,
+} from "@/lib/a26-live-media-state";
 import { hostGenerationFromRestartSignal } from "@/shared/live-generation-restart";
 import { StatusMessage } from "./status-message";
 import {
@@ -40,6 +44,8 @@ export type LiveMediaProps = {
   onReady?: (generation?: number) => void;
   /** Hosts receive only their current authenticated join lease before readiness. */
   onHostLease?: (lease: LiveHostLease) => void;
+  /** Current adapter lifecycle transition; route state must reject stale generations. */
+  onMediaPhaseChange?: (change: A26LiveMediaPhaseChange) => void;
 };
 
 type SignalKind = "join" | "offer" | "answer" | "ice" | "leave";
@@ -301,10 +307,16 @@ export default function LiveMedia({
   onError,
   onReady,
   onHostLease,
+  onMediaPhaseChange,
 }: LiveMediaProps) {
   const localStreamRef = useRef<NativeStream | null>(null);
   const peersRef = useRef<Map<number, PeerState>>(new Map());
-  const callbackRef = useRef({ onError, onReady, onHostLease });
+  const callbackRef = useRef({
+    onError,
+    onReady,
+    onHostLease,
+    onMediaPhaseChange,
+  });
   const [api] = useState<LiveApi>(
     () => createTRPCClient() as unknown as LiveApi,
   );
@@ -324,11 +336,25 @@ export default function LiveMedia({
   const statusPresentation = liveMediaStatusPresentation(displayedStatus);
 
   useEffect(() => {
-    callbackRef.current = { onError, onReady, onHostLease };
-  }, [onError, onHostLease, onReady]);
+    callbackRef.current = {
+      onError,
+      onReady,
+      onHostLease,
+      onMediaPhaseChange,
+    };
+  }, [onError, onHostLease, onMediaPhaseChange, onReady]);
 
   useEffect(() => {
     if (expoGoMessage) {
+      callbackRef.current.onMediaPhaseChange?.({
+        phase: "joining",
+        generation: null,
+      });
+      callbackRef.current.onMediaPhaseChange?.({
+        phase: "error",
+        generation: null,
+        message: expoGoMessage,
+      });
       callbackRef.current.onError?.(expoGoMessage);
       if (host) {
         void api.live.join
@@ -366,10 +392,21 @@ export default function LiveMedia({
     let hostMediaReady = false;
     let terminal = false;
 
+    const emitMediaPhase = (phase: A26LiveMediaPhase, message?: string) => {
+      if (!active) return;
+      callbackRef.current.onMediaPhaseChange?.({
+        phase,
+        generation,
+        ...(message === undefined ? {} : { message }),
+      });
+    };
+
     const report = (error: unknown) => {
+      if (!active) return;
       if (terminateLiveTransportForError(error, terminate)) return;
       const message = messageFor(error);
-      if (active) setStatus(message);
+      setStatus(message);
+      emitMediaPhase("error", message);
       callbackRef.current.onError?.(message);
     };
 
@@ -402,7 +439,8 @@ export default function LiveMedia({
     };
 
     const terminate = (state: { message: string }) => {
-      if (terminal) return;
+      if (terminal || !active) return;
+      emitMediaPhase("error", state.message);
       terminal = true;
       active = false;
       stopTransport();
@@ -657,6 +695,7 @@ export default function LiveMedia({
           viewerRecoveryAttempts = 0;
           setStreamURL(stream.toURL());
           setStatus("Live");
+          emitMediaPhase("ready");
           callbackRef.current.onReady?.();
         }
       };
@@ -721,6 +760,7 @@ export default function LiveMedia({
       viewerMediaReady = false;
       setStreamURL(null);
       setStatus("Rejoining live stream…");
+      emitMediaPhase("joining");
       try {
         if (ownedGeneration !== null) {
           await api.live.leave
@@ -909,6 +949,7 @@ export default function LiveMedia({
         joined = true;
         ownedHostGeneration = host ? session.generation : null;
         if (!active) return ownedHostGeneration;
+        emitMediaPhase("admitted");
         const hostLease = liveHostLeaseFromJoin({
           host,
           streamId,
@@ -969,6 +1010,7 @@ export default function LiveMedia({
           if (setupDeadlineTimer) clearTimeout(setupDeadlineTimer);
           setupDeadlineTimer = undefined;
           setStatus("Live");
+          emitMediaPhase("ready");
           callbackRef.current.onReady?.(hostCleanupGeneration);
         } else {
           setStatus("Waiting for host video…");
@@ -1000,6 +1042,7 @@ export default function LiveMedia({
       }
     };
 
+    emitMediaPhase("joining");
     const initialisePromise = (async (): Promise<number | null> => {
       try {
         // Dynamic loading remains behind the Expo Go guard, so the stock Expo
@@ -1018,6 +1061,7 @@ export default function LiveMedia({
         const message =
           "Live video native support is unavailable. Rebuild the app with the WebRTC config plugin.";
         setStatus(message);
+        emitMediaPhase("error", message);
         callbackRef.current.onError?.(message);
         return null;
       }

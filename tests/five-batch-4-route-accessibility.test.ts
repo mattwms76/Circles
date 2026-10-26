@@ -42,10 +42,12 @@ describe("Batch 4 route contrast, status, and media accessibility", () => {
     );
     expect(liveLobby).toContain("loading={liveRetrying}");
     expect(liveLobby).toContain('accessibilityRole="button"');
+    expect(liveLobby).toContain("accessibilityLabel={actionLabel}");
+    expect(liveLobby).toContain("Continue camera setup");
+    expect(liveLobby).toContain("Open live conversation:");
     expect(liveLobby).toContain(
-      "accessibilityLabel={`Open live conversation: ${live.title}`}",
+      "backgroundColor: preparing ? C.secondary : C.action",
     );
-    expect(liveLobby).toContain("backgroundColor: C.action");
     expect(liveLobby).toContain("color: C.actionText");
     expect(liveLobby).toContain("loading={platformStatus.isFetching}");
   });
@@ -78,8 +80,12 @@ describe("Batch 4 route contrast, status, and media accessibility", () => {
     expect(liveScreen).toContain("const sendLiveReaction = useCallback");
     expect(liveScreen).toContain("onPress={sendLiveReaction}");
     expect(liveScreen).toContain(
-      "disabled={isLiveChatSubmitting || !text.trim()}",
+      "!participantReady || isLiveChatSubmitting || !text.trim()",
     );
+    expect(liveScreen).toContain(
+      "editable={participantReady && !isLiveChatSubmitting}",
+    );
+    expect(liveScreen).not.toContain("onReady={");
   });
 
   it("keeps OAuth recovery scrollable with safe-area ownership while leaving exchange authority intact", () => {
@@ -93,9 +99,19 @@ describe("Batch 4 route contrast, status, and media accessibility", () => {
       'tone === "error" ? C.action : C.secondary',
     );
     expect(oauthCallback).toContain("color: C.action");
-    expect(oauthCallback).toContain("exchangeNativeOAuthCode(code, state)");
-    expect(oauthCallback).toContain("await completeNativeLogin()");
-    expect(oauthCallback).toContain("await clearNativeOAuthFlowToken()");
+    expect(oauthCallback).toMatch(
+      /await exchangeNativeOAuthCode\(\s*code,\s*state,\s*flow\.flowToken/,
+    );
+    expect(oauthCallback).toContain("await completeNativeLoginWithResult()");
+    expect(oauthCallback).toContain(
+      "OAuth.isNativeOAuthPendingFlowCurrent(flow)",
+    );
+    expect(oauthCallback).toContain(
+      "OAuth.clearNativeOAuthPendingFlowIfCurrent(flow)",
+    );
+    expect(oauthCallback).not.toMatch(
+      /^\s*await (?:OAuth\.)?clearNativeOAuthFlowToken\(/m,
+    );
   });
 
   it("uses only truthful generic post-media descriptions and keeps controls scoped and operable", () => {
@@ -106,15 +122,15 @@ describe("Batch 4 route contrast, status, and media accessibility", () => {
     expect(postCard).toContain("accessibilityLabel={mediaAccessibilityLabel}");
     expect(postCard).toContain("accessibilityState={{");
     expect(postCard).toContain("selected: liked,");
-    expect(postCard).toContain(
-      "accessibilityState={{ selected: commentsOpen }}",
-    );
+    expect(postCard).toContain("selected: commentsOpen,");
+    expect(postCard).toContain("const actionBusy = !actionsAvailable;");
+    expect(postCard).toContain("disabled: actionBusy,");
     expect(postCard).toContain("minWidth: 44");
     expect(postCard).toContain(
-      "disabled={isCommentSubmitting || !commentText.trim()}",
+      "actionBusy || isCommentSubmitting || !commentText.trim()",
     );
-    expect(postCard).toContain("loading={report.isPending}");
-    expect(postCard).toContain("loading={remove.isPending}");
+    expect(postCard).toContain("loading={actionBusy || report.isPending}");
+    expect(postCard).toContain("loading={actionBusy || remove.isPending}");
     expect(postCard).toContain(
       "isCurrentSource(operationScope, operationPost)",
     );

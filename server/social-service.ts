@@ -733,6 +733,9 @@ export async function listProfilesPage(
   const db = await requireDb();
   const term = options.search?.trim();
   const clauses: SQL[] = [];
+  // Keep self out of the SQL page so it cannot consume a page slot or surface an impossible
+  // Follow mutation for the current actor.
+  if (viewerId !== null) clauses.push(ne(profiles.userId, viewerId));
   if (term) {
     clauses.push(
       or(
@@ -1099,11 +1102,24 @@ const FEED_PAGE_SIZE = 100;
 const FEED_SCAN_BATCH_SIZE = 200;
 const FEED_MAX_SCAN_BATCHES = 10;
 
-type FeedScanCursor = DateIdCursor;
+/** Retains PostgreSQL microseconds across a feed page hop without changing legacy cursors. */
+export type FeedScanCursor = DateIdCursor & { createdAtExact?: string };
 
 type FeedScanCandidate = FeedScanCursor & {
   circleId: number | null;
 };
+
+function feedScanCursorFromCandidate(
+  candidate: FeedScanCandidate,
+): FeedScanCursor {
+  return {
+    createdAt: candidate.createdAt,
+    id: candidate.id,
+    ...(candidate.createdAtExact
+      ? { createdAtExact: candidate.createdAtExact }
+      : {}),
+  };
+}
 
 export type FeedPageOptions = {
   /** Exclusive compound cursor from the last returned post. */
@@ -1167,9 +1183,7 @@ export async function collectEligibleFeedPage(
             candidates.length === FEED_SCAN_BATCH_SIZE;
           return {
             items: eligiblePostIds,
-            nextCursor: hasMore
-              ? { createdAt: candidate.createdAt, id: candidate.id }
-              : null,
+            nextCursor: hasMore ? feedScanCursorFromCandidate(candidate) : null,
             hasMore,
           };
         }
@@ -1180,7 +1194,7 @@ export async function collectEligibleFeedPage(
       return { items: eligiblePostIds, nextCursor: null, hasMore: false };
     }
     const oldestCandidate = candidates[candidates.length - 1];
-    cursor = { createdAt: oldestCandidate.createdAt, id: oldestCandidate.id };
+    cursor = feedScanCursorFromCandidate(oldestCandidate);
   }
 
   return {
@@ -1255,18 +1269,24 @@ export async function feed(
 
   const visiblePostIds = await collectEligibleFeedPostIds(
     async (cursor) => {
-      const cursorClauses = cursor
-        ? [
-            ...clauses,
-            or(
+      const cursorClause = cursor
+        ? cursor.createdAtExact
+          ? or(
+              lt(posts.createdAt, sql`${cursor.createdAtExact}::timestamptz`),
+              and(
+                eq(posts.createdAt, sql`${cursor.createdAtExact}::timestamptz`),
+                lt(posts.id, cursor.id),
+              ),
+            )
+          : or(
               lt(posts.createdAt, cursor.createdAt),
               and(
                 eq(posts.createdAt, cursor.createdAt),
                 lt(posts.id, cursor.id),
               ),
-            ),
-          ]
-        : clauses;
+            )
+        : null;
+      const cursorClauses = cursorClause ? [...clauses, cursorClause] : clauses;
       return db
         .select()
         .from(posts)
@@ -1366,24 +1386,37 @@ export async function feedPage(
 
   const page = await collectEligibleFeedPage(
     async (cursor) => {
-      const cursorClauses = cursor
-        ? [
-            ...clauses,
-            or(
+      const cursorClause = cursor
+        ? cursor.createdAtExact
+          ? or(
+              lt(posts.createdAt, sql`${cursor.createdAtExact}::timestamptz`),
+              and(
+                eq(posts.createdAt, sql`${cursor.createdAtExact}::timestamptz`),
+                lt(posts.id, cursor.id),
+              ),
+            )
+          : or(
               lt(posts.createdAt, cursor.createdAt),
               and(
                 eq(posts.createdAt, cursor.createdAt),
                 lt(posts.id, cursor.id),
               ),
-            ),
-          ]
-        : clauses;
-      return db
-        .select()
+            )
+        : null;
+      const cursorClauses = cursorClause ? [...clauses, cursorClause] : clauses;
+      const rows = await db
+        .select({
+          ...getTableColumns(posts),
+          preciseCreatedAt: sql<string>`to_char(${posts.createdAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
+        })
         .from(posts)
         .where(cursorClauses.length ? and(...cursorClauses) : undefined)
         .orderBy(desc(posts.createdAt), desc(posts.id))
         .limit(FEED_SCAN_BATCH_SIZE);
+      return rows.map(({ preciseCreatedAt, ...post }) => ({
+        ...post,
+        ...(preciseCreatedAt ? { createdAtExact: preciseCreatedAt } : {}),
+      }));
     },
     async (post) => {
       if (!post.circleId) return true;
@@ -1476,7 +1509,7 @@ export function isCircleCoverImageMime(mimeType: string): boolean {
 }
 
 /** A managed circle cover must retain its server-recorded image MIME, not just a picker hint. */
-async function assertCircleCoverImageOwnership(
+export async function assertCircleCoverImageOwnership(
   db: Database | SocialTransaction,
   userId: number,
   media?: string,
@@ -2384,7 +2417,7 @@ async function assertConversationAccess(
 }
 
 async function conversationOutputWithDb(
-  db: Database,
+  db: Database | SocialTransaction,
   conversationId: number,
   userId: number,
 ): Promise<Conversation> {
@@ -2454,10 +2487,36 @@ async function conversationOutputWithDb(
   };
 }
 
+/**
+ * Circle preview reads share the parent-circle lock used by membership removal. The approved-role
+ * check and every preview select are one serialization point; direct threads retain their existing
+ * participant predicate without acquiring an unrelated circle lock.
+ */
+async function authorizedConversationOutputWithDb(
+  db: Database,
+  conversationId: number,
+  userId: number,
+): Promise<Conversation> {
+  return db.transaction(async (tx) => {
+    await assertConversationAccess(tx, userId, conversationId, {
+      lockCircleForProtectedMutation: true,
+    });
+    return conversationOutputWithDb(tx, conversationId, userId);
+  });
+}
+
 export async function listConversations(
   userId: number,
+  conversationId?: number,
 ): Promise<Conversation[]> {
   const db = await requireDb();
+  const directConditions = [
+    eq(conversationParticipants.userId, userId),
+    eq(conversations.kind, "direct"),
+  ];
+  if (conversationId !== undefined) {
+    directConditions.push(eq(conversations.id, conversationId));
+  }
   const directRows = await db
     .select({ id: conversations.id })
     .from(conversationParticipants)
@@ -2465,38 +2524,26 @@ export async function listConversations(
       conversations,
       eq(conversationParticipants.conversationId, conversations.id),
     )
-    .where(
-      and(
-        eq(conversationParticipants.userId, userId),
-        eq(conversations.kind, "direct"),
-      ),
-    );
-  const circleMemberships = await db
-    .select({ circleId: memberships.circleId })
-    .from(memberships)
-    .where(
-      and(
-        eq(memberships.userId, userId),
-        inArray(memberships.role, ["owner", "moderator", "member"]),
-      ),
-    );
-  const circleRows = circleMemberships.length
-    ? await db
-        .select({ id: conversations.id })
-        .from(conversations)
-        .where(
-          and(
-            eq(conversations.kind, "circle"),
-            inArray(
-              conversations.circleId,
-              circleMemberships.map((row) => row.circleId),
-            ),
-          ),
-        )
-    : [];
+    .where(and(...directConditions));
+  const circleConditions = [eq(conversations.kind, "circle")];
+  if (conversationId !== undefined) {
+    circleConditions.push(eq(conversations.id, conversationId));
+  }
+  // Do not first materialize a possibly stale membership ID list. The SQL predicate bounds the
+  // candidate set; authorizedConversationOutputWithDb rechecks under the parent lock before DTOs.
+  circleConditions.push(sql`exists (
+    select 1 from ${memberships}
+    where ${memberships.circleId} = ${conversations.circleId}
+      and ${memberships.userId} = ${userId}
+      and ${memberships.role} in ('owner', 'moderator', 'member')
+  )`);
+  const circleRows = await db
+    .select({ id: conversations.id })
+    .from(conversations)
+    .where(and(...circleConditions));
   const ids = [...new Set([...directRows, ...circleRows].map((row) => row.id))];
   const mapped = await Promise.all(
-    ids.map((id) => conversationOutputWithDb(db, id, userId)),
+    ids.map((id) => authorizedConversationOutputWithDb(db, id, userId)),
   );
   return mapped.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
@@ -2722,85 +2769,90 @@ export async function listMessages(
   options: MessagePageOptions = {},
 ): Promise<Message[]> {
   const db = await requireDb();
-  const conversation = await assertConversationAccess(
-    db,
-    userId,
-    conversationId,
-  );
-  const pageLimit = Math.min(
-    Math.max(Math.floor(options.limit ?? MESSAGE_PAGE_DEFAULT_LIMIT), 1),
-    MESSAGE_PAGE_MAX_LIMIT,
-  );
-  const participantRows = await db
-    .select({ lastReadMessageId: conversationParticipants.lastReadMessageId })
-    .from(conversationParticipants)
-    .where(
-      and(
-        eq(conversationParticipants.conversationId, conversationId),
-        eq(conversationParticipants.userId, userId),
-      ),
-    )
-    .limit(1);
-  const allParticipants = await db
-    .select({
-      userId: conversationParticipants.userId,
-      lastReadMessageId: conversationParticipants.lastReadMessageId,
-    })
-    .from(conversationParticipants)
-    .where(eq(conversationParticipants.conversationId, conversationId));
-  const activeCircleMemberIds = new Set<number>();
-  if (conversation.kind === "circle" && conversation.circleId) {
-    const activeMembers = await db
-      .select({ userId: memberships.userId })
-      .from(memberships)
+  return db.transaction(async (tx) => {
+    const conversation = await assertConversationAccess(
+      tx,
+      userId,
+      conversationId,
+      { lockCircleForProtectedMutation: true },
+    );
+    const pageLimit = Math.min(
+      Math.max(Math.floor(options.limit ?? MESSAGE_PAGE_DEFAULT_LIMIT), 1),
+      MESSAGE_PAGE_MAX_LIMIT,
+    );
+    const participantRows = await tx
+      .select({ lastReadMessageId: conversationParticipants.lastReadMessageId })
+      .from(conversationParticipants)
       .where(
         and(
-          eq(memberships.circleId, conversation.circleId),
-          inArray(memberships.role, ["owner", "moderator", "member"]),
+          eq(conversationParticipants.conversationId, conversationId),
+          eq(conversationParticipants.userId, userId),
         ),
+      )
+      .limit(1);
+    const allParticipants = await tx
+      .select({
+        userId: conversationParticipants.userId,
+        lastReadMessageId: conversationParticipants.lastReadMessageId,
+      })
+      .from(conversationParticipants)
+      .where(eq(conversationParticipants.conversationId, conversationId));
+    const activeCircleMemberIds = new Set<number>();
+    if (conversation.kind === "circle" && conversation.circleId) {
+      const activeMembers = await tx
+        .select({ userId: memberships.userId })
+        .from(memberships)
+        .where(
+          and(
+            eq(memberships.circleId, conversation.circleId),
+            inArray(memberships.role, ["owner", "moderator", "member"]),
+          ),
+        );
+      activeMembers.forEach((member) =>
+        activeCircleMemberIds.add(member.userId),
       );
-    activeMembers.forEach((member) => activeCircleMemberIds.add(member.userId));
-  }
-  const viewerLastReadMessageId = participantRows[0]?.lastReadMessageId ?? 0;
-  const rows = await db
-    .select()
-    .from(messages)
-    .where(
-      options.cursor
-        ? and(
-            eq(messages.conversationId, conversationId),
-            lt(messages.id, options.cursor),
-          )
-        : eq(messages.conversationId, conversationId),
-    )
-    .orderBy(desc(messages.id))
-    .limit(pageLimit);
-  // The database reads newest-first so the exclusive ID cursor is efficient. Existing callers
-  // and renderers receive an ascending page, with ID resolving tied database timestamps.
-  rows.reverse();
-  return Promise.all(
-    rows.map(async (row) => ({
-      id: row.id,
-      conversationId: row.conversationId,
-      author: await displayProfileWithDb(db, row.authorId, userId),
-      text: row.text,
-      media: row.media,
-      createdAt: toIso(row.createdAt),
-      read: messageReadForViewer({
-        authorId: row.authorId,
-        viewerId: userId,
-        kind: conversation.kind,
-        messageId: row.id,
-        viewerLastReadMessageId,
-        participants: allParticipants.map((participant) => ({
-          ...participant,
-          approved:
-            conversation.kind === "direct" ||
-            activeCircleMemberIds.has(participant.userId),
-        })),
-      }),
-    })),
-  );
+    }
+    const viewerLastReadMessageId = participantRows[0]?.lastReadMessageId ?? 0;
+    const rows = await tx
+      .select()
+      .from(messages)
+      .where(
+        options.cursor
+          ? and(
+              eq(messages.conversationId, conversationId),
+              lt(messages.id, options.cursor),
+            )
+          : eq(messages.conversationId, conversationId),
+      )
+      .orderBy(desc(messages.id))
+      .limit(pageLimit);
+    // The database reads newest-first so the exclusive ID cursor is efficient. Existing callers
+    // and renderers receive an ascending page, with ID resolving tied database timestamps.
+    rows.reverse();
+    return Promise.all(
+      rows.map(async (row) => ({
+        id: row.id,
+        conversationId: row.conversationId,
+        author: await displayProfileWithDb(tx, row.authorId, userId),
+        text: row.text,
+        media: row.media,
+        createdAt: toIso(row.createdAt),
+        read: messageReadForViewer({
+          authorId: row.authorId,
+          viewerId: userId,
+          kind: conversation.kind,
+          messageId: row.id,
+          viewerLastReadMessageId,
+          participants: allParticipants.map((participant) => ({
+            ...participant,
+            approved:
+              conversation.kind === "direct" ||
+              activeCircleMemberIds.has(participant.userId),
+          })),
+        }),
+      })),
+    );
+  });
 }
 
 export async function sendMessage(

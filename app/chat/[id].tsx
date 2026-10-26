@@ -48,6 +48,13 @@ import {
   MESSAGE_PAGE_DEFAULT_LIMIT,
   olderMessagePageCursor,
 } from "@/shared/message-pagination";
+import {
+  authorizedConversationMetadata,
+  isDefinitiveMessageApplicationError,
+  MAX_MESSAGE_TEXT_LENGTH,
+  messageTextIsWithinLimit,
+  positiveSafeConversationId,
+} from "@/lib/a26-messaging-state";
 
 type ReadReceiptState = {
   scope: string;
@@ -131,19 +138,33 @@ function ChatVideoSource({
   );
 }
 export default function ChatScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id } = useLocalSearchParams<{ id?: string | string[] }>();
+  const router = useRouter();
   const { user } = useCircles();
-  const conversationId = Number(id);
+  const conversationId = positiveSafeConversationId(id);
+  if (!conversationId) {
+    return (
+      <AppShell>
+        <Empty
+          icon="chatbubble-ellipses-outline"
+          title="This conversation link is invalid."
+          text="Open a conversation from your inbox instead."
+          action="Back to inbox"
+          onAction={() => router.replace("/messages")}
+        />
+      </AppShell>
+    );
+  }
   const compositionKey = `${user?.id ?? "guest"}:${conversationId}`;
 
-  return <ChatScreenInstance key={compositionKey} />;
+  return (
+    <ChatScreenInstance key={compositionKey} conversationId={conversationId} />
+  );
 }
 
-function ChatScreenInstance() {
-  const { id, name } = useLocalSearchParams<{ id: string; name?: string }>();
-  const conversationId = Number(id);
+function ChatScreenInstance({ conversationId }: { conversationId: number }) {
   const router = useRouter();
-  const { user, showLogin, notify } = useCircles();
+  const { authState, refresh, user, showLogin, notify } = useCircles();
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
   const scroll = useRef<ScrollView>(null);
@@ -171,14 +192,25 @@ function ChatScreenInstance() {
     useState<MessageCompositionOperation | null>(null);
   const deliveryUncertain = uncertainDeliveryOperation !== null;
   const hasSendableMessage = canSendMessage(text, !!asset);
+  const canLoadProtectedChat = authState === "authenticated" && !!user;
   const chatMediaWidth = Math.min(
     220,
     Math.max(120, Math.floor((windowWidth - 44) * 0.8) - 26),
   );
+  const conversationMetadata = trpc.social.conversations.useQuery(
+    { conversationId, viewerScope: user?.id },
+    {
+      enabled: canLoadProtectedChat,
+      refetchInterval: 3000,
+    },
+  );
+  const authorizedConversation = canLoadProtectedChat
+    ? authorizedConversationMetadata(conversationMetadata.data, conversationId)
+    : null;
   const messages = trpc.social.messages.useInfiniteQuery(
     { conversationId, limit: MESSAGE_PAGE_DEFAULT_LIMIT },
     {
-      enabled: !!user,
+      enabled: canLoadProtectedChat,
       refetchInterval: 2000,
       getNextPageParam: (lastPage) => olderMessagePageCursor(lastPage),
     },
@@ -322,7 +354,14 @@ function ChatScreenInstance() {
     }
   }
   async function sendMessage() {
-    if (!user || !hasSendableMessage) return;
+    if (!user || !canLoadProtectedChat || !hasSendableMessage) return;
+    if (!messageTextIsWithinLimit(text)) {
+      notify(
+        `Messages can be up to ${MAX_MESSAGE_TEXT_LENGTH.toLocaleString()} characters. Edit your draft and try again.`,
+        "error",
+      );
+      return;
+    }
     const operation = activeCompositionOperation.current;
     if (!operation || !sendFlight.current.start(operation)) return;
     setSendingMedia(true);
@@ -390,14 +429,21 @@ function ChatScreenInstance() {
       setAsset(null);
       void messages.refetch();
       void utils.social.conversations.invalidate();
-    } catch {
+    } catch (error) {
       if (
         isCurrentMessageCompositionOperation(
           activeCompositionOperation.current,
           operation,
         )
       ) {
-        if (sendWasAttempted) {
+        if (sendWasAttempted && isDefinitiveMessageApplicationError(error)) {
+          compositionRetryId.current = null;
+          setUncertainDeliveryOperation(null);
+          notify(
+            "This message was not sent. Update your draft or remove the attachment, then try again.",
+            "error",
+          );
+        } else if (sendWasAttempted) {
           setUncertainDeliveryOperation(operation);
           notify(
             "We couldn’t confirm this message. Retry sends the same message, not a duplicate.",
@@ -448,7 +494,7 @@ function ChatScreenInstance() {
           />
           <View style={{ flex: 1, minWidth: 0 }}>
             <T style={{ fontSize: 18, fontWeight: "700" }}>
-              {name || "Your conversation"}
+              {authorizedConversation?.name || "Your conversation"}
             </T>
             <T
               style={{ fontSize: 12, lineHeight: 18, color: C.muted }}
@@ -459,12 +505,44 @@ function ChatScreenInstance() {
           </View>
           <Icon name="chatbubbles-outline" color={C.green} size={23} />
         </View>
-        {!user ? (
+        {authState === "checking" ? (
+          <View style={{ alignItems: "center", gap: 12, paddingVertical: 32 }}>
+            <Loading />
+            <StatusMessage
+              message="Checking your sign-in…"
+              tone="info"
+              style={{ fontSize: 14, textAlign: "center" }}
+            />
+          </View>
+        ) : authState === "error" ? (
+          <View style={{ gap: 12 }}>
+            <StatusMessage
+              message="We couldn’t confirm your sign-in. Try again."
+              tone="error"
+              style={{ fontSize: 14, textAlign: "center" }}
+            />
+            <Empty
+              icon="cloud-offline-outline"
+              title="Your conversation is waiting."
+              text="Check your connection, then try the sign-in check again."
+              action="Try again"
+              onAction={refresh}
+            />
+          </View>
+        ) : authState === "guest" ? (
           <Empty
             title="Your conversations are private."
             text="Sign in to open this conversation."
             action="Sign in"
             onAction={showLogin}
+          />
+        ) : !user ? (
+          <Empty
+            icon="cloud-offline-outline"
+            title="Your sign-in needs another check."
+            text="Try again before opening this conversation."
+            action="Try again"
+            onAction={refresh}
           />
         ) : messages.isLoading ? (
           <Loading />
@@ -736,6 +814,7 @@ function ChatScreenInstance() {
                 value={text}
                 onChangeText={setText}
                 editable={!deliveryUncertain && !sendingMedia}
+                maxLength={MAX_MESSAGE_TEXT_LENGTH}
                 placeholder="Say something kind…"
                 accessibilityLabel="Message text"
                 placeholderTextColor={C.muted}

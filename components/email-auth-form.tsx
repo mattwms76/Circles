@@ -29,6 +29,7 @@ import {
   type EmailAuthAsyncScope,
   type EmailAuthDialogMode,
 } from "@/lib/email-auth-ui";
+import type { CurrentAuthOperation } from "../lib/a26-auth-operation";
 
 type EmailFormMode = "signIn" | "signUp";
 
@@ -36,7 +37,7 @@ export type EmailAuthFormPresentation = "embedded" | "standalone";
 
 type EmailAuthFormProps = {
   mode: EmailAuthDialogMode;
-  onAuthenticated: () => Promise<boolean>;
+  onAuthenticated: (operation: CurrentAuthOperation) => Promise<boolean>;
   onClose: () => void;
   /**
    * The global guest modal owns its one dialog frame, keyboard scroll region,
@@ -406,7 +407,9 @@ function EmailAuthDialog({
       }
 
       if (!isCurrent(submissionGuard, scope)) return;
-      const confirmed = await onAuthenticated();
+      const confirmed = await onAuthenticated({
+        isCurrent: () => isCurrent(submissionGuard, scope),
+      });
       if (!isCurrent(submissionGuard, scope)) return;
       if (!confirmed) {
         setFormError(

@@ -10,6 +10,8 @@ import {
   isCurrentBatch3AccountResourceOperation,
   type Batch3AccountResourceOperation,
 } from "@/lib/batch3-account-resource-scope";
+import { resolvePagedDisplayState } from "../../lib/a26-paged-display";
+import { isA26CurrentActorProfile } from "../../lib/a26-directory-ui";
 import { resolveFnd001QueryDisplayState } from "@/lib/fnd001-query-display-state";
 import { invalidateProfileViews } from "@/lib/source-query-invalidation";
 import {
@@ -77,6 +79,41 @@ function CollectionFooter({
         ? `This loaded ${itemLabel} page is full. Refine your search or try again for a fresh page.`
         : `You’ve reached the end of these ${itemLabel}.`}
     </T>
+  );
+}
+
+function RetainedPagedError({
+  itemLabel,
+  retryMode,
+  onRetry,
+}: {
+  itemLabel: string;
+  retryMode: "next" | "refresh";
+  onRetry: () => void;
+}) {
+  const isNextPageRetry = retryMode === "next";
+  return (
+    <View style={{ alignItems: "center", gap: 8, marginTop: 12 }}>
+      <StatusMessage
+        message={
+          isNextPageRetry
+            ? `We couldn’t load more ${itemLabel}. Your loaded ${itemLabel} are still here.`
+            : `We couldn’t refresh ${itemLabel}. Your loaded ${itemLabel} are still here.`
+        }
+        tone="error"
+        style={{ fontSize: 12, lineHeight: 18, textAlign: "center" }}
+      />
+      <Button
+        title={
+          isNextPageRetry
+            ? `Retry loading more ${itemLabel}`
+            : `Refresh ${itemLabel}`
+        }
+        secondary
+        onPress={onRetry}
+        style={{ alignSelf: "center" }}
+      />
+    </View>
   );
 }
 
@@ -158,15 +195,23 @@ function DiscoverScreenInstance() {
   const peopleItems = people.data?.pages.flatMap((page) => page.items) ?? [];
   const circleItems = circles.data?.pages.flatMap((page) => page.items) ?? [];
   const feedItems = feed.data?.pages.flatMap((page) => page.items) ?? [];
-  const peopleDisplayState = resolveFnd001QueryDisplayState({
+  const peopleDisplayState = resolvePagedDisplayState({
     isLoading: people.isLoading,
     isError: people.isError,
     hasContent: peopleItems.length > 0 || !!people.hasNextPage,
+    isFetchingNextPage: people.isFetchingNextPage,
+    isFetchNextPageError: people.isFetchNextPageError,
+    isRefetchError: people.isRefetchError,
+    error: people.error,
   });
-  const circlesDisplayState = resolveFnd001QueryDisplayState({
+  const circlesDisplayState = resolvePagedDisplayState({
     isLoading: circles.isLoading,
     isError: circles.isError,
     hasContent: circleItems.length > 0 || !!circles.hasNextPage,
+    isFetchingNextPage: circles.isFetchingNextPage,
+    isFetchNextPageError: circles.isFetchNextPageError,
+    isRefetchError: circles.isRefetchError,
+    error: circles.error,
   });
   const livesDisplayState = resolveFnd001QueryDisplayState({
     isLoading: lives.isLoading,
@@ -175,16 +220,24 @@ function DiscoverScreenInstance() {
   });
   const utils = trpc.useUtils();
   const follow = trpc.social.follow.useMutation();
-  const feedDisplayState = resolveFnd001QueryDisplayState({
+  const feedDisplayState = resolvePagedDisplayState({
     isLoading: feed.isLoading,
     isError: feed.isError,
     hasContent: feedItems.length > 0 || !!feed.hasNextPage,
+    isFetchingNextPage: feed.isFetchingNextPage,
+    isFetchNextPageError: feed.isFetchNextPageError,
+    isRefetchError: feed.isRefetchError,
+    error: feed.error,
   });
   const livesPage = getBoundedLoadedCollection(lives.data, livesVisibleCount);
   const isRouteFollowPending =
     pendingFollow?.scope === discoverScope && pendingFollow.ids.size > 0;
   const requestFollow = (personId: number, currentlyFollowing: boolean) => {
     requireAuth(() => {
+      if (isA26CurrentActorProfile(user?.id, personId)) {
+        router.push("/profile");
+        return;
+      }
       const capturedScope = mountedScope.current;
       if (
         !capturedScope ||
@@ -334,9 +387,9 @@ function DiscoverScreenInstance() {
               style={{ fontSize: 12, lineHeight: 18 }}
             />
           )}
-          {peopleDisplayState === "loading" ? (
+          {peopleDisplayState.kind === "loading" ? (
             <Loading />
-          ) : peopleDisplayState === "error" ? (
+          ) : peopleDisplayState.kind === "error" ? (
             <Empty
               icon="people-outline"
               title="We couldn’t load people to know."
@@ -344,13 +397,17 @@ function DiscoverScreenInstance() {
               action="Try again"
               onAction={() => void people.refetch()}
             />
-          ) : peopleDisplayState === "empty" ? (
+          ) : peopleDisplayState.kind === "empty" ? (
             <Empty
               title="No people found."
               text="Try another name or handle."
             />
           ) : (
             peopleItems.map((person) => {
+              const isOwnProfile = isA26CurrentActorProfile(
+                user?.id,
+                person.id,
+              );
               const isFollowing =
                 (followingByPersonId?.scope === discoverScope
                   ? followingByPersonId.values[person.id]
@@ -457,23 +514,51 @@ function DiscoverScreenInstance() {
                       </T>
                     )}
                   </Pressable>
-                  <Button
-                    title={followTitle}
-                    accessibilityLabel={followAccessibilityLabel}
-                    secondary={isFollowing}
-                    loading={isFollowPending}
-                    disabled={isFollowPending || isFollowBlocked}
-                    onPress={() => requestFollow(person.id, !!isFollowing)}
-                    style={{
-                      paddingHorizontal: 11,
-                      borderRadius: 9,
-                    }}
-                  />
+                  {isOwnProfile ? (
+                    <Button
+                      title="Your profile"
+                      accessibilityLabel="Open your profile"
+                      secondary
+                      onPress={() => router.push("/profile")}
+                      style={{
+                        paddingHorizontal: 11,
+                        borderRadius: 9,
+                      }}
+                    />
+                  ) : (
+                    <Button
+                      title={followTitle}
+                      accessibilityLabel={followAccessibilityLabel}
+                      secondary={isFollowing}
+                      loading={isFollowPending}
+                      disabled={isFollowPending || isFollowBlocked}
+                      onPress={() => requestFollow(person.id, !!isFollowing)}
+                      style={{
+                        paddingHorizontal: 11,
+                        borderRadius: 9,
+                      }}
+                    />
+                  )}
                 </View>
               );
             })
           )}
-          {peopleDisplayState === "content" && (
+          {peopleDisplayState.kind === "content" &&
+            peopleDisplayState.showRetainedError &&
+            peopleDisplayState.retryMode && (
+              <RetainedPagedError
+                itemLabel="people"
+                retryMode={peopleDisplayState.retryMode}
+                onRetry={() => {
+                  if (peopleDisplayState.retryMode === "next") {
+                    void people.fetchNextPage();
+                    return;
+                  }
+                  void people.refetch();
+                }}
+              />
+            )}
+          {peopleDisplayState.kind === "content" && (
             <CollectionFooter
               itemLabel="people"
               canAppend={!!people.hasNextPage}
@@ -489,9 +574,9 @@ function DiscoverScreenInstance() {
           <T style={{ fontSize: 17, fontWeight: "700", marginBottom: 16 }}>
             A circle for your thing
           </T>
-          {circlesDisplayState === "loading" ? (
+          {circlesDisplayState.kind === "loading" ? (
             <Loading />
-          ) : circlesDisplayState === "error" ? (
+          ) : circlesDisplayState.kind === "error" ? (
             <Empty
               icon="ellipse-outline"
               title="We couldn’t load circles."
@@ -499,7 +584,7 @@ function DiscoverScreenInstance() {
               action="Try again"
               onAction={() => void circles.refetch()}
             />
-          ) : circlesDisplayState === "empty" ? (
+          ) : circlesDisplayState.kind === "empty" ? (
             <Empty
               title="No circles found."
               text="A new passion deserves a new circle."
@@ -509,7 +594,22 @@ function DiscoverScreenInstance() {
               .slice(0, tab === "For you" ? 2 : undefined)
               .map((circle) => <CircleCard key={circle.id} circle={circle} />)
           )}
-          {circlesDisplayState === "content" && tab === "Circles" && (
+          {circlesDisplayState.kind === "content" &&
+            circlesDisplayState.showRetainedError &&
+            circlesDisplayState.retryMode && (
+              <RetainedPagedError
+                itemLabel="circles"
+                retryMode={circlesDisplayState.retryMode}
+                onRetry={() => {
+                  if (circlesDisplayState.retryMode === "next") {
+                    void circles.fetchNextPage();
+                    return;
+                  }
+                  void circles.refetch();
+                }}
+              />
+            )}
+          {circlesDisplayState.kind === "content" && tab === "Circles" && (
             <CollectionFooter
               itemLabel="circles"
               canAppend={!!circles.hasNextPage}
@@ -522,9 +622,9 @@ function DiscoverScreenInstance() {
       )}
       {tab === "Posts" && (
         <View style={[contentWidth, { marginTop: 24 }]}>
-          {feedDisplayState === "loading" ? (
+          {feedDisplayState.kind === "loading" ? (
             <Loading />
-          ) : feedDisplayState === "error" ? (
+          ) : feedDisplayState.kind === "error" ? (
             <Empty
               icon="images-outline"
               title="We couldn’t load moments."
@@ -532,7 +632,7 @@ function DiscoverScreenInstance() {
               action="Try again"
               onAction={() => void feed.refetch()}
             />
-          ) : feedDisplayState === "empty" ? (
+          ) : feedDisplayState.kind === "empty" ? (
             <Empty
               title="No moments found."
               text="Try another word or explore a circle."
@@ -540,7 +640,22 @@ function DiscoverScreenInstance() {
           ) : (
             feedItems.map((post) => <PostCard key={post.id} post={post} />)
           )}
-          {feedDisplayState === "content" && (
+          {feedDisplayState.kind === "content" &&
+            feedDisplayState.showRetainedError &&
+            feedDisplayState.retryMode && (
+              <RetainedPagedError
+                itemLabel="moments"
+                retryMode={feedDisplayState.retryMode}
+                onRetry={() => {
+                  if (feedDisplayState.retryMode === "next") {
+                    void feed.fetchNextPage();
+                    return;
+                  }
+                  void feed.refetch();
+                }}
+              />
+            )}
+          {feedDisplayState.kind === "content" && (
             <CollectionFooter
               itemLabel="moments"
               canAppend={!!feed.hasNextPage}

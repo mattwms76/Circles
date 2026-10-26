@@ -12,6 +12,12 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { trpc } from "@/lib/trpc";
 import { createSingleFlightSubmitter } from "@/lib/single-flight-submit";
+import {
+  createA26LiveMediaState,
+  isA26LiveParticipantReady,
+  transitionA26LiveMediaState,
+  type A26LiveMediaPhaseChange,
+} from "@/lib/a26-live-media-state";
 import { useCircles } from "@/hooks/circles-context";
 import { resolveFnd001QueryDisplayState } from "@/lib/fnd001-query-display-state";
 import {
@@ -112,8 +118,10 @@ function LiveSessionScreen({
   const [text, setText] = useState("");
   const [liveChatSubmitter] = useState(createSingleFlightSubmitter);
   const [isLiveChatSubmitting, setIsLiveChatSubmitting] = useState(false);
-  const [mediaError, setMediaError] = useState("");
-  const [ready, setReady] = useState(false);
+  const [liveReactionSubmitter] = useState(createSingleFlightSubmitter);
+  const [isLiveReactionSubmitting, setIsLiveReactionSubmitting] =
+    useState(false);
+  const [mediaState, setMediaState] = useState(createA26LiveMediaState);
   const [hostMediaSession, setHostMediaSession] =
     useState<LiveHostLease | null>(null);
   const [endConfirm, setEndConfirm] = useState(false);
@@ -133,6 +141,9 @@ function LiveSessionScreen({
     lease: hostMediaSession,
   });
   const hostGeneration = hostEndInput?.generation ?? null;
+  const ready = mediaState.phase === "ready";
+  const mediaError = mediaState.error;
+  const participantReady = isA26LiveParticipantReady(mediaState);
   const hostExitActionTitle = ready ? "End live session" : "Leave camera setup";
   const awaitingHostLease = hostGeneration === null;
   // This descriptor remains useful for source-level account/stream diagnostics,
@@ -180,7 +191,11 @@ function LiveSessionScreen({
   );
   const chat = trpc.live.chat.useQuery(
     { streamId },
-    { enabled: !!user && !!live, refetchInterval: 2000, retry: false },
+    {
+      enabled: !!user && !!live && participantReady,
+      refetchInterval: 2000,
+      retry: false,
+    },
   );
   const chatDisplayState = resolveFnd001QueryDisplayState({
     isLoading: chat.isLoading,
@@ -230,7 +245,7 @@ function LiveSessionScreen({
   const send = trpc.live.sendChat.useMutation();
   const submitLiveChatMessage = useCallback(() => {
     const message = text.trim();
-    if (!message || liveChatSubmitter.isBusy) {
+    if (!participantReady || !message || liveChatSubmitter.isBusy) {
       return;
     }
 
@@ -258,6 +273,7 @@ function LiveSessionScreen({
     isCurrentLiveScope,
     liveChatSubmitter,
     notify,
+    participantReady,
     refetchChat,
     send,
     streamId,
@@ -265,28 +281,32 @@ function LiveSessionScreen({
   ]);
   const react = trpc.live.react.useMutation();
   const sendLiveReaction = useCallback(() => {
+    if (!participantReady || liveReactionSubmitter.isBusy) return;
+
     const operationScope = captureLiveOperationScope();
     if (!isCurrentLiveScope(operationScope)) return;
-    react.mutate(
-      { streamId },
-      {
-        onSuccess: () => {
-          if (!isCurrentLiveScope(operationScope)) return;
-          void refetchChat(operationScope);
-        },
-        onError: () => {
-          if (!isCurrentLiveScope(operationScope)) return;
-          notify("We couldn’t send that reaction. Try again.", "error");
-        },
-        onSettled: () => {
-          if (!isCurrentLiveScope(operationScope)) return;
-        },
-      },
-    );
+    void liveReactionSubmitter.run(async () => {
+      if (!isCurrentLiveScope(operationScope)) return;
+      setIsLiveReactionSubmitting(true);
+      try {
+        await react.mutateAsync({ streamId });
+        if (!isCurrentLiveScope(operationScope)) return;
+        void refetchChat(operationScope);
+      } catch {
+        if (!isCurrentLiveScope(operationScope)) return;
+        notify("We couldn’t send that reaction. Try again.", "error");
+      } finally {
+        if (isCurrentLiveScope(operationScope)) {
+          setIsLiveReactionSubmitting(false);
+        }
+      }
+    });
   }, [
     captureLiveOperationScope,
     isCurrentLiveScope,
+    liveReactionSubmitter,
     notify,
+    participantReady,
     react,
     refetchChat,
     streamId,
@@ -324,11 +344,28 @@ function LiveSessionScreen({
     router,
     streamId,
   ]);
+  const handleLiveMediaPhaseChange = useCallback(
+    (change: A26LiveMediaPhaseChange) => {
+      const operationScope = captureLiveOperationScope();
+      if (!isCurrentLiveScope(operationScope)) return;
+      setMediaState((current) => transitionA26LiveMediaState(current, change));
+      if (change.phase === "ready") {
+        void refetchChat(operationScope);
+      }
+    },
+    [captureLiveOperationScope, isCurrentLiveScope, refetchChat],
+  );
   const handleLiveMediaError = useCallback(
     (message: string) => {
       const operationScope = captureLiveOperationScope();
       if (!isCurrentLiveScope(operationScope)) return;
-      setMediaError(message);
+      setMediaState((current) =>
+        transitionA26LiveMediaState(current, {
+          phase: "error",
+          generation: current.generation,
+          message,
+        }),
+      );
     },
     [captureLiveOperationScope, isCurrentLiveScope],
   );
@@ -346,11 +383,6 @@ function LiveSessionScreen({
     },
     [captureLiveOperationScope, host, isCurrentLiveScope, streamId],
   );
-  const handleLiveMediaReady = useCallback(() => {
-    const operationScope = captureLiveOperationScope();
-    if (!isCurrentLiveScope(operationScope)) return;
-    setReady(true);
-  }, [captureLiveOperationScope, isCurrentLiveScope]);
   return (
     <AppShell sidebar={false} scroll={false}>
       <KeyboardAvoidingView
@@ -420,7 +452,7 @@ function LiveSessionScreen({
                   currentUserId={user?.id ?? null}
                   onError={handleLiveMediaError}
                   onHostLease={handleLiveHostLease}
-                  onReady={handleLiveMediaReady}
+                  onMediaPhaseChange={handleLiveMediaPhaseChange}
                 />
                 <View
                   style={{
@@ -489,12 +521,14 @@ function LiveSessionScreen({
                   color={C.coral}
                   size={28}
                   onPress={sendLiveReaction}
-                  disabled={react.isPending}
-                  loading={react.isPending}
+                  disabled={!participantReady || isLiveReactionSubmitting}
+                  loading={isLiveReactionSubmitting}
                   label={
-                    react.isPending
-                      ? "Sending live reaction"
-                      : "Send live reaction"
+                    !participantReady
+                      ? "Live reactions will be available after video connects"
+                      : isLiveReactionSubmitting
+                        ? "Sending live reaction"
+                        : "Send live reaction"
                   }
                   style={{
                     width: 44,
@@ -533,7 +567,20 @@ function LiveSessionScreen({
                   nestedScrollEnabled
                   keyboardShouldPersistTaps="handled"
                 >
-                  {chatDisplayState === "loading" ? (
+                  {!participantReady ? (
+                    <T
+                      style={{
+                        color: C.secondary,
+                        fontSize: 14,
+                        lineHeight: 21,
+                        paddingVertical: 15,
+                      }}
+                    >
+                      {mediaState.phase === "error"
+                        ? "Live chat will be available after video reconnects."
+                        : "Joining live video before chat is available."}
+                    </T>
+                  ) : chatDisplayState === "loading" ? (
                     <Loading />
                   ) : chatDisplayState === "error" ? (
                     <RetryableLiveError
@@ -596,8 +643,12 @@ function LiveSessionScreen({
                   <TextInput
                     value={text}
                     onChangeText={setText}
-                    editable={!isLiveChatSubmitting}
-                    placeholder="Join the conversation…"
+                    editable={participantReady && !isLiveChatSubmitting}
+                    placeholder={
+                      participantReady
+                        ? "Join the conversation…"
+                        : "Waiting for live video…"
+                    }
                     placeholderTextColor={C.secondary}
                     accessibilityLabel="Live chat message"
                     multiline
@@ -621,15 +672,19 @@ function LiveSessionScreen({
                     icon="arrow-up-circle"
                     size={30}
                     color={C.coral}
-                    disabled={isLiveChatSubmitting || !text.trim()}
+                    disabled={
+                      !participantReady || isLiveChatSubmitting || !text.trim()
+                    }
                     loading={isLiveChatSubmitting}
                     onPress={submitLiveChatMessage}
                     label={
-                      isLiveChatSubmitting
-                        ? "Sending live chat message"
-                        : text.trim()
-                          ? "Send live chat message"
-                          : "Enter a live chat message to send"
+                      !participantReady
+                        ? "Live chat will be available after video connects"
+                        : isLiveChatSubmitting
+                          ? "Sending live chat message"
+                          : text.trim()
+                            ? "Send live chat message"
+                            : "Enter a live chat message to send"
                     }
                   />
                 </View>

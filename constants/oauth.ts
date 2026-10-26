@@ -3,6 +3,14 @@ import * as Linking from "expo-linking";
 import * as ReactNative from "react-native";
 import * as SecureStore from "expo-secure-store";
 import { CIRCLES_NATIVE_OAUTH_REDIRECT_URI } from "../shared/oauth-redirect-contract";
+import {
+  isSameNativeOAuthPendingFlow,
+  normalizeOAuthContinuation,
+  parseNativeOAuthPendingFlow,
+  serializeNativeOAuthPendingFlow,
+  type NativeOAuthPendingFlow,
+  type OAuthContinuation,
+} from "../lib/a26-auth-oauth";
 
 const extra = (Constants.expoConfig?.extra ?? {}) as Record<
   string,
@@ -36,6 +44,65 @@ type NativeOAuthPreparation = {
   flowToken: string;
   expiresIn: number;
 };
+
+export type StartOAuthLoginOptions = {
+  /** Only the protected email-connection migration may request this route. */
+  continuation?: OAuthContinuation;
+};
+
+let nativeOAuthStartGeneration = 0;
+let nativeOAuthStorageTail: Promise<void> = Promise.resolve();
+
+function nextNativeOAuthGeneration(): number {
+  nativeOAuthStartGeneration = Math.max(
+    nativeOAuthStartGeneration + 1,
+    Date.now(),
+  );
+  return nativeOAuthStartGeneration;
+}
+
+async function runNativeOAuthStorageTransition<T>(
+  operation: () => Promise<T>,
+): Promise<T> {
+  const prior = nativeOAuthStorageTail;
+  let release!: () => void;
+  const completion = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  nativeOAuthStorageTail = prior.then(
+    () => completion,
+    () => completion,
+  );
+
+  await prior.catch(() => undefined);
+  try {
+    return await operation();
+  } finally {
+    release();
+  }
+}
+
+function requestedContinuation(
+  options: StartOAuthLoginOptions | undefined,
+): OAuthContinuation | null {
+  const value = options?.continuation;
+  const continuation = normalizeOAuthContinuation(value);
+  if (value !== undefined && continuation === null) {
+    throw new Error("Invalid OAuth continuation");
+  }
+  return continuation;
+}
+
+function isActiveVersionedNativeFlow(
+  flow: NativeOAuthPendingFlow | null,
+): boolean {
+  return (
+    !!flow &&
+    flow.generation > 0 &&
+    flow.expiresAt !== null &&
+    flow.expiresAt > Date.now()
+  );
+}
 
 /**
  * Web uses its own origin through Metro's fixed /api proxy. Native devices
@@ -91,17 +158,24 @@ export const getRedirectUri = () => {
  * The web login entrypoint. It does not construct OAuth state in the client;
  * the server sets an HttpOnly state/nonce cookie and redirects to Manus.
  */
-export const getLoginUrl = () => {
+export const getLoginUrl = (options?: StartOAuthLoginOptions) => {
   if (ReactNative.Platform.OS !== "web") {
     throw new Error("Native login must be started with startOAuthLogin");
   }
   const url = new URL(apiUrl("/api/oauth/start"));
   url.searchParams.set("redirectUri", getRedirectUri());
   url.searchParams.set("frontendOrigin", getWebFrontendOrigin());
+  const continuation = requestedContinuation(options);
+  if (continuation) url.searchParams.set("continuation", continuation);
   return url.toString();
 };
 
-async function prepareNativeOAuthLogin(): Promise<NativeOAuthPreparation> {
+async function prepareNativeOAuthLogin(
+  continuation: OAuthContinuation | null,
+  generation: number,
+): Promise<
+  (NativeOAuthPreparation & { pendingFlow: NativeOAuthPendingFlow }) | null
+> {
   const url = new URL(apiUrl("/api/oauth/mobile/start"));
   url.searchParams.set("redirectUri", getRedirectUri());
 
@@ -122,25 +196,89 @@ async function prepareNativeOAuthLogin(): Promise<NativeOAuthPreparation> {
     throw new Error("Invalid OAuth login preparation");
   }
 
-  // The initiating token never appears in the deep-link URL and is kept in platform secure storage.
-  await SecureStore.setItemAsync(NATIVE_OAUTH_FLOW_KEY, preparation.flowToken);
+  // A later initiation wins before this earlier preparation reaches storage.
+  if (generation !== nativeOAuthStartGeneration) return null;
+  const expiresAt =
+    typeof preparation.expiresIn === "number" && preparation.expiresIn > 0
+      ? Date.now() + preparation.expiresIn * 1000
+      : null;
+  const pendingFlow: NativeOAuthPendingFlow = {
+    flowToken: preparation.flowToken,
+    generation,
+    continuation,
+    expiresAt,
+  };
+  await setNativeOAuthPendingFlow(pendingFlow);
+  if (!(await isNativeOAuthPendingFlowCurrent(pendingFlow))) return null;
   return {
     authorizationUrl: preparation.authorizationUrl,
     flowToken: preparation.flowToken,
     expiresIn:
       typeof preparation.expiresIn === "number" ? preparation.expiresIn : 0,
+    pendingFlow,
   };
 }
 
-/** Returns the native flow token only for the callback's server-side code exchange. */
-export async function getNativeOAuthFlowToken(): Promise<string | null> {
-  if (ReactNative.Platform.OS === "web") return null;
-  return SecureStore.getItemAsync(NATIVE_OAUTH_FLOW_KEY);
+async function setNativeOAuthPendingFlow(
+  pendingFlow: NativeOAuthPendingFlow,
+): Promise<void> {
+  await runNativeOAuthStorageTransition(async () => {
+    await SecureStore.setItemAsync(
+      NATIVE_OAUTH_FLOW_KEY,
+      serializeNativeOAuthPendingFlow(pendingFlow),
+    );
+  });
 }
 
+/**
+ * Returns the full native flow identity for the callback's server-side code
+ * exchange. Raw legacy values remain readable only to finish a flow already
+ * started by an older client.
+ */
+export async function getNativeOAuthPendingFlow(): Promise<NativeOAuthPendingFlow | null> {
+  if (ReactNative.Platform.OS === "web") return null;
+  return runNativeOAuthStorageTransition(async () =>
+    parseNativeOAuthPendingFlow(
+      await SecureStore.getItemAsync(NATIVE_OAUTH_FLOW_KEY),
+    ),
+  );
+}
+
+/** Returns the token for backwards-compatible callers that do not need flow metadata. */
+export async function getNativeOAuthFlowToken(): Promise<string | null> {
+  return (await getNativeOAuthPendingFlow())?.flowToken ?? null;
+}
+
+export async function isNativeOAuthPendingFlowCurrent(
+  expected: NativeOAuthPendingFlow,
+): Promise<boolean> {
+  return isSameNativeOAuthPendingFlow(
+    await getNativeOAuthPendingFlow(),
+    expected,
+  );
+}
+
+/** Deletes only a matching token-generation pair, never a newer native flow. */
+export async function clearNativeOAuthPendingFlowIfCurrent(
+  expected: NativeOAuthPendingFlow,
+): Promise<boolean> {
+  if (ReactNative.Platform.OS === "web") return false;
+  return runNativeOAuthStorageTransition(async () => {
+    const current = parseNativeOAuthPendingFlow(
+      await SecureStore.getItemAsync(NATIVE_OAUTH_FLOW_KEY),
+    );
+    if (!isSameNativeOAuthPendingFlow(current, expected)) return false;
+    await SecureStore.deleteItemAsync(NATIVE_OAUTH_FLOW_KEY);
+    return true;
+  });
+}
+
+/** Legacy clear for explicit abandonment paths that do not hold a flow snapshot. */
 export async function clearNativeOAuthFlowToken(): Promise<void> {
   if (ReactNative.Platform.OS !== "web") {
-    await SecureStore.deleteItemAsync(NATIVE_OAUTH_FLOW_KEY);
+    await runNativeOAuthStorageTransition(async () => {
+      await SecureStore.deleteItemAsync(NATIVE_OAUTH_FLOW_KEY);
+    });
   }
 }
 
@@ -151,23 +289,45 @@ export async function clearNativeOAuthFlowToken(): Promise<void> {
  * Native login prepares a one-time server flow and retains its random initiating
  * token in SecureStore until the Expo deep-link callback arrives.
  */
-export async function startOAuthLogin(): Promise<string | null> {
+export async function startOAuthLogin(
+  options?: StartOAuthLoginOptions,
+): Promise<string | null> {
+  const continuation = requestedContinuation(options);
   if (ReactNative.Platform.OS === "web") {
-    window.location.assign(getLoginUrl());
+    window.location.assign(
+      getLoginUrl({ continuation: continuation ?? undefined }),
+    );
     return null;
   }
 
-  const preparation = await prepareNativeOAuthLogin();
+  const existing = await getNativeOAuthPendingFlow();
+  if (isActiveVersionedNativeFlow(existing)) {
+    // A continuation is already bound to the exact stored flow. Do not create
+    // F2 while F1 can still reach its single-use callback.
+    return null;
+  }
+  if (existing) await clearNativeOAuthPendingFlowIfCurrent(existing);
+
+  const generation = nextNativeOAuthGeneration();
+  const preparation = await prepareNativeOAuthLogin(continuation, generation);
+  if (!preparation) return null;
+  if (generation !== nativeOAuthStartGeneration) return null;
   const supported = await Linking.canOpenURL(preparation.authorizationUrl);
+  if (
+    generation !== nativeOAuthStartGeneration ||
+    !(await isNativeOAuthPendingFlowCurrent(preparation.pendingFlow))
+  ) {
+    return null;
+  }
   if (!supported) {
-    await clearNativeOAuthFlowToken();
+    await clearNativeOAuthPendingFlowIfCurrent(preparation.pendingFlow);
     throw new Error("Cannot open the secure sign-in page");
   }
 
   try {
     await Linking.openURL(preparation.authorizationUrl);
   } catch {
-    await clearNativeOAuthFlowToken();
+    await clearNativeOAuthPendingFlowIfCurrent(preparation.pendingFlow);
     throw new Error("Unable to open the secure sign-in page");
   }
 
