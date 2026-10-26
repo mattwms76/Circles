@@ -106,6 +106,20 @@ jobs:
       - name: Run isolated Moderator Workspace HTTP and PostgreSQL E2E
         run: pnpm test:e2e:moderation
 
+      - name: Run isolated email identity roles and allocation-race drills
+        env:
+          CIRCLES_EMAIL_AUTH_LOCAL_PG17: "1"
+          POSTGRES17_BIN: /usr/lib/postgresql/17/bin
+        run: |
+          node tests/email-identity.pg-test.mjs
+          node --import tsx scripts/run-email-identity-e2e.mjs
+
+      - name: Run isolated email HTTP and durable-session PostgreSQL drill
+        env:
+          CIRCLES_EMAIL_AUTH_LOCAL_PG17: "1"
+          POSTGRES17_BIN: /usr/lib/postgresql/17/bin
+        run: node --import tsx scripts/run-email-auth-http-e2e.mjs
+
       - name: Compile API
         run: pnpm build
 

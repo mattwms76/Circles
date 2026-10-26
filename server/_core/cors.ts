@@ -90,7 +90,18 @@ export function createCorsMiddleware(
     const allowedConfiguredOrigin =
       !loopbackOrigin && allowedOrigins.has(origin);
     if (!allowedConfiguredOrigin && !allowedLocalOrigin) {
-      res.status(403).json({ error: "origin_not_allowed" });
+      if (
+        req.path === "/api/auth/email" ||
+        req.path.startsWith("/api/auth/email/")
+      ) {
+        res.setHeader("Cache-Control", "no-store");
+        res.status(403).json({
+          error: "Email authentication request was not accepted",
+          code: "REQUEST_NOT_ACCEPTED",
+        });
+      } else {
+        res.status(403).json({ error: "origin_not_allowed" });
+      }
       return;
     }
 

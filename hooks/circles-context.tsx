@@ -1,14 +1,21 @@
 import type { QueryClient } from "@tanstack/react-query";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Modal, Pressable, View } from "react-native";
+import { Modal, Platform, View } from "react-native";
 import { trpc } from "@/lib/trpc";
-import { startOAuthLogin } from "@/constants/oauth";
-import { Button, C, IconButton, Logo, T } from "@/components/circles-ui";
+import { C, IconButton, Logo, T } from "@/components/circles-ui";
+import { EmailAuthForm } from "@/components/email-auth-form";
+import { useRouter } from "expo-router";
 import * as Api from "@/lib/_core/api";
 import * as Auth from "@/lib/_core/auth";
 import { logoutAndPurgeClientSession } from "@/lib/client-session";
+import { cancelAndDrainEmailAuthRequests } from "@/lib/email-auth-client";
 import { clearPrivateImageCaches } from "@/lib/media-cache";
-import { completeNativeLoginTransition } from "@/hooks/native-login-transition";
+import {
+  clearCapturedNativeCredentialsIfCurrent,
+  completeNativeLoginTransition,
+  confirmNativeLoginAfterEmailAuthDrain,
+  logoutNativeSessionAfterEmailAuthDrain,
+} from "@/hooks/native-login-transition";
 import { resolveAuthGateState } from "@/lib/feed-ui-helpers";
 import { CirclesContext as Context } from "./circles-context-core";
 export { useCircles } from "./circles-context-core";
@@ -22,6 +29,7 @@ export function CirclesProvider({
   queryClient: QueryClient;
   resetProtectedNavigation: () => void;
 }) {
+  const router = useRouter();
   const auth = trpc.auth.me.useQuery(undefined, {
     refetchInterval: 15000,
     retry: false,
@@ -29,7 +37,6 @@ export function CirclesProvider({
   const utils = trpc.useUtils();
   const [login, setLogin] = useState(false);
   const [notice, setNotice] = useState("");
-  const [signing, setSigning] = useState(false);
   const pendingProtectedAction = useRef<(() => void) | null>(null);
   const authState = resolveAuthGateState({
     isLoading: auth.isLoading,
@@ -62,38 +69,78 @@ export function CirclesProvider({
   }, [refetchAuth]);
 
   const logout = useCallback(async () => {
-    // Capture the native bearer before SecureStore deletion. Api.logout uses this
-    // explicit value instead of reading local storage after the purge starts.
-    const nativeBearer = await Auth.getSessionToken();
-    setLogin(false);
-    await logoutAndPurgeClientSession(
-      () => Api.logout(nativeBearer),
-      queryClient,
-      {
-        clearLocalCredentials: async () => {
-          await Promise.allSettled([
-            Auth.removeSessionToken(),
-            Auth.clearUserInfo(),
-          ]);
-        },
-        clearPrivateImageCaches,
-        resetProtectedNavigation,
+    await logoutNativeSessionAfterEmailAuthDrain({
+      drainEmailAuthRequests: cancelAndDrainEmailAuthRequests,
+      getNativeBearer: Auth.getSessionToken,
+      logoutAndPurge: async (nativeBearer) => {
+        // Api.logout receives this post-drain captured value rather than reading
+        // local storage after purge has begun.
+        setLogin(false);
+        await logoutAndPurgeClientSession(
+          () => Api.logout(nativeBearer),
+          queryClient,
+          {
+            clearLocalCredentials: async () => {
+              await Promise.allSettled([
+                Auth.removeSessionToken(),
+                Auth.clearUserInfo(),
+              ]);
+            },
+            clearPrivateImageCaches,
+            resetProtectedNavigation,
+          },
+        );
       },
-    );
+    });
   }, [queryClient, resetProtectedNavigation]);
 
   const completeNativeLogin = useCallback(async () => {
-    const authenticatedUser = await completeNativeLoginTransition({
-      queryClient,
-      resetLoginModal: () => setLogin(false),
-      resetSigning: () => setSigning(false),
-      clearCachedUser: Auth.clearUserInfo,
-      clearPrivateImageCaches,
-      invalidateAuth: () => utils.auth.me.invalidate(),
-      refetchAuth,
+    const result = await confirmNativeLoginAfterEmailAuthDrain({
+      drainEmailAuthRequests: cancelAndDrainEmailAuthRequests,
+      getNativeBearer: () =>
+        Platform.OS === "web" ? Promise.resolve(null) : Auth.getSessionToken(),
+      completeTransition: () =>
+        completeNativeLoginTransition({
+          queryClient,
+          resetLoginModal: () => setLogin(false),
+          // EmailAuthForm owns its exact operation's busy lifecycle; closing unmounts it.
+          resetSigning: () => undefined,
+          clearCachedUser: Auth.clearUserInfo,
+          clearPrivateImageCaches,
+          invalidateAuth: () => utils.auth.me.invalidate(),
+          refetchAuth,
+        }),
+      clearLocalCredentials: async (capturedBearer) => {
+        await clearCapturedNativeCredentialsIfCurrent({
+          capturedBearer,
+          getCurrentBearer: Auth.getSessionToken,
+          clearLocalCredentials: async () => {
+            await Promise.all([
+              Auth.removeSessionToken(),
+              Auth.clearUserInfo(),
+            ]);
+          },
+        });
+      },
+      remoteLogout: Api.logout,
     });
-    return authenticatedUser !== null;
+    if (result.cleanup?.localCleanupFailed) {
+      setNotice(
+        "This device could not clear incomplete sign-in. Close and reopen Circles before retrying.",
+      );
+    } else if (result.cleanup?.remoteRevocationFailed) {
+      setNotice(
+        "This device was cleared, but secure sign-out could not be confirmed. Please retry shortly.",
+      );
+    } else if (!result.authenticatedUser) {
+      setNotice("We couldn’t confirm sign-in. Please try again.");
+    }
+    return result.authenticatedUser !== null;
   }, [queryClient, refetchAuth, utils]);
+
+  const connectExistingCirclesAccount = useCallback(() => {
+    router.push("/account/email");
+  }, [router]);
 
   const requireAuth = useCallback(
     (action?: () => void) => {
@@ -190,6 +237,7 @@ export function CirclesProvider({
               padding: 28,
               width: "100%",
               maxWidth: 390,
+              maxHeight: "94%",
               gap: 16,
             }}
           >
@@ -211,50 +259,18 @@ export function CirclesProvider({
             >
               Your people are here.
             </T>
-            <T style={{ color: C.muted }}>
+            <T style={{ color: C.secondary }}>
               Sign in to make a circle, share your moments, and keep the
               conversation going.
             </T>
-            <Button
-              title={signing ? "Opening sign in…" : "Continue with Manus"}
-              loading={signing}
-              onPress={async () => {
-                setSigning(true);
-                try {
-                  await startOAuthLogin();
-                } catch (err) {
-                  setNotice(
-                    err instanceof Error
-                      ? err.message
-                      : "Sign in could not open. Please try again.",
-                  );
-                } finally {
-                  setSigning(false);
-                }
-              }}
-            />
-            <Pressable onPress={() => setLogin(false)}>
-              <T
-                style={{
-                  textAlign: "center",
-                  fontSize: 12,
-                  color: C.muted,
-                  padding: 7,
-                }}
-              >
-                Keep exploring for now
-              </T>
-            </Pressable>
-            <T
-              style={{
-                textAlign: "center",
-                fontSize: 10,
-                color: C.muted,
-                lineHeight: 16,
-              }}
-            >
-              Secure account sign-in. No password to remember.
-            </T>
+            {loginVisible && (
+              <EmailAuthForm
+                mode="signIn"
+                onAuthenticated={completeNativeLogin}
+                onClose={() => setLogin(false)}
+                onConnectExisting={connectExistingCirclesAccount}
+              />
+            )}
           </View>
         </View>
       </Modal>

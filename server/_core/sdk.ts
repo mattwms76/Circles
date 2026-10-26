@@ -35,6 +35,8 @@ export type SessionPayload = {
   openId: string;
   appId: string;
   name: string;
+  /** Optional for legacy sessions; email sessions bind the original numeric actor. */
+  userId?: number;
 };
 
 type VerifiedApplicationSession = SessionPayload & ApplicationSessionBinding;
@@ -194,13 +196,14 @@ export class SDKServer {
    */
   async createSessionToken(
     openId: string,
-    options: { expiresInMs?: number; name?: string } = {},
+    options: { expiresInMs?: number; name?: string; userId?: number } = {},
   ): Promise<string> {
     return this.signSession(
       {
         openId,
         appId: ENV.appId,
         name: options.name || "",
+        ...(options.userId !== undefined ? { userId: options.userId } : {}),
       },
       options,
     );
@@ -215,6 +218,14 @@ export class SDKServer {
     if (!Number.isFinite(requestedLifetime) || requestedLifetime <= 0) {
       throw new Error("Application session lifetime must be positive");
     }
+    if (
+      payload.userId !== undefined &&
+      (!Number.isSafeInteger(payload.userId) || payload.userId <= 0)
+    ) {
+      throw new Error(
+        "Application session actor binding must be a positive integer",
+      );
+    }
     const expiresInMs = Math.min(requestedLifetime, APPLICATION_SESSION_TTL_MS);
     const expirationSeconds = Math.floor((issuedAt + expiresInMs) / 1000);
     const sessionId = randomBytes(32).toString("base64url");
@@ -224,6 +235,7 @@ export class SDKServer {
       openId: payload.openId,
       appId: payload.appId,
       name: payload.name,
+      ...(payload.userId !== undefined ? { userId: payload.userId } : {}),
     })
       .setProtectedHeader({ alg: "HS256", typ: "JWT" })
       .setIssuedAt(Math.floor(issuedAt / 1000))
@@ -251,7 +263,10 @@ export class SDKServer {
       const { payload } = await jwtVerify(token, secretKey, {
         algorithms: ["HS256"],
       });
-      const { openId, appId, name, jti } = payload as Record<string, unknown>;
+      const { openId, appId, name, jti, userId } = payload as Record<
+        string,
+        unknown
+      >;
 
       if (
         !isNonEmptyString(openId) ||
@@ -263,6 +278,14 @@ export class SDKServer {
         return null;
       }
 
+      if (
+        userId !== undefined &&
+        (typeof userId !== "number" ||
+          !Number.isSafeInteger(userId) ||
+          userId <= 0)
+      ) {
+        return null;
+      }
       if (appId !== ENV.appId) {
         return null;
       }
@@ -272,6 +295,7 @@ export class SDKServer {
         appId,
         name,
         sessionId: jti,
+        ...(typeof userId === "number" ? { userId } : {}),
       };
     } catch {
       return null;
@@ -280,7 +304,7 @@ export class SDKServer {
 
   async verifySession(
     cookieValue: string | undefined | null,
-  ): Promise<{ openId: string; appId: string; name: string } | null> {
+  ): Promise<SessionPayload | null> {
     const session = await this.verifySignedSession(cookieValue);
     if (!session) {
       console.warn("[Auth] Session verification failed");
@@ -304,6 +328,7 @@ export class SDKServer {
         openId: session.openId,
         appId: session.appId,
         name: session.name,
+        ...(session.userId !== undefined ? { userId: session.userId } : {}),
       };
     } catch {
       // Database errors and a missing pre-cutover table are authentication
@@ -394,6 +419,9 @@ export class SDKServer {
     const signedInAt = new Date();
     let user = await db.getUserByOpenId(sessionUserId);
 
+    if (session.userId !== undefined && (!user || user.id !== session.userId)) {
+      throw ForbiddenError("Session actor binding is no longer valid");
+    }
     // If user not in DB, sync from OAuth server automatically
     if (!user) {
       try {

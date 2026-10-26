@@ -5,9 +5,14 @@ import {
   getNativeOAuthFlowToken,
 } from "@/constants/oauth";
 import { useCircles } from "@/hooks/circles-context";
-import { cleanupFailedNativeLoginConfirmation } from "@/hooks/native-login-transition";
+import {
+  cleanupFailedNativeLoginConfirmation,
+  clearCapturedNativeCredentialsIfCurrent,
+  persistNativeBearerAfterEmailAuthDrain,
+} from "@/hooks/native-login-transition";
 import * as Auth from "@/lib/_core/auth";
 import * as Api from "@/lib/_core/api";
+import { cancelAndDrainEmailAuthRequests } from "@/lib/email-auth-client";
 import * as Linking from "expo-linking";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
@@ -130,7 +135,11 @@ export default function OAuthCallback() {
         }
 
         capturedBearer = result.app_session_id;
-        await Auth.setSessionToken(capturedBearer);
+        await persistNativeBearerAfterEmailAuthDrain({
+          drainEmailAuthRequests: cancelAndDrainEmailAuthRequests,
+          setNativeBearer: Auth.setSessionToken,
+          bearer: capturedBearer,
+        });
         const authenticated = await completeNativeLogin();
         if (!authenticated) {
           throw new Error("Unable to verify the new secure session");
@@ -139,14 +148,21 @@ export default function OAuthCallback() {
         setStatus("success");
         setTimeout(() => router.replace("/(tabs)"), 1_000);
       } catch (error) {
-        const cleanup = capturedBearer
+        const bearerToClean = capturedBearer;
+        const cleanup = bearerToClean
           ? await cleanupFailedNativeLoginConfirmation({
-              capturedBearer,
+              capturedBearer: bearerToClean,
               clearLocalCredentials: async () => {
-                await Promise.all([
-                  Auth.removeSessionToken(),
-                  Auth.clearUserInfo(),
-                ]);
+                await clearCapturedNativeCredentialsIfCurrent({
+                  capturedBearer: bearerToClean,
+                  getCurrentBearer: Auth.getSessionToken,
+                  clearLocalCredentials: async () => {
+                    await Promise.all([
+                      Auth.removeSessionToken(),
+                      Auth.clearUserInfo(),
+                    ]);
+                  },
+                });
               },
               remoteLogout: Api.logout,
             })
