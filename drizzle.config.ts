@@ -10,6 +10,8 @@ export default defineConfig({
     "./drizzle/schema.ts",
     "./drizzle/live-schema.ts",
     "./drizzle/session-schema.ts",
+    "./drizzle/activity-schema.ts",
+    "./drizzle/moderation-schema.ts",
   ],
   out: "./drizzle/postgres",
   dialect: "postgresql",
