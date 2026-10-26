@@ -20,6 +20,7 @@ import {
 import { AppShell } from "@/components/app-shell";
 import { CircleCard } from "@/components/circle-card";
 import { PostCard } from "@/components/post-card";
+import { StatusMessage } from "@/components/status-message";
 import { UserAvatar } from "@/components/user-avatar";
 import {
   Button,
@@ -66,7 +67,7 @@ function CollectionFooter({
   return (
     <T
       style={{
-        color: C.muted,
+        color: C.secondary,
         fontSize: 12,
         lineHeight: 18,
         textAlign: "center",
@@ -180,6 +181,8 @@ function DiscoverScreenInstance() {
     hasContent: feedItems.length > 0 || !!feed.hasNextPage,
   });
   const livesPage = getBoundedLoadedCollection(lives.data, livesVisibleCount);
+  const isRouteFollowPending =
+    pendingFollow?.scope === discoverScope && pendingFollow.ids.size > 0;
   const requestFollow = (personId: number, currentlyFollowing: boolean) => {
     requireAuth(() => {
       const capturedScope = mountedScope.current;
@@ -224,11 +227,13 @@ function DiscoverScreenInstance() {
               return { scope: capturedScope.scope, ids };
             });
             void invalidateProfileViews(utils);
-            notify("Your connections have been updated.");
+            notify("Your connections have been updated.", "success");
           },
-          onError: (error) => {
+          onError: () => {
             followFlight.current.finish(capturedScope);
             if (!isCurrentDiscoverScope(capturedScope)) return;
+            const message =
+              "We couldn’t update this connection. Check your connection and try again.";
             setPendingFollow((current) => {
               if (current?.scope !== capturedScope.scope) return current;
               const ids = new Set<number>(current.ids);
@@ -238,9 +243,9 @@ function DiscoverScreenInstance() {
             setFollowError({
               scope: capturedScope.scope,
               personId,
-              message: error.message,
+              message,
             });
-            notify(error.message);
+            notify(message, "error");
           },
         },
       );
@@ -269,14 +274,14 @@ function DiscoverScreenInstance() {
             },
           ]}
         >
-          <Icon name="search-outline" size={19} color={C.muted} />
+          <Icon name="search-outline" size={19} color={C.secondary} />
           <TextInput
             placeholder="People, passions, places…"
             value={search}
             onChangeText={changeSearch}
             maxLength={80}
             accessibilityLabel="Search people, circles, posts, and live moments"
-            placeholderTextColor={C.muted}
+            placeholderTextColor={C.secondary}
             style={{
               flex: 1,
               paddingVertical: 15,
@@ -289,7 +294,7 @@ function DiscoverScreenInstance() {
             <IconButton
               icon="close-circle"
               size={18}
-              color={C.muted}
+              color={C.secondary}
               label="Clear search"
               onPress={() => changeSearch("")}
             />
@@ -317,10 +322,18 @@ function DiscoverScreenInstance() {
         <View style={[contentWidth, { marginTop: 25, gap: 15 }]}>
           <View style={s.between}>
             <T style={{ fontSize: 17, fontWeight: "700" }}>People to know</T>
-            <T style={{ fontSize: 12, lineHeight: 18, color: C.muted }}>
+            <T style={{ fontSize: 12, lineHeight: 18, color: C.secondary }}>
               MAKE A CONNECTION
             </T>
           </View>
+          {isRouteFollowPending && (
+            <StatusMessage
+              testID="discover-follow-flight-status"
+              tone="info"
+              message="Updating a connection. Other Follow actions are temporarily unavailable."
+              style={{ fontSize: 12, lineHeight: 18 }}
+            />
+          )}
           {peopleDisplayState === "loading" ? (
             <Loading />
           ) : peopleDisplayState === "error" ? (
@@ -345,6 +358,20 @@ function DiscoverScreenInstance() {
               const isFollowPending =
                 pendingFollow?.scope === discoverScope &&
                 pendingFollow.ids.has(person.id);
+              const isFollowBlocked = isRouteFollowPending && !isFollowPending;
+              const followAction = isFollowing ? "Unfollow" : "Follow";
+              const followTitle = isFollowPending
+                ? "Updating"
+                : isFollowBlocked
+                  ? "Please wait"
+                  : isFollowing
+                    ? "Following"
+                    : "Follow";
+              const followAccessibilityLabel = isFollowPending
+                ? `Updating connection with ${person.name}`
+                : isFollowBlocked
+                  ? `${followAction} ${person.name} unavailable while another connection is updating`
+                  : `${followAction} ${person.name}`;
               const followErrorText =
                 followError?.scope === discoverScope &&
                 followError.personId === person.id
@@ -398,12 +425,22 @@ function DiscoverScreenInstance() {
                     >
                       {person.name}
                     </T>
-                    <T style={{ color: C.muted, fontSize: 12, lineHeight: 18 }}>
+                    <T
+                      style={{
+                        color: C.secondary,
+                        fontSize: 12,
+                        lineHeight: 18,
+                      }}
+                    >
                       @{person.handle}
                     </T>
                     <T
                       numberOfLines={2}
-                      style={{ color: C.muted, fontSize: 14, lineHeight: 21 }}
+                      style={{
+                        color: C.secondary,
+                        fontSize: 14,
+                        lineHeight: 21,
+                      }}
                     >
                       {person.bio}
                     </T>
@@ -421,10 +458,11 @@ function DiscoverScreenInstance() {
                     )}
                   </Pressable>
                   <Button
-                    title={isFollowing ? "Following" : "Follow"}
+                    title={followTitle}
+                    accessibilityLabel={followAccessibilityLabel}
                     secondary={isFollowing}
                     loading={isFollowPending}
-                    disabled={isFollowPending}
+                    disabled={isFollowPending || isFollowBlocked}
                     onPress={() => requestFollow(person.id, !!isFollowing)}
                     style={{
                       paddingHorizontal: 11,
@@ -530,16 +568,23 @@ function DiscoverScreenInstance() {
               <Pressable
                 key={live.id}
                 onPress={() => router.push(`/live/${live.id}`)}
-                style={[s.card, { overflow: "hidden", marginBottom: 15 }]}
+                accessibilityRole="button"
+                accessibilityLabel={`Open live moment: ${live.title} by ${live.host.name}, ${live.viewers} watching`}
+                accessibilityHint="Open this live moment"
+                style={[
+                  s.card,
+                  { overflow: "hidden", marginBottom: 15, minHeight: 44 },
+                ]}
               >
                 <Image
                   source={{ uri: live.thumbnail }}
                   style={{ width: "100%", height: 180 }}
                   contentFit="cover"
+                  accessible={false}
                 />
                 <View style={{ padding: 15 }}>
                   <T style={{ fontWeight: "700" }}>{live.title}</T>
-                  <T style={{ fontSize: 12, color: C.muted }}>
+                  <T style={{ fontSize: 12, color: C.secondary }}>
                     {live.host.name} · {live.viewers} watching
                   </T>
                 </View>

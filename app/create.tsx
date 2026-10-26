@@ -13,6 +13,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
+import { StatusMessage } from "@/components/status-message";
 import { assetBase64, supportedMime } from "@/lib/media";
 import {
   batch1OperationIdentityMatches,
@@ -31,6 +32,12 @@ import {
   type CreateMode,
   type ReusableUpload,
 } from "@/lib/feed-ui-helpers";
+import {
+  canPublishToCreateRecipient,
+  canRetryCreateRecipient,
+  createRootSafeAreaInsets,
+  resolveCreateRecipient,
+} from "@/lib/design31-create";
 import {
   Button,
   C,
@@ -233,6 +240,15 @@ function CreateScreenForAccount() {
   }, [composerIdentity, operationInstance]);
 
   const circles = trpc.social.circles.useQuery({});
+  const recipient = resolveCreateRecipient({
+    circleId,
+    circles: circles.data,
+    isResolving: circles.isPending || circles.isFetching,
+    isError: circles.isError,
+  });
+  const recipientAllowsPublish =
+    mode === "circle" || canPublishToCreateRecipient(recipient);
+  const recipientCanRetry = canRetryCreateRecipient(recipient);
   const profile = trpc.social.profile.useQuery({}, { enabled: !!user });
   const utils = trpc.useUtils();
   const upload = trpc.social.upload.useMutation();
@@ -297,7 +313,7 @@ function CreateScreenForAccount() {
       !!asset,
     );
     if (issue) {
-      notify(issue);
+      notify(issue, "error");
       return;
     }
     if (nextMode === "circle" && asset) {
@@ -306,15 +322,12 @@ function CreateScreenForAccount() {
           clearSelectedMedia();
           notify(
             "Circle covers need a JPEG, PNG, or WebP photo. The video was removed.",
+            "error",
           );
         }
-      } catch (error) {
+      } catch {
         clearSelectedMedia();
-        notify(
-          error instanceof Error
-            ? error.message
-            : "Choose a supported cover photo for your circle.",
-        );
+        notify("Choose a supported cover photo for your circle.", "error");
       }
     }
     if (nextMode !== mode) setComposerRevision((current) => current + 1);
@@ -325,7 +338,7 @@ function CreateScreenForAccount() {
     if (draftEditingLocked()) return;
     const issue = platformCreationIssue(visiblePlatformStatus, mode, true);
     if (issue) {
-      notify(issue);
+      notify(issue, "error");
       return;
     }
     const scope = scopeRef.current;
@@ -351,24 +364,24 @@ function CreateScreenForAccount() {
         ) {
           notify(
             `Choose media no larger than ${pickerSnapshot.maxUploadMb} MiB.`,
+            "error",
           );
           return;
         }
         const mimeType = supportedMime(nextAsset);
         if (pickerSnapshot.mode === "circle" && !isCircleCoverMime(mimeType)) {
-          notify("Circle covers need a JPEG, PNG, or WebP photo.");
+          notify("Circle covers need a JPEG, PNG, or WebP photo.", "error");
           return;
         }
         setAsset(nextAsset);
         // A changed selection cannot safely reuse the prior upload URL.
         setReusableUpload(null);
       }
-    } catch (error) {
+    } catch {
       if (!publishScopeIsCurrent(pickerSnapshot.scope)) return;
       notify(
-        error instanceof Error
-          ? error.message
-          : "Photo library could not open. Check your device permissions.",
+        "Photo library could not open. Check your device permissions.",
+        "error",
       );
     }
   }
@@ -417,7 +430,7 @@ function CreateScreenForAccount() {
     if (validationError) {
       if (publishScopeIsCurrent(scope)) {
         setPublishError({ scope, message: validationError });
-        notify(validationError);
+        notify(validationError, "error");
       }
       return;
     }
@@ -430,7 +443,7 @@ function CreateScreenForAccount() {
         "Live broadcasting needs a Circles development or release build. Expo Go can preview the social screens.";
       if (publishScopeIsCurrent(scope)) {
         setPublishError({ scope, message });
-        notify(message);
+        notify(message, "error");
       }
       return;
     }
@@ -458,7 +471,7 @@ function CreateScreenForAccount() {
         });
         if (!publishScopeIsCurrent(scope)) return;
         void invalidatePostFeeds(utils);
-        notify("Your moment is out in the world.");
+        notify("Your moment is out in the world.", "success");
         router.back();
       } else if (snapshot.mode === "circle") {
         const result = await circle.mutateAsync({
@@ -473,7 +486,7 @@ function CreateScreenForAccount() {
         });
         if (!publishScopeIsCurrent(scope)) return;
         void invalidateCircleDirectories(utils);
-        notify("A new circle. A new beginning.");
+        notify("A new circle. A new beginning.", "success");
         router.replace(`/circle/${result.id}`);
       } else {
         const result = await live.mutateAsync({
@@ -484,20 +497,19 @@ function CreateScreenForAccount() {
         if (!publishScopeIsCurrent(scope)) return;
         router.replace(`/live/${result.id}?host=1`);
       }
-    } catch (e) {
+    } catch {
       if (!publishScopeIsCurrent(scope)) return;
-      const message =
-        e instanceof Error
-          ? e.message
-          : snapshot.reusableUpload
-            ? "Could not share. Your media is ready to reuse when you try again."
-            : "Could not share. Please try again.";
+      const message = snapshot.reusableUpload
+        ? "Could not share. Your media is ready to reuse when you try again."
+        : "Could not share. Please try again.";
       setPublishError({ scope, message });
-      notify(message);
+      notify(message, "error");
     }
   }
 
   function publish() {
+    if (!recipientAllowsPublish) return;
+
     const startPublish = () => {
       const scope = scopeRef.current;
       if (!scope) return;
@@ -536,7 +548,12 @@ function CreateScreenForAccount() {
     requireAuth(startPublish);
   }
   return (
-    <View style={{ flex: 1, backgroundColor: C.bg, paddingTop: insets.top }}>
+    <View
+      style={[
+        { flex: 1, backgroundColor: C.bg },
+        createRootSafeAreaInsets(insets),
+      ]}
+    >
       <View
         style={[
           s.between,
@@ -609,11 +626,8 @@ function CreateScreenForAccount() {
             />
           </View>
           {creationIssue && user && (
-            <View
-              style={[s.card, { padding: 14, gap: 8 }]}
-              accessibilityLiveRegion="polite"
-            >
-              <T>{creationIssue}</T>
+            <View style={[s.card, { padding: 14, gap: 8 }]}>
+              <StatusMessage message={creationIssue} tone="error" />
               <Button
                 title="Check availability"
                 secondary
@@ -755,6 +769,42 @@ function CreateScreenForAccount() {
                         />
                       ))}
                   </ScrollView>
+                  {recipient.kind === "selected" && (
+                    <T style={{ color: C.secondary, fontSize: 12 }}>
+                      Selected circle: {recipient.name}.
+                    </T>
+                  )}
+                  {recipient.kind === "resolving" && (
+                    <StatusMessage
+                      message="Finding your selected circle…"
+                      tone="info"
+                      testID="create-recipient-status"
+                    />
+                  )}
+                  {recipient.kind === "error" && (
+                    <View style={{ gap: 10 }}>
+                      <StatusMessage
+                        message="Couldn't load the selected circle. Retry or choose Everyone."
+                        tone="error"
+                        testID="create-recipient-status"
+                      />
+                      <Button
+                        title="Retry selected circle"
+                        secondary
+                        disabled={isPublishing || !recipientCanRetry}
+                        onPress={() => {
+                          void circles.refetch();
+                        }}
+                      />
+                    </View>
+                  )}
+                  {recipient.kind === "unavailable" && (
+                    <StatusMessage
+                      message="Selected circle is unavailable. Choose Everyone or another circle."
+                      tone="error"
+                      testID="create-recipient-status"
+                    />
+                  )}
                 </>
               )}
               {mode !== "live" && (
@@ -788,14 +838,14 @@ function CreateScreenForAccount() {
                         style={{ width: "100%", height: 210 }}
                         contentFit="cover"
                       />
-                      <T style={{ padding: 12, color: C.coral, fontSize: 12 }}>
+                      <T style={{ padding: 12, color: C.action, fontSize: 12 }}>
                         Change {asset.type === "video" ? "video" : "photo"}
                       </T>
                     </>
                   ) : (
                     <>
-                      <Icon name="images-outline" color={C.green} size={27} />
-                      <T style={{ fontWeight: "600", color: C.green }}>
+                      <Icon name="images-outline" color={C.action} size={27} />
+                      <T style={{ fontWeight: "600", color: C.action }}>
                         Add{" "}
                         {mode === "circle"
                           ? "a cover photo"
@@ -820,7 +870,7 @@ function CreateScreenForAccount() {
                   <T style={{ fontWeight: "600", fontSize: 12 }}>
                     Camera on. Conversation open.
                   </T>
-                  <T style={{ color: C.green, fontSize: 12 }}>
+                  <T style={{ color: C.secondary, fontSize: 12 }}>
                     Live video uses your camera and microphone. On iOS and
                     Android, a native development or release build is required;
                     Expo Go cannot broadcast WebRTC video.
@@ -828,15 +878,12 @@ function CreateScreenForAccount() {
                 </View>
               )}
               {visiblePublishError && (
-                <View
-                  accessibilityLiveRegion="polite"
-                  style={[s.card, { padding: 14, gap: 10 }]}
-                >
-                  <T
-                    style={{ color: C.secondary, fontSize: 13, lineHeight: 19 }}
-                  >
-                    {visiblePublishError}
-                  </T>
+                <View style={[s.card, { padding: 14, gap: 10 }]}>
+                  <StatusMessage
+                    message={visiblePublishError}
+                    tone="error"
+                    style={{ fontSize: 13, lineHeight: 19 }}
+                  />
                   <Button
                     title="Try again"
                     secondary
@@ -855,7 +902,9 @@ function CreateScreenForAccount() {
                 }
                 icon={mode === "live" ? "radio-outline" : "arrow-up-outline"}
                 loading={isPublishing}
-                disabled={!!creationIssue || isPublishing}
+                disabled={
+                  !!creationIssue || isPublishing || !recipientAllowsPublish
+                }
                 onPress={publish}
               />
               <T style={{ color: C.muted, fontSize: 12, textAlign: "center" }}>

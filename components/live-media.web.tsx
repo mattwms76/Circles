@@ -15,14 +15,23 @@ import {
 } from "@/lib/live-ice";
 import { createTRPCClient } from "@/lib/trpc";
 import { hostGenerationFromRestartSignal } from "@/shared/live-generation-restart";
+import { StatusMessage } from "./status-message";
+import {
+  liveHostLeaseFromJoin,
+  liveMediaStatusPresentation,
+  type LiveHostLease,
+} from "./design31-live-ui";
 import { terminateLiveTransportForError } from "./live-media-terminal";
 
 export type LiveMediaProps = {
   streamId: number;
   host: boolean;
+  currentUserId: number | null;
   onError?: (message: string) => void;
   /** Hosts receive their owned join generation; viewers receive no argument. */
   onReady?: (generation?: number) => void;
+  /** Hosts receive only their current authenticated join lease before readiness. */
+  onHostLease?: (lease: LiveHostLease) => void;
 };
 
 type SignalKind = "join" | "offer" | "answer" | "ice" | "leave";
@@ -76,10 +85,8 @@ function browserIceConfiguration(
   };
 }
 
-function messageFor(error: unknown): string {
-  return error instanceof Error && error.message
-    ? error.message
-    : "Unable to connect to the live stream.";
+function messageFor(_error: unknown): string {
+  return "We couldn’t connect to the live stream. Check your connection and try again.";
 }
 
 function parseDescription(
@@ -123,23 +130,26 @@ function parseCandidate(payload: string): WebCandidate {
 export default function LiveMedia({
   streamId,
   host,
+  currentUserId,
   onError,
   onReady,
+  onHostLease,
 }: LiveMediaProps) {
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const peersRef = useRef<Map<number, PeerState>>(new Map());
-  const callbackRef = useRef({ onError, onReady });
+  const callbackRef = useRef({ onError, onReady, onHostLease });
   const deferredTeardownRef = useRef<DeferredTeardown | null>(null);
   const [api] = useState(createTRPCClient);
   const [status, setStatus] = useState(
     host ? "Preparing camera…" : "Joining live stream…",
   );
+  const statusPresentation = liveMediaStatusPresentation(status);
 
   useEffect(() => {
-    callbackRef.current = { onError, onReady };
-  }, [onError, onReady]);
+    callbackRef.current = { onError, onReady, onHostLease };
+  }, [onError, onHostLease, onReady]);
 
   useEffect(() => {
     const previousTeardown = deferredTeardownRef.current;
@@ -718,6 +728,14 @@ export default function LiveMedia({
         joined = true;
         ownedHostGeneration = host ? session.generation : null;
         if (!active) return ownedHostGeneration;
+        const hostLease = liveHostLeaseFromJoin({
+          host,
+          streamId,
+          generation: session.generation,
+          joinedHostId: session.hostId,
+          currentUserId,
+        });
+        if (hostLease) callbackRef.current.onHostLease?.(hostLease);
         await applyRelayCredentials(session.ice, false);
 
         if (host) {
@@ -853,7 +871,7 @@ export default function LiveMedia({
         });
       }
     };
-  }, [api, host, streamId]);
+  }, [api, currentUserId, host, streamId]);
 
   return (
     <div>
@@ -889,23 +907,38 @@ export default function LiveMedia({
             style={{ width: "100%", height: "100%", objectFit: "cover" }}
           />
         )}
-        {status !== "Live" && (
+        {statusPresentation.message ? (
           <div
-            role="status"
             style={{
               position: "absolute",
               inset: 0,
               display: "grid",
               placeItems: "center",
               padding: 16,
-              color: "#fff",
-              background: "rgba(0, 0, 0, 0.45)",
-              textAlign: "center",
+              pointerEvents: "none",
             }}
           >
-            {status}
+            <div
+              style={{
+                maxWidth: "100%",
+                borderRadius: 12,
+                padding: "10px 14px",
+                backgroundColor: statusPresentation.backplateColor,
+              }}
+            >
+              <StatusMessage
+                message={statusPresentation.message}
+                tone={statusPresentation.tone}
+                style={{
+                  fontSize: 14,
+                  fontWeight: "600",
+                  lineHeight: 20,
+                  textAlign: "center",
+                }}
+              />
+            </div>
           </div>
-        )}
+        ) : null}
       </div>
       <div
         style={{

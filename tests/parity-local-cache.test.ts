@@ -118,7 +118,14 @@ describe("local cache parity invalidation helpers", () => {
 
   it("derives optimistic post state from the active source/account boundary", () => {
     const postCard = source("components/post-card.tsx");
-    const sourceLifecycleStart = postCard.indexOf("useEffect(() => {");
+    const activeSourceBinding = postCard.indexOf(
+      "const activeSource = { scope: sourceScope, post }",
+    );
+    expect(activeSourceBinding).toBeGreaterThan(0);
+    const sourceLifecycleStart = postCard.lastIndexOf(
+      "useEffect(() => {",
+      activeSourceBinding,
+    );
     const sourceLifecycleEnd = postCard.indexOf(
       "const liked =",
       sourceLifecycleStart,

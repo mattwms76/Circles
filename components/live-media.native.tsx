@@ -23,14 +23,23 @@ import {
 } from "@/lib/live-ice";
 import { createTRPCClient } from "@/lib/trpc";
 import { hostGenerationFromRestartSignal } from "@/shared/live-generation-restart";
+import { StatusMessage } from "./status-message";
+import {
+  liveHostLeaseFromJoin,
+  liveMediaStatusPresentation,
+  type LiveHostLease,
+} from "./design31-live-ui";
 import { terminateLiveTransportForError } from "./live-media-terminal";
 
 export type LiveMediaProps = {
   streamId: number;
   host: boolean;
+  currentUserId: number | null;
   onError?: (message: string) => void;
   /** Hosts receive their owned join generation; viewers receive no argument. */
   onReady?: (generation?: number) => void;
+  /** Hosts receive only their current authenticated join lease before readiness. */
+  onHostLease?: (lease: LiveHostLease) => void;
 };
 
 type SignalKind = "join" | "offer" | "answer" | "ice" | "leave";
@@ -186,10 +195,8 @@ function nativeIceConfiguration(
   };
 }
 
-function messageFor(error: unknown): string {
-  return error instanceof Error && error.message
-    ? error.message
-    : "Unable to connect to the live stream.";
+function messageFor(_error: unknown): string {
+  return "We couldn’t connect to the live stream. Check your connection and try again.";
 }
 
 function isNativeWebRTC(value: unknown): value is NativeWebRTC {
@@ -290,12 +297,14 @@ function parseCandidate(payload: string): EpochNativeCandidate {
 export default function LiveMedia({
   streamId,
   host,
+  currentUserId,
   onError,
   onReady,
+  onHostLease,
 }: LiveMediaProps) {
   const localStreamRef = useRef<NativeStream | null>(null);
   const peersRef = useRef<Map<number, PeerState>>(new Map());
-  const callbackRef = useRef({ onError, onReady });
+  const callbackRef = useRef({ onError, onReady, onHostLease });
   const [api] = useState<LiveApi>(
     () => createTRPCClient() as unknown as LiveApi,
   );
@@ -312,10 +321,11 @@ export default function LiveMedia({
       ? "Live video needs a development or release build; Expo Go cannot load react-native-webrtc."
       : null;
   const displayedStatus = expoGoMessage ?? status;
+  const statusPresentation = liveMediaStatusPresentation(displayedStatus);
 
   useEffect(() => {
-    callbackRef.current = { onError, onReady };
-  }, [onError, onReady]);
+    callbackRef.current = { onError, onReady, onHostLease };
+  }, [onError, onHostLease, onReady]);
 
   useEffect(() => {
     if (expoGoMessage) {
@@ -899,6 +909,14 @@ export default function LiveMedia({
         joined = true;
         ownedHostGeneration = host ? session.generation : null;
         if (!active) return ownedHostGeneration;
+        const hostLease = liveHostLeaseFromJoin({
+          host,
+          streamId,
+          generation: session.generation,
+          joinedHostId: session.hostId,
+          currentUserId,
+        });
+        if (hostLease) callbackRef.current.onHostLease?.(hostLease);
         await applyRelayCredentials(session.ice, false);
 
         if (host) {
@@ -1030,7 +1048,7 @@ export default function LiveMedia({
         lifecycle.complete(lifecycleToken);
       });
     };
-  }, [api, expoGoMessage, host, lifecycle, streamId]);
+  }, [api, currentUserId, expoGoMessage, host, lifecycle, streamId]);
 
   return (
     <View>
@@ -1043,9 +1061,20 @@ export default function LiveMedia({
             mirror={host}
           />
         ) : null}
-        {displayedStatus !== "Live" ? (
-          <View style={styles.overlay}>
-            <Text style={styles.status}>{displayedStatus}</Text>
+        {statusPresentation.message ? (
+          <View style={styles.overlay} pointerEvents="none">
+            <View
+              style={[
+                styles.statusBackplate,
+                { backgroundColor: statusPresentation.backplateColor },
+              ]}
+            >
+              <StatusMessage
+                message={statusPresentation.message}
+                tone={statusPresentation.tone}
+                style={styles.status}
+              />
+            </View>
           </View>
         ) : null}
       </View>
@@ -1072,9 +1101,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     padding: 16,
-    backgroundColor: "rgba(0,0,0,0.45)",
   },
-  status: { color: "#fff", textAlign: "center" },
+  statusBackplate: {
+    maxWidth: "100%",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  status: {
+    fontSize: 14,
+    fontWeight: "600",
+    lineHeight: 20,
+    textAlign: "center",
+  },
   networkNote: {
     paddingHorizontal: 14,
     paddingTop: 10,

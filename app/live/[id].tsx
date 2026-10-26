@@ -20,6 +20,7 @@ import {
   type LiveOperationScope,
 } from "@/lib/batch4-live-operation-scope";
 import { AppShell } from "@/components/app-shell";
+import { StatusMessage } from "@/components/status-message";
 import { UserAvatar } from "@/components/user-avatar";
 import {
   Avatar,
@@ -32,6 +33,11 @@ import {
   s,
   T,
 } from "@/components/circles-ui";
+import {
+  acceptCurrentLiveHostLease,
+  currentLiveHostEndInput,
+  type LiveHostLease,
+} from "@/components/design31-live-ui";
 import LiveMedia from "@/components/live-media";
 
 function RetryableLiveError({
@@ -108,10 +114,8 @@ function LiveSessionScreen({
   const [isLiveChatSubmitting, setIsLiveChatSubmitting] = useState(false);
   const [mediaError, setMediaError] = useState("");
   const [ready, setReady] = useState(false);
-  const [hostMediaSession, setHostMediaSession] = useState<{
-    streamId: number;
-    generation: number;
-  } | null>(null);
+  const [hostMediaSession, setHostMediaSession] =
+    useState<LiveHostLease | null>(null);
   const [endConfirm, setEndConfirm] = useState(false);
   const { width, height } = useWindowDimensions();
   const wide = width >= 900;
@@ -123,10 +127,14 @@ function LiveSessionScreen({
     hasContent: !!lives.data,
   });
   const host = !!user && live?.host.id === user.id;
-  const hostGeneration =
-    host && hostMediaSession?.streamId === streamId
-      ? hostMediaSession.generation
-      : null;
+  const hostEndInput = currentLiveHostEndInput({
+    host,
+    streamId,
+    lease: hostMediaSession,
+  });
+  const hostGeneration = hostEndInput?.generation ?? null;
+  const hostExitActionTitle = ready ? "End live session" : "Leave camera setup";
+  const awaitingHostLease = hostGeneration === null;
   // This descriptor remains useful for source-level account/stream diagnostics,
   // but is never the completion authority on its own.
   const liveScope = `${user?.id ?? "guest"}:${streamId}`;
@@ -236,11 +244,9 @@ function LiveSessionScreen({
         if (!isCurrentLiveScope(operationScope)) return;
         setText("");
         void refetchChat(operationScope);
-      } catch (error) {
+      } catch {
         if (!isCurrentLiveScope(operationScope)) return;
-        notify(
-          error instanceof Error ? error.message : "Unable to send message.",
-        );
+        notify("We couldn’t send your message. Try again.", "error");
       } finally {
         if (isCurrentLiveScope(operationScope)) {
           setIsLiveChatSubmitting(false);
@@ -268,9 +274,9 @@ function LiveSessionScreen({
           if (!isCurrentLiveScope(operationScope)) return;
           void refetchChat(operationScope);
         },
-        onError: (error) => {
+        onError: () => {
           if (!isCurrentLiveScope(operationScope)) return;
-          notify(error.message);
+          notify("We couldn’t send that reaction. Try again.", "error");
         },
         onSettled: () => {
           if (!isCurrentLiveScope(operationScope)) return;
@@ -297,12 +303,12 @@ function LiveSessionScreen({
       {
         onSuccess: () => {
           if (!isCurrentLiveScope(operationScope)) return;
-          notify("Your live moment is complete.");
+          notify("Your live moment is complete.", "success");
           router.replace("/live");
         },
-        onError: (error) => {
+        onError: () => {
           if (!isCurrentLiveScope(operationScope)) return;
-          notify(error.message);
+          notify("We couldn’t end this live moment. Try again.", "error");
         },
         onSettled: () => {
           if (!isCurrentLiveScope(operationScope)) return;
@@ -326,17 +332,25 @@ function LiveSessionScreen({
     },
     [captureLiveOperationScope, isCurrentLiveScope],
   );
-  const handleLiveMediaReady = useCallback(
-    (generation?: number) => {
+  const handleLiveHostLease = useCallback(
+    (lease: LiveHostLease) => {
       const operationScope = captureLiveOperationScope();
-      if (!isCurrentLiveScope(operationScope)) return;
-      setReady(true);
-      if (host && generation !== undefined) {
-        setHostMediaSession({ streamId, generation });
-      }
+      if (!isCurrentLiveScope(operationScope) || !host) return;
+      setHostMediaSession((currentLease) =>
+        acceptCurrentLiveHostLease({
+          streamId,
+          currentLease,
+          candidate: lease,
+        }),
+      );
     },
     [captureLiveOperationScope, host, isCurrentLiveScope, streamId],
   );
+  const handleLiveMediaReady = useCallback(() => {
+    const operationScope = captureLiveOperationScope();
+    if (!isCurrentLiveScope(operationScope)) return;
+    setReady(true);
+  }, [captureLiveOperationScope, isCurrentLiveScope]);
   return (
     <AppShell sidebar={false} scroll={false}>
       <KeyboardAvoidingView
@@ -403,7 +417,9 @@ function LiveSessionScreen({
                 <LiveMedia
                   streamId={streamId}
                   host={host}
+                  currentUserId={user?.id ?? null}
                   onError={handleLiveMediaError}
+                  onHostLease={handleLiveHostLease}
                   onReady={handleLiveMediaReady}
                 />
                 <View
@@ -437,9 +453,12 @@ function LiveSessionScreen({
                     marginTop: 15,
                   }}
                 >
-                  <T style={{ color: C.secondary, fontSize: 12 }}>
-                    {mediaError}
-                  </T>
+                  <StatusMessage
+                    message={mediaError}
+                    tone="error"
+                    announce={false}
+                    style={{ fontSize: 12 }}
+                  />
                 </View>
               )}
               <View style={[s.row, { gap: 13, marginVertical: 20 }]}>
@@ -489,7 +508,7 @@ function LiveSessionScreen({
               </View>
               {host && (
                 <Button
-                  title="End live session"
+                  title={hostExitActionTitle}
                   secondary
                   icon="stop-circle-outline"
                   onPress={() => setEndConfirm(true)}
@@ -656,16 +675,26 @@ function LiveSessionScreen({
                 }}
               >
                 <T style={{ fontWeight: "700", fontSize: 20 }}>
-                  Wrap up the moment?
+                  {ready ? "Wrap up the moment?" : "Leave camera setup?"}
                 </T>
                 <T style={{ color: C.secondary }}>
-                  Ending this broadcast disconnects your viewers and turns off
-                  your camera and microphone.
+                  {awaitingHostLease
+                    ? "We’re securing your live session. Leave camera setup will be available as soon as your current session is ready."
+                    : ready
+                      ? "Ending this broadcast disconnects your viewers and turns off your camera and microphone."
+                      : "Leaving camera setup disconnects your viewers and turns off your camera and microphone."}
                 </T>
+                {awaitingHostLease ? (
+                  <StatusMessage
+                    message="Waiting for your secure live-session lease before camera setup can be cancelled."
+                    tone="info"
+                    style={{ fontSize: 13, lineHeight: 19 }}
+                  />
+                ) : null}
                 <Button
-                  title="End live session"
+                  title={hostExitActionTitle}
                   onPress={endLiveSession}
-                  disabled={end.isPending || hostGeneration === null}
+                  disabled={end.isPending || awaitingHostLease}
                   loading={end.isPending}
                 />
                 <Button

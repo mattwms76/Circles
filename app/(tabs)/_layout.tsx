@@ -52,7 +52,7 @@ function TabBar({ state, navigation }: TabBarProps) {
                 style={{
                   width: 44,
                   height: 44,
-                  backgroundColor: C.coral,
+                  backgroundColor: C.action,
                   alignItems: "center",
                   justifyContent: "center",
                   borderRadius: 15,
@@ -72,13 +72,13 @@ function TabBar({ state, navigation }: TabBarProps) {
               <Icon
                 name={selected ? item[1] : item[0]}
                 size={23}
-                color={selected ? C.coral : C.secondary}
+                color={selected ? C.action : C.secondary}
               />
               <T
                 style={{
                   fontSize: 12,
                   lineHeight: 17,
-                  color: selected ? C.coral : C.secondary,
+                  color: selected ? C.action : C.secondary,
                   fontWeight: selected ? "700" : "500",
                 }}
               >

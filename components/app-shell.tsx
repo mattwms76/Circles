@@ -5,6 +5,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
 import { appShellLayout } from "@/lib/app-shell-layout";
+import type { StatusTone } from "@/lib/status-announcement";
+import {
+  resolveAppNavigationSection,
+  type AppNavigationSection,
+} from "@/lib/app-navigation-state";
 import {
   batch1OperationIdentityMatches,
   batch1OperationKey,
@@ -27,6 +32,7 @@ import {
 } from "./circles-ui";
 import { Image } from "@/components/media-image";
 import { ActivityBadge } from "./activity-badge";
+import { StatusMessage } from "./status-message";
 import { UserAvatar } from "./user-avatar";
 
 export const navigation: {
@@ -34,37 +40,49 @@ export const navigation: {
   path: string;
   icon: IconName;
   active: IconName;
+  section: AppNavigationSection;
 }[] = [
-  { label: "Home", path: "/", icon: "home-outline", active: "home" },
+  {
+    label: "Home",
+    path: "/",
+    icon: "home-outline",
+    active: "home",
+    section: "home",
+  },
   {
     label: "Discover",
     path: "/discover",
     icon: "compass-outline",
     active: "compass",
+    section: "discover",
   },
   {
     label: "My circles",
     path: "/circles",
     icon: "ellipse-outline",
     active: "ellipse",
+    section: "circles",
   },
   {
     label: "Updates",
     path: "/updates",
     icon: "notifications-outline",
     active: "notifications",
+    section: "updates",
   },
   {
     label: "Messages",
     path: "/messages",
     icon: "chatbubble-ellipses-outline",
     active: "chatbubble-ellipses",
+    section: "messages",
   },
   {
     label: "Profile",
     path: "/profile",
     icon: "person-outline",
     active: "person",
+    section: "profile",
   },
 ];
 export function AppShell({
@@ -83,6 +101,7 @@ export function AppShell({
   const insets = useSafeAreaInsets();
   const layout = appShellLayout(width, insets);
   const { wide, gutter } = layout;
+  const selectedSection = resolveAppNavigationSection(path);
   const myProfile = trpc.social.profile.useQuery({}, { enabled: !!user });
   return (
     <View
@@ -240,13 +259,14 @@ export function AppShell({
       >
         {wide && (
           <View
+            testID="app-shell-wide-rail"
             style={{
               width: 226,
               borderRightWidth: 1,
               borderColor: C.border,
               paddingHorizontal: 25,
               paddingTop: 30,
-              paddingBottom: 24,
+              paddingBottom: Math.max(24, insets.bottom + 16),
             }}
           >
             <T style={[s.eyebrow, { marginBottom: 22, paddingLeft: 14 }]}>
@@ -254,14 +274,14 @@ export function AppShell({
             </T>
             <View style={{ gap: 7 }}>
               {navigation.map((item) => {
-                const selected =
-                  item.path === "/" ? path === "/" : path.startsWith(item.path);
+                const selected = selectedSection === item.section;
                 return (
                   <Pressable
                     key={item.path}
                     onPress={() => router.push(item.path as any)}
                     accessibilityRole="button"
                     accessibilityLabel={`Open ${item.label}`}
+                    accessibilityState={{ selected }}
                     style={{
                       flexDirection: "row",
                       alignItems: "center",
@@ -275,13 +295,13 @@ export function AppShell({
                   >
                     <Icon
                       name={selected ? item.active : item.icon}
-                      color={selected ? C.coral : C.muted}
+                      color={selected ? C.action : C.muted}
                       size={22}
                     />
                     <T
                       style={{
                         fontWeight: selected ? "700" : "500",
-                        color: selected ? C.coral : C.ink,
+                        color: selected ? C.action : C.ink,
                         fontSize: 13,
                       }}
                     >
@@ -294,7 +314,7 @@ export function AppShell({
                           width: 5,
                           height: 5,
                           borderRadius: 3,
-                          backgroundColor: C.coral,
+                          backgroundColor: C.action,
                         }}
                       />
                     )}
@@ -303,21 +323,40 @@ export function AppShell({
               })}
               <Pressable
                 onPress={() => router.push("/live")}
+                accessibilityRole="button"
+                accessibilityLabel="Open Live now"
+                accessibilityState={{ selected: selectedSection === "live" }}
                 style={{
                   flexDirection: "row",
                   alignItems: "center",
                   gap: 15,
                   paddingVertical: 14,
                   paddingHorizontal: 15,
+                  minHeight: 44,
+                  borderRadius: 12,
+                  backgroundColor:
+                    selectedSection === "live" ? C.soft : "transparent",
                 }}
               >
-                <Icon name="radio-outline" color={C.muted} />
-                <T style={{ fontSize: 13 }}>Live now</T>
+                <Icon
+                  name="radio-outline"
+                  color={selectedSection === "live" ? C.action : C.muted}
+                />
+                <T
+                  style={{
+                    fontSize: 13,
+                    fontWeight: selectedSection === "live" ? "700" : "500",
+                    color: selectedSection === "live" ? C.action : C.ink,
+                  }}
+                >
+                  Live now
+                </T>
                 <View
                   style={{
                     width: 6,
                     height: 6,
-                    backgroundColor: C.coral,
+                    backgroundColor:
+                      selectedSection === "live" ? C.action : C.coral,
                     borderRadius: 3,
                     marginLeft: "auto",
                   }}
@@ -375,6 +414,7 @@ export function AppShell({
         </View>
         {layout.showSidebar && sidebar && (
           <ScrollView
+            testID="app-shell-community-sidebar"
             showsHorizontalScrollIndicator={false}
             style={{
               width: 296,
@@ -385,7 +425,8 @@ export function AppShell({
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{
               paddingHorizontal: 24,
-              paddingVertical: 30,
+              paddingTop: 30,
+              paddingBottom: Math.max(30, insets.bottom + 16),
             }}
           >
             <CommunitySidebar />
@@ -422,7 +463,7 @@ function SidebarCircleRow({
   circle: SidebarCircle;
   onOpen: () => void;
   requireAuth: (action: () => void) => void;
-  notify: (message: string) => void;
+  notify: (message: string, tone?: StatusTone) => void;
 }) {
   const utils = trpc.useUtils();
   const join = trpc.social.joinCircle.useMutation();
@@ -476,6 +517,7 @@ function SidebarCircleRow({
             result.role === "pending"
               ? "Your request is with the circle owner."
               : "You’re a little closer. Circle joined!",
+            "success",
           );
         } catch {
           if (!scopeIsCurrent(scope)) return;
@@ -484,7 +526,7 @@ function SidebarCircleRow({
               ? `Couldn’t request to join ${circle.name}. Check your connection and try again.`
               : `Couldn’t join ${circle.name}. Check your connection and try again.`;
           setJoinError({ scope, message });
-          notify(message);
+          notify(message, "error");
         } finally {
           if (!scopeIsCurrent(scope)) return;
           setPendingJoinScope((current) =>
@@ -518,20 +560,26 @@ function SidebarCircleRow({
   return (
     <View style={{ gap: 6 }}>
       <View style={[s.row, { gap: 10 }]}>
-        <Pressable onPress={onOpen}>
+        <Pressable
+          onPress={onOpen}
+          accessibilityRole="button"
+          accessibilityLabel={`Open ${circle.name}`}
+          style={[s.row, { flex: 1, minWidth: 0, minHeight: 46, gap: 10 }]}
+        >
           <Image
             source={{ uri: circle.image }}
+            accessible={false}
             style={{ width: 46, height: 46, borderRadius: 13 }}
             contentFit="cover"
           />
-        </Pressable>
-        <Pressable onPress={onOpen} style={{ flex: 1 }}>
-          <T style={{ fontSize: 12, fontWeight: "700" }}>{circle.name}</T>
-          <T style={{ fontSize: 10, color: C.muted }}>
-            {circle.memberCount}{" "}
-            {circle.memberCount === 1 ? "member" : "members"} ·{" "}
-            {circle.category}
-          </T>
+          <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+            <T style={{ fontSize: 12, fontWeight: "700" }}>{circle.name}</T>
+            <T style={{ fontSize: 10, color: C.muted }}>
+              {circle.memberCount}{" "}
+              {circle.memberCount === 1 ? "member" : "members"} ·{" "}
+              {circle.category}
+            </T>
+          </View>
         </Pressable>
         <Button
           title={circle.joined ? "Open" : requested ? "Requested" : "Join"}
@@ -565,6 +613,7 @@ export function CommunitySidebar() {
   const circles = trpc.social.circles.useQuery({});
   const { user, requireAuth, notify } = useCircles();
   const accountId = user?.id ?? null;
+  const recommendedCircles = circles.data ?? [];
 
   return (
     <View style={{ gap: 27 }}>
@@ -578,22 +627,55 @@ export function CommunitySidebar() {
         <T style={{ color: C.muted, fontSize: 12, lineHeight: 19 }}>
           Small communities. Big connections.
         </T>
-        {(circles.data || []).slice(0, 3).map((circle) => (
-          <SidebarCircleRow
-            key={`${accountId ?? "anonymous"}:${circle.id}`}
-            accountId={accountId}
-            circle={circle}
-            onOpen={() => router.push(`/circle/${circle.id}`)}
-            requireAuth={requireAuth}
-            notify={notify}
-          />
-        ))}
+        {circles.isLoading ? (
+          <T
+            testID="sidebar-circles-loading"
+            style={{ color: C.secondary, fontSize: 12, lineHeight: 18 }}
+          >
+            Loading circle recommendations…
+          </T>
+        ) : circles.isError ? (
+          <View testID="sidebar-circles-error" style={{ gap: 10 }}>
+            <StatusMessage
+              message="We couldn’t load circle recommendations. Check your connection and try again."
+              tone="error"
+            />
+            <Button
+              title="Try again"
+              secondary
+              onPress={() => {
+                void circles.refetch();
+              }}
+              style={{ alignSelf: "flex-start" }}
+            />
+          </View>
+        ) : recommendedCircles.length === 0 ? (
+          <T
+            testID="sidebar-circles-empty"
+            style={{ color: C.secondary, fontSize: 12, lineHeight: 18 }}
+          >
+            No circle recommendations right now.
+          </T>
+        ) : (
+          recommendedCircles
+            .slice(0, 3)
+            .map((circle) => (
+              <SidebarCircleRow
+                key={`${accountId ?? "anonymous"}:${circle.id}`}
+                accountId={accountId}
+                circle={circle}
+                onOpen={() => router.push(`/circle/${circle.id}`)}
+                requireAuth={requireAuth}
+                notify={notify}
+              />
+            ))
+        )}
         <Pressable
           accessibilityRole="button"
           onPress={() => router.push("/circles")}
           style={{ minHeight: 44, justifyContent: "center" }}
         >
-          <T style={{ color: C.coral, fontWeight: "600", fontSize: 12 }}>
+          <T style={{ color: C.action, fontWeight: "600", fontSize: 12 }}>
             Explore all circles ↗
           </T>
         </Pressable>
@@ -628,7 +710,7 @@ export function CommunitySidebar() {
         >
           {"Good things start\nwith a circle."}
         </T>
-        <T style={{ color: "#75816E", fontSize: 12, lineHeight: 19 }}>
+        <T style={{ color: C.secondary, fontSize: 12, lineHeight: 19 }}>
           A space for your people, your passions, and everything in between.
         </T>
         <Button
@@ -654,7 +736,7 @@ export function CommunitySidebar() {
           style={{ height: 118, width: "100%", borderRadius: 13 }}
           contentFit="cover"
         />
-        <T style={{ color: "#A0A497", fontSize: 10, lineHeight: 17 }}>
+        <T style={{ color: C.secondary, fontSize: 10, lineHeight: 17 }}>
           Community preview · Example creator profiles and curated starter
           posts.
         </T>

@@ -1,12 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { createTRPCClient } from "@/lib/trpc";
+import type { LiveHostLease } from "./design31-live-ui";
+import { StatusMessage } from "./status-message";
 
 export type LiveMediaProps = {
   streamId: number;
   host: boolean;
+  currentUserId: number | null;
   onError?: (message: string) => void;
   onReady?: (generation?: number) => void;
+  onHostLease?: (lease: LiveHostLease) => void;
 };
 
 /** Graceful fallback for an unsupported platform; web and native use platform files. */
@@ -35,8 +39,10 @@ export default function LiveMedia({ streamId, host, onError }: LiveMediaProps) {
   }, [client, host, streamId]);
 
   return (
-    <View style={styles.frame} accessibilityRole="alert">
-      <Text style={styles.message}>{message}</Text>
+    <View style={styles.frame}>
+      <View style={styles.statusBackplate}>
+        <StatusMessage message={message} tone="error" style={styles.message} />
+      </View>
     </View>
   );
 }
@@ -51,5 +57,11 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: "#161616",
   },
-  message: { color: "#fff", textAlign: "center" },
+  statusBackplate: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  message: { textAlign: "center" },
 });

@@ -6,6 +6,7 @@ import { useCircles } from "@/hooks/circles-context";
 import { activityScopeKey } from "@/lib/activity-ui";
 import {
   Button,
+  C,
   Empty,
   IconButton,
   Loading,
@@ -15,20 +16,30 @@ import {
 
 export default function ActivityPreferencesScreen() {
   const router = useRouter();
-  const { authState, showLogin, user } = useCircles();
+  const { authState, refresh, showLogin, user } = useCircles();
 
   return (
     <AppShell>
-      {!user && authState === "checking" ? (
+      {authState === "checking" ? (
         <Loading />
-      ) : !user ? (
-        <Empty
-          icon="options-outline"
-          title="Choose your Updates after signing in."
-          text="Sign in to decide which future activity belongs in your inbox."
-          action="Sign in"
-          onAction={showLogin}
-        />
+      ) : authState === "error" || !user ? (
+        authState === "guest" ? (
+          <Empty
+            icon="options-outline"
+            title="Choose your Updates after signing in."
+            text="Sign in to decide which future activity belongs in your inbox."
+            action="Sign in"
+            onAction={showLogin}
+          />
+        ) : (
+          <Empty
+            icon="alert-circle-outline"
+            title="We couldn’t check your sign-in."
+            text="Check your connection, then try again before changing update preferences."
+            action="Try again"
+            onAction={refresh}
+          />
+        )
       ) : (
         <View style={{ gap: 18 }}>
           <View style={[s.between, { gap: 12 }]}>
@@ -42,7 +53,7 @@ export default function ActivityPreferencesScreen() {
               onPress={() => router.replace("/updates")}
             />
           </View>
-          <T style={{ color: "#888B84", fontSize: 14, lineHeight: 21 }}>
+          <T style={{ color: C.secondary, fontSize: 14, lineHeight: 21 }}>
             Make Updates fit the way you want to keep up with your circles.
           </T>
           <ActivityPreferencesPanel

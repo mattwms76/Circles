@@ -9,6 +9,7 @@ export type ThemeLabPreviewTokenName =
   | "foreground"
   | "muted"
   | "border"
+  | "controlBorder"
   | "success"
   | "warning"
   | "error"
@@ -29,6 +30,7 @@ export const themeLabPreviewPalettes = {
     foreground: "#242825",
     muted: "#4D5948",
     border: "#D0D3C8",
+    controlBorder: "#6B7566",
     success: "#3F6541",
     warning: "#6C5100",
     error: "#A53728",
@@ -41,6 +43,7 @@ export const themeLabPreviewPalettes = {
     foreground: "#F2F3EE",
     muted: "#C2C8BD",
     border: "#4B5148",
+    controlBorder: "#AAB4A7",
     success: "#B9D6AE",
     warning: "#F1CC77",
     error: "#FFB4A6",
@@ -55,6 +58,7 @@ export const themeLabPreviewTokenNames = [
   "foreground",
   "muted",
   "border",
+  "controlBorder",
   "success",
   "warning",
   "error",
@@ -72,6 +76,46 @@ export const themeLabPreviewActions = [
   background: ThemeLabPreviewTokenName;
   foreground: ThemeLabPreviewTokenName;
 }[];
+
+export type ThemeLabPreviewSchemeToggleColors = {
+  isSelected: boolean;
+  backgroundColor: string;
+  borderColor: string;
+  titleColor: string;
+  subtitleColor: string;
+};
+
+/**
+ * Palette selection remains route-local React state. These colors make the
+ * radio-card boundary distinguishable from both the card fill and page
+ * background without changing any app-wide theme preference.
+ */
+export function getThemeLabPreviewSchemeToggleColors(
+  previewScheme: ThemeLabPreviewScheme,
+  optionScheme: ThemeLabPreviewScheme,
+): ThemeLabPreviewSchemeToggleColors {
+  const palette = themeLabPreviewPalettes[previewScheme];
+  const optionPalette = themeLabPreviewPalettes[optionScheme];
+  const isSelected = previewScheme === optionScheme;
+
+  if (isSelected) {
+    return {
+      isSelected,
+      backgroundColor: optionPalette.primary,
+      borderColor: optionPalette.primary,
+      titleColor: optionPalette.actionForeground,
+      subtitleColor: optionPalette.actionForeground,
+    };
+  }
+
+  return {
+    isSelected,
+    backgroundColor: palette.surface,
+    borderColor: palette.controlBorder,
+    titleColor: palette.foreground,
+    subtitleColor: palette.muted,
+  };
+}
 
 export function formatThemeLabPreviewTokenName(
   name: ThemeLabPreviewTokenName,

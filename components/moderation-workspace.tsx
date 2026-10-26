@@ -33,7 +33,13 @@ import {
   invalidateModerationViews,
   invalidatePostFeeds,
 } from "@/lib/source-query-invalidation";
+import { StatusMessage } from "@/components/status-message";
 import { ago, Button, C, Empty, Icon, Loading, s, T } from "./circles-ui";
+
+type ResolutionStatus = {
+  message: string;
+  tone: "info" | "success" | "error";
+};
 
 function isModerationConflict(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
@@ -150,8 +156,8 @@ export function ModerationWorkspace({
   const [filter, setFilter] = useState<ModerationFilter>("open");
   const [selectedCaseId, setSelectedCaseId] = useState<number | null>(null);
   const [note, setNote] = useState("");
-  const [noteError, setNoteError] = useState<string | null>(null);
-  const [writeError, setWriteError] = useState<string | null>(null);
+  const [resolutionStatus, setResolutionStatus] =
+    useState<ResolutionStatus | null>(null);
   const [pendingDecision, setPendingDecision] =
     useState<ModerationDecision | null>(null);
   const [webRemoveConfirmation, setWebRemoveConfirmation] = useState(false);
@@ -238,7 +244,7 @@ export function ModerationWorkspace({
     // enter it, while a confirmed role/session loss immediately clears the sensitive draft.
     setClearedAuthorityScope(authorityLossScope);
     setNote("");
-    setNoteError(null);
+    setResolutionStatus(null);
     setWebRemoveConfirmation(false);
   }
 
@@ -249,8 +255,7 @@ export function ModerationWorkspace({
       setFilter(nextFilter);
       setSelectedCaseId(null);
       setNote("");
-      setNoteError(null);
-      setWriteError(null);
+      setResolutionStatus(null);
       setWebRemoveConfirmation(false);
     },
     [pendingDecision],
@@ -262,8 +267,7 @@ export function ModerationWorkspace({
       selectedCaseRef.current = caseId;
       setSelectedCaseId(caseId);
       setNote("");
-      setNoteError(null);
-      setWriteError(null);
+      setResolutionStatus(null);
       setWebRemoveConfirmation(false);
     },
     [pendingDecision, queueState.isAuthorityAvailable],
@@ -274,15 +278,13 @@ export function ModerationWorkspace({
     selectedCaseRef.current = null;
     setSelectedCaseId(null);
     setNote("");
-    setNoteError(null);
-    setWriteError(null);
+    setResolutionStatus(null);
     setWebRemoveConfirmation(false);
   }, [pendingDecision]);
 
   const updateNote = useCallback((value: string) => {
     setNote(boundModerationNote(value));
-    setNoteError(null);
-    setWriteError(null);
+    setResolutionStatus(null);
   }, []);
 
   const refreshResolvedCase = useCallback(
@@ -319,15 +321,20 @@ export function ModerationWorkspace({
 
       const validationError = validateModerationNote(note);
       if (validationError) {
-        setNoteError(validationError);
+        setResolutionStatus({ message: validationError, tone: "error" });
         return;
       }
 
       const capturedScope = scopeKey;
       const submittedNote = serializeModerationNote(note);
       setPendingDecision(decision);
-      setWriteError(null);
-      setNoteError(null);
+      setResolutionStatus({
+        message:
+          decision === "keep"
+            ? "Recording Keep decision…"
+            : "Recording Remove decision…",
+        tone: "info",
+      });
       setWebRemoveConfirmation(false);
 
       void (async () => {
@@ -343,7 +350,18 @@ export function ModerationWorkspace({
 
           // A scope-guarded fresh detail response, not a stale mutation completion, becomes the UI authority.
           setNote("");
-          await refreshResolvedCase(capturedScope, caseId);
+          const isFreshResolvedCase = await refreshResolvedCase(
+            capturedScope,
+            caseId,
+          );
+          if (!isFreshResolvedCase) return;
+          setResolutionStatus({
+            message:
+              decision === "keep"
+                ? "Keep decision recorded."
+                : "Remove decision recorded.",
+            tone: "success",
+          });
         } catch (caught) {
           if (!isCurrentCase(capturedScope, caseId)) return;
           if (isModerationConflict(caught)) {
@@ -358,14 +376,11 @@ export function ModerationWorkspace({
           }
           if (isConfirmedModerationAuthorityLoss(caught)) {
             setNote("");
-            setNoteError(null);
             setWebRemoveConfirmation(false);
           }
-          setWriteError(
-            caught instanceof Error && caught.message
-              ? caught.message
-              : "We couldn’t record that decision. Please try again.",
-          );
+          const failureMessage =
+            "We couldn’t record that decision. Please try again.";
+          setResolutionStatus({ message: failureMessage, tone: "error" });
           // A recoverable error intentionally leaves the user-authored note in place.
         } finally {
           if (isCurrentCase(capturedScope, caseId)) {
@@ -494,12 +509,26 @@ export function ModerationWorkspace({
                   {item.reportCount === 1 ? "report" : "reports"} · last
                   reported {ago(item.lastReportedAt)}
                 </T>
+                <StatusMessage
+                  message={resolutionStatus?.message}
+                  tone={resolutionStatus?.tone}
+                  testID="moderation-resolution-status"
+                  style={styles.statusMessage}
+                />
               </View>
 
               <View style={[s.card, styles.section]}>
                 <T style={styles.sectionTitle}>Current moment</T>
                 {selected.post ? (
-                  <PostCard post={selected.post} />
+                  <>
+                    <T
+                      accessibilityLabel={`Reported moment by ${selected.post.author.name}`}
+                      style={styles.reportedAuthor}
+                    >
+                      Reported moment by {selected.post.author.name}
+                    </T>
+                    <PostCard post={selected.post} />
+                  </>
                 ) : (
                   <View style={styles.unavailableTarget}>
                     <Icon
@@ -587,7 +616,7 @@ export function ModerationWorkspace({
                       editable={!controlsDisabled}
                       multiline
                       placeholder="Optional note for the review history"
-                      placeholderTextColor="#A0A299"
+                      placeholderTextColor={C.secondary}
                       style={[
                         styles.noteInput,
                         controlsDisabled && styles.disabled,
@@ -596,10 +625,6 @@ export function ModerationWorkspace({
                     <T style={styles.noteCount}>
                       {moderationTextLength(note)}/{MODERATION_NOTE_MAX}
                     </T>
-                    {noteError ? <T style={styles.error}>{noteError}</T> : null}
-                    {writeError ? (
-                      <T style={styles.error}>{writeError}</T>
-                    ) : null}
                     <View style={styles.decisionActions}>
                       <Button
                         title={
@@ -796,8 +821,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 4,
   },
-  backText: { color: C.green, fontSize: 13, fontWeight: "700" },
+  backText: { color: C.action, fontSize: 13, fontWeight: "700" },
   headingCopy: { color: C.muted, fontSize: 14, lineHeight: 21 },
+  statusMessage: { fontSize: 13, lineHeight: 19 },
   filters: { flexDirection: "row", gap: 8 },
   filter: {
     minHeight: 44,
@@ -834,6 +860,12 @@ const styles = StyleSheet.create({
   caseDetail: { color: C.muted, fontSize: 12, lineHeight: 18 },
   section: { padding: 16, gap: 12 },
   sectionTitle: { fontSize: 17, lineHeight: 23, fontWeight: "700" },
+  reportedAuthor: {
+    color: C.secondary,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "700",
+  },
   unavailableTarget: {
     padding: 14,
     borderRadius: 12,
@@ -856,7 +888,7 @@ const styles = StyleSheet.create({
   },
   reasonText: { flex: 1, minWidth: 0, fontSize: 13, lineHeight: 19 },
   reasonCount: {
-    color: C.green,
+    color: C.secondary,
     fontSize: 12,
     lineHeight: 18,
     fontWeight: "700",
@@ -870,7 +902,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   finalTitle: {
-    color: C.green,
+    color: C.secondary,
     fontSize: 14,
     lineHeight: 20,
     fontWeight: "700",
@@ -907,7 +939,6 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     textAlign: "right",
   },
-  error: { color: "#B44335", fontSize: 13, lineHeight: 19 },
   decisionActions: { flexDirection: "row", alignItems: "stretch", gap: 9 },
   webConfirmation: {
     gap: 10,

@@ -22,7 +22,8 @@ export const C = {
   bg: "#F9F8F5",
   paper: "#FFFFFF",
   ink: "#242825",
-  muted: "#888B84",
+  /** Accessible ordinary-copy default; decorative low-contrast colors stay explicit. */
+  muted: UI_ACCESSIBLE_COLORS.secondary,
   secondary: UI_ACCESSIBLE_COLORS.secondary,
   border: "#E8E9E2",
   coral: "#ED604A",
@@ -157,7 +158,7 @@ export function Avatar({
               <T
                 style={{
                   fontWeight: "700",
-                  color: C.green,
+                  color: C.secondary,
                   fontSize: size * 0.34,
                 }}
               >
@@ -178,7 +179,11 @@ export function Avatar({
           }}
         >
           <T
-            style={{ fontWeight: "700", color: C.green, fontSize: size * 0.34 }}
+            style={{
+              fontWeight: "700",
+              color: C.secondary,
+              fontSize: size * 0.34,
+            }}
           >
             {name.slice(0, 1).toUpperCase() || "C"}
           </T>
@@ -386,17 +391,7 @@ export function Pill({
     </Pressable>
   );
 }
-export function Input({
-  value,
-  onChangeText,
-  placeholder,
-  multiline,
-  label,
-  secureTextEntry,
-  accessibilityLabel,
-  style,
-  ...inputProps
-}: {
+export type InputProps = {
   value: string;
   onChangeText: (value: string) => void;
   placeholder?: string;
@@ -404,15 +399,32 @@ export function Input({
   label?: string;
   secureTextEntry?: boolean;
   accessibilityLabel?: string;
+  style?: React.ComponentPropsWithoutRef<typeof TextInput>["style"];
 } & Omit<
-  React.ComponentProps<typeof TextInput>,
+  React.ComponentPropsWithoutRef<typeof TextInput>,
   | "value"
   | "onChangeText"
   | "placeholder"
   | "multiline"
   | "secureTextEntry"
   | "accessibilityLabel"
->) {
+  | "style"
+>;
+
+export const Input = React.forwardRef<TextInput, InputProps>(function Input(
+  {
+    value,
+    onChangeText,
+    placeholder,
+    multiline,
+    label,
+    secureTextEntry,
+    accessibilityLabel,
+    style,
+    ...inputProps
+  },
+  ref,
+) {
   const resolvedAccessibilityLabel = accessibilityLabel ?? label ?? placeholder;
   return (
     <View style={{ gap: 7 }}>
@@ -422,12 +434,13 @@ export function Input({
         </T>
       )}
       <TextInput
+        ref={ref}
         {...inputProps}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
         accessibilityLabel={resolvedAccessibilityLabel}
-        placeholderTextColor={inputProps.placeholderTextColor ?? "#A0A299"}
+        placeholderTextColor={inputProps.placeholderTextColor ?? C.secondary}
         multiline={multiline}
         secureTextEntry={secureTextEntry}
         style={[
@@ -448,7 +461,7 @@ export function Input({
       />
     </View>
   );
-}
+});
 export function Empty({
   icon = "planet-outline",
   title,

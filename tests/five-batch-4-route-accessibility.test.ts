@@ -7,6 +7,7 @@ const liveLobby = readFileSync("app/live/index.tsx", "utf8");
 const liveScreen = readFileSync("app/live/[id].tsx", "utf8");
 const oauthCallback = readFileSync("app/oauth/callback.tsx", "utf8");
 const postCard = readFileSync("components/post-card.tsx", "utf8");
+const statusMessage = readFileSync("components/status-message.tsx", "utf8");
 
 describe("Batch 4 route contrast, status, and media accessibility", () => {
   it("keeps changed normal status and action pairs at normal-text contrast", () => {
@@ -87,7 +88,10 @@ describe("Batch 4 route contrast, status, and media accessibility", () => {
     );
     expect(oauthCallback).toContain("<ScrollView");
     expect(oauthCallback).toContain("flexGrow: 1");
-    expect(oauthCallback).toContain("color: C.secondary");
+    expect(oauthCallback).toContain("<StatusMessage");
+    expect(statusMessage).toContain(
+      'tone === "error" ? C.action : C.secondary',
+    );
     expect(oauthCallback).toContain("color: C.action");
     expect(oauthCallback).toContain("exchangeNativeOAuthCode(code, state)");
     expect(oauthCallback).toContain("await completeNativeLogin()");

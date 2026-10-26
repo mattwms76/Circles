@@ -1,6 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Image as ExpoImage, type ImageProps } from "expo-image";
-import { Platform, StyleSheet, View, type ViewStyle } from "react-native";
+import {
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  type ViewStyle,
+} from "react-native";
 import { getApiBaseUrl, getApiRequestUrl } from "@/constants/oauth";
 import { getSessionToken } from "@/lib/_core/auth";
 import { useCircles } from "@/hooks/circles-context-core";
@@ -69,7 +76,57 @@ export function useMediaSource(uri: string) {
   }, [requestKey, requiresNativeAuthorization, resolvedUri, tokenState]);
 }
 
-export type MediaImageProps = ImageProps & { fallback?: React.ReactNode };
+export type MediaImageProps = ImageProps & {
+  /** Rendered for a safe native-bearer wait and for generic image failures. */
+  fallback?: React.ReactNode;
+  /** A visible, truthful failure state for attachment callers. */
+  unavailableLabel?: string;
+  /** Lets consumers use the shared announced-status component inside a failure. */
+  unavailableContent?: React.ReactNode;
+  /** Optional caller cleanup when the user begins the single allowed retry. */
+  onRetry?: () => void;
+  retryLabel?: string;
+};
+
+export function MediaPlaceholder({
+  label,
+  style,
+  children,
+  onRetry,
+  retryLabel = "Retry attachment",
+  testID,
+}: {
+  label: string;
+  style?: ImageProps["style"];
+  children?: React.ReactNode;
+  onRetry?: () => void;
+  retryLabel?: string;
+  testID?: string;
+}) {
+  const canRetry = !!onRetry;
+  const exposeContainer = !children && !canRetry;
+  return (
+    <View
+      accessible={exposeContainer}
+      accessibilityRole={exposeContainer ? "image" : undefined}
+      accessibilityLabel={exposeContainer ? label : undefined}
+      testID={testID}
+      style={[styles.fallback, style as unknown as ViewStyle]}
+    >
+      {children ?? <View style={styles.neutralFallback} />}
+      {onRetry && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={retryLabel}
+          onPress={onRetry}
+          style={styles.retry}
+        >
+          <Text style={styles.retryText}>Try again</Text>
+        </Pressable>
+      )}
+    </View>
+  );
+}
 
 function sourceUri(source: ImageProps["source"]): string {
   if (typeof source === "string") return source;
@@ -90,6 +147,10 @@ export function Image({
   onError,
   style,
   fallback,
+  unavailableLabel,
+  unavailableContent,
+  onRetry,
+  retryLabel,
   ...props
 }: MediaImageProps) {
   const { user } = useCircles();
@@ -127,6 +188,10 @@ export function Image({
       onError={onError}
       style={style}
       fallback={fallback}
+      unavailableLabel={unavailableLabel}
+      unavailableContent={unavailableContent}
+      onRetry={onRetry}
+      retryLabel={retryLabel}
     />
   );
 }
@@ -136,9 +201,14 @@ function ImageRenderer({
   onError,
   style,
   fallback,
+  unavailableLabel,
+  unavailableContent,
+  onRetry,
+  retryLabel,
   ...props
 }: MediaImageProps) {
   const [failed, setFailed] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
   const handleError: NonNullable<ImageProps["onError"]> = (event) => {
     try {
       onError?.(event);
@@ -146,11 +216,51 @@ function ImageRenderer({
       setFailed(true);
     }
   };
+  const retry = () => {
+    if (retryCount > 0) return;
+    setRetryCount(1);
+    setFailed(false);
+    onRetry?.();
+  };
 
   // A protected native request deliberately receives source=null until this
   // account's bearer resolves. Do not replace that idle state with an
   // unauthenticated URI or a prior account's error fallback.
+  if (source === null) {
+    return (
+      <View
+        accessible={props.accessible}
+        accessibilityLabel={props.accessibilityLabel}
+        accessibilityHint={props.accessibilityHint}
+        accessibilityRole={props.accessibilityRole}
+        accessibilityState={props.accessibilityState}
+        accessibilityValue={props.accessibilityValue}
+        importantForAccessibility={props.importantForAccessibility}
+        nativeID={props.nativeID}
+        testID={props.testID}
+        style={[styles.fallback, style as unknown as ViewStyle]}
+      >
+        {fallback ?? <View style={styles.neutralFallback} />}
+      </View>
+    );
+  }
+
   if (failed && source !== null) {
+    if (unavailableLabel) {
+      return (
+        <MediaPlaceholder
+          label={unavailableLabel}
+          style={style}
+          testID={props.testID}
+          retryLabel={retryLabel ?? `Retry ${unavailableLabel.toLowerCase()}`}
+          onRetry={retryCount === 0 ? retry : undefined}
+        >
+          {unavailableContent ?? (
+            <Text style={styles.unavailableText}>{unavailableLabel}</Text>
+          )}
+        </MediaPlaceholder>
+      );
+    }
     return (
       <View
         accessible={props.accessible}
@@ -170,7 +280,13 @@ function ImageRenderer({
   }
 
   return (
-    <ExpoImage {...props} source={source} onError={handleError} style={style} />
+    <ExpoImage
+      key={retryCount}
+      {...props}
+      source={source}
+      onError={handleError}
+      style={style}
+    />
   );
 }
 
@@ -186,5 +302,29 @@ const styles = StyleSheet.create({
     height: "38%",
     borderRadius: 999,
     backgroundColor: "#D4D8CE",
+  },
+  unavailableText: {
+    color: "#4D5948",
+    fontSize: 14,
+    fontWeight: "700",
+    textAlign: "center",
+    paddingHorizontal: 16,
+  },
+  retry: {
+    minHeight: 44,
+    marginTop: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#4D5948",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  retryText: {
+    color: "#4D5948",
+    fontSize: 14,
+    fontWeight: "700",
   },
 });

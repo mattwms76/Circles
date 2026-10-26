@@ -12,6 +12,7 @@ import { useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
 import { resolveFnd001QueryDisplayState } from "@/lib/fnd001-query-display-state";
+import type { StatusTone } from "@/lib/status-announcement";
 import {
   batch1OperationIdentityMatches,
   batch1OperationKey,
@@ -136,24 +137,28 @@ type FollowTarget = {
 function ProfileFollowActions({
   accountId,
   target,
-  onMessage,
   onRefetch,
   requireAuth,
+  notify,
 }: {
   accountId: number | null;
   target: FollowTarget;
-  onMessage: () => void;
   onRefetch: () => void;
   requireAuth: (action: () => void) => void;
-  notify: (message: string) => void;
+  notify: (message: string, tone?: StatusTone) => void;
 }) {
+  const router = useRouter();
   const utils = trpc.useUtils();
   const follow = trpc.social.follow.useMutation();
+  const direct = trpc.social.openDirect.useMutation();
   const mountedRef = useRef(false);
   const scopeRef = useRef<Batch1OperationScope | null>(null);
   const [operationInstance] = useState(() => createBatch1OperationInstance());
   const [followGuard] = useState(() => createBatch1OperationGuard());
+  const [directGuard] = useState(() => createBatch1OperationGuard());
   const [pendingFollowScope, setPendingFollowScope] =
+    useState<Batch1OperationScope | null>(null);
+  const [pendingDirectScope, setPendingDirectScope] =
     useState<Batch1OperationScope | null>(null);
   const [followError, setFollowError] = useState<{
     scope: Batch1OperationScope;
@@ -179,6 +184,39 @@ function ProfileFollowActions({
 
   function followScopeIsCurrent(scope: Batch1OperationScope): boolean {
     return mountedRef.current && operationInstance.isCurrent(scope);
+  }
+
+  function requestDirectMessage() {
+    const startDirectMessage = () => {
+      const scope = scopeRef.current;
+      if (!scope) return;
+
+      void directGuard.run(scope, async () => {
+        setPendingDirectScope(scope);
+        try {
+          const result = await direct.mutateAsync({ userId: target.id });
+          if (!followScopeIsCurrent(scope)) return;
+          router.push(
+            `/chat/${result.id}?name=${encodeURIComponent(target.name || "Conversation")}`,
+          );
+        } catch {
+          if (!followScopeIsCurrent(scope)) return;
+          notify(
+            "We couldn’t open a conversation. Check your connection and try again.",
+            "error",
+          );
+        } finally {
+          if (!followScopeIsCurrent(scope)) return;
+          setPendingDirectScope((current) =>
+            current && batch1OperationKey(current) === batch1OperationKey(scope)
+              ? null
+              : current,
+          );
+        }
+      });
+    };
+
+    requireAuth(startDirectMessage);
   }
 
   function requestFollow() {
@@ -226,6 +264,9 @@ function ProfileFollowActions({
   const followPending =
     pendingFollowScope !== null &&
     batch1OperationIdentityMatches(pendingFollowScope, identity);
+  const directPending =
+    pendingDirectScope !== null &&
+    batch1OperationIdentityMatches(pendingDirectScope, identity);
   const visibleFollowError =
     followError && batch1OperationIdentityMatches(followError.scope, identity)
       ? followError.message
@@ -247,15 +288,18 @@ function ProfileFollowActions({
           accessibilityLabel={`${target.isFollowing ? "Unfollow" : "Follow"} ${target.name}`}
           secondary={target.isFollowing}
           loading={followPending}
-          disabled={followPending}
+          disabled={followPending || directPending}
           onPress={requestFollow}
           style={{ flex: 1 }}
         />
         <Button
-          title="Say hello"
+          title={directPending ? "Opening conversation…" : "Say hello"}
+          accessibilityLabel={`Open a direct conversation with ${target.name}`}
           icon="chatbubble-outline"
           secondary
-          onPress={onMessage}
+          loading={directPending}
+          disabled={followPending || directPending}
+          onPress={requestDirectMessage}
           style={{ flex: 1 }}
         />
       </View>
@@ -283,8 +327,9 @@ export default function ProfileScreen({
   const router = useRouter();
   const { user, requireAuth, notify, showLogin, logout } = useCircles();
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
+  const { width, fontScale } = useWindowDimensions();
   const editorOuterPadding = width <= 360 ? 16 : 24;
+  const compactOwnProfileActions = width <= 360 || fontScale >= 1.2;
   const own = !personId || personId === user?.id;
   const profile = trpc.social.profile.useQuery(
     personId ? { id: personId } : {},
@@ -309,16 +354,13 @@ export default function ProfileScreen({
       setEdit(false);
       void profile.refetch();
       void invalidateProfileViews(utils);
-      notify("Your profile feels a little more you.");
+      notify("Your profile feels a little more you.", "success");
     },
-    onError: (e) => notify(e.message),
-  });
-  const message = trpc.social.openDirect.useMutation({
-    onSuccess: (result) =>
-      router.push(
-        `/chat/${result.id}?name=${encodeURIComponent(profile.data?.name || "Conversation")}`,
+    onError: () =>
+      notify(
+        "We couldn’t update your profile. Check your connection and try again.",
+        "error",
       ),
-    onError: (e) => notify(e.message),
   });
   const posts =
     feed.data?.filter(
@@ -386,10 +428,11 @@ export default function ProfileScreen({
                 onPress={async () => {
                   try {
                     await logout();
-                    notify("You’re signed out. See you soon.");
+                    notify("You’re signed out. See you soon.", "success");
                   } catch {
                     notify(
                       "Signed out locally, but remote session revocation could not be confirmed.",
+                      "error",
                     );
                   }
                 }}
@@ -411,7 +454,21 @@ export default function ProfileScreen({
               contentFit="cover"
             />
           </View>
-          <View style={[s.between, { marginTop: -37, paddingHorizontal: 18 }]}>
+          <View
+            testID="profile-hero"
+            style={[
+              s.between,
+              {
+                marginTop: -37,
+                paddingHorizontal: 18,
+                gap: 12,
+                flexWrap: compactOwnProfileActions ? "wrap" : "nowrap",
+                alignItems: compactOwnProfileActions
+                  ? "flex-start"
+                  : "flex-end",
+              },
+            ]}
+          >
             <View
               style={{ backgroundColor: C.bg, borderRadius: 50, padding: 5 }}
             >
@@ -423,18 +480,33 @@ export default function ProfileScreen({
               />
             </View>
             {own && (
-              <View style={{ marginTop: 36, gap: 7, alignItems: "flex-end" }}>
+              <View
+                testID="profile-own-actions"
+                style={{
+                  marginTop: compactOwnProfileActions ? 12 : 36,
+                  gap: 7,
+                  alignItems: compactOwnProfileActions ? "stretch" : "flex-end",
+                  width: compactOwnProfileActions ? "100%" : undefined,
+                  minWidth: 0,
+                }}
+              >
                 <Button
                   title="Edit profile"
                   secondary
                   onPress={() => setEdit(true)}
-                  style={{ borderRadius: 9 }}
+                  style={{
+                    borderRadius: 9,
+                    width: compactOwnProfileActions ? "100%" : undefined,
+                  }}
                 />
                 <Button
                   title="Edit interests"
                   secondary
                   onPress={() => router.push("/onboarding?edit=1")}
-                  style={{ borderRadius: 9 }}
+                  style={{
+                    borderRadius: 9,
+                    width: compactOwnProfileActions ? "100%" : undefined,
+                  }}
                 />
                 <Button
                   title="Connect email sign-in"
@@ -442,13 +514,16 @@ export default function ProfileScreen({
                   onPress={() =>
                     requireAuth(() => router.push("/account/email"))
                   }
-                  style={{ borderRadius: 9 }}
+                  style={{
+                    borderRadius: 9,
+                    width: compactOwnProfileActions ? "100%" : undefined,
+                  }}
                 />
               </View>
             )}
           </View>
           <View style={{ paddingVertical: 16, gap: 10, minWidth: 0 }}>
-            <T style={[s.title, { flexShrink: 1 }]} numberOfLines={2}>
+            <T testID="profile-name" style={[s.title, { flexShrink: 1 }]}>
               {p.name}
             </T>
             <T style={{ color: C.muted, fontSize: 12 }}>@{p.handle}</T>
@@ -472,9 +547,6 @@ export default function ProfileScreen({
                 key={`${accountId ?? "anonymous"}:${profileResourceId ?? "none"}`}
                 accountId={accountId}
                 target={p}
-                onMessage={() =>
-                  requireAuth(() => message.mutate({ userId: p.id }))
-                }
                 onRefetch={() => void profile.refetch()}
                 requireAuth={requireAuth}
                 notify={notify}

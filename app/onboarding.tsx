@@ -3,6 +3,7 @@ import { Pressable, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { AppShell } from "@/components/app-shell";
 import { Button, C, Empty, Icon, Loading, s, T } from "@/components/circles-ui";
+import { StatusMessage } from "@/components/status-message";
 import { useCircles } from "@/hooks/circles-context";
 import {
   isCurrentOnboardingAccount,
@@ -21,6 +22,11 @@ import type { Circle } from "@/shared/social";
 
 type WizardScreen = "interests" | "circles" | "first-post";
 type FinishDestination = "circles" | "intro";
+type OnboardingStatusTone = "info" | "success" | "error";
+type OnboardingOutcome = {
+  message: string;
+  tone: OnboardingStatusTone;
+};
 
 function isEditMode(value: string | string[] | undefined): boolean {
   return Array.isArray(value) ? value.includes("1") : value === "1";
@@ -42,7 +48,7 @@ function OptionalGuestScreen() {
       <View style={{ gap: 18, paddingTop: 18 }}>
         <T style={s.eyebrow}>OPTIONAL SETUP</T>
         <T style={s.title}>A few preferences, only if you want them.</T>
-        <T style={{ color: C.muted, lineHeight: 22 }}>
+        <T style={{ color: C.secondary, lineHeight: 22 }}>
           Sign in to choose up to six interests and get optional public-circle
           suggestions. Your interests are private to your account.
         </T>
@@ -57,7 +63,7 @@ function OptionalGuestScreen() {
             alignItems: "center",
           }}
         >
-          <T style={{ color: C.coral, fontWeight: "700" }}>
+          <T style={{ color: C.action, fontWeight: "700" }}>
             Skip for now and explore
           </T>
         </Pressable>
@@ -107,7 +113,7 @@ function InterestChooser({
               minHeight: 52,
               borderRadius: 14,
               borderWidth: 1,
-              borderColor: checked ? C.coral : C.border,
+              borderColor: checked ? C.action : C.border,
               backgroundColor: checked ? C.soft : C.paper,
               paddingHorizontal: 14,
               paddingVertical: 10,
@@ -125,20 +131,20 @@ function InterestChooser({
                 alignItems: "center",
                 justifyContent: "center",
                 borderWidth: 1.5,
-                borderColor: checked ? C.coral : C.border,
-                backgroundColor: checked ? C.coral : C.paper,
+                borderColor: checked ? C.action : C.border,
+                backgroundColor: checked ? C.action : C.paper,
               }}
             >
               {checked && <Icon name="checkmark" size={16} color="#fff" />}
             </View>
             <Icon
               name={interest.icon}
-              color={checked ? C.coral : C.green}
+              color={checked ? C.action : C.secondary}
               size={20}
             />
             <View style={{ flex: 1, minWidth: 0 }}>
               <T style={{ fontWeight: "700" }}>{interest.label}</T>
-              <T style={{ color: C.muted, fontSize: 12 }}>
+              <T style={{ color: C.secondary, fontSize: 12 }}>
                 {interest.category}
               </T>
             </View>
@@ -149,7 +155,7 @@ function InterestChooser({
   );
 }
 
-function RecommendationCard({
+export function RecommendationCard({
   circle,
   reason,
   joined,
@@ -169,8 +175,13 @@ function RecommendationCard({
     <View style={[s.card, { padding: 16, gap: 10 }]}>
       <View style={[s.between, { gap: 12, alignItems: "flex-start" }]}>
         <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
-          <T style={{ fontSize: 18, fontWeight: "800" }}>{circle.name}</T>
-          <T style={{ color: C.muted, fontSize: 12 }}>
+          <T
+            accessibilityLabel={circle.name}
+            style={{ fontSize: 18, fontWeight: "800", flexShrink: 1 }}
+          >
+            {circle.name}
+          </T>
+          <T style={{ color: C.secondary, fontSize: 12 }}>
             {circle.memberCount}{" "}
             {circle.memberCount === 1 ? "member" : "members"} · {circle.privacy}{" "}
             circle
@@ -182,14 +193,28 @@ function RecommendationCard({
             borderRadius: 8,
             paddingHorizontal: 8,
             paddingVertical: 5,
+            alignSelf: "flex-start",
+            flexShrink: 1,
+            minWidth: 0,
+            maxWidth: "45%",
           }}
         >
-          <T style={{ color: C.green, fontSize: 11, fontWeight: "700" }}>
+          <T
+            accessibilityLabel={`Category: ${circle.category}`}
+            ellipsizeMode="tail"
+            numberOfLines={2}
+            style={{
+              color: C.secondary,
+              flexShrink: 1,
+              fontSize: 11,
+              fontWeight: "700",
+            }}
+          >
             {circle.category}
           </T>
         </View>
       </View>
-      <T style={{ color: C.muted, lineHeight: 21 }}>{circle.description}</T>
+      <T style={{ color: C.secondary, lineHeight: 21 }}>{circle.description}</T>
       <View
         style={{
           borderLeftWidth: 2,
@@ -201,28 +226,31 @@ function RecommendationCard({
       </View>
       {joined ? (
         <View style={[s.row, { gap: 6, minHeight: 48 }]}>
-          <Icon name="checkmark-circle" size={18} color={C.green} />
-          <T style={{ color: C.green, fontWeight: "700" }}>Joined</T>
+          <Icon name="checkmark-circle" size={18} color={C.secondary} />
+          <T style={{ color: C.secondary, fontWeight: "700" }}>Joined</T>
         </View>
       ) : pending ? (
         <View style={[s.row, { gap: 6, minHeight: 48 }]}>
-          <Icon name="time-outline" size={18} color={C.muted} />
-          <T style={{ color: C.muted, fontWeight: "700" }}>Request pending</T>
+          <Icon name="time-outline" size={18} color={C.secondary} />
+          <T style={{ color: C.secondary, fontWeight: "700" }}>
+            Request pending
+          </T>
         </View>
       ) : circle.privacy !== "public" ? (
-        <T style={{ color: C.muted, fontSize: 12 }}>
+        <T style={{ color: C.secondary, fontSize: 12 }}>
           This circle is no longer open for immediate joining.
         </T>
       ) : (
         <Button
-          title="Join this public circle"
+          title="Join circle"
+          accessibilityLabel={`Join ${circle.name}`}
           secondary
           loading={busy}
           onPress={onJoin}
         />
       )}
       {canJoin && (
-        <T style={{ color: C.muted, fontSize: 11, lineHeight: 16 }}>
+        <T style={{ color: C.secondary, fontSize: 11, lineHeight: 16 }}>
           Joining is your choice. Nothing is joined automatically.
         </T>
       )}
@@ -236,7 +264,7 @@ function CompletedScreen() {
     <View style={{ gap: 16, paddingTop: 12 }}>
       <T style={s.eyebrow}>SETUP COMPLETE</T>
       <T style={s.title}>Your Circles setup is ready.</T>
-      <T style={{ color: C.muted, lineHeight: 22 }}>
+      <T style={{ color: C.secondary, lineHeight: 22 }}>
         You can update your private interests any time from your profile.
       </T>
       <Button
@@ -264,7 +292,6 @@ function OnboardingWizard({
   currentAccountRef: React.MutableRefObject<number | null>;
 }) {
   const router = useRouter();
-  const { notify } = useCircles();
   const utils = trpc.useUtils();
   const [screen, setScreen] = useState<WizardScreen>(() =>
     initialWizardScreen(status, editMode),
@@ -279,6 +306,7 @@ function OnboardingWizard({
   >(null);
   const [finishingDestination, setFinishingDestination] =
     useState<FinishDestination | null>(null);
+  const [outcome, setOutcome] = useState<OnboardingOutcome | null>(null);
 
   const operationLock = useRef(false);
   const save = trpc.onboarding.save.useMutation();
@@ -313,9 +341,18 @@ function OnboardingWizard({
     membership.isPending ||
     finishingDestination !== null;
 
+  function clearOutcome() {
+    setOutcome(null);
+  }
+
+  function showOutcome(message: string, tone: OnboardingStatusTone) {
+    setOutcome({ message, tone });
+  }
+
   async function saveInterestsAndContinue() {
     if (operationLock.current || controlsBusy) return;
     operationLock.current = true;
+    clearOutcome();
     try {
       const saved = await save.mutateAsync({
         interests: selected,
@@ -330,12 +367,11 @@ function OnboardingWizard({
       if (!isCurrentOnboardingAccount(accountId, currentAccountRef.current))
         return;
       setScreen("circles");
-    } catch (error) {
+    } catch {
       if (isCurrentOnboardingAccount(accountId, currentAccountRef.current)) {
-        notify(
-          error instanceof Error
-            ? error.message
-            : "Your interests couldn’t be saved. Please try again.",
+        showOutcome(
+          "Your interests couldn’t be saved. Please try again.",
+          "error",
         );
       }
     } finally {
@@ -347,6 +383,7 @@ function OnboardingWizard({
     if (operationLock.current || controlsBusy || !joinedPublicCircles.length)
       return;
     operationLock.current = true;
+    clearOutcome();
     try {
       const saved = await save.mutateAsync({
         interests: selected,
@@ -358,13 +395,9 @@ function OnboardingWizard({
         throw new Error("We couldn’t confirm setup for this account.");
       utils.onboarding.status.setData(undefined, saved);
       setScreen("first-post");
-    } catch (error) {
+    } catch {
       if (isCurrentOnboardingAccount(accountId, currentAccountRef.current)) {
-        notify(
-          error instanceof Error
-            ? error.message
-            : "We couldn’t save this step. Please try again.",
-        );
+        showOutcome("We couldn’t save this step. Please try again.", "error");
       }
     } finally {
       operationLock.current = false;
@@ -374,6 +407,7 @@ function OnboardingWizard({
   async function backToSuggestions() {
     if (operationLock.current || controlsBusy) return;
     operationLock.current = true;
+    clearOutcome();
     try {
       const saved = await save.mutateAsync({
         interests: selected,
@@ -385,13 +419,9 @@ function OnboardingWizard({
         throw new Error("We couldn’t confirm setup for this account.");
       utils.onboarding.status.setData(undefined, saved);
       setScreen("circles");
-    } catch (error) {
+    } catch {
       if (isCurrentOnboardingAccount(accountId, currentAccountRef.current))
-        notify(
-          error instanceof Error
-            ? error.message
-            : "We couldn’t save this step. Please try again.",
-        );
+        showOutcome("We couldn’t save this step. Please try again.", "error");
     } finally {
       operationLock.current = false;
     }
@@ -401,6 +431,7 @@ function OnboardingWizard({
     if (operationLock.current || controlsBusy || circle.privacy !== "public")
       return;
     operationLock.current = true;
+    clearOutcome();
     try {
       const result = await membership.mutateAsync({
         circleId: circle.id,
@@ -416,21 +447,20 @@ function OnboardingWizard({
           next.delete(circle.id);
           return next;
         });
-        notify(`You joined ${circle.name}.`);
+        showOutcome(`You joined ${circle.name}.`, "success");
       } else {
         setPendingIds((previous) => new Set(previous).add(circle.id));
-        notify("That circle now needs approval, so your request is pending.");
+        showOutcome(
+          "That circle now needs approval, so your request is pending.",
+          "info",
+        );
       }
       void utils.social.circles.invalidate();
       void utils.social.circlesPage.invalidate();
       void utils.onboarding.recommendations.invalidate();
-    } catch (error) {
+    } catch {
       if (isCurrentOnboardingAccount(accountId, currentAccountRef.current)) {
-        notify(
-          error instanceof Error
-            ? error.message
-            : "We couldn’t join that circle. Please try again.",
-        );
+        showOutcome("We couldn’t join that circle. Please try again.", "error");
       }
     } finally {
       operationLock.current = false;
@@ -443,6 +473,7 @@ function OnboardingWizard({
   ) {
     if (operationLock.current || controlsBusy) return;
     operationLock.current = true;
+    clearOutcome();
     setFinishingDestination(destination);
     try {
       if (destination === "intro") {
@@ -459,7 +490,10 @@ function OnboardingWizard({
       if (!isCurrentOnboardingAccount(accountId, currentAccountRef.current))
         return;
       if (finished.userId !== accountId) {
-        notify("We couldn’t confirm setup for this account. Please try again.");
+        showOutcome(
+          "We couldn’t confirm setup for this account. Please try again.",
+          "error",
+        );
         return;
       }
       utils.onboarding.status.setData(undefined, finished);
@@ -469,13 +503,9 @@ function OnboardingWizard({
       } else {
         router.replace("/circles");
       }
-    } catch (error) {
+    } catch {
       if (isCurrentOnboardingAccount(accountId, currentAccountRef.current)) {
-        notify(
-          error instanceof Error
-            ? error.message
-            : "We couldn’t finish setup. Please try again.",
-        );
+        showOutcome("We couldn’t finish setup. Please try again.", "error");
       }
     } finally {
       operationLock.current = false;
@@ -491,11 +521,11 @@ function OnboardingWizard({
         <View style={{ gap: 8 }}>
           <T style={s.eyebrow}>OPTIONAL SETUP · 1 OF 3</T>
           <T style={s.title}>What are you into?</T>
-          <T style={{ color: C.muted, lineHeight: 22 }}>
+          <T style={{ color: C.secondary, lineHeight: 22 }}>
             Pick up to six interests for optional suggestions. These choices are
             private to your account and never appear on your profile.
           </T>
-          <T style={{ color: C.green, fontSize: 12, fontWeight: "700" }}>
+          <T style={{ color: C.secondary, fontSize: 12, fontWeight: "700" }}>
             {selected.length} of {MAX_INTERESTS} selected
           </T>
         </View>
@@ -514,6 +544,7 @@ function OnboardingWizard({
         />
         <Pressable
           accessibilityRole="button"
+          accessibilityLabel="Skip setup and explore circles"
           disabled={controlsBusy}
           onPress={() => void finishAndNavigate("circles")}
           style={({ pressed }) => ({
@@ -523,10 +554,15 @@ function OnboardingWizard({
             opacity: controlsBusy ? 0.55 : pressed ? 0.7 : 1,
           })}
         >
-          <T style={{ color: C.coral, fontWeight: "700" }}>
+          <T style={{ color: C.action, fontWeight: "700" }}>
             Skip and explore circles
           </T>
         </Pressable>
+        <StatusMessage
+          message={outcome?.message}
+          tone={outcome?.tone}
+          testID="onboarding-status"
+        />
       </View>
     );
   }
@@ -540,7 +576,7 @@ function OnboardingWizard({
         <View style={{ gap: 8 }}>
           <T style={s.eyebrow}>OPTIONAL SETUP · 2 OF 3</T>
           <T style={s.title}>A few public circles to explore.</T>
-          <T style={{ color: C.muted, lineHeight: 22 }}>
+          <T style={{ color: C.secondary, lineHeight: 22 }}>
             Suggestions are based on your private choices. Join only the
             communities you actually want to be part of.
           </T>
@@ -569,7 +605,7 @@ function OnboardingWizard({
             <T style={{ fontSize: 18, fontWeight: "800" }}>
               No close matches yet.
             </T>
-            <T style={{ color: C.muted, lineHeight: 21 }}>
+            <T style={{ color: C.secondary, lineHeight: 21 }}>
               There aren’t any suggestions to show right now. You can still
               browse every public circle.
             </T>
@@ -581,6 +617,7 @@ function OnboardingWizard({
             />
             <Pressable
               accessibilityRole="button"
+              accessibilityLabel="Try suggestions again"
               disabled={controlsBusy}
               onPress={() => void recommendations.refetch()}
               style={{
@@ -589,7 +626,7 @@ function OnboardingWizard({
                 justifyContent: "center",
               }}
             >
-              <T style={{ color: C.coral, fontWeight: "700" }}>
+              <T style={{ color: C.action, fontWeight: "700" }}>
                 Try suggestions again
               </T>
             </Pressable>
@@ -630,6 +667,7 @@ function OnboardingWizard({
           />
           <Pressable
             accessibilityRole="button"
+            accessibilityLabel="Edit interests"
             disabled={controlsBusy}
             onPress={() => setScreen("interests")}
             style={{
@@ -638,9 +676,14 @@ function OnboardingWizard({
               alignItems: "center",
             }}
           >
-            <T style={{ color: C.coral, fontWeight: "700" }}>Edit interests</T>
+            <T style={{ color: C.action, fontWeight: "700" }}>Edit interests</T>
           </Pressable>
         </View>
+        <StatusMessage
+          message={outcome?.message}
+          tone={outcome?.tone}
+          testID="onboarding-status"
+        />
       </View>
     );
   }
@@ -653,11 +696,11 @@ function OnboardingWizard({
       <View style={{ gap: 8 }}>
         <T style={s.eyebrow}>OPTIONAL SETUP · 3 OF 3</T>
         <T style={s.title}>A gentle first hello, if you’d like.</T>
-        <T style={{ color: C.muted, lineHeight: 22 }}>
+        <T style={{ color: C.secondary, lineHeight: 22 }}>
           A short introduction can help people know why you’re here. Keep it
           kind, share only what feels comfortable, and make room for a reply.
         </T>
-        <T style={{ color: C.green, fontSize: 12, lineHeight: 18 }}>
+        <T style={{ color: C.secondary, fontSize: 12, lineHeight: 18 }}>
           Circles etiquette, not a circle-specific rule. Nothing will publish
           until you review and choose to post.
         </T>
@@ -686,7 +729,7 @@ function OnboardingWizard({
                 minHeight: 52,
                 borderRadius: 13,
                 borderWidth: 1,
-                borderColor: selectedCircleOption ? C.coral : C.border,
+                borderColor: selectedCircleOption ? C.action : C.border,
                 backgroundColor: selectedCircleOption ? C.soft : C.paper,
                 paddingHorizontal: 14,
                 paddingVertical: 10,
@@ -700,12 +743,12 @@ function OnboardingWizard({
                 name={
                   selectedCircleOption ? "radio-button-on" : "radio-button-off"
                 }
-                color={selectedCircleOption ? C.coral : C.muted}
+                color={selectedCircleOption ? C.action : C.secondary}
                 size={20}
               />
               <View style={{ flex: 1, minWidth: 0 }}>
                 <T style={{ fontWeight: "700" }}>{circle.name}</T>
-                <T style={{ color: C.muted, fontSize: 12 }}>
+                <T style={{ color: C.secondary, fontSize: 12 }}>
                   {circle.memberCount}{" "}
                   {circle.memberCount === 1 ? "member" : "members"} · public
                 </T>
@@ -730,6 +773,7 @@ function OnboardingWizard({
       />
       <Pressable
         accessibilityRole="button"
+        accessibilityLabel="Back to circle suggestions"
         disabled={controlsBusy}
         onPress={() => void backToSuggestions()}
         style={{
@@ -738,8 +782,15 @@ function OnboardingWizard({
           alignItems: "center",
         }}
       >
-        <T style={{ color: C.coral, fontWeight: "700" }}>Back to suggestions</T>
+        <T style={{ color: C.action, fontWeight: "700" }}>
+          Back to suggestions
+        </T>
       </Pressable>
+      <StatusMessage
+        message={outcome?.message}
+        tone={outcome?.tone}
+        testID="onboarding-status"
+      />
     </View>
   );
 }

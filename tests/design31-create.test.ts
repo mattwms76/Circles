@@ -1,0 +1,372 @@
+import {
+  Children,
+  isValidElement,
+  type ReactElement,
+  type ReactNode,
+} from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  canPublishToCreateRecipient,
+  canRetryCreateRecipient,
+  createRootSafeAreaInsets,
+  resolveCreateRecipient,
+} from "../lib/design31-create";
+
+const fixture = vi.hoisted(() => ({
+  params: {
+    mode: "post" as string | undefined,
+    circleId: "12" as string | undefined,
+    intro: undefined as string | undefined,
+  },
+  circles: {
+    data: undefined as
+      | { id: number; name: string; joined?: boolean }[]
+      | undefined,
+    isPending: false,
+    isFetching: false,
+    isError: false,
+    refetch: vi.fn(),
+  },
+}));
+
+vi.mock("react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react")>();
+  return {
+    ...actual,
+    useEffect: () => undefined,
+    useMemo: <T>(factory: () => T) => factory(),
+    useRef: <T>(initialValue: T) => ({ current: initialValue }),
+    useState: <T>(initialValue: T | (() => T)) => [
+      typeof initialValue === "function"
+        ? (initialValue as () => T)()
+        : initialValue,
+      vi.fn(),
+    ],
+  };
+});
+
+vi.mock("react-native", () => ({
+  KeyboardAvoidingView: "KeyboardAvoidingView",
+  Platform: { OS: "web" },
+  Pressable: "Pressable",
+  ScrollView: "ScrollView",
+  View: "View",
+}));
+vi.mock("expo-constants", () => ({
+  default: { executionEnvironment: "standalone" },
+}));
+vi.mock("expo-image-picker", () => ({
+  launchImageLibraryAsync: vi.fn(),
+}));
+vi.mock("expo-router", () => ({
+  useLocalSearchParams: () => fixture.params,
+  useRouter: () => ({
+    back: vi.fn(),
+    canGoBack: () => true,
+    replace: vi.fn(),
+  }),
+}));
+vi.mock("react-native-safe-area-context", () => ({
+  useSafeAreaInsets: () => ({ top: 7, right: 29, bottom: 11, left: 3 }),
+}));
+vi.mock("@/components/media-image", () => ({ Image: "Image" }));
+vi.mock("@/components/status-message", () => ({
+  StatusMessage: "StatusMessage",
+}));
+vi.mock("@/components/user-avatar", () => ({ UserAvatar: "UserAvatar" }));
+vi.mock("@/lib/design31-create", async () => import("../lib/design31-create"));
+vi.mock("@/components/circles-ui", () => ({
+  Button: "Button",
+  C: {
+    action: "#A53728",
+    bg: "#F9F8F5",
+    border: "#D0D3C8",
+    green: "#718569",
+    ink: "#283126",
+    muted: "#4D5948",
+    paper: "#FFFFFF",
+    sage: "#E9EEE5",
+    secondary: "#4D5948",
+  },
+  Empty: "Empty",
+  Icon: "Icon",
+  IconButton: "IconButton",
+  Input: "Input",
+  photo: { coffee: "coffee", mountains: "mountains" },
+  s: {
+    between: {},
+    card: {},
+    eyebrow: {},
+    row: {},
+    title: {},
+  },
+  T: "T",
+  Wordmark: "Wordmark",
+}));
+vi.mock("@/hooks/circles-context", () => ({
+  useCircles: () => ({
+    authState: "authenticated",
+    notify: vi.fn(),
+    requireAuth: (action?: () => void) => {
+      action?.();
+      return true;
+    },
+    showLogin: vi.fn(),
+    user: { id: 71, name: "Ari" },
+  }),
+}));
+vi.mock("@/lib/batch1-mutation-feedback", () => ({
+  batch1OperationIdentityMatches: () => false,
+  batch1OperationKey: () => "scope",
+  createBatch1OperationGuard: () => ({
+    isActive: () => false,
+    run: vi.fn(),
+  }),
+  createBatch1OperationInstance: () => ({
+    activate: () => null,
+    createIdentity: () => ({ instanceId: 1 }),
+    deactivate: vi.fn(),
+    isCurrent: () => false,
+  }),
+}));
+vi.mock("@/lib/feed-ui-helpers", () => ({
+  isCircleCoverMime: () => true,
+  mediaUploadKey: () => "media-key",
+  normalizeCreateMode: (mode?: string | string[]) =>
+    mode === "circle" || mode === "live" ? mode : "post",
+  parsePositiveSafeId: (value?: string | string[]) => {
+    const parsed = Number(Array.isArray(value) ? value[0] : value);
+    return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
+  },
+  reusableUploadUrl: () => undefined,
+  validateComposerDraft: () => null,
+}));
+vi.mock("@/lib/media", () => ({
+  assetBase64: vi.fn(),
+  supportedMime: () => "image/jpeg",
+}));
+vi.mock("@/shared/onboarding", () => ({ INTRODUCTION_DRAFT: "Welcome!" }));
+vi.mock("@/lib/onboarding-introduction", () => ({
+  canPrefillIntroduction: () => false,
+}));
+vi.mock("@/lib/source-query-invalidation", () => ({
+  invalidateCircleDirectories: vi.fn(),
+  invalidatePostFeeds: vi.fn(),
+}));
+vi.mock("@/lib/platform-feature-ui", () => ({
+  platformCreationIssue: () => null,
+  platformUploadLimitMb: () => 25,
+}));
+vi.mock("@/lib/trpc", () => ({
+  trpc: {
+    live: { create: { useMutation: () => ({ mutateAsync: vi.fn() }) } },
+    onboarding: {
+      introductionTarget: {
+        useQuery: () => ({
+          data: undefined,
+          isError: false,
+          isFetchedAfterMount: false,
+          isFetching: false,
+        }),
+      },
+    },
+    platform: {
+      status: {
+        useQuery: () => ({
+          data: undefined,
+          isError: false,
+          refetch: vi.fn(),
+        }),
+      },
+    },
+    social: {
+      circles: { useQuery: () => fixture.circles },
+      createCircle: { useMutation: () => ({ mutateAsync: vi.fn() }) },
+      createPost: { useMutation: () => ({ mutateAsync: vi.fn() }) },
+      profile: { useQuery: () => ({ data: { avatar: null, name: "Ari" } }) },
+      upload: { useMutation: () => ({ mutateAsync: vi.fn() }) },
+    },
+    useUtils: () => ({}),
+  },
+}));
+
+const { default: CreateScreen } = await import("../app/create");
+
+function textContent(node: ReactNode): string {
+  if (typeof node === "string" || typeof node === "number") {
+    return String(node);
+  }
+  if (Array.isArray(node)) return node.map(textContent).join("");
+  return "";
+}
+
+function findElement(
+  node: ReactNode,
+  type: string,
+  predicate: (element: ReactElement<Record<string, unknown>>) => boolean,
+): ReactElement<Record<string, unknown>> | undefined {
+  for (const child of Children.toArray(node)) {
+    if (!isValidElement<Record<string, unknown>>(child)) continue;
+    if (child.type === type && predicate(child)) return child;
+    const nested = findElement(
+      child.props.children as ReactNode,
+      type,
+      predicate,
+    );
+    if (nested) return nested;
+  }
+  return undefined;
+}
+
+function renderCreateScreen(): ReactNode {
+  const accountBoundary = CreateScreen();
+  if (
+    !isValidElement(accountBoundary) ||
+    typeof accountBoundary.type !== "function"
+  ) {
+    throw new Error("CreateScreen must retain its account-keyed boundary.");
+  }
+  const renderAccountBoundary = accountBoundary.type as (
+    props: Record<string, never>,
+  ) => ReactNode;
+  return renderAccountBoundary({});
+}
+
+function findButton(node: ReactNode, title: string) {
+  return findElement(
+    node,
+    "Button",
+    (element) => element.props.title === title,
+  );
+}
+
+beforeEach(() => {
+  fixture.params.mode = "post";
+  fixture.params.circleId = "12";
+  fixture.params.intro = undefined;
+  fixture.circles.data = undefined;
+  fixture.circles.isPending = false;
+  fixture.circles.isFetching = false;
+  fixture.circles.isError = false;
+  fixture.circles.refetch.mockReset();
+});
+
+describe("D26-16 Create retained recipient states", () => {
+  it("keeps a loaded approved deep-linked circle named, selected, and publishable", () => {
+    const recipient = resolveCreateRecipient({
+      circleId: 12,
+      circles: [{ id: 12, name: "Night Hikers", joined: true }],
+      isResolving: false,
+      isError: false,
+    });
+    expect(recipient).toEqual({
+      kind: "selected",
+      circleId: 12,
+      name: "Night Hikers",
+    });
+    expect(canPublishToCreateRecipient(recipient)).toBe(true);
+
+    fixture.circles.data = [{ id: 12, name: "Night Hikers", joined: true }];
+    const rendered = renderCreateScreen();
+    expect(
+      findElement(
+        rendered,
+        "T",
+        (element) =>
+          textContent(element.props.children as ReactNode) ===
+          "Selected circle: Night Hikers.",
+      ),
+    ).toBeDefined();
+    expect(findButton(rendered, "Share your moment")?.props.disabled).toBe(
+      false,
+    );
+  });
+
+  it("keeps a retained recipient resolving and prevents a hidden-destination publish", () => {
+    const recipient = resolveCreateRecipient({
+      circleId: 12,
+      circles: undefined,
+      isResolving: true,
+      isError: false,
+    });
+    expect(recipient).toEqual({ kind: "resolving", circleId: 12 });
+    expect(canPublishToCreateRecipient(recipient)).toBe(false);
+
+    fixture.circles.isPending = true;
+    const rendered = renderCreateScreen();
+    expect(
+      findElement(
+        rendered,
+        "StatusMessage",
+        (element) =>
+          element.props.message === "Finding your selected circle…" &&
+          element.props.tone === "info",
+      ),
+    ).toBeDefined();
+    expect(findButton(rendered, "Share your moment")?.props.disabled).toBe(
+      true,
+    );
+  });
+
+  it("shows an error-specific retry without falling back to Everyone or submitting", () => {
+    const recipient = resolveCreateRecipient({
+      circleId: 12,
+      circles: undefined,
+      isResolving: false,
+      isError: true,
+    });
+    expect(recipient).toEqual({ kind: "error", circleId: 12 });
+    expect(canRetryCreateRecipient(recipient)).toBe(true);
+    expect(canPublishToCreateRecipient(recipient)).toBe(false);
+
+    fixture.circles.isError = true;
+    const rendered = renderCreateScreen();
+    expect(
+      findElement(
+        rendered,
+        "StatusMessage",
+        (element) =>
+          element.props.message ===
+            "Couldn't load the selected circle. Retry or choose Everyone." &&
+          element.props.tone === "error",
+      ),
+    ).toBeDefined();
+    const retry = findButton(rendered, "Retry selected circle");
+    expect(retry?.props.disabled).toBe(false);
+    (retry?.props.onPress as (() => void) | undefined)?.();
+    expect(fixture.circles.refetch).toHaveBeenCalledTimes(1);
+    expect(findButton(rendered, "Share your moment")?.props.disabled).toBe(
+      true,
+    );
+  });
+
+  it("treats a settled absent or nonmember recipient as unavailable rather than Everyone", () => {
+    const absent = resolveCreateRecipient({
+      circleId: 12,
+      circles: [],
+      isResolving: false,
+      isError: false,
+    });
+    const nonmember = resolveCreateRecipient({
+      circleId: 12,
+      circles: [{ id: 12, name: "Night Hikers", joined: false }],
+      isResolving: false,
+      isError: false,
+    });
+
+    expect(absent).toEqual({ kind: "unavailable", circleId: 12 });
+    expect(nonmember).toEqual({ kind: "unavailable", circleId: 12 });
+    expect(canPublishToCreateRecipient(absent)).toBe(false);
+    expect(canRetryCreateRecipient(absent)).toBe(false);
+  });
+});
+
+describe("D26-17 Create lateral safe-area ownership", () => {
+  it("preserves asymmetric lateral values once at the root rather than flattening them into a shared gutter", () => {
+    expect(createRootSafeAreaInsets({ top: 7, left: 3, right: 29 })).toEqual({
+      paddingTop: 7,
+      paddingLeft: 3,
+      paddingRight: 29,
+    });
+  });
+});

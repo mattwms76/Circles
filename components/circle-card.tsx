@@ -104,19 +104,24 @@ function CircleCardInstance({ circle }: { circle: Circle }) {
               result.role === "pending"
                 ? "Your request is with the circle owner."
                 : "You’re in. Say hello to your people!",
+              "success",
             );
           },
-          onError: (error) => {
+          onError: () => {
             joinFlight.current.finish(capturedScope);
             if (!isCurrentCircleScope(capturedScope)) return;
+            const message =
+              circle.privacy === "private"
+                ? `Couldn’t request to join ${circle.name}. Check your connection and try again.`
+                : `Couldn’t join ${circle.name}. Check your connection and try again.`;
             setPendingJoinScope((current) =>
               current === capturedScope.scope ? null : current,
             );
             setJoinError({
               scope: capturedScope.scope,
-              message: error.message,
+              message,
             });
-            notify(error.message);
+            notify(message, "error");
           },
         },
       );

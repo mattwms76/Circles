@@ -1,4 +1,9 @@
-import { Image, useMediaSource } from "@/components/media-image";
+import {
+  Image,
+  MediaPlaceholder,
+  useMediaSource,
+} from "@/components/media-image";
+import { StatusMessage } from "@/components/status-message";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
@@ -42,10 +47,69 @@ function PostVideo({
   uri: string;
   accessibilityLabel: string;
 }) {
+  const [retryAttempt, setRetryAttempt] = useState(0);
+  return (
+    <PostVideoSource
+      key={`${uri}:${retryAttempt}`}
+      uri={uri}
+      accessibilityLabel={accessibilityLabel}
+      onRetry={
+        retryAttempt === 0
+          ? () => setRetryAttempt((attempt) => attempt + 1)
+          : undefined
+      }
+    />
+  );
+}
+
+function PostVideoSource({
+  uri,
+  accessibilityLabel,
+  onRetry,
+}: {
+  uri: string;
+  accessibilityLabel: string;
+  onRetry?: () => void;
+}) {
   const source = useMediaSource(uri);
   const player = useVideoPlayer(source, (p) => {
     p.loop = true;
   });
+  const [failed, setFailed] = useState(() => player.status === "error");
+
+  useEffect(() => {
+    const subscription = player.addListener("statusChange", ({ status }) => {
+      if (status === "error") setFailed(true);
+    });
+    return () => subscription.remove();
+  }, [player]);
+
+  if (source === null) {
+    return (
+      <MediaPlaceholder
+        label={`${accessibilityLabel} loading`}
+        style={{ width: "100%", aspectRatio: 1.38 }}
+      />
+    );
+  }
+
+  if (failed) {
+    return (
+      <MediaPlaceholder
+        label="Video unavailable"
+        style={{ width: "100%", aspectRatio: 1.38 }}
+        retryLabel="Retry video"
+        onRetry={onRetry}
+      >
+        <StatusMessage
+          message="Video unavailable."
+          tone="error"
+          style={{ fontSize: 14, fontWeight: "700", textAlign: "center" }}
+        />
+      </MediaPlaceholder>
+    );
+  }
+
   return (
     <VideoView
       player={player}
@@ -143,10 +207,15 @@ export function PostCard({ post }: { post: Post }) {
             });
             void invalidatePostFeeds(utils);
           },
-          onError: (error) => {
+          onError: () => {
             if (!isCurrentSource(operationScope, operationPost)) return;
             setLikeOptimism(null);
-            notify(error.message);
+            notify(
+              nextLiked
+                ? "We couldn’t like this post. Try again."
+                : "We couldn’t remove your reaction. Try again.",
+              "error",
+            );
           },
         },
       );
@@ -185,13 +254,14 @@ export function PostCard({ post }: { post: Post }) {
               result.saved
                 ? "Saved to your collection."
                 : "Removed from saved posts.",
+              "success",
             );
             void invalidatePostFeeds(utils);
           },
-          onError: (error) => {
+          onError: () => {
             if (!isCurrentSource(operationScope, operationPost)) return;
             setSaveOptimism(null);
-            notify(error.message);
+            notify("We couldn’t update your saved posts. Try again.", "error");
           },
         },
       );
@@ -233,11 +303,9 @@ export function PostCard({ post }: { post: Post }) {
           setCommentText("");
           void comments.refetch();
           void invalidatePostFeeds(utils);
-        } catch (error) {
+        } catch {
           if (!isCurrentSource(operationScope, operationPost)) return;
-          notify(
-            error instanceof Error ? error.message : "Unable to add comment.",
-          );
+          notify("We couldn’t add your comment. Try again.", "error");
         } finally {
           if (isCurrentSource(operationScope, operationPost)) {
             setIsCommentSubmitting(false);
@@ -274,17 +342,19 @@ export function PostCard({ post }: { post: Post }) {
             void invalidateModerationViews(utils);
             notify(
               "Report received. Thank you for looking out for your circle.",
+              "success",
             );
           },
-          onError: (error) => {
+          onError: () => {
             if (!isCurrentSource(operationScope, operationPost)) return;
-            notify(error.message);
+            notify("We couldn’t send your report. Try again.", "error");
           },
         },
       );
     });
   }, [isCurrentSource, notify, post, report, requireAuth, sourceScope, utils]);
   const remove = trpc.social.deletePost.useMutation();
+  const menuBusy = report.isPending || remove.isPending;
   const removePost = useCallback(() => {
     const operationScope = sourceScope;
     const operationPost = post;
@@ -297,11 +367,11 @@ export function PostCard({ post }: { post: Post }) {
             setMenu(false);
             void invalidatePostFeeds(utils);
             void invalidateModerationViews(utils);
-            notify("Post removed.");
+            notify("Post removed.", "success");
           },
-          onError: (error) => {
+          onError: () => {
             if (!isCurrentSource(operationScope, operationPost)) return;
-            notify(error.message);
+            notify("We couldn’t remove this post. Try again.", "error");
           },
         },
       );
@@ -323,8 +393,8 @@ export function PostCard({ post }: { post: Post }) {
             userId={post.author.id}
           />
           <View style={{ flex: 1, minWidth: 0 }}>
-            <View style={[s.row, { gap: 6 }]}>
-              <T style={{ fontWeight: "700", fontSize: 14 }} numberOfLines={1}>
+            <View style={[s.row, { gap: 6, flexWrap: "wrap" }]}>
+              <T style={{ fontWeight: "700", fontSize: 14 }}>
                 {post.author.name}
               </T>
               <Icon name="checkmark-circle" color={C.green} size={12} />
@@ -397,6 +467,15 @@ export function PostCard({ post }: { post: Post }) {
             accessible
             accessibilityRole="image"
             accessibilityLabel={mediaAccessibilityLabel}
+            unavailableLabel="Photo unavailable"
+            retryLabel="Retry photo"
+            unavailableContent={
+              <StatusMessage
+                message="Photo unavailable."
+                tone="error"
+                style={{ fontSize: 14, fontWeight: "700", textAlign: "center" }}
+              />
+            }
           />
         ))}
       <View
@@ -461,7 +540,7 @@ export function PostCard({ post }: { post: Post }) {
                     message: `${post.author.name} on Circles: ${post.text}${post.media ? `\n${post.media}` : ""}`,
                   });
                 } catch {
-                  notify("Sharing could not open.");
+                  notify("Sharing could not open.", "error");
                 }
               }}
               label="Share post"
@@ -652,10 +731,11 @@ export function PostCard({ post }: { post: Post }) {
         visible={menu}
         transparent
         animationType="fade"
-        onRequestClose={() => setMenu(false)}
+        onRequestClose={() => {
+          if (!menuBusy) setMenu(false);
+        }}
       >
-        <Pressable
-          onPress={() => setMenu(false)}
+        <View
           style={{
             flex: 1,
             backgroundColor: "#19201B88",
@@ -664,6 +744,19 @@ export function PostCard({ post }: { post: Post }) {
             padding: 30,
           }}
         >
+          <Pressable
+            accessible={false}
+            importantForAccessibility="no"
+            disabled={menuBusy}
+            onPress={() => setMenu(false)}
+            style={{
+              position: "absolute",
+              top: 0,
+              right: 0,
+              bottom: 0,
+              left: 0,
+            }}
+          />
           <View
             style={{
               width: "100%",
@@ -672,6 +765,7 @@ export function PostCard({ post }: { post: Post }) {
               borderRadius: 20,
               padding: 22,
               gap: 12,
+              zIndex: 1,
             }}
           >
             <T style={{ fontSize: 18, fontWeight: "700", marginBottom: 5 }}>
@@ -697,9 +791,14 @@ export function PostCard({ post }: { post: Post }) {
                 onPress={removePost}
               />
             )}
-            <Button title="Close" secondary onPress={() => setMenu(false)} />
+            <Button
+              title="Close"
+              secondary
+              disabled={menuBusy}
+              onPress={() => setMenu(false)}
+            />
           </View>
-        </Pressable>
+        </View>
       </Modal>
     </View>
   );
