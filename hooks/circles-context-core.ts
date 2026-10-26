@@ -1,12 +1,13 @@
 import { createContext, useContext } from "react";
 import type { AuthGateState } from "@/lib/feed-ui-helpers";
+import type { StatusTone } from "@/lib/status-announcement";
 
 export type CirclesState = {
   user: { id: number; name: string | null } | null;
   authLoading: boolean;
   authState: AuthGateState;
   requireAuth: (action?: () => void) => boolean;
-  notify: (message: string) => void;
+  notify: (message: string, tone?: StatusTone) => void;
   refresh: () => void;
   showLogin: () => void;
   logout: () => Promise<void>;

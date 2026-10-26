@@ -1,14 +1,22 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
+  type TextInput,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button, C, IconButton, Input, T } from "@/components/circles-ui";
+import { StatusMessage } from "./status-message";
 import {
   connectEmailPassword,
   readEmailAuthStatus,
@@ -24,10 +32,17 @@ import {
 
 type EmailFormMode = "signIn" | "signUp";
 
+export type EmailAuthFormPresentation = "embedded" | "standalone";
+
 type EmailAuthFormProps = {
   mode: EmailAuthDialogMode;
   onAuthenticated: () => Promise<boolean>;
   onClose: () => void;
+  /**
+   * The global guest modal owns its one dialog frame, keyboard scroll region,
+   * and close control. The account route keeps the standalone presentation.
+   */
+  presentation?: EmailAuthFormPresentation;
   /**
    * Migration-only entry for a legacy Circles account that must prove its
    * existing identity before it can connect verified email credentials.
@@ -95,6 +110,45 @@ function availabilityCopy(
   }
 }
 
+function EmailAuthFormFrame({
+  children,
+  insets,
+  presentation,
+}: {
+  children: ReactNode;
+  insets: ReturnType<typeof useSafeAreaInsets>;
+  presentation: EmailAuthFormPresentation;
+}) {
+  if (presentation === "embedded") {
+    return <View style={{ gap: 16 }}>{children}</View>;
+  }
+
+  return (
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      style={{ flexGrow: 0, flexShrink: 1, width: "100%" }}
+    >
+      <ScrollView
+        automaticallyAdjustKeyboardInsets
+        keyboardDismissMode="interactive"
+        keyboardShouldPersistTaps="handled"
+        showsHorizontalScrollIndicator={false}
+        showsVerticalScrollIndicator={false}
+        style={{ flexShrink: 1, width: "100%" }}
+        contentContainerStyle={{
+          flexGrow: 1,
+          justifyContent: "center",
+          paddingHorizontal: 20,
+          paddingTop: Math.max(20, insets.top + 12),
+          paddingBottom: Math.max(24, insets.bottom + 20),
+        }}
+      >
+        {children}
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
+}
+
 /**
  * The legacy-account proof path is intentionally not a third ordinary sign-in
  * method. It is available only from the idle sign-in view, where it transfers
@@ -115,7 +169,14 @@ export function canOfferExistingCirclesAccountConnection(
 export function EmailAuthForm(props: EmailAuthFormProps) {
   // Changing the public dialog mode creates a new local instance. That gives
   // each mode an independent async scope, including an A→B→A transition.
-  return <EmailAuthDialog key={props.mode} {...props} />;
+  const presentation = props.presentation ?? "standalone";
+  return (
+    <EmailAuthDialog
+      key={`${props.mode}:${presentation}`}
+      {...props}
+      presentation={presentation}
+    />
+  );
 }
 
 function EmailAuthDialog({
@@ -123,6 +184,7 @@ function EmailAuthDialog({
   onAuthenticated,
   onClose,
   onConnectExisting,
+  presentation = "standalone",
 }: EmailAuthFormProps) {
   const insets = useSafeAreaInsets();
   const [dialogInstanceId] = useState(() => ++nextDialogInstanceId);
@@ -133,6 +195,7 @@ function EmailAuthDialog({
     createEmailAuthAsyncGuard(dialogInstanceId),
   );
   const passwordRef = useRef("");
+  const passwordInputRef = useRef<TextInput>(null);
   const statusFlightRef = useRef<EmailAuthAsyncScope | null>(null);
   const submissionFlightRef = useRef<SubmissionFlight | null>(null);
   const [email, setEmail] = useState("");
@@ -243,6 +306,10 @@ function EmailAuthDialog({
     passwordRef.current = value;
     setPassword(value);
     setFormError(null);
+  }, []);
+
+  const focusPassword = useCallback(() => {
+    passwordInputRef.current?.focus();
   }, []);
 
   const showSignIn = useCallback(() => {
@@ -374,284 +441,268 @@ function EmailAuthDialog({
   ]);
 
   const confirmedSignUp = formMode === "signUp" && signUpConfirmed;
+  const isStandalone = presentation === "standalone";
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      style={{ flexGrow: 0, flexShrink: 1, width: "100%" }}
-    >
-      <ScrollView
-        automaticallyAdjustKeyboardInsets
-        keyboardDismissMode="interactive"
-        keyboardShouldPersistTaps="handled"
-        showsHorizontalScrollIndicator={false}
-        showsVerticalScrollIndicator={false}
-        style={{ flexShrink: 1, width: "100%" }}
-        contentContainerStyle={{
-          flexGrow: 1,
-          justifyContent: "center",
-          paddingHorizontal: 20,
-          paddingTop: Math.max(20, insets.top + 12),
-          paddingBottom: Math.max(24, insets.bottom + 20),
-        }}
+    <EmailAuthFormFrame presentation={presentation} insets={insets}>
+      <View
+        style={
+          isStandalone
+            ? {
+                alignSelf: "center",
+                backgroundColor: C.paper,
+                borderColor: C.border,
+                borderRadius: 24,
+                borderWidth: 1,
+                gap: 16,
+                maxWidth: 440,
+                padding: 24,
+                width: "100%",
+              }
+            : { gap: 16 }
+        }
       >
         <View
           style={{
-            alignSelf: "center",
-            backgroundColor: C.paper,
-            borderColor: C.border,
-            borderRadius: 24,
-            borderWidth: 1,
+            alignItems: "flex-start",
+            flexDirection: "row",
+            justifyContent: "space-between",
             gap: 16,
-            maxWidth: 440,
-            padding: 24,
-            width: "100%",
           }}
         >
-          <View
-            style={{
-              alignItems: "flex-start",
-              flexDirection: "row",
-              justifyContent: "space-between",
-              gap: 16,
-            }}
-          >
-            <View style={{ flex: 1, gap: 5 }}>
-              <T
-                accessibilityRole="header"
-                style={{ fontSize: 25, fontWeight: "800" }}
-              >
-                {dialogTitle(mode, formMode)}
-              </T>
-              <T style={{ color: C.muted, fontSize: 15 }}>
-                {mode === "connect"
-                  ? formMode === "signUp"
-                    ? "Create credentials, confirm the email, then return here to add them to your Circles account."
-                    : "Use an email address you have already verified with Supabase."
-                  : "Use your email and password to continue to Circles."}
-              </T>
-            </View>
+          <View style={{ flex: 1, gap: 5 }}>
+            <T
+              accessibilityRole="header"
+              style={{ fontSize: 25, fontWeight: "800" }}
+            >
+              {dialogTitle(mode, formMode)}
+            </T>
+            <T style={{ color: C.muted, fontSize: 15 }}>
+              {mode === "connect"
+                ? formMode === "signUp"
+                  ? "Create credentials, confirm the email, then return here to add them to your Circles account."
+                  : "Use an email address you have already verified with Supabase."
+                : "Use your email and password to continue to Circles."}
+            </T>
+          </View>
+          {isStandalone && (
             <IconButton
               icon="close"
               label="Close email sign-in"
               onPress={close}
             />
-          </View>
+          )}
+        </View>
 
-          {availability === "loading" ? (
-            <View
-              accessibilityLiveRegion="polite"
-              style={{ alignItems: "center", gap: 12, paddingVertical: 28 }}
-            >
-              <ActivityIndicator color={C.coral} />
-              <T style={{ color: C.muted }}>Checking email sign-in…</T>
-            </View>
-          ) : availabilityMessage ? (
-            <View
-              accessibilityLiveRegion="polite"
-              style={{
-                backgroundColor: C.sage,
-                borderRadius: 16,
-                gap: 10,
-                padding: 18,
-              }}
-            >
-              <T style={{ fontSize: 18, fontWeight: "700" }}>
-                {availabilityMessage.title}
-              </T>
-              <T style={{ color: C.secondary }}>{availabilityMessage.detail}</T>
-              {availabilityMessage.retry && (
-                <Button
-                  title="Try again"
-                  accessibilityLabel="Retry email sign-in availability"
-                  secondary
-                  disabled={checkingStatus}
-                  loading={checkingStatus}
-                  onPress={retryStatus}
-                  style={{ alignSelf: "flex-start", marginTop: 4 }}
-                />
-              )}
-            </View>
-          ) : confirmedSignUp ? (
-            <View
-              accessibilityLiveRegion="polite"
-              style={{
-                backgroundColor: C.sage,
-                borderRadius: 16,
-                gap: 10,
-                padding: 18,
-              }}
-            >
-              <T
-                accessibilityRole="header"
-                style={{ fontSize: 19, fontWeight: "700" }}
-              >
-                Check your email
-              </T>
-              <T style={{ color: C.secondary }}>
-                {mode === "connect"
-                  ? "If credentials can be created for this address, check your email to confirm them. Then return to this screen and verify the confirmed password to add email sign-in. Your Circles session remains signed in."
-                  : "If an account can be created for this address, check your email to confirm it. Then return here to sign in."}
-              </T>
+        {availability === "loading" ? (
+          <View style={{ alignItems: "center", gap: 12, paddingVertical: 28 }}>
+            <ActivityIndicator color={C.coral} />
+            <StatusMessage message="Checking email sign-in…" tone="info" />
+          </View>
+        ) : availabilityMessage ? (
+          <View
+            style={{
+              backgroundColor: C.sage,
+              borderRadius: 16,
+              gap: 10,
+              padding: 18,
+            }}
+          >
+            <StatusMessage
+              message={availabilityMessage.title}
+              tone="error"
+              style={{ fontSize: 18, fontWeight: "700" }}
+            />
+            <T style={{ color: C.secondary }}>{availabilityMessage.detail}</T>
+            {availabilityMessage.retry && (
               <Button
-                title={
+                title="Try again"
+                accessibilityLabel="Retry email sign-in availability"
+                secondary
+                disabled={checkingStatus}
+                loading={checkingStatus}
+                onPress={retryStatus}
+                style={{ alignSelf: "flex-start", marginTop: 4 }}
+              />
+            )}
+          </View>
+        ) : confirmedSignUp ? (
+          <View
+            style={{
+              backgroundColor: C.sage,
+              borderRadius: 16,
+              gap: 10,
+              padding: 18,
+            }}
+          >
+            <StatusMessage
+              message="Check your email"
+              tone="success"
+              style={{ fontSize: 19, fontWeight: "700" }}
+            />
+            <T style={{ color: C.secondary }}>
+              {mode === "connect"
+                ? "If credentials can be created for this address, check your email to confirm them. Then return to this screen and verify the confirmed password to add email sign-in. Your Circles session remains signed in."
+                : "If an account can be created for this address, check your email to confirm it. Then return here to sign in."}
+            </T>
+            <Button
+              title={
+                mode === "connect"
+                  ? "Back to add email sign-in"
+                  : "Back to sign in"
+              }
+              accessibilityLabel={
+                mode === "connect"
+                  ? "Back to add email sign-in"
+                  : "Back to email sign in"
+              }
+              secondary
+              onPress={showSignIn}
+              style={{ alignSelf: "flex-start", marginTop: 4 }}
+            />
+          </View>
+        ) : (
+          <View style={{ gap: 14 }}>
+            {mode === "connect" && (
+              <View
+                style={{
+                  backgroundColor: C.soft,
+                  borderRadius: 14,
+                  gap: 6,
+                  padding: 14,
+                }}
+              >
+                <T style={{ color: C.secondary, fontSize: 13 }}>
+                  An email address alone cannot link an account. Verify this
+                  password for your current Circles session, and confirm the
+                  email with Supabase first.
+                </T>
+              </View>
+            )}
+            <Input
+              accessibilityLabel="Email address"
+              autoCapitalize="none"
+              autoComplete="email"
+              autoCorrect={false}
+              autoFocus
+              editable={!hasPendingOperation}
+              keyboardType="email-address"
+              label="EMAIL ADDRESS"
+              onChangeText={updateEmail}
+              onSubmitEditing={focusPassword}
+              placeholder="you@example.com"
+              returnKeyType="next"
+              textContentType="emailAddress"
+              value={email}
+            />
+            <Input
+              accessibilityLabel="Password"
+              autoComplete={
+                formMode === "signUp" ? "new-password" : "current-password"
+              }
+              editable={!hasPendingOperation}
+              label="PASSWORD"
+              onChangeText={updatePassword}
+              onSubmitEditing={() => void submit()}
+              ref={passwordInputRef}
+              returnKeyType="done"
+              secureTextEntry
+              textContentType={
+                formMode === "signUp" ? "newPassword" : "password"
+              }
+              value={password}
+            />
+            {formError && (
+              <StatusMessage
+                message={formError}
+                tone="error"
+                style={{ fontSize: 13 }}
+              />
+            )}
+            <Button
+              title={submitting ? "Working…" : submitTitle(mode, formMode)}
+              accessibilityLabel={submitTitle(mode, formMode)}
+              disabled={!isAvailable}
+              loading={submitting}
+              onPress={() => void submit()}
+            />
+            {formMode === "signIn" && (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={
                   mode === "connect"
-                    ? "Back to add email sign-in"
-                    : "Back to sign in"
+                    ? "Create email credentials"
+                    : "Create an account with email"
                 }
+                accessibilityState={{ disabled: hasPendingOperation }}
+                disabled={hasPendingOperation}
+                onPress={showSignUp}
+                style={{
+                  alignItems: "center",
+                  justifyContent: "center",
+                  minHeight: 44,
+                }}
+              >
+                <T style={{ color: C.secondary, fontWeight: "700" }}>
+                  {mode === "connect"
+                    ? "Create email credentials"
+                    : "Create an account"}
+                </T>
+              </Pressable>
+            )}
+            {formMode === "signUp" && (
+              <Pressable
+                accessibilityRole="button"
                 accessibilityLabel={
                   mode === "connect"
                     ? "Back to add email sign-in"
                     : "Back to email sign in"
                 }
-                secondary
+                accessibilityState={{ disabled: hasPendingOperation }}
+                disabled={hasPendingOperation}
                 onPress={showSignIn}
-                style={{ alignSelf: "flex-start", marginTop: 4 }}
-              />
-            </View>
-          ) : (
-            <View style={{ gap: 14 }}>
-              {mode === "connect" && (
-                <View
-                  style={{
-                    backgroundColor: C.soft,
-                    borderRadius: 14,
-                    gap: 6,
-                    padding: 14,
-                  }}
-                >
-                  <T style={{ color: C.secondary, fontSize: 13 }}>
-                    An email address alone cannot link an account. Verify this
-                    password for your current Circles session, and confirm the
-                    email with Supabase first.
-                  </T>
-                </View>
-              )}
-              <Input
-                accessibilityLabel="Email address"
-                autoCapitalize="none"
-                autoComplete="email"
-                autoCorrect={false}
-                autoFocus
-                editable={!hasPendingOperation}
-                keyboardType="email-address"
-                label="EMAIL ADDRESS"
-                onChangeText={updateEmail}
-                placeholder="you@example.com"
-                returnKeyType="next"
-                textContentType="emailAddress"
-                value={email}
-              />
-              <Input
-                accessibilityLabel="Password"
-                autoComplete={
-                  formMode === "signUp" ? "new-password" : "current-password"
-                }
-                editable={!hasPendingOperation}
-                label="PASSWORD"
-                onChangeText={updatePassword}
-                onSubmitEditing={() => void submit()}
-                returnKeyType="done"
-                secureTextEntry
-                textContentType={
-                  formMode === "signUp" ? "newPassword" : "password"
-                }
-                value={password}
-              />
-              {formError && (
-                <T
-                  accessibilityLiveRegion="assertive"
-                  accessibilityRole="alert"
-                  style={{ color: C.secondary, fontSize: 13 }}
-                >
-                  {formError}
+                style={{
+                  alignItems: "center",
+                  justifyContent: "center",
+                  minHeight: 44,
+                }}
+              >
+                <T style={{ color: C.secondary, fontWeight: "700" }}>
+                  {mode === "connect"
+                    ? "Already have confirmed credentials? Add email sign-in"
+                    : "Already have an account? Sign in"}
                 </T>
-              )}
-              <Button
-                title={submitting ? "Working…" : submitTitle(mode, formMode)}
-                accessibilityLabel={submitTitle(mode, formMode)}
-                disabled={!isAvailable}
-                loading={submitting}
-                onPress={() => void submit()}
-              />
-              {formMode === "signIn" && (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={
-                    mode === "connect"
-                      ? "Create email credentials"
-                      : "Create an account with email"
-                  }
-                  accessibilityState={{ disabled: hasPendingOperation }}
-                  disabled={hasPendingOperation}
-                  onPress={showSignUp}
-                  style={{
-                    alignItems: "center",
-                    justifyContent: "center",
-                    minHeight: 44,
-                  }}
-                >
-                  <T style={{ color: C.secondary, fontWeight: "700" }}>
-                    {mode === "connect"
-                      ? "Create email credentials"
-                      : "Create an account"}
-                  </T>
-                </Pressable>
-              )}
-              {formMode === "signUp" && (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={
-                    mode === "connect"
-                      ? "Back to add email sign-in"
-                      : "Back to email sign in"
-                  }
-                  accessibilityState={{ disabled: hasPendingOperation }}
-                  disabled={hasPendingOperation}
-                  onPress={showSignIn}
-                  style={{
-                    alignItems: "center",
-                    justifyContent: "center",
-                    minHeight: 44,
-                  }}
-                >
-                  <T style={{ color: C.secondary, fontWeight: "700" }}>
-                    {mode === "connect"
-                      ? "Already have confirmed credentials? Add email sign-in"
-                      : "Already have an account? Sign in"}
-                  </T>
-                </Pressable>
-              )}
-              {canOfferExistingCirclesAccountConnection(
-                mode,
-                formMode,
-                onConnectExisting,
-              ) && (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Connect existing Circles account"
-                  accessibilityState={{ disabled: hasPendingOperation }}
-                  disabled={hasPendingOperation}
-                  onPress={connectExistingCirclesAccount}
-                  style={{
-                    alignItems: "center",
-                    justifyContent: "center",
-                    minHeight: 44,
-                  }}
-                >
-                  <T style={{ color: C.secondary, fontWeight: "700" }}>
-                    Connect existing Circles account
-                  </T>
-                </Pressable>
-              )}
-            </View>
-          )}
+              </Pressable>
+            )}
+            {canOfferExistingCirclesAccountConnection(
+              mode,
+              formMode,
+              onConnectExisting,
+            ) && (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Connect existing Circles account"
+                accessibilityState={{ disabled: hasPendingOperation }}
+                disabled={hasPendingOperation}
+                onPress={connectExistingCirclesAccount}
+                style={{
+                  alignItems: "center",
+                  justifyContent: "center",
+                  minHeight: 44,
+                }}
+              >
+                <T style={{ color: C.secondary, fontWeight: "700" }}>
+                  Connect existing Circles account
+                </T>
+              </Pressable>
+            )}
+          </View>
+        )}
 
-          <T style={{ color: C.muted, fontSize: 12, textAlign: "center" }}>
-            Google sign-in is planned for a later release.
-          </T>
-        </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+        <T style={{ color: C.muted, fontSize: 12, textAlign: "center" }}>
+          Google sign-in is planned for a later release.
+        </T>
+      </View>
+    </EmailAuthFormFrame>
   );
 }

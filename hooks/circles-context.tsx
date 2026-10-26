@@ -1,10 +1,18 @@
 import type { QueryClient } from "@tanstack/react-query";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Modal, Platform, View } from "react-native";
+import {
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  ScrollView,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { trpc } from "@/lib/trpc";
 import { C, IconButton, Logo, T } from "@/components/circles-ui";
 import { EmailAuthForm } from "@/components/email-auth-form";
-import { useRouter } from "expo-router";
+import { StatusMessage } from "@/components/status-message";
+import { usePathname, useRouter } from "expo-router";
 import * as Api from "@/lib/_core/api";
 import * as Auth from "@/lib/_core/auth";
 import { logoutAndPurgeClientSession } from "@/lib/client-session";
@@ -17,8 +25,14 @@ import {
   logoutNativeSessionAfterEmailAuthDrain,
 } from "@/hooks/native-login-transition";
 import { resolveAuthGateState } from "@/lib/feed-ui-helpers";
+import type { StatusTone } from "@/lib/status-announcement";
 import { CirclesContext as Context } from "./circles-context-core";
 export { useCircles } from "./circles-context-core";
+
+type GlobalNotice = {
+  message: string;
+  tone: StatusTone;
+};
 
 export function CirclesProvider({
   children,
@@ -30,13 +44,15 @@ export function CirclesProvider({
   resetProtectedNavigation: () => void;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const insets = useSafeAreaInsets();
   const auth = trpc.auth.me.useQuery(undefined, {
     refetchInterval: 15000,
     retry: false,
   });
   const utils = trpc.useUtils();
   const [login, setLogin] = useState(false);
-  const [notice, setNotice] = useState("");
+  const [notice, setNotice] = useState<GlobalNotice | null>(null);
   const pendingProtectedAction = useRef<(() => void) | null>(null);
   const authState = resolveAuthGateState({
     isLoading: auth.isLoading,
@@ -45,9 +61,16 @@ export function CirclesProvider({
   });
   const loginVisible = login && authState === "guest";
   const refetchAuth = auth.refetch;
+  const showNotice = useCallback(
+    (message: string, tone: StatusTone = "info") => {
+      setNotice({ message, tone });
+    },
+    [],
+  );
+  const callbackOwnsRecovery = pathname === "/oauth/callback";
   useEffect(() => {
     if (!notice) return;
-    const timer = setTimeout(() => setNotice(""), 4000);
+    const timer = setTimeout(() => setNotice(null), 4000);
     return () => clearTimeout(timer);
   }, [notice]);
 
@@ -125,18 +148,20 @@ export function CirclesProvider({
       remoteLogout: Api.logout,
     });
     if (result.cleanup?.localCleanupFailed) {
-      setNotice(
+      showNotice(
         "This device could not clear incomplete sign-in. Close and reopen Circles before retrying.",
+        "error",
       );
     } else if (result.cleanup?.remoteRevocationFailed) {
-      setNotice(
+      showNotice(
         "This device was cleared, but secure sign-out could not be confirmed. Please retry shortly.",
+        "error",
       );
     } else if (!result.authenticatedUser) {
-      setNotice("We couldn’t confirm sign-in. Please try again.");
+      showNotice("We couldn’t confirm sign-in. Please try again.", "error");
     }
     return result.authenticatedUser !== null;
-  }, [queryClient, refetchAuth, utils]);
+  }, [queryClient, refetchAuth, showNotice, utils]);
 
   const connectExistingCirclesAccount = useCallback(() => {
     router.push("/account/email");
@@ -151,13 +176,14 @@ export function CirclesProvider({
 
       if (authState === "checking") {
         if (action) pendingProtectedAction.current = action;
-        setNotice("Checking your sign-in…");
+        showNotice("Checking your sign-in…", "info");
         return false;
       }
 
       if (authState === "error") {
-        setNotice(
+        showNotice(
           "We couldn’t confirm your sign-in. Check your connection and try again.",
+          "error",
         );
         return false;
       }
@@ -165,7 +191,7 @@ export function CirclesProvider({
       setLogin(true);
       return false;
     },
-    [authState],
+    [authState, showNotice],
   );
   return (
     <Context.Provider
@@ -174,12 +200,13 @@ export function CirclesProvider({
         authLoading: auth.isLoading,
         authState,
         requireAuth,
-        notify: setNotice,
+        notify: showNotice,
         refresh,
         showLogin: () => {
           if (authState === "error") {
-            setNotice(
+            showNotice(
               "We couldn’t confirm your sign-in. Check your connection and try again.",
+              "error",
             );
             return;
           }
@@ -190,7 +217,7 @@ export function CirclesProvider({
       }}
     >
       {children}
-      {!!notice && (
+      {!!notice && !callbackOwnsRecovery && (
         <View
           pointerEvents="none"
           style={{
@@ -204,14 +231,20 @@ export function CirclesProvider({
         >
           <View
             style={{
-              backgroundColor: C.ink,
+              backgroundColor: notice.tone === "error" ? C.soft : C.paper,
+              borderColor: C.border,
+              borderWidth: 1,
               paddingHorizontal: 20,
               paddingVertical: 13,
               borderRadius: 14,
               maxWidth: 480,
             }}
           >
-            <T style={{ color: "#fff", textAlign: "center" }}>{notice}</T>
+            <StatusMessage
+              message={notice.message}
+              tone={notice.tone}
+              style={{ textAlign: "center" }}
+            />
           </View>
         </View>
       )}
@@ -221,58 +254,75 @@ export function CirclesProvider({
         animationType="fade"
         onRequestClose={() => setLogin(false)}
       >
-        <View
-          style={{
-            flex: 1,
-            justifyContent: "center",
-            alignItems: "center",
-            backgroundColor: "#19201B88",
-            padding: 24,
-          }}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={{ flex: 1 }}
         >
-          <View
-            style={{
-              backgroundColor: C.paper,
-              borderRadius: 26,
-              padding: 28,
-              width: "100%",
-              maxWidth: 390,
-              maxHeight: "94%",
-              gap: 16,
-            }}
-          >
-            <View style={{ alignSelf: "flex-end" }}>
-              <IconButton
-                icon="close"
-                onPress={() => setLogin(false)}
-                label="Close sign in"
-              />
-            </View>
-            <Logo size={58} />
-            <T
-              style={{
-                fontSize: 29,
-                lineHeight: 35,
-                fontWeight: "800",
-                letterSpacing: -1,
+          <View style={{ backgroundColor: "#19201B88", flex: 1 }}>
+            <ScrollView
+              automaticallyAdjustKeyboardInsets
+              contentContainerStyle={{
+                alignItems: "center",
+                flexGrow: 1,
+                justifyContent: "center",
+                paddingHorizontal: 16,
+                paddingTop: Math.max(16, insets.top + 12),
+                paddingBottom: Math.max(16, insets.bottom + 12),
               }}
+              keyboardDismissMode="interactive"
+              keyboardShouldPersistTaps="handled"
+              showsHorizontalScrollIndicator={false}
+              showsVerticalScrollIndicator={false}
+              style={{ flex: 1, width: "100%" }}
             >
-              Your people are here.
-            </T>
-            <T style={{ color: C.secondary }}>
-              Sign in to make a circle, share your moments, and keep the
-              conversation going.
-            </T>
-            {loginVisible && (
-              <EmailAuthForm
-                mode="signIn"
-                onAuthenticated={completeNativeLogin}
-                onClose={() => setLogin(false)}
-                onConnectExisting={connectExistingCirclesAccount}
-              />
-            )}
+              <View
+                style={{
+                  alignSelf: "center",
+                  backgroundColor: C.paper,
+                  borderColor: C.border,
+                  borderRadius: 24,
+                  borderWidth: 1,
+                  gap: 16,
+                  maxWidth: 440,
+                  padding: 20,
+                  width: "100%",
+                }}
+              >
+                <View style={{ alignSelf: "flex-end" }}>
+                  <IconButton
+                    icon="close"
+                    onPress={() => setLogin(false)}
+                    label="Close sign in"
+                  />
+                </View>
+                <Logo size={58} />
+                <T
+                  style={{
+                    fontSize: 29,
+                    lineHeight: 35,
+                    fontWeight: "800",
+                    letterSpacing: -1,
+                  }}
+                >
+                  Your people are here.
+                </T>
+                <T style={{ color: C.secondary }}>
+                  Sign in to make a circle, share your moments, and keep the
+                  conversation going.
+                </T>
+                {loginVisible && (
+                  <EmailAuthForm
+                    mode="signIn"
+                    onAuthenticated={completeNativeLogin}
+                    onClose={() => setLogin(false)}
+                    onConnectExisting={connectExistingCirclesAccount}
+                    presentation="embedded"
+                  />
+                )}
+              </View>
+            </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </Context.Provider>
   );

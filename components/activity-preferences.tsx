@@ -7,6 +7,7 @@ import {
   isCurrentActivityScope,
   resolveActivityResponseUiState,
 } from "@/lib/activity-ui";
+import { StatusMessage } from "@/components/status-message";
 import { Button, C, Empty, T } from "./circles-ui";
 
 type CategoryKey = "commentsEnabled" | "membershipApprovalsEnabled";
@@ -52,7 +53,10 @@ function ActivityToggle({
         style={[styles.track, value ? styles.trackOn : styles.trackOff]}
       >
         {pending ? (
-          <ActivityIndicator size="small" color={value ? "#fff" : C.green} />
+          <ActivityIndicator
+            size="small"
+            color={value ? "#fff" : C.secondary}
+          />
         ) : (
           <View style={[styles.knob, value ? styles.knobOn : styles.knobOff]} />
         )}
@@ -61,10 +65,27 @@ function ActivityToggle({
   );
 }
 
-function preferencesError(error: unknown): string {
-  return error instanceof Error && error.message
-    ? error.message
-    : "We couldn’t save that preference. Please try again.";
+function preferencesError(): string {
+  return "We couldn’t save that preference. Please try again.";
+}
+
+export function ActivityOutcomeStatus({
+  message,
+  tone,
+  testID,
+}: {
+  message: string | null | undefined;
+  tone: "info" | "success" | "error";
+  testID?: string;
+}) {
+  return (
+    <StatusMessage
+      message={message}
+      tone={tone}
+      style={styles.outcome}
+      testID={testID}
+    />
+  );
 }
 
 /** Global future-event categories. Existing inbox records deliberately remain unchanged. */
@@ -146,10 +167,10 @@ export function ActivityPreferencesPanel({ viewerId }: { viewerId: number }) {
           if (!isCurrent(capturedScope)) return;
           setDesired(null);
           setSavedMessage("Update preferences saved.");
-        } catch (caught) {
+        } catch {
           if (isCurrent(capturedScope)) {
             setDesired(null);
-            setWriteError(preferencesError(caught));
+            setWriteError(preferencesError());
           }
         } finally {
           if (isCurrent(capturedScope)) setPendingKey(null);
@@ -171,8 +192,11 @@ export function ActivityPreferencesPanel({ viewerId }: { viewerId: number }) {
   if (state.isLoading) {
     return (
       <View style={styles.inlineLoading}>
-        <ActivityIndicator color={C.coral} />
-        <T style={styles.muted}>Checking your update preferences…</T>
+        <ActivityIndicator color={C.action} />
+        <ActivityOutcomeStatus
+          message="Checking your update preferences…"
+          tone="info"
+        />
       </View>
     );
   }
@@ -215,8 +239,8 @@ export function ActivityPreferencesPanel({ viewerId }: { viewerId: number }) {
         pending={pendingKey === "membershipApprovalsEnabled"}
         onPress={() => changeCategory("membershipApprovalsEnabled")}
       />
-      {writeError && <T style={styles.error}>{writeError}</T>}
-      {savedMessage && <T style={styles.success}>{savedMessage}</T>}
+      <ActivityOutcomeStatus message={writeError} tone="error" />
+      <ActivityOutcomeStatus message={savedMessage} tone="success" />
     </View>
   );
 }
@@ -300,10 +324,10 @@ export function CircleActivityPreference({
         await preferences.refetch();
         if (!isCurrent(capturedScope)) return;
         setDesiredMuted(null);
-      } catch (caught) {
+      } catch {
         if (isCurrent(capturedScope)) {
           setDesiredMuted(null);
-          setWriteError(preferencesError(caught));
+          setWriteError(preferencesError());
         }
       } finally {
         if (isCurrent(capturedScope)) setPending(false);
@@ -324,8 +348,11 @@ export function CircleActivityPreference({
   if (state.isLoading) {
     return (
       <View style={styles.circleLoading}>
-        <ActivityIndicator color={C.coral} />
-        <T style={styles.muted}>Checking update preferences…</T>
+        <ActivityIndicator color={C.action} />
+        <ActivityOutcomeStatus
+          message="Checking update preferences…"
+          tone="info"
+        />
       </View>
     );
   }
@@ -333,7 +360,10 @@ export function CircleActivityPreference({
   if (state.isError || typeof muted !== "boolean") {
     return (
       <View style={styles.circleError}>
-        <T style={styles.error}>We couldn’t load update preferences.</T>
+        <ActivityOutcomeStatus
+          message="We couldn’t load update preferences."
+          tone="error"
+        />
         <Button
           title="Try again"
           secondary
@@ -354,7 +384,7 @@ export function CircleActivityPreference({
         pending={pending}
         onPress={toggleMuted}
       />
-      {writeError && <T style={styles.error}>{writeError}</T>}
+      <ActivityOutcomeStatus message={writeError} tone="error" />
     </View>
   );
 }
@@ -362,7 +392,8 @@ export function CircleActivityPreference({
 const styles = StyleSheet.create({
   panel: { gap: 13 },
   panelTitle: { fontSize: 19, fontWeight: "700" },
-  muted: { color: C.muted, fontSize: 14, lineHeight: 21 },
+  muted: { color: C.secondary, fontSize: 14, lineHeight: 21 },
+  outcome: { fontSize: 13, lineHeight: 19 },
   inlineLoading: { paddingVertical: 24, alignItems: "center", gap: 10 },
   toggle: {
     minHeight: 76,
@@ -379,7 +410,7 @@ const styles = StyleSheet.create({
   toggleDisabled: { opacity: 0.62 },
   togglePressed: { opacity: 0.72 },
   toggleLabel: { fontSize: 14, fontWeight: "700" },
-  toggleDescription: { color: C.muted, fontSize: 12, lineHeight: 18 },
+  toggleDescription: { color: C.secondary, fontSize: 12, lineHeight: 18 },
   track: {
     width: 48,
     height: 29,
@@ -388,13 +419,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     flexShrink: 0,
   },
-  trackOn: { backgroundColor: C.coral, alignItems: "flex-end" },
+  trackOn: { backgroundColor: C.action, alignItems: "flex-end" },
   trackOff: { backgroundColor: C.sage, alignItems: "flex-start" },
   knob: { width: 23, height: 23, borderRadius: 12, backgroundColor: "#fff" },
   knobOn: {},
-  knobOff: { backgroundColor: C.green },
-  error: { color: "#B44335", fontSize: 13, lineHeight: 19 },
-  success: { color: C.green, fontSize: 13, lineHeight: 19, fontWeight: "600" },
+  knobOff: { backgroundColor: C.secondary },
   circlePanel: {
     marginTop: 4,
     borderTopWidth: 1,

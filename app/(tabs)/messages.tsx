@@ -4,6 +4,7 @@ import { useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
 import { AppShell } from "@/components/app-shell";
+import { StatusMessage } from "@/components/status-message";
 import { conversationAccessibility } from "@/lib/batch2-message-accessibility";
 import {
   ago,
@@ -20,11 +21,11 @@ import {
 
 export default function MessagesScreen() {
   const router = useRouter();
-  const { user, showLogin } = useCircles();
+  const { authState, refresh, showLogin } = useCircles();
   const [filter, setFilter] = useState("All");
   const [search, setSearch] = useState("");
   const conversations = trpc.social.conversations.useQuery(undefined, {
-    enabled: !!user,
+    enabled: authState === "authenticated",
     refetchInterval: 3000,
   });
   const items =
@@ -99,7 +100,31 @@ export default function MessagesScreen() {
         </View>
       </View>
       <View style={{ marginTop: 22 }}>
-        {!user ? (
+        {authState === "checking" ? (
+          <View style={{ alignItems: "center", gap: 12, paddingVertical: 32 }}>
+            <Loading />
+            <StatusMessage
+              message="Checking your sign-in…"
+              tone="info"
+              style={{ fontSize: 14, textAlign: "center" }}
+            />
+          </View>
+        ) : authState === "error" ? (
+          <View style={{ gap: 12 }}>
+            <StatusMessage
+              message="We couldn’t confirm your sign-in. Try again."
+              tone="error"
+              style={{ fontSize: 14, textAlign: "center" }}
+            />
+            <Empty
+              icon="cloud-offline-outline"
+              title="Your inbox is waiting."
+              text="Check your connection, then try the sign-in check again."
+              action="Try again"
+              onAction={refresh}
+            />
+          </View>
+        ) : authState === "guest" ? (
           <Empty
             icon="chatbubbles-outline"
             title="Your conversations live here."
@@ -110,14 +135,21 @@ export default function MessagesScreen() {
         ) : conversations.isLoading ? (
           <Loading />
         ) : conversations.error ? (
-          <Empty
-            title="Couldn’t open your inbox."
-            text={conversations.error.message}
-            action="Try again"
-            onAction={() => {
-              void conversations.refetch();
-            }}
-          />
+          <View style={{ gap: 12 }}>
+            <StatusMessage
+              message="Couldn’t open your inbox. Try again."
+              tone="error"
+              style={{ fontSize: 14, textAlign: "center" }}
+            />
+            <Empty
+              title="Your inbox is unavailable right now."
+              text="Check your connection and try again."
+              action="Try again"
+              onAction={() => {
+                void conversations.refetch();
+              }}
+            />
+          </View>
         ) : !items.length ? (
           <Empty
             icon="chatbubble-ellipses-outline"

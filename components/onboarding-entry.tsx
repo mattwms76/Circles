@@ -36,7 +36,7 @@ export function OnboardingEntry() {
           Make Circles a little more yours
         </T>
       </View>
-      <T style={{ color: C.green, fontSize: 13, lineHeight: 19 }}>
+      <T style={{ color: C.secondary, fontSize: 13, lineHeight: 19 }}>
         Optional: pick private interests and explore public-circle suggestions.
         You choose whether to join anything.
       </T>

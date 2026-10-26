@@ -10,6 +10,13 @@ import {
   isCurrentBatch3AccountResourceOperation,
   type Batch3AccountResourceOperation,
 } from "@/lib/batch3-account-resource-scope";
+import {
+  circleManageActionTarget,
+  createCircleManageActionSingleFlight,
+  resolveCircleMemberDisplayStates,
+  type CircleManageAction,
+  type CircleManagePendingAction,
+} from "@/lib/design31-circle";
 import { resolveFnd001QueryDisplayState } from "@/lib/fnd001-query-display-state";
 import { parsePositiveSafeId } from "@/lib/feed-ui-helpers";
 import { invalidateCircleDirectories } from "@/lib/source-query-invalidation";
@@ -20,6 +27,7 @@ import {
 } from "@/components/circle-home-panel";
 import { CircleActivityPreference } from "@/components/activity-preferences";
 import { PostCard } from "@/components/post-card";
+import { StatusMessage } from "@/components/status-message";
 import { UserAvatar } from "@/components/user-avatar";
 import {
   canReadCircleHome,
@@ -39,6 +47,11 @@ import {
 } from "@/components/circles-ui";
 
 type MembershipError = { scope: string; message: string };
+type CircleManageOutcome = {
+  operation: Batch3AccountResourceOperation;
+  message: string;
+  tone: "success" | "error";
+};
 
 export default function CircleScreen() {
   const { id } = useLocalSearchParams<{ id?: string | string[] }>();
@@ -74,11 +87,17 @@ function CircleScreenInstance() {
   );
   const membershipGeneration = useRef(0);
   const membershipFlight = useRef(createBatch3AccountResourceSingleFlight());
+  const manageActionFlight = useRef(createCircleManageActionSingleFlight());
   const [pendingMembershipScope, setPendingMembershipScope] = useState<
     string | null
   >(null);
+  const [pendingManageActions, setPendingManageActions] = useState<
+    CircleManagePendingAction[]
+  >([]);
   const [membershipError, setMembershipError] =
     useState<MembershipError | null>(null);
+  const [manageOutcome, setManageOutcome] =
+    useState<CircleManageOutcome | null>(null);
   const [tab, setTab] = useState("Home");
   const [homeEditorScope, setHomeEditorScope] = useState<string | null>(null);
   const circle = trpc.social.circle.useQuery(
@@ -177,12 +196,17 @@ function CircleScreenInstance() {
     },
   );
   const memberItems = members.data?.pages.flatMap((page) => page.items) ?? [];
+  const visibleMemberItems = memberItems.filter(
+    (member) => member.role !== "pending",
+  );
   const feedItems = feed.data?.pages.flatMap((page) => page.items) ?? [];
-  const membersDisplayState = resolveFnd001QueryDisplayState({
-    isLoading: members.isLoading,
-    isError: members.isError,
-    hasContent: memberItems.length > 0 || !!members.hasNextPage,
-  });
+  const { membersDisplayState, manageMembersDisplayState } =
+    resolveCircleMemberDisplayStates({
+      members: memberItems,
+      isLoading: members.isLoading,
+      isError: members.isError,
+      hasNextPage: !!members.hasNextPage,
+    });
   const feedDisplayState = resolveFnd001QueryDisplayState({
     isLoading: feed.isLoading,
     isError: feed.isError,
@@ -228,9 +252,10 @@ function CircleScreenInstance() {
                 : result.joined
                   ? "You’re in. Make yourself at home."
                   : "You’ve left this circle.",
+              "success",
             );
           },
-          onError: (error) => {
+          onError: () => {
             membershipFlight.current.finish(capturedScope);
             if (!isCurrentCircleActionScope(capturedScope)) return;
             setPendingMembershipScope((current) =>
@@ -238,9 +263,8 @@ function CircleScreenInstance() {
             );
             setMembershipError({
               scope: capturedScope.scope,
-              message: error.message,
+              message: "We couldn’t update your membership.",
             });
-            notify(error.message);
           },
         },
       );
@@ -251,42 +275,175 @@ function CircleScreenInstance() {
       router.push(
         `/chat/${result.id}?name=${encodeURIComponent(group?.name || "Circle chat")}`,
       ),
-    onError: (e) => notify(e.message),
+    onError: () =>
+      notify(
+        "We couldn’t open the circle chat. Check your connection and try again.",
+        "error",
+      ),
   });
-  const role = trpc.social.setRole.useMutation({
-    onSuccess: () => {
-      refresh();
-      notify("Circle role updated.");
-    },
-    onError: (e) => notify(e.message),
-  });
-  const remove = trpc.social.removeMember.useMutation({
-    onSuccess: () => {
-      refresh();
-      notify("Member removed.");
-    },
-    onError: (e) => notify(e.message),
-  });
-  const approve = trpc.social.approveMember.useMutation({
-    onSuccess: () => {
-      refresh();
-      notify("A new member is in your circle.");
-    },
-    onError: (e) => notify(e.message),
-  });
-  const deletePost = trpc.social.deletePost.useMutation({
-    onSuccess: () => {
-      void feed.refetch();
-      void utils.circleHome.get.invalidate({ circleId });
-      void utils.social.feedPage.invalidate({
-        filter: "for-you",
+  const role = trpc.social.setRole.useMutation();
+  const remove = trpc.social.removeMember.useMutation();
+  const approve = trpc.social.approveMember.useMutation();
+  const deletePost = trpc.social.deletePost.useMutation();
+  const beginManageAction = (
+    action: CircleManageAction,
+    targetKind: "member" | "post",
+    targetId: number,
+  ) => {
+    const operation = mountedMembershipScope.current;
+    const target = circleManageActionTarget(targetKind, targetId);
+    if (!operation || operation.scope !== circleActionScope || !target) {
+      return null;
+    }
+
+    const pendingAction = { action, operation, target };
+    if (!manageActionFlight.current.start(pendingAction)) return null;
+
+    setPendingManageActions((current) => [...current, pendingAction]);
+    setManageOutcome(null);
+    return pendingAction;
+  };
+  const finishManageAction = (pendingAction: CircleManagePendingAction) => {
+    manageActionFlight.current.finish(pendingAction);
+    if (!isCurrentCircleActionScope(pendingAction.operation)) return false;
+
+    setPendingManageActions((current) =>
+      current.filter((action) => action !== pendingAction),
+    );
+    return true;
+  };
+  const completeManageAction = (
+    pendingAction: CircleManagePendingAction,
+    outcome: Omit<CircleManageOutcome, "operation">,
+  ) => {
+    if (!finishManageAction(pendingAction)) return;
+    setManageOutcome({ operation: pendingAction.operation, ...outcome });
+  };
+  const updateMemberRole = (member: (typeof memberItems)[number]) => {
+    const pendingAction = beginManageAction(
+      "set-member-role",
+      "member",
+      member.user.id,
+    );
+    if (!pendingAction) return;
+
+    const removesModeratorRole = member.role === "moderator";
+    role.mutate(
+      {
         circleId,
-        limit: 20,
-      });
-      notify("Post removed from the circle.");
-    },
-    onError: (e) => notify(e.message),
-  });
+        userId: member.user.id,
+        role: removesModeratorRole ? "member" : "moderator",
+      },
+      {
+        onSuccess: () => {
+          completeManageAction(pendingAction, {
+            tone: "success",
+            message: removesModeratorRole
+              ? `${member.user.name} is now a member.`
+              : `${member.user.name} is now a moderator.`,
+          });
+          if (isCurrentCircleActionScope(pendingAction.operation)) refresh();
+        },
+        onError: () =>
+          completeManageAction(pendingAction, {
+            tone: "error",
+            message: `We couldn’t update ${member.user.name}’s role. Try again.`,
+          }),
+      },
+    );
+  };
+  const removeManagedMember = (member: (typeof memberItems)[number]) => {
+    const pendingAction = beginManageAction(
+      "remove-member",
+      "member",
+      member.user.id,
+    );
+    if (!pendingAction) return;
+
+    const declinesRequest = member.role === "pending";
+    remove.mutate(
+      { circleId, userId: member.user.id },
+      {
+        onSuccess: () => {
+          completeManageAction(pendingAction, {
+            tone: "success",
+            message: declinesRequest
+              ? `${member.user.name}’s request was declined.`
+              : `${member.user.name} was removed from the circle.`,
+          });
+          if (isCurrentCircleActionScope(pendingAction.operation)) refresh();
+        },
+        onError: () =>
+          completeManageAction(pendingAction, {
+            tone: "error",
+            message: declinesRequest
+              ? `We couldn’t decline ${member.user.name}’s request. Try again.`
+              : `We couldn’t remove ${member.user.name}. Try again.`,
+          }),
+      },
+    );
+  };
+  const approveManagedMember = (member: (typeof memberItems)[number]) => {
+    const pendingAction = beginManageAction(
+      "approve-member",
+      "member",
+      member.user.id,
+    );
+    if (!pendingAction) return;
+
+    approve.mutate(
+      { circleId, userId: member.user.id },
+      {
+        onSuccess: () => {
+          completeManageAction(pendingAction, {
+            tone: "success",
+            message: `${member.user.name} is now in your circle.`,
+          });
+          if (isCurrentCircleActionScope(pendingAction.operation)) refresh();
+        },
+        onError: () =>
+          completeManageAction(pendingAction, {
+            tone: "error",
+            message: `We couldn’t approve ${member.user.name}’s request. Try again.`,
+          }),
+      },
+    );
+  };
+  const removeManagedPost = (post: (typeof feedItems)[number]) => {
+    const pendingAction = beginManageAction("delete-post", "post", post.id);
+    if (!pendingAction) return;
+
+    deletePost.mutate(
+      { postId: post.id },
+      {
+        onSuccess: () => {
+          completeManageAction(pendingAction, {
+            tone: "success",
+            message: "The post was removed from the circle.",
+          });
+          if (!isCurrentCircleActionScope(pendingAction.operation)) return;
+          void feed.refetch();
+          void utils.circleHome.get.invalidate({ circleId });
+          void utils.social.feedPage.invalidate({
+            filter: "for-you",
+            circleId,
+            limit: 20,
+          });
+        },
+        onError: () =>
+          completeManageAction(pendingAction, {
+            tone: "error",
+            message: "We couldn’t remove that post. Try again.",
+          }),
+      },
+    );
+  };
+  const getPendingManageAction = (target: string | null) =>
+    pendingManageActions.find(
+      (action) =>
+        action.target === target &&
+        action.operation.scope === circleActionScope,
+    );
   const isAdmin = group?.role === "owner" || group?.role === "moderator";
   const canManageHome = homeUi.canEdit;
   const homeManagementWasDenied =
@@ -485,12 +642,11 @@ function CircleScreenInstance() {
               />
             )}
             {membershipError?.scope === circleActionScope && (
-              <T
-                accessibilityRole="alert"
-                style={{ color: C.secondary, fontSize: 12, lineHeight: 18 }}
-              >
-                {membershipError.message} Try again when you’re ready.
-              </T>
+              <StatusMessage
+                message={`${membershipError.message} Try again when you’re ready.`}
+                tone="error"
+                style={{ fontSize: 12, lineHeight: 18 }}
+              />
             )}
           </View>
           <ScrollView
@@ -597,65 +753,73 @@ function CircleScreenInstance() {
                 action="Try again"
                 onAction={() => void members.refetch()}
               />
+            ) : membersDisplayState === "empty" ? (
+              <Empty
+                icon="people-outline"
+                title="No members to show yet."
+                text="Approved members will appear here when they join the circle."
+              />
             ) : (
               <View style={{ gap: 16 }}>
-                {memberItems
-                  ?.filter((member) => member.role !== "pending")
-                  .map((member) => (
-                    <Pressable
-                      key={member.user.id}
-                      onPress={() => router.push(`/person/${member.user.id}`)}
-                      style={[
-                        s.row,
-                        {
-                          gap: 12,
-                          paddingBottom: 15,
-                          borderBottomWidth: 1,
-                          borderColor: C.border,
-                        },
-                      ]}
-                    >
-                      <UserAvatar
-                        uri={member.user.avatar}
-                        name={member.user.name}
-                        size={42}
-                        userId={member.user.id}
-                      />
-                      <View style={{ flex: 1, minWidth: 0 }}>
-                        <T style={{ fontWeight: "700", fontSize: 13 }}>
-                          {member.user.name}
-                        </T>
-                        <T
-                          style={{
-                            fontSize: 12,
-                            lineHeight: 18,
-                            color: C.muted,
-                          }}
-                        >
-                          @{member.user.handle}
-                        </T>
-                      </View>
-                      <View
+                {visibleMemberItems.map((member) => (
+                  <Pressable
+                    key={member.user.id}
+                    onPress={() => router.push(`/person/${member.user.id}`)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open ${member.user.name}’s profile`}
+                    accessibilityHint="Opens this member’s profile."
+                    style={[
+                      s.row,
+                      {
+                        gap: 12,
+                        minHeight: 48,
+                        paddingBottom: 15,
+                        borderBottomWidth: 1,
+                        borderColor: C.border,
+                      },
+                    ]}
+                  >
+                    <UserAvatar
+                      uri={member.user.avatar}
+                      name={member.user.name}
+                      size={42}
+                      userId={member.user.id}
+                    />
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <T style={{ fontWeight: "700", fontSize: 13 }}>
+                        {member.user.name}
+                      </T>
+                      <T
                         style={{
-                          paddingHorizontal: 10,
-                          paddingVertical: 4,
-                          borderRadius: 8,
-                          backgroundColor:
-                            member.role === "owner" ? C.soft : C.sage,
+                          fontSize: 12,
+                          lineHeight: 18,
+                          color: C.muted,
                         }}
                       >
-                        <T
-                          style={{
-                            fontSize: 10,
-                            color: member.role === "owner" ? C.coral : C.green,
-                            fontWeight: "600",
-                          }}
-                        >
-                          {member.role}
-                        </T>
-                      </View>
-                    </Pressable>
-                  ))}
+                        @{member.user.handle}
+                      </T>
+                    </View>
+                    <View
+                      style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 4,
+                        borderRadius: 8,
+                        backgroundColor:
+                          member.role === "owner" ? C.soft : C.sage,
+                      }}
+                    >
+                      <T
+                        style={{
+                          fontSize: 10,
+                          color: C.secondary,
+                          fontWeight: "600",
+                        }}
+                      >
+                        {member.role}
+                      </T>
+                    </View>
+                  </Pressable>
+                ))}
               </View>
             ))}
           {tab === "Members" &&
@@ -745,7 +909,7 @@ function CircleScreenInstance() {
                 />
               )}
               {group.role === "owner" && (
-                <T style={{ fontSize: 12, lineHeight: 18, color: C.green }}>
+                <T style={{ fontSize: 12, lineHeight: 18, color: C.secondary }}>
                   You own this circle. Appoint moderators in Manage to help care
                   for your community.
                 </T>
@@ -816,129 +980,258 @@ function CircleScreenInstance() {
                   </T>
                 )}
               </View>
-              {memberItems.map((member) => (
-                <View
-                  key={member.user.id}
-                  style={[s.card, { padding: 15, gap: 12 }]}
-                >
-                  <View style={[s.row, { alignItems: "flex-start", gap: 10 }]}>
-                    <UserAvatar
-                      uri={member.user.avatar}
-                      name={member.user.name}
-                      size={35}
-                      userId={member.user.id}
+              <View style={{ gap: 12 }}>
+                <T style={{ fontSize: 17, fontWeight: "700" }}>
+                  Manage members
+                </T>
+                {manageOutcome &&
+                  manageOutcome.operation.scope === circleActionScope && (
+                    <StatusMessage
+                      message={manageOutcome.message}
+                      tone={manageOutcome.tone}
                     />
-                    <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-                      <T
-                        style={{
-                          fontSize: 14,
-                          lineHeight: 20,
-                          fontWeight: "700",
-                        }}
-                      >
-                        {member.user.name}
-                      </T>
-                      <T
-                        style={{ color: C.muted, fontSize: 12, lineHeight: 18 }}
-                      >
-                        {member.role === "pending"
-                          ? "Requesting to join"
-                          : member.role}
-                      </T>
-                    </View>
-                  </View>
-                  {member.role !== "owner" && member.user.id !== user?.id && (
-                    <View
-                      style={[
-                        s.row,
-                        { gap: 8, flexWrap: "wrap", alignItems: "stretch" },
-                      ]}
-                    >
-                      {member.role === "pending" ? (
-                        <Button
-                          title="Approve request"
-                          secondary
-                          onPress={() =>
-                            approve.mutate({ circleId, userId: member.user.id })
-                          }
-                          style={{
-                            flexGrow: 1,
-                            flexBasis: narrowActions ? "100%" : 148,
-                          }}
-                        />
-                      ) : (
-                        group.role === "owner" && (
-                          <Button
-                            title={
-                              member.role === "moderator"
-                                ? "Remove moderator role"
-                                : "Appoint moderator"
-                            }
-                            secondary
-                            onPress={() =>
-                              role.mutate({
-                                circleId,
-                                userId: member.user.id,
-                                role:
-                                  member.role === "moderator"
-                                    ? "member"
-                                    : "moderator",
-                              })
-                            }
-                            style={{
-                              flexGrow: 1,
-                              flexBasis: narrowActions ? "100%" : 148,
-                            }}
-                          />
-                        )
-                      )}
-                      {(group.role === "owner" ||
-                        member.role === "member" ||
-                        member.role === "pending") && (
-                        <Button
-                          title={
-                            member.role === "pending"
-                              ? "Decline"
-                              : "Remove member"
-                          }
-                          secondary
-                          onPress={() =>
-                            remove.mutate({ circleId, userId: member.user.id })
-                          }
-                          style={{
-                            flexGrow: 1,
-                            flexBasis: narrowActions ? "100%" : 148,
-                          }}
-                        />
-                      )}
-                    </View>
                   )}
-                </View>
-              ))}
+                {manageMembersDisplayState === "loading" ? (
+                  <Loading />
+                ) : manageMembersDisplayState === "error" ? (
+                  <Empty
+                    icon="people-outline"
+                    title="We couldn’t load members to manage."
+                    text="Check your connection and try again."
+                    action="Try again"
+                    onAction={() => void members.refetch()}
+                  />
+                ) : manageMembersDisplayState === "empty" ? (
+                  <Empty
+                    icon="people-outline"
+                    title="No member requests or members yet."
+                    text="Join requests and members will appear here when there are people to manage."
+                  />
+                ) : (
+                  <View style={{ gap: 12 }}>
+                    {memberItems.map((member) => {
+                      const pendingAction = getPendingManageAction(
+                        circleManageActionTarget("member", member.user.id),
+                      );
+                      const memberActionPending = !!pendingAction;
+                      const roleActionPending =
+                        pendingAction?.action === "set-member-role";
+                      const approveActionPending =
+                        pendingAction?.action === "approve-member";
+                      const removeActionPending =
+                        pendingAction?.action === "remove-member";
+                      const removesModeratorRole = member.role === "moderator";
+                      const declinesRequest = member.role === "pending";
+
+                      return (
+                        <View
+                          key={member.user.id}
+                          style={[s.card, { padding: 15, gap: 12 }]}
+                        >
+                          <View
+                            style={[
+                              s.row,
+                              { alignItems: "flex-start", gap: 10 },
+                            ]}
+                          >
+                            <UserAvatar
+                              uri={member.user.avatar}
+                              name={member.user.name}
+                              size={35}
+                              userId={member.user.id}
+                            />
+                            <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                              <T
+                                style={{
+                                  fontSize: 14,
+                                  lineHeight: 20,
+                                  fontWeight: "700",
+                                }}
+                              >
+                                {member.user.name}
+                              </T>
+                              <T
+                                style={{
+                                  color: C.secondary,
+                                  fontSize: 12,
+                                  lineHeight: 18,
+                                }}
+                              >
+                                {member.role === "pending"
+                                  ? "Requesting to join"
+                                  : member.role}
+                              </T>
+                            </View>
+                          </View>
+                          {member.role !== "owner" &&
+                            member.user.id !== user?.id && (
+                              <View
+                                style={[
+                                  s.row,
+                                  {
+                                    gap: 8,
+                                    flexWrap: "wrap",
+                                    alignItems: "stretch",
+                                  },
+                                ]}
+                              >
+                                {member.role === "pending" ? (
+                                  <Button
+                                    title={
+                                      approveActionPending
+                                        ? "Approving request…"
+                                        : "Approve request"
+                                    }
+                                    secondary
+                                    loading={approveActionPending}
+                                    disabled={memberActionPending}
+                                    onPress={() => approveManagedMember(member)}
+                                    style={{
+                                      flexGrow: 1,
+                                      flexBasis: narrowActions ? "100%" : 148,
+                                    }}
+                                  />
+                                ) : (
+                                  group.role === "owner" && (
+                                    <Button
+                                      title={
+                                        roleActionPending
+                                          ? removesModeratorRole
+                                            ? "Removing moderator role…"
+                                            : "Appointing moderator…"
+                                          : removesModeratorRole
+                                            ? "Remove moderator role"
+                                            : "Appoint moderator"
+                                      }
+                                      secondary
+                                      loading={roleActionPending}
+                                      disabled={memberActionPending}
+                                      onPress={() => updateMemberRole(member)}
+                                      style={{
+                                        flexGrow: 1,
+                                        flexBasis: narrowActions ? "100%" : 148,
+                                      }}
+                                    />
+                                  )
+                                )}
+                                {(group.role === "owner" ||
+                                  member.role === "member" ||
+                                  member.role === "pending") && (
+                                  <Button
+                                    title={
+                                      removeActionPending
+                                        ? declinesRequest
+                                          ? "Declining request…"
+                                          : "Removing member…"
+                                        : declinesRequest
+                                          ? "Decline"
+                                          : "Remove member"
+                                    }
+                                    secondary
+                                    loading={removeActionPending}
+                                    disabled={memberActionPending}
+                                    onPress={() => removeManagedMember(member)}
+                                    style={{
+                                      flexGrow: 1,
+                                      flexBasis: narrowActions ? "100%" : 148,
+                                    }}
+                                  />
+                                )}
+                              </View>
+                            )}
+                        </View>
+                      );
+                    })}
+                    {members.hasNextPage && (
+                      <Button
+                        title="Show more members"
+                        secondary
+                        loading={members.isFetchingNextPage}
+                        onPress={() => void members.fetchNextPage()}
+                        style={{ alignSelf: "center" }}
+                      />
+                    )}
+                  </View>
+                )}
+              </View>
               <T style={{ fontSize: 17, fontWeight: "700", marginTop: 8 }}>
                 Moderate posts
               </T>
-              {feedItems.map((post) => (
-                <View key={post.id} style={[s.card, { padding: 14, gap: 10 }]}>
-                  <T
-                    style={{ fontWeight: "600", fontSize: 14, lineHeight: 20 }}
-                  >
-                    {post.author.name}
-                  </T>
-                  <T
-                    numberOfLines={2}
-                    style={{ fontSize: 14, lineHeight: 21, color: C.muted }}
-                  >
-                    {post.text}
-                  </T>
-                  <Button
-                    title="Remove from circle"
-                    secondary
-                    icon="trash-outline"
-                    onPress={() => deletePost.mutate({ postId: post.id })}
-                  />
+              {feedDisplayState === "loading" ? (
+                <Loading />
+              ) : feedDisplayState === "error" ? (
+                <Empty
+                  icon="images-outline"
+                  title="We couldn’t load posts to moderate."
+                  text="Check your connection and try again."
+                  action="Try again"
+                  onAction={() => void feed.refetch()}
+                />
+              ) : feedDisplayState === "empty" ? (
+                <Empty
+                  icon="images-outline"
+                  title="No circle posts to moderate."
+                  text="Posts shared with this circle will appear here."
+                />
+              ) : (
+                <View style={{ gap: 12 }}>
+                  {feedItems.map((post) => {
+                    const pendingAction = getPendingManageAction(
+                      circleManageActionTarget("post", post.id),
+                    );
+                    const deleteActionPending =
+                      pendingAction?.action === "delete-post";
+
+                    return (
+                      <View
+                        key={post.id}
+                        style={[s.card, { padding: 14, gap: 10 }]}
+                      >
+                        <T
+                          style={{
+                            fontWeight: "600",
+                            fontSize: 14,
+                            lineHeight: 20,
+                          }}
+                        >
+                          {post.author.name}
+                        </T>
+                        <T
+                          numberOfLines={2}
+                          style={{
+                            fontSize: 14,
+                            lineHeight: 21,
+                            color: C.muted,
+                          }}
+                        >
+                          {post.text}
+                        </T>
+                        <Button
+                          title={
+                            deleteActionPending
+                              ? "Removing post…"
+                              : "Remove from circle"
+                          }
+                          secondary
+                          icon="trash-outline"
+                          loading={deleteActionPending}
+                          disabled={!!pendingAction}
+                          onPress={() => removeManagedPost(post)}
+                        />
+                      </View>
+                    );
+                  })}
+                  {feed.hasNextPage && (
+                    <Button
+                      title="Show more posts"
+                      secondary
+                      loading={feed.isFetchingNextPage}
+                      onPress={() => void feed.fetchNextPage()}
+                      style={{ alignSelf: "center" }}
+                    />
+                  )}
                 </View>
-              ))}
+              )}
             </View>
           )}
         </>

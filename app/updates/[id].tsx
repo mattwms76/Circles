@@ -3,6 +3,7 @@ import { View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { AppShell } from "@/components/app-shell";
 import { PostCard } from "@/components/post-card";
+import { StatusMessage } from "@/components/status-message";
 import { useCircles } from "@/hooks/circles-context";
 import {
   activityScopeKey,
@@ -48,7 +49,10 @@ function ActivityDetail({
   const mounted = useRef(false);
   const mountedScope = useRef(scopeKey);
   const [marking, setMarking] = useState(false);
-  const [writeError, setWriteError] = useState<string | null>(null);
+  const [outcome, setOutcome] = useState<{
+    message: string;
+    tone: "success" | "error";
+  } | null>(null);
   const [marked, setMarked] = useState(false);
 
   useEffect(() => {
@@ -70,7 +74,7 @@ function ActivityDetail({
     if (!targetState.isAuthorityAvailable || marking) return;
     const capturedScope = scopeKey;
     setMarking(true);
-    setWriteError(null);
+    setOutcome(null);
     void (async () => {
       try {
         await markRead.mutateAsync({ viewerScope: viewerId, id: activityId });
@@ -79,14 +83,16 @@ function ActivityDetail({
           utils.activity.list.invalidate({ viewerScope: viewerId }),
           utils.activity.unreadCount.invalidate({ viewerScope: viewerId }),
         ]);
-        if (isCurrent(capturedScope)) setMarked(true);
-      } catch (caught) {
         if (isCurrent(capturedScope)) {
-          setWriteError(
-            caught instanceof Error
-              ? caught.message
-              : "We couldn’t mark this update as read. Please try again.",
-          );
+          setMarked(true);
+          setOutcome({ message: "Update marked as read.", tone: "success" });
+        }
+      } catch {
+        if (isCurrent(capturedScope)) {
+          setOutcome({
+            message: "We couldn’t mark this update as read. Please try again.",
+            tone: "error",
+          });
         }
       } finally {
         if (isCurrent(capturedScope)) setMarking(false);
@@ -144,9 +150,11 @@ function ActivityDetail({
           style={{ minWidth: 128 }}
         />
       </View>
-      {writeError && (
-        <T style={{ color: "#B44335", fontSize: 13 }}>{writeError}</T>
-      )}
+      <StatusMessage
+        message={outcome?.message}
+        tone={outcome?.tone}
+        style={{ fontSize: 13, lineHeight: 19 }}
+      />
       {resolved.type === "post" ? (
         <PostCard post={resolved.post} />
       ) : (
@@ -163,13 +171,13 @@ function ActivityDetail({
                 backgroundColor: C.sage,
               }}
             >
-              <Icon name="ellipse-outline" color={C.green} size={22} />
+              <Icon name="ellipse-outline" color={C.secondary} size={22} />
             </View>
             <View style={{ flex: 1, minWidth: 0 }}>
               <T style={{ fontSize: 17, fontWeight: "700" }}>
                 Your circle update
               </T>
-              <T style={{ color: C.muted, fontSize: 13 }}>
+              <T style={{ color: C.secondary, fontSize: 13 }}>
                 Open the circle to see what’s happening now.
               </T>
             </View>

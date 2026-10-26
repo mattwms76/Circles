@@ -13,6 +13,7 @@ import { StatusBar } from "expo-status-bar";
 
 import {
   formatThemeLabPreviewTokenName,
+  getThemeLabPreviewSchemeToggleColors,
   themeLabPreviewActions,
   themeLabPreviewPalettes,
   themeLabPreviewSchemes,
@@ -92,8 +93,10 @@ export default function ThemeLabScreen() {
               style={styles.schemeGroup}
             >
               {themeLabPreviewSchemes.map((scheme) => {
-                const isSelected = previewScheme === scheme;
-                const optionPalette = themeLabPreviewPalettes[scheme];
+                const toggleColors = getThemeLabPreviewSchemeToggleColors(
+                  previewScheme,
+                  scheme,
+                );
                 const displayName = scheme === "light" ? "Light" : "Dark";
 
                 return (
@@ -102,9 +105,10 @@ export default function ThemeLabScreen() {
                     accessibilityHint="Changes the preview in Theme Lab only; it does not change the app theme."
                     accessibilityLabel={`${displayName} preview palette`}
                     accessibilityRole="radio"
+                    aria-checked={toggleColors.isSelected}
                     accessibilityState={{
-                      checked: isSelected,
-                      selected: isSelected,
+                      checked: toggleColors.isSelected,
+                      selected: toggleColors.isSelected,
                     }}
                     onPress={() => {
                       setPreviewScheme(scheme);
@@ -113,12 +117,8 @@ export default function ThemeLabScreen() {
                     style={({ pressed }) => [
                       styles.schemeToggle,
                       {
-                        backgroundColor: isSelected
-                          ? optionPalette.primary
-                          : palette.surface,
-                        borderColor: isSelected
-                          ? optionPalette.primary
-                          : palette.border,
+                        backgroundColor: toggleColors.backgroundColor,
+                        borderColor: toggleColors.borderColor,
                         transform: [{ scale: pressed ? 0.99 : 1 }],
                       },
                     ]}
@@ -126,11 +126,7 @@ export default function ThemeLabScreen() {
                     <Text
                       style={[
                         styles.schemeToggleTitle,
-                        {
-                          color: isSelected
-                            ? optionPalette.actionForeground
-                            : palette.foreground,
-                        },
+                        { color: toggleColors.titleColor },
                       ]}
                     >
                       {displayName} preview
@@ -138,11 +134,7 @@ export default function ThemeLabScreen() {
                     <Text
                       style={[
                         styles.schemeToggleSubtitle,
-                        {
-                          color: isSelected
-                            ? optionPalette.actionForeground
-                            : palette.muted,
-                        },
+                        { color: toggleColors.subtitleColor },
                       ]}
                     >
                       Scoped token set

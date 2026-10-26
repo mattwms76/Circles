@@ -59,8 +59,8 @@ describe("Batch 5 Theme Lab scoped preview", () => {
     expect(themeLab).toContain(
       "accessibilityLabel={`${displayName} preview palette`}",
     );
-    expect(themeLab).toContain("checked: isSelected");
-    expect(themeLab).toContain("selected: isSelected");
+    expect(themeLab).toContain("checked: toggleColors.isSelected");
+    expect(themeLab).toContain("selected: toggleColors.isSelected");
     expect(themeLab).toContain('accessibilityRole="button"');
     expect(themeLab).toContain(
       "accessibilityLabel={`Preview ${action.label} token`}",

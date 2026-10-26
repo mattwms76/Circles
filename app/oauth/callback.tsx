@@ -1,4 +1,5 @@
 import { Button, C, T } from "@/components/circles-ui";
+import { StatusMessage } from "@/components/status-message";
 import {
   clearNativeOAuthFlowToken,
   getApiBaseUrl,
@@ -214,19 +215,25 @@ export default function OAuthCallback() {
           {status === "processing" && (
             <>
               <ActivityIndicator size="large" color={C.coral} />
-              <T style={{ color: C.secondary, textAlign: "center" }}>
-                Completing secure sign-in…
-              </T>
+              <StatusMessage
+                message="Completing secure sign-in…"
+                testID="oauth-callback-status"
+                style={{ textAlign: "center" }}
+              />
             </>
           )}
           {status === "success" && (
-            <T style={{ color: C.secondary, textAlign: "center" }}>
-              Signed in. Opening your circles…
-            </T>
+            <StatusMessage
+              message="Signed in. Opening your circles…"
+              tone="success"
+              testID="oauth-callback-status"
+              style={{ textAlign: "center" }}
+            />
           )}
           {status === "error" && (
             <>
               <T
+                accessibilityRole="header"
                 style={{
                   color: C.action,
                   fontSize: 20,
@@ -237,15 +244,15 @@ export default function OAuthCallback() {
               >
                 Authentication failed
               </T>
-              <T
+              <StatusMessage
+                message={errorMessage}
+                tone="error"
+                testID="oauth-callback-status"
                 style={{
-                  color: C.secondary,
                   textAlign: "center",
                   maxWidth: 400,
                 }}
-              >
-                {errorMessage}
-              </T>
+              />
               <Button
                 title="Back to Circles"
                 onPress={() => router.replace("/")}

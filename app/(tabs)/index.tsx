@@ -55,7 +55,9 @@ export default function HomeScreen() {
                 backgroundColor: C.green,
               }}
             />
-            <T style={{ fontSize: 9, color: C.green }}>Your daily connection</T>
+            <T style={{ fontSize: 9, color: C.secondary }}>
+              Your daily connection
+            </T>
           </View>
         </View>
         <T style={[s.title, { marginTop: 4, fontSize: width < 450 ? 28 : 31 }]}>
@@ -80,7 +82,14 @@ export default function HomeScreen() {
       >
         <Pressable
           onPress={() => requireAuth(() => router.push("/create"))}
-          style={{ alignItems: "center", gap: 7 }}
+          accessibilityRole="button"
+          accessibilityLabel="Create your moment"
+          style={{
+            alignItems: "center",
+            gap: 7,
+            minWidth: 54,
+            minHeight: 75,
+          }}
         >
           <View>
             <UserAvatar
@@ -99,7 +108,7 @@ export default function HomeScreen() {
                 borderRadius: 10,
                 borderWidth: 2,
                 borderColor: C.bg,
-                backgroundColor: C.coral,
+                backgroundColor: C.action,
                 alignItems: "center",
                 justifyContent: "center",
               }}
@@ -113,7 +122,14 @@ export default function HomeScreen() {
           <Pressable
             key={profile.id}
             onPress={() => router.push(`/person/${profile.id}`)}
-            style={{ alignItems: "center", gap: 5 }}
+            accessibilityRole="button"
+            accessibilityLabel={`Open profile for ${profile.name}`}
+            style={{
+              alignItems: "center",
+              gap: 5,
+              minWidth: 50,
+              minHeight: 72,
+            }}
           >
             <UserAvatar
               uri={profile.avatar}
@@ -155,6 +171,8 @@ export default function HomeScreen() {
         />
         <Pressable
           onPress={() => router.push("/live")}
+          accessibilityRole="button"
+          accessibilityLabel="Open Live now"
           style={[
             s.row,
             {

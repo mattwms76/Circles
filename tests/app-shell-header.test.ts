@@ -50,6 +50,10 @@ vi.mock(
   "@/lib/app-shell-layout",
   async () => import("../lib/app-shell-layout"),
 );
+vi.mock(
+  "@/lib/app-navigation-state",
+  async () => import("../lib/app-navigation-state"),
+);
 vi.mock("@/components/media-image", () => ({ Image: "Image" }));
 vi.mock("../components/activity-badge", () => ({
   ActivityBadge: "ActivityBadge",

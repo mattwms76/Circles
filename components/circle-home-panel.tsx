@@ -23,6 +23,7 @@ import {
 import type { Post } from "@/shared/social";
 import { PostCard } from "@/components/post-card";
 import { Button, C, Empty, Icon, Loading, s, T } from "@/components/circles-ui";
+import { StatusMessage } from "@/components/status-message";
 
 type CircleHomePanelProps = {
   canRead: boolean;
@@ -208,6 +209,7 @@ export function CircleHomeEditor({
 
   const draft = { welcomeMessage, rulesText };
   const validationError = validateCircleHomeDraft(draft);
+  const editorError = validationError ?? saveError;
   const ruleMetrics = getCircleHomeRuleMetrics(rulesText);
   const isSavingText = update.isPending || isTextSubmitting;
   const isSavingPin = pin.isPending || isPinSubmitting;
@@ -358,7 +360,7 @@ export function CircleHomeEditor({
             setSaveMessage(null);
           }}
           placeholder="Write a welcome for your circle…"
-          placeholderTextColor="#A0A299"
+          placeholderTextColor={C.secondary}
           textAlignVertical="top"
           value={welcomeMessage}
           style={editorStyles.input}
@@ -386,27 +388,26 @@ export function CircleHomeEditor({
             setSaveMessage(null);
           }}
           placeholder="Be kind and make room for others.\nRespect privacy."
-          placeholderTextColor="#A0A299"
+          placeholderTextColor={C.secondary}
           textAlignVertical="top"
           value={rulesText}
           style={editorStyles.input}
         />
       </View>
 
-      {validationError && (
-        <T accessibilityRole="alert" style={editorStyles.error}>
-          {validationError}
-        </T>
-      )}
-      {saveError && (
-        <T accessibilityRole="alert" style={editorStyles.error}>
-          {saveError}
-        </T>
+      {editorError && (
+        <StatusMessage
+          message={editorError}
+          tone="error"
+          style={editorStyles.error}
+        />
       )}
       {saveMessage && (
-        <T accessibilityLiveRegion="polite" style={editorStyles.success}>
-          {saveMessage}
-        </T>
+        <StatusMessage
+          message={saveMessage}
+          tone="success"
+          style={editorStyles.success}
+        />
       )}
 
       <View style={[s.row, { gap: 8, flexWrap: "wrap" }]}>
@@ -518,9 +519,11 @@ export function CircleHomeEditor({
 
           {pinError && (
             <View style={{ gap: 9 }}>
-              <T accessibilityRole="alert" style={editorStyles.error}>
-                {pinError}
-              </T>
+              <StatusMessage
+                message={pinError}
+                tone="error"
+                style={editorStyles.error}
+              />
               <Button
                 title="Retry pinned-post change"
                 secondary
@@ -554,6 +557,6 @@ const editorStyles = {
     minHeight: 116,
     padding: 14,
   },
-  error: { color: C.coral, fontSize: 13, lineHeight: 20 },
-  success: { color: C.green, fontSize: 13, lineHeight: 20 },
+  error: { fontSize: 13, lineHeight: 20 },
+  success: { fontSize: 13, lineHeight: 20 },
 } as const;

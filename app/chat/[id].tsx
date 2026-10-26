@@ -1,4 +1,9 @@
-import { Image, useMediaSource } from "@/components/media-image";
+import {
+  Image,
+  MediaPlaceholder,
+  useMediaSource,
+} from "@/components/media-image";
+import { StatusMessage } from "@/components/status-message";
 import { useEffect, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
@@ -53,8 +58,67 @@ type ReadReceiptState = {
 };
 
 function ChatVideo({ uri, width }: { uri: string; width: number }) {
+  const [retryAttempt, setRetryAttempt] = useState(0);
+  return (
+    <ChatVideoSource
+      key={`${uri}:${retryAttempt}`}
+      uri={uri}
+      width={width}
+      onRetry={
+        retryAttempt === 0
+          ? () => setRetryAttempt((attempt) => attempt + 1)
+          : undefined
+      }
+    />
+  );
+}
+
+function ChatVideoSource({
+  uri,
+  width,
+  onRetry,
+}: {
+  uri: string;
+  width: number;
+  onRetry?: () => void;
+}) {
   const source = useMediaSource(uri);
   const player = useVideoPlayer(source);
+  const [failed, setFailed] = useState(() => player.status === "error");
+
+  useEffect(() => {
+    const subscription = player.addListener("statusChange", ({ status }) => {
+      if (status === "error") setFailed(true);
+    });
+    return () => subscription.remove();
+  }, [player]);
+
+  if (source === null) {
+    return (
+      <MediaPlaceholder
+        label="Video attachment loading"
+        style={{ width, aspectRatio: 1.38 }}
+      />
+    );
+  }
+
+  if (failed) {
+    return (
+      <MediaPlaceholder
+        label="Video unavailable"
+        style={{ width, aspectRatio: 1.38 }}
+        retryLabel="Retry video"
+        onRetry={onRetry}
+      >
+        <StatusMessage
+          message="Video unavailable."
+          tone="error"
+          style={{ fontSize: 12, fontWeight: "700", textAlign: "center" }}
+        />
+      </MediaPlaceholder>
+    );
+  }
+
   return (
     <VideoView
       player={player}
@@ -253,7 +317,7 @@ function ChatScreenInstance() {
           selectionOperation,
         )
       ) {
-        notify("Your photo library could not open.");
+        notify("Your photo library could not open.", "error");
       }
     }
   }
@@ -337,10 +401,12 @@ function ChatScreenInstance() {
           setUncertainDeliveryOperation(operation);
           notify(
             "We couldn’t confirm this message. Retry sends the same message, not a duplicate.",
+            "error",
           );
         } else {
           notify(
             "We couldn’t prepare this attachment. Try again when you’re ready.",
+            "error",
           );
         }
       }
@@ -381,7 +447,7 @@ function ChatScreenInstance() {
             label="Back to inbox"
           />
           <View style={{ flex: 1, minWidth: 0 }}>
-            <T style={{ fontSize: 18, fontWeight: "700" }} numberOfLines={2}>
+            <T style={{ fontSize: 18, fontWeight: "700" }}>
               {name || "Your conversation"}
             </T>
             <T
@@ -524,7 +590,7 @@ function ChatScreenInstance() {
                       )}
                       <View
                         style={{
-                          backgroundColor: own ? C.coral : C.paper,
+                          backgroundColor: own ? C.action : C.paper,
                           borderWidth: own ? 0 : 1,
                           borderColor: C.border,
                           borderRadius: 17,
@@ -551,12 +617,25 @@ function ChatScreenInstance() {
                                 borderRadius: 9,
                               }}
                               contentFit="cover"
+                              unavailableLabel="Photo unavailable"
+                              retryLabel="Retry photo"
+                              unavailableContent={
+                                <StatusMessage
+                                  message="Photo unavailable."
+                                  tone="error"
+                                  style={{
+                                    fontSize: 12,
+                                    fontWeight: "700",
+                                    textAlign: "center",
+                                  }}
+                                />
+                              }
                             />
                           ))}
                         {!!message.text && (
                           <T
                             style={{
-                              color: own ? "#fff" : C.ink,
+                              color: own ? C.actionText : C.ink,
                               fontSize: 14,
                               lineHeight: 21,
                               flexShrink: 1,
@@ -626,10 +705,11 @@ function ChatScreenInstance() {
             )}
             {deliveryUncertain && (
               <View style={{ paddingHorizontal: 22, paddingBottom: 8 }}>
-                <T style={{ color: C.coral, fontSize: 12, lineHeight: 18 }}>
-                  Delivery is unconfirmed. Retry sends this same message and
-                  attachment without creating a new one.
-                </T>
+                <StatusMessage
+                  message="Delivery is unconfirmed. Retry sends this same message and attachment without creating a new one."
+                  tone="error"
+                  style={{ fontSize: 12, lineHeight: 18 }}
+                />
               </View>
             )}
             <View
@@ -690,13 +770,13 @@ function ChatScreenInstance() {
                   width: 44,
                   height: 44,
                   borderRadius: 15,
-                  backgroundColor: C.coral,
+                  backgroundColor: C.action,
                   alignItems: "center",
                   justifyContent: "center",
                   opacity: sendDisabled ? 0.5 : 1,
                 }}
               >
-                <Icon name="arrow-up" color="#fff" size={22} />
+                <Icon name="arrow-up" color={C.actionText} size={22} />
               </Pressable>
             </View>
           </>

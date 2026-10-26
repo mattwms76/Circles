@@ -67,13 +67,13 @@ describe("Batch 1A shared UI accessibility seams", () => {
     expect(ui).toContain("accessibilityLabel={resolvedAccessibilityLabel}");
     expect(ui).toContain("{...inputProps}");
     expect(ui).toContain(
-      'placeholderTextColor={inputProps.placeholderTextColor ?? "#A0A299"}',
+      "placeholderTextColor={inputProps.placeholderTextColor ?? C.secondary}",
     );
   });
 
   it("uses the same compliant token for inactive tab labels and icons without restoring Chats", () => {
-    expect(tabs).toContain("color={selected ? C.coral : C.secondary}");
-    expect(tabs).toContain("color: selected ? C.coral : C.secondary");
+    expect(tabs).toContain("color={selected ? C.action : C.secondary}");
+    expect(tabs).toContain("color: selected ? C.action : C.secondary");
     expect(tabs).toContain('name="messages"');
     expect(tabs).toContain("href: null");
   });

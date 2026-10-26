@@ -4,6 +4,7 @@ import { useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
 import { AppShell } from "@/components/app-shell";
+import { StatusMessage } from "@/components/status-message";
 import {
   activityCopy,
   activityScopeKey,
@@ -24,7 +25,37 @@ import {
   T,
 } from "@/components/circles-ui";
 
-function ActivityRow({
+const ACTIVITY_LABEL_PART_MAX = 120;
+
+function boundedActivityLabelPart(value: string): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  const characters = Array.from(normalized);
+  return characters.length > ACTIVITY_LABEL_PART_MAX
+    ? `${characters.slice(0, ACTIVITY_LABEL_PART_MAX - 1).join("")}…`
+    : normalized;
+}
+
+export function activityRowLabels(item: ActivityItem): {
+  open: string;
+  markRead: string;
+} {
+  const copy = activityCopy(item);
+  const context = [
+    boundedActivityLabelPart(copy.title),
+    boundedActivityLabelPart(copy.detail),
+    boundedActivityLabelPart(ago(item.createdAt)),
+    item.readAt ? null : "unread",
+  ]
+    .filter((part): part is string => !!part)
+    .join(" — ");
+
+  return {
+    open: `Open update: ${context}`,
+    markRead: `Mark update as read: ${context}`,
+  };
+}
+
+export function ActivityRow({
   item,
   disabled,
   marking,
@@ -38,10 +69,11 @@ function ActivityRow({
   onMarkRead: () => void;
 }) {
   const copy = activityCopy(item);
+  const labels = activityRowLabels(item);
   const readControl = !item.readAt ? (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel="Mark update as read"
+      accessibilityLabel={labels.markRead}
       accessibilityState={{ disabled: disabled || marking, busy: marking }}
       disabled={disabled || marking}
       onPress={onMarkRead}
@@ -66,7 +98,7 @@ function ActivityRow({
       >
         <View style={styles.unavailableCard}>
           <View style={styles.unavailableIcon} accessible={false}>
-            <Icon name="alert-circle-outline" size={21} color={C.muted} />
+            <Icon name="alert-circle-outline" size={21} color={C.secondary} />
           </View>
           <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
             <T style={styles.rowTitle}>{copy.title}</T>
@@ -89,8 +121,9 @@ function ActivityRow({
     >
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Open this update"
+        accessibilityLabel={labels.open}
         accessibilityHint="Opens the current update destination."
+        accessibilityState={{ disabled, busy: marking }}
         disabled={disabled}
         onPress={onOpen}
         style={({ pressed }) => [
@@ -107,7 +140,7 @@ function ActivityRow({
                 : "checkmark-circle-outline"
             }
             size={20}
-            color={item.readAt ? C.green : C.coral}
+            color={item.readAt ? C.secondary : C.action}
           />
         </View>
         <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
@@ -168,7 +201,10 @@ function ActivityInbox({ viewerId }: { viewerId: number }) {
   const mountedScope = useRef(scopeKey);
   const [pendingId, setPendingId] = useState<number | null>(null);
   const [markingAll, setMarkingAll] = useState(false);
-  const [writeError, setWriteError] = useState<string | null>(null);
+  const [outcome, setOutcome] = useState<{
+    message: string;
+    tone: "success" | "error";
+  } | null>(null);
 
   useEffect(() => {
     // This setup runs again after the development Strict Mode cleanup.
@@ -196,7 +232,7 @@ function ActivityInbox({ viewerId }: { viewerId: number }) {
         return;
       const capturedScope = scopeKey;
       setPendingId(id);
-      setWriteError(null);
+      setOutcome(null);
       void (async () => {
         try {
           await markRead.mutateAsync({ viewerScope: viewerId, id });
@@ -207,13 +243,19 @@ function ActivityInbox({ viewerId }: { viewerId: number }) {
           await utils.activity.unreadCount.invalidate({
             viewerScope: viewerId,
           });
-        } catch (caught) {
           if (isCurrent(capturedScope)) {
-            setWriteError(
-              caught instanceof Error
-                ? caught.message
-                : "We couldn’t mark that update as read. Please try again.",
-            );
+            setOutcome({
+              message: "Update marked as read.",
+              tone: "success",
+            });
+          }
+        } catch {
+          if (isCurrent(capturedScope)) {
+            setOutcome({
+              message:
+                "We couldn’t mark that update as read. Please try again.",
+              tone: "error",
+            });
           }
         } finally {
           if (isCurrent(capturedScope)) setPendingId(null);
@@ -247,7 +289,7 @@ function ActivityInbox({ viewerId }: { viewerId: number }) {
     }
     const capturedScope = scopeKey;
     setMarkingAll(true);
-    setWriteError(null);
+    setOutcome(null);
     void (async () => {
       try {
         // throughId is captured from the matching durable unread watermark, never derived
@@ -258,13 +300,19 @@ function ActivityInbox({ viewerId }: { viewerId: number }) {
         if (!isCurrent(capturedScope)) return;
         await utils.activity.list.invalidate({ viewerScope: viewerId });
         await utils.activity.unreadCount.invalidate({ viewerScope: viewerId });
-      } catch (caught) {
         if (isCurrent(capturedScope)) {
-          setWriteError(
-            caught instanceof Error
-              ? caught.message
-              : "We couldn’t mark those updates as read. Please try again.",
-          );
+          setOutcome({
+            message: "All updates marked as read.",
+            tone: "success",
+          });
+        }
+      } catch {
+        if (isCurrent(capturedScope)) {
+          setOutcome({
+            message:
+              "We couldn’t mark those updates as read. Please try again.",
+            tone: "error",
+          });
         }
       } finally {
         if (isCurrent(capturedScope)) setMarkingAll(false);
@@ -312,10 +360,16 @@ function ActivityInbox({ viewerId }: { viewerId: number }) {
             pressed && styles.pressed,
           ]}
         >
-          <Icon name="options-outline" size={20} color={C.green} />
+          <Icon name="options-outline" size={20} color={C.action} />
           <T style={styles.preferencesLinkText}>Preferences</T>
         </Pressable>
       </View>
+
+      <StatusMessage
+        message={outcome?.message}
+        tone={outcome?.tone}
+        style={styles.outcome}
+      />
 
       {listState.isLoading ? (
         <Loading />
@@ -345,7 +399,6 @@ function ActivityInbox({ viewerId }: { viewerId: number }) {
               style={{ alignSelf: "flex-start" }}
             />
           )}
-          {writeError && <T style={styles.error}>{writeError}</T>}
           {listState.items.map((item) => (
             <ActivityRow
               key={item.id}
@@ -410,7 +463,7 @@ export default function UpdatesScreen() {
 }
 
 const styles = StyleSheet.create({
-  headingCopy: { color: C.muted, fontSize: 14, lineHeight: 21 },
+  headingCopy: { color: C.secondary, fontSize: 14, lineHeight: 21 },
   preferencesLink: {
     minWidth: 44,
     minHeight: 44,
@@ -422,7 +475,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     backgroundColor: C.sage,
   },
-  preferencesLinkText: { color: C.green, fontSize: 12, fontWeight: "700" },
+  preferencesLinkText: { color: C.action, fontSize: 12, fontWeight: "700" },
   pressed: { opacity: 0.65 },
   disabled: { opacity: 0.56 },
   rowCard: { overflow: "hidden" },
@@ -446,13 +499,13 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   rowTitle: { fontSize: 14, lineHeight: 20, fontWeight: "700" },
-  rowDetail: { color: C.muted, fontSize: 12, lineHeight: 18 },
-  rowTime: { color: C.muted, fontSize: 11, lineHeight: 16 },
+  rowDetail: { color: C.secondary, fontSize: 12, lineHeight: 18 },
+  rowTime: { color: C.secondary, fontSize: 11, lineHeight: 16 },
   unreadDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: C.coral,
+    backgroundColor: C.action,
     flexShrink: 0,
   },
   readButton: {
@@ -463,7 +516,7 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     justifyContent: "center",
   },
-  readButtonText: { color: C.coral, fontSize: 12, fontWeight: "700" },
+  readButtonText: { color: C.action, fontSize: 12, fontWeight: "700" },
   unavailableCard: {
     paddingHorizontal: 15,
     paddingVertical: 16,
@@ -481,10 +534,10 @@ const styles = StyleSheet.create({
     backgroundColor: C.border,
     flexShrink: 0,
   },
-  error: { color: "#B44335", fontSize: 13, lineHeight: 19 },
+  outcome: { fontSize: 13, lineHeight: 19 },
   endCopy: {
     paddingVertical: 14,
-    color: C.muted,
+    color: C.secondary,
     textAlign: "center",
     fontSize: 12,
   },
