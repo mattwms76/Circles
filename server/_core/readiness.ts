@@ -1,6 +1,7 @@
 import { getDb } from "../db";
 import { loadTurnConfiguration } from "../turn-config";
 import { withOperationDeadline } from "./bounded-network";
+import { getEmailAuthStatus, isEmailAuthEnabled } from "./email-auth";
 
 export const READINESS_DATABASE_DEADLINE_MS = 5_000;
 
@@ -49,6 +50,8 @@ export const READINESS_SQL = `
 export type ReadinessDependencies = {
   getDatabase?: typeof getDb;
   databaseDeadlineMs?: number;
+  emailAuthEnabled?: boolean;
+  getEmailStatus?: typeof getEmailAuthStatus;
 };
 
 export async function checkBackendReadiness(
@@ -78,5 +81,19 @@ export async function checkBackendReadiness(
   } catch {
     // Missing/unsafe relay disables live, not unrelated auth/feed/DM routes.
   }
-  return { ...readinessFromEvidence(evidence), liveRelay };
+  const baseline = readinessFromEvidence(evidence);
+  if (!(dependencies.emailAuthEnabled ?? isEmailAuthEnabled())) {
+    return { ...baseline, liveRelay };
+  }
+  let emailAuth = false;
+  try {
+    const status = await withOperationDeadline(
+      (dependencies.getEmailStatus ?? getEmailAuthStatus)(),
+      dependencies.databaseDeadlineMs ?? READINESS_DATABASE_DEADLINE_MS,
+    );
+    emailAuth = status.enabled && status.ready && status.emailEnabled;
+  } catch {
+    // Never expose provider/configuration/driver details or mark missing identity storage ready.
+  }
+  return { ...baseline, ok: baseline.ok && emailAuth, liveRelay, emailAuth };
 }

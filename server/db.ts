@@ -63,18 +63,33 @@ export async function getDb(): Promise<CirclesDatabase | null> {
 }
 
 /**
- * Retain existing Manus OAuth user-upsert semantics using PostgreSQL's explicit
- * unique conflict target. The OAuth provider, session signing, and user IDs are
- * otherwise untouched.
+ * Normalizes the advisory-lock identity only. Stored email values retain their
+ * established provider/Manus representation; collision SQL compares lower(email)
+ * with this same value.
  */
-export async function upsertUser(user: InsertUser): Promise<void> {
-  if (!user.openId) {
-    throw new Error("User openId is required for upsert");
-  }
+export function normalizedUserEmail(email: string): string {
+  return email.toLowerCase();
+}
 
-  const db = await getDb();
-  if (!db) throw new PostgreSqlDatabaseUnavailableError();
+/**
+ * Serializes all new user allocations that carry the same normalized email.
+ * Source identity allocation holds this after its subject lock; generic OAuth
+ * allocation takes it before its per-openId registration lock.
+ */
+export async function lockUserEmailAllocation(
+  transaction: Pick<CirclesTransaction, "execute">,
+  email: string | null | undefined,
+): Promise<void> {
+  if (typeof email !== "string") return;
+  await transaction.execute(
+    sql`SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('circles.user-email:' || ${normalizedUserEmail(email)}, 0))`,
+  );
+}
 
+function userUpsertValues(user: InsertUser): {
+  values: InsertUser;
+  updateSet: Partial<Omit<InsertUser, "id" | "openId">>;
+} {
   const now = new Date();
   const values: InsertUser = {
     openId: user.openId,
@@ -100,30 +115,64 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     updateSet.role = "admin";
   }
 
-  try {
-    await db.transaction(async (tx) => {
-      // Existing OAuth identities remain able to sign in even if registrations
-      // close or the optional settings reader is unavailable. Serialize every
-      // source identity before looking it up: a row lock alone cannot lock an
-      // absent identity. The lookup and first insert then share a transaction
-      // so a newly admitted identity is gated before any user row is written.
-      await tx.execute(
-        sql`SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('circles.registration:' || ${user.openId}, 0))`,
-      );
-      const [existing] = await tx
-        .select({ id: users.id })
-        .from(users)
-        .where(eq(users.openId, user.openId))
-        .for("update")
-        .limit(1);
-      if (!existing) {
-        await assertPlatformFeature(tx, "registrationsOpen");
-      }
+  return { values, updateSet };
+}
 
-      await tx.insert(users).values(values).onConflictDoUpdate({
-        target: users.openId,
-        set: updateSet,
-      });
+/**
+ * Performs the established registration-gated user upsert inside a caller-owned
+ * transaction. The caller must not open a detached transaction while holding
+ * identity locks: source allocation uses this helper with the same transaction.
+ */
+export async function upsertUserInTransaction(
+  transaction: CirclesTransaction,
+  user: InsertUser,
+): Promise<void> {
+  if (!user.openId) {
+    throw new Error("User openId is required for upsert");
+  }
+
+  const { values, updateSet } = userUpsertValues(user);
+  await lockUserEmailAllocation(transaction, user.email);
+  // Existing OAuth identities remain able to sign in even if registrations
+  // close or the optional settings reader is unavailable. Serialize every
+  // source identity before looking it up: a row lock alone cannot lock an
+  // absent identity. The lookup and first insert then share a transaction
+  // so a newly admitted identity is gated before any user row is written.
+  await transaction.execute(
+    sql`SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('circles.registration:' || ${user.openId}, 0))`,
+  );
+  const [existing] = await transaction
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.openId, user.openId))
+    .for("update")
+    .limit(1);
+  if (!existing) {
+    await assertPlatformFeature(transaction, "registrationsOpen");
+  }
+
+  await transaction.insert(users).values(values).onConflictDoUpdate({
+    target: users.openId,
+    set: updateSet,
+  });
+}
+
+/**
+ * Retain existing Manus OAuth user-upsert semantics using PostgreSQL's explicit
+ * unique conflict target. The OAuth provider, session signing, and user IDs are
+ * otherwise untouched.
+ */
+export async function upsertUser(user: InsertUser): Promise<void> {
+  if (!user.openId) {
+    throw new Error("User openId is required for upsert");
+  }
+
+  const db = await getDb();
+  if (!db) throw new PostgreSqlDatabaseUnavailableError();
+
+  try {
+    await db.transaction(async (transaction) => {
+      await upsertUserInTransaction(transaction, user);
     });
   } catch (error) {
     // Feature-reader failures and explicitly disabled registrations are already

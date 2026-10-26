@@ -431,6 +431,14 @@ export default function ProfileScreen({
                   onPress={() => router.push("/onboarding?edit=1")}
                   style={{ borderRadius: 9 }}
                 />
+                <Button
+                  title="Connect email sign-in"
+                  secondary
+                  onPress={() =>
+                    requireAuth(() => router.push("/account/email"))
+                  }
+                  style={{ borderRadius: 9 }}
+                />
               </View>
             )}
           </View>

@@ -48,8 +48,10 @@ export interface ApplicationSessionStore {
  * random session id fingerprint to the JWT's OAuth identity and this app id.
  */
 export class DrizzleApplicationSessionStore implements ApplicationSessionStore {
+  constructor(private readonly getDatabase: typeof getDb = getDb) {}
+
   private async requireDb() {
-    const db = await getDb();
+    const db = await this.getDatabase();
     if (!db) throw new ApplicationSessionStoreUnavailableError();
     return db;
   }
