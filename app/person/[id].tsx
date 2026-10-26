@@ -1,4 +1,4 @@
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import ProfileScreen from "@/components/profile-screen";
 
 function positiveSafeInteger(
@@ -12,7 +12,12 @@ function positiveSafeInteger(
 
 export default function PersonScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
   const personId = positiveSafeInteger(id);
-  if (!personId) return <ProfileScreen invalidPersonRoute />;
-  return <ProfileScreen personId={personId} />;
+  const onBack = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace("/discover");
+  };
+  if (!personId) return <ProfileScreen invalidPersonRoute onBack={onBack} />;
+  return <ProfileScreen personId={personId} onBack={onBack} />;
 }

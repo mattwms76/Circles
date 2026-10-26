@@ -4,6 +4,7 @@ import { useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
 import { AppShell } from "@/components/app-shell";
+import { conversationAccessibility } from "@/lib/batch2-message-accessibility";
 import {
   ago,
   Avatar,
@@ -37,8 +38,13 @@ export default function MessagesScreen() {
   return (
     <AppShell>
       <View style={{ gap: 19 }}>
-        <View style={s.between}>
-          <View>
+        <View
+          style={[
+            s.between,
+            { alignItems: "flex-start", flexWrap: "wrap", gap: 12 },
+          ]}
+        >
+          <View style={{ flex: 1, minWidth: 0 }}>
             <T style={s.eyebrow}>KEEP THE CONVERSATION GOING</T>
             <T style={[s.title, { marginTop: 7 }]}>A little hello.</T>
           </View>
@@ -46,6 +52,7 @@ export default function MessagesScreen() {
             icon="create-outline"
             onPress={() => router.push("/discover")}
             label="Find someone to message"
+            style={{ marginLeft: "auto" }}
           />
         </View>
         <T style={{ color: C.muted, fontSize: 14, lineHeight: 21 }}>
@@ -69,6 +76,7 @@ export default function MessagesScreen() {
             value={search}
             onChangeText={setSearch}
             placeholder="Find a conversation"
+            accessibilityLabel="Search conversations"
             placeholderTextColor={C.muted}
             style={{
               paddingVertical: 14,
@@ -79,7 +87,7 @@ export default function MessagesScreen() {
             }}
           />
         </View>
-        <View style={[s.row, { gap: 8 }]}>
+        <View style={[s.row, { gap: 8, flexWrap: "wrap" }]}>
           {["All", "Direct", "Circles"].map((item) => (
             <Pill
               title={item}
@@ -119,96 +127,106 @@ export default function MessagesScreen() {
             onAction={() => router.push("/discover")}
           />
         ) : (
-          items.map((conversation) => (
-            <Pressable
-              key={conversation.id}
-              onPress={() =>
-                router.push(
-                  `/chat/${conversation.id}?name=${encodeURIComponent(conversation.name)}`,
-                )
-              }
-              style={[
-                s.row,
-                {
-                  paddingVertical: 19,
-                  gap: 14,
-                  borderBottomWidth: 1,
-                  borderColor: C.border,
-                },
-              ]}
-            >
-              <View>
-                <Avatar
-                  uri={conversation.avatar}
-                  name={conversation.name}
-                  size={51}
-                />
-                {conversation.kind === "circle" && (
-                  <View
-                    style={{
-                      position: "absolute",
-                      bottom: -2,
-                      right: -2,
-                      borderRadius: 7,
-                      backgroundColor: C.sage,
-                      padding: 3,
-                      borderWidth: 2,
-                      borderColor: C.bg,
-                    }}
-                  >
-                    <Icon name="people" size={10} color={C.green} />
-                  </View>
-                )}
-              </View>
-              <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
-                <T
-                  numberOfLines={1}
-                  ellipsizeMode="tail"
-                  style={{ fontSize: 14, fontWeight: "700" }}
-                >
-                  {conversation.name}
-                </T>
-                <T numberOfLines={1} style={{ fontSize: 12, color: C.muted }}>
-                  {conversation.lastMessage || "No messages yet."}
-                </T>
-              </View>
-              <View
-                style={{
-                  width: 44,
-                  flexShrink: 0,
-                  alignItems: "flex-end",
-                  gap: 8,
-                }}
+          items.map((conversation) => {
+            const accessibility = conversationAccessibility(
+              conversation.name,
+              conversation.unread,
+            );
+            return (
+              <Pressable
+                key={conversation.id}
+                accessibilityRole="button"
+                accessibilityLabel={accessibility.label}
+                accessibilityValue={{ text: accessibility.value }}
+                onPress={() =>
+                  router.push(
+                    `/chat/${conversation.id}?name=${encodeURIComponent(conversation.name)}`,
+                  )
+                }
+                style={[
+                  s.row,
+                  {
+                    paddingVertical: 19,
+                    gap: 14,
+                    minHeight: 44,
+                    borderBottomWidth: 1,
+                    borderColor: C.border,
+                  },
+                ]}
               >
-                <T style={{ fontSize: 12, lineHeight: 18, color: C.muted }}>
-                  {ago(conversation.updatedAt)}
-                </T>
-                {conversation.unread > 0 && (
-                  <View
-                    style={{
-                      backgroundColor: C.coral,
-                      borderRadius: 10,
-                      minWidth: 19,
-                      height: 19,
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <T
+                <View>
+                  <Avatar
+                    uri={conversation.avatar}
+                    name={conversation.name}
+                    size={51}
+                  />
+                  {conversation.kind === "circle" && (
+                    <View
                       style={{
-                        fontSize: 10,
-                        lineHeight: 15,
-                        color: "#fff",
-                        fontWeight: "700",
+                        position: "absolute",
+                        bottom: -2,
+                        right: -2,
+                        borderRadius: 7,
+                        backgroundColor: C.sage,
+                        padding: 3,
+                        borderWidth: 2,
+                        borderColor: C.bg,
                       }}
                     >
-                      {conversation.unread}
-                    </T>
-                  </View>
-                )}
-              </View>
-            </Pressable>
-          ))
+                      <Icon name="people" size={10} color={C.green} />
+                    </View>
+                  )}
+                </View>
+                <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
+                  <T
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                    style={{ fontSize: 14, fontWeight: "700" }}
+                  >
+                    {conversation.name}
+                  </T>
+                  <T numberOfLines={1} style={{ fontSize: 12, color: C.muted }}>
+                    {conversation.lastMessage || "No messages yet."}
+                  </T>
+                </View>
+                <View
+                  style={{
+                    width: 44,
+                    flexShrink: 0,
+                    alignItems: "flex-end",
+                    gap: 8,
+                  }}
+                >
+                  <T style={{ fontSize: 12, lineHeight: 18, color: C.muted }}>
+                    {ago(conversation.updatedAt)}
+                  </T>
+                  {conversation.unread > 0 && (
+                    <View
+                      style={{
+                        backgroundColor: C.action,
+                        borderRadius: 10,
+                        minWidth: 19,
+                        height: 19,
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <T
+                        style={{
+                          fontSize: 10,
+                          lineHeight: 15,
+                          color: C.actionText,
+                          fontWeight: "700",
+                        }}
+                      >
+                        {conversation.unread}
+                      </T>
+                    </View>
+                  )}
+                </View>
+              </Pressable>
+            );
+          })
         )}
       </View>
     </AppShell>

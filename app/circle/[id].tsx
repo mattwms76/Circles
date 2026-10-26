@@ -1,9 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, useWindowDimensions, View } from "react-native";
 import { Image } from "@/components/media-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
+import {
+  batch3AccountResourceScope,
+  createBatch3AccountResourceSingleFlight,
+  isCurrentBatch3AccountResourceOperation,
+  type Batch3AccountResourceOperation,
+} from "@/lib/batch3-account-resource-scope";
 import { resolveFnd001QueryDisplayState } from "@/lib/fnd001-query-display-state";
 import { parsePositiveSafeId } from "@/lib/feed-ui-helpers";
 import { invalidateCircleDirectories } from "@/lib/source-query-invalidation";
@@ -32,7 +38,25 @@ import {
   T,
 } from "@/components/circles-ui";
 
+type MembershipError = { scope: string; message: string };
+
 export default function CircleScreen() {
+  const { id } = useLocalSearchParams<{ id?: string | string[] }>();
+  const routeCircleId = parsePositiveSafeId(id);
+  const { user } = useCircles();
+  const circleScope = batch3AccountResourceScope(
+    user?.id,
+    `circle:${routeCircleId ?? 0}`,
+  );
+
+  return (
+    <CircleScreenInstance
+      key={circleScope ?? `guest:circle:${routeCircleId ?? 0}`}
+    />
+  );
+}
+
+function CircleScreenInstance() {
   const { id } = useLocalSearchParams<{ id?: string | string[] }>();
   const routeCircleId = parsePositiveSafeId(id);
   const circleId = routeCircleId ?? 0;
@@ -41,6 +65,20 @@ export default function CircleScreen() {
   const narrowActions = width < 390;
   const coverAspectRatio = width < 600 ? 16 / 10 : 3;
   const { user, requireAuth, notify } = useCircles();
+  const circleActionScope = batch3AccountResourceScope(
+    user?.id,
+    `circle:${circleId}`,
+  );
+  const mountedMembershipScope = useRef<Batch3AccountResourceOperation | null>(
+    null,
+  );
+  const membershipGeneration = useRef(0);
+  const membershipFlight = useRef(createBatch3AccountResourceSingleFlight());
+  const [pendingMembershipScope, setPendingMembershipScope] = useState<
+    string | null
+  >(null);
+  const [membershipError, setMembershipError] =
+    useState<MembershipError | null>(null);
   const [tab, setTab] = useState("Home");
   const [homeEditorScope, setHomeEditorScope] = useState<string | null>(null);
   const circle = trpc.social.circle.useQuery(
@@ -75,6 +113,39 @@ export default function CircleScreen() {
   });
   const currentHome = homeUi.home;
   const refetchHome = home.refetch;
+
+  useEffect(() => {
+    if (!circleActionScope) {
+      mountedMembershipScope.current = null;
+      return;
+    }
+
+    const operation = {
+      scope: circleActionScope,
+      generation: membershipGeneration.current + 1,
+    };
+    membershipGeneration.current = operation.generation;
+    mountedMembershipScope.current = operation;
+
+    return () => {
+      if (
+        isCurrentBatch3AccountResourceOperation(
+          mountedMembershipScope.current,
+          operation,
+        )
+      ) {
+        mountedMembershipScope.current = null;
+      }
+    };
+  }, [circleActionScope]);
+
+  const isCurrentCircleActionScope = (
+    capturedScope: Batch3AccountResourceOperation,
+  ) =>
+    isCurrentBatch3AccountResourceOperation(
+      mountedMembershipScope.current,
+      capturedScope,
+    );
 
   useEffect(() => {
     if (homeQueryEnabled) void refetchHome();
@@ -125,19 +196,56 @@ export default function CircleScreen() {
     void utils.circleHome.get.invalidate({ circleId });
     void invalidateCircleDirectories(utils);
   };
-  const membership = trpc.social.setMembership.useMutation({
-    onSuccess: (result) => {
-      refresh();
-      notify(
-        result.role === "pending"
-          ? "Your request has been sent to the owner."
-          : result.joined
-            ? "You’re in. Make yourself at home."
-            : "You’ve left this circle.",
+  const membership = trpc.social.setMembership.useMutation();
+  const isMembershipPending = pendingMembershipScope === circleActionScope;
+  const updateMembership = (joined: boolean) => {
+    requireAuth(() => {
+      const capturedScope = mountedMembershipScope.current;
+      if (
+        !capturedScope ||
+        capturedScope.scope !== circleActionScope ||
+        !membershipFlight.current.start(capturedScope)
+      ) {
+        return;
+      }
+      setPendingMembershipScope(capturedScope.scope);
+      setMembershipError((current) =>
+        current?.scope === capturedScope.scope ? null : current,
       );
-    },
-    onError: (e) => notify(e.message),
-  });
+      membership.mutate(
+        { circleId, joined },
+        {
+          onSuccess: (result) => {
+            membershipFlight.current.finish(capturedScope);
+            if (!isCurrentCircleActionScope(capturedScope)) return;
+            setPendingMembershipScope((current) =>
+              current === capturedScope.scope ? null : current,
+            );
+            refresh();
+            notify(
+              result.role === "pending"
+                ? "Your request has been sent to the owner."
+                : result.joined
+                  ? "You’re in. Make yourself at home."
+                  : "You’ve left this circle.",
+            );
+          },
+          onError: (error) => {
+            membershipFlight.current.finish(capturedScope);
+            if (!isCurrentCircleActionScope(capturedScope)) return;
+            setPendingMembershipScope((current) =>
+              current === capturedScope.scope ? null : current,
+            );
+            setMembershipError({
+              scope: capturedScope.scope,
+              message: error.message,
+            });
+            notify(error.message);
+          },
+        },
+      );
+    });
+  };
   const chat = trpc.social.openCircleChat.useMutation({
     onSuccess: (result) =>
       router.push(
@@ -183,17 +291,11 @@ export default function CircleScreen() {
   const canManageHome = homeUi.canEdit;
   const homeManagementWasDenied =
     homeUi.isAuthorityAvailable && currentHome?.canManage === false;
-  // A fresh server denial unmounts (and therefore clears) the draft. Errors and routine
-  // refetches retain it because authority is unavailable rather than explicitly denied.
+  // A fresh server denial hides the keyed editor and clears its local draft.
+  // Errors and routine refetches retain it because authority is unavailable.
   const homeEditorIsOpen =
     homeEditorScope === homeScopeKey && !homeManagementWasDenied;
   const manageTabAvailable = isAdmin || canManageHome || homeEditorIsOpen;
-
-  // Adjust this component's own state once when fresh authority is explicitly denied.
-  // The guard converges immediately, clears the draft, and needs no deferred effect/timer.
-  if (homeManagementWasDenied && homeEditorScope !== null) {
-    setHomeEditorScope(null);
-  }
 
   return (
     <AppShell>
@@ -222,19 +324,46 @@ export default function CircleScreen() {
         />
       ) : (
         <>
-          <View style={[s.between, { marginBottom: 15 }]}>
+          <View
+            style={[
+              s.between,
+              {
+                alignItems: "flex-start",
+                flexWrap: "wrap",
+                gap: 8,
+                marginBottom: 15,
+              },
+            ]}
+          >
             <Pressable
               onPress={() =>
                 router.canGoBack() ? router.back() : router.replace("/circles")
               }
-              style={[s.row, { gap: 7 }]}
+              accessibilityRole="button"
+              accessibilityLabel="Back to your people"
+              style={[
+                s.row,
+                {
+                  alignSelf: "flex-start",
+                  flexGrow: 1,
+                  flexShrink: 1,
+                  gap: 7,
+                  minHeight: 44,
+                  minWidth: 0,
+                },
+              ]}
             >
               <Icon name="arrow-back" size={17} />
-              <T style={{ color: C.muted, fontSize: 12 }}>
+              <T
+                numberOfLines={2}
+                style={{ color: C.muted, fontSize: 12, lineHeight: 18 }}
+              >
                 Back to your people
               </T>
             </Pressable>
-            <T style={s.eyebrow}>CIRCLE SPACE</T>
+            <T style={[s.eyebrow, { alignSelf: "center", flexShrink: 1 }]}>
+              CIRCLE SPACE
+            </T>
           </View>
           <View
             style={{
@@ -257,9 +386,14 @@ export default function CircleScreen() {
                 paddingVertical: 6,
                 paddingHorizontal: 10,
                 borderRadius: 8,
+                maxWidth: "80%",
               }}
             >
-              <T style={{ color: C.green, fontSize: 10, fontWeight: "700" }}>
+              <T
+                numberOfLines={2}
+                ellipsizeMode="tail"
+                style={{ color: C.secondary, fontSize: 10, fontWeight: "700" }}
+              >
                 {group.category.toUpperCase()}
               </T>
             </View>
@@ -334,13 +468,9 @@ export default function CircleScreen() {
                         : "Join this circle"
                   }
                   icon={group.role === "pending" ? "time-outline" : "add"}
-                  loading={membership.isPending}
-                  disabled={group.role === "pending"}
-                  onPress={() =>
-                    requireAuth(() =>
-                      membership.mutate({ circleId, joined: true }),
-                    )
-                  }
+                  loading={isMembershipPending}
+                  disabled={group.role === "pending" || isMembershipPending}
+                  onPress={() => updateMembership(true)}
                   style={{ flex: 1 }}
                 />
               )}
@@ -349,9 +479,18 @@ export default function CircleScreen() {
               <Button
                 title="Cancel membership request"
                 secondary
-                loading={membership.isPending}
-                onPress={() => membership.mutate({ circleId, joined: false })}
+                loading={isMembershipPending}
+                disabled={isMembershipPending}
+                onPress={() => updateMembership(false)}
               />
+            )}
+            {membershipError?.scope === circleActionScope && (
+              <T
+                accessibilityRole="alert"
+                style={{ color: C.secondary, fontSize: 12, lineHeight: 18 }}
+              >
+                {membershipError.message} Try again when you’re ready.
+              </T>
             )}
           </View>
           <ScrollView
@@ -599,8 +738,9 @@ export default function CircleScreen() {
                 <Button
                   title="Leave this circle"
                   secondary
-                  onPress={() => membership.mutate({ circleId, joined: false })}
-                  loading={membership.isPending}
+                  onPress={() => updateMembership(false)}
+                  loading={isMembershipPending}
+                  disabled={isMembershipPending}
                 />
               )}
               {group.role === "owner" && (

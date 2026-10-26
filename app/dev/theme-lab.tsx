@@ -1,265 +1,413 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import {
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { StatusBar } from "expo-status-bar";
 
-import { ScreenContainer } from "@/components/screen-container";
-import { ThemedView } from "@/components/themed-view";
-import { IconSymbol } from "@/components/ui/icon-symbol";
-import { SchemeColors, type ColorScheme } from "@/constants/theme";
-import { useColors } from "@/hooks/use-colors";
-import { useThemeContext } from "@/lib/theme-provider";
+import {
+  formatThemeLabPreviewTokenName,
+  themeLabPreviewActions,
+  themeLabPreviewPalettes,
+  themeLabPreviewSchemes,
+  themeLabPreviewTokenNames,
+  type ThemeLabPreviewPalette,
+  type ThemeLabPreviewScheme,
+  type ThemeLabPreviewTokenName,
+} from "@/lib/batch5-theme-lab";
 
-type PaletteName = keyof typeof SchemeColors.light;
+function ColorSwatch({
+  name,
+  palette,
+}: {
+  name: ThemeLabPreviewTokenName;
+  palette: ThemeLabPreviewPalette;
+}) {
+  const value = palette[name];
 
-const paletteNames: PaletteName[] = Object.keys(
-  SchemeColors.light,
-) as PaletteName[];
-
-function ColorSwatch({ name, value }: { name: PaletteName; value: string }) {
   return (
-    <View className="flex-row items-center justify-between rounded-xl border border-border px-3 py-2">
-      <View className="flex-row items-center gap-3">
+    <View style={[styles.swatch, { borderColor: palette.border }]}>
+      <View style={styles.swatchHeading}>
         <View
-          className="h-6 w-6 rounded-full border border-border"
-          style={{ backgroundColor: value }}
+          style={[
+            styles.swatchColor,
+            { backgroundColor: value, borderColor: palette.border },
+          ]}
         />
-        <Text className="text-sm font-semibold text-foreground">{name}</Text>
+        <Text style={[styles.swatchName, { color: palette.foreground }]}>
+          {formatThemeLabPreviewTokenName(name)}
+        </Text>
       </View>
-      <Text className="text-xs font-mono text-muted">{value}</Text>
+      <Text style={[styles.swatchValue, { color: palette.muted }]}>
+        {value}
+      </Text>
     </View>
   );
 }
 
 export default function ThemeLabScreen() {
   const [pressCount, setPressCount] = useState(0);
-  const [lastAction, setLastAction] = useState<string>("None yet");
-  const { colorScheme, setColorScheme } = useThemeContext();
-  const colors = useColors();
-
-  const swatches = useMemo(
-    () =>
-      paletteNames.map((name) => ({
-        name,
-        value: SchemeColors[colorScheme][name],
-      })),
-    [colorScheme],
-  );
-
-  const tileStyles = useMemo(() => {
-    const build = (scheme: ColorScheme) => ({
-      background: SchemeColors[scheme].background,
-      border: SchemeColors[scheme].border,
-      text: SchemeColors[scheme].foreground,
-      subText: SchemeColors[scheme].muted,
-      activeBackground: SchemeColors[scheme].primary,
-      activeText: SchemeColors[scheme].background,
-    });
-    return {
-      light: build("light"),
-      dark: build("dark"),
-    };
-  }, []);
+  const [lastAction, setLastAction] = useState("No preview actions yet");
+  const [previewScheme, setPreviewScheme] =
+    useState<ThemeLabPreviewScheme>("light");
+  const palette = themeLabPreviewPalettes[previewScheme];
 
   return (
-    <ScreenContainer className="p-5">
-      <ScrollView
-        showsHorizontalScrollIndicator={false}
-        showsVerticalScrollIndicator={false}
-        className="flex-1"
+    <View style={[styles.screen, { backgroundColor: palette.background }]}>
+      <StatusBar style={previewScheme === "dark" ? "light" : "dark"} />
+      <SafeAreaView
+        edges={["top", "bottom", "left", "right"]}
+        style={[styles.safeArea, { backgroundColor: palette.background }]}
       >
-        <View className="gap-4 pb-8">
-          <View className="flex-row gap-2">
-            {(["light", "dark"] as ColorScheme[]).map((scheme) => (
-              <Pressable
-                key={scheme}
-                style={[
-                  styles.schemeToggle,
-                  {
-                    backgroundColor:
-                      colorScheme === scheme
-                        ? tileStyles[scheme].activeBackground
-                        : tileStyles[scheme].background,
-                    borderColor:
-                      colorScheme === scheme
-                        ? tileStyles[scheme].activeBackground
-                        : tileStyles[scheme].border,
-                  },
-                ]}
-                onPress={() => {
-                  setColorScheme(scheme);
-                  setLastAction(`Applied ${scheme} globally`);
-                }}
-              >
-                <Text
-                  style={[
-                    styles.schemeToggleTitle,
-                    {
-                      color:
-                        colorScheme === scheme
-                          ? tileStyles[scheme].activeText
-                          : tileStyles[scheme].text,
-                    },
-                  ]}
-                >
-                  {scheme === "light" ? "Light preview" : "Dark preview"}
-                </Text>
-                <Text
-                  style={[
-                    styles.schemeToggleSubtitle,
-                    {
-                      color:
-                        colorScheme === scheme
-                          ? tileStyles[scheme].activeText
-                          : tileStyles[scheme].subText,
-                    },
-                  ]}
-                >
-                  Global theme (NativeWind + useColors)
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-
-          <ThemedView className="rounded-2xl border border-border p-4">
-            <Text className="text-lg font-bold text-foreground">
-              Tailwind tokens
-            </Text>
-            <Text className="mt-1 text-sm text-muted">
-              Buttons and badges driven by global {colorScheme} palette
-            </Text>
-
-            <View className="mt-4 flex-row flex-wrap gap-2">
-              <TouchableOpacity
-                className="rounded-full px-4 py-2"
-                style={{ backgroundColor: SchemeColors[colorScheme].primary }}
-                onPress={() => {
-                  setPressCount((count) => count + 1);
-                  setLastAction("Pressed Primary token");
-                }}
-              >
-                <Text className="text-sm font-semibold text-background">
-                  Primary
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                className="rounded-full px-4 py-2 border border-border"
-                style={{ backgroundColor: SchemeColors[colorScheme].surface }}
-                onPress={() => {
-                  setPressCount((count) => count + 1);
-                  setLastAction("Pressed Surface token");
-                }}
-              >
-                <Text className="text-sm font-semibold text-foreground">
-                  Surface
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                className="rounded-full px-4 py-2"
-                style={{ backgroundColor: SchemeColors[colorScheme].success }}
-                onPress={() => {
-                  setPressCount((count) => count + 1);
-                  setLastAction("Pressed Success token");
-                }}
-              >
-                <Text className="text-sm font-semibold text-background">
-                  Success
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                className="rounded-full px-4 py-2"
-                style={{ backgroundColor: SchemeColors[colorScheme].warning }}
-                onPress={() => {
-                  setPressCount((count) => count + 1);
-                  setLastAction("Pressed Warning token");
-                }}
-              >
-                <Text className="text-sm font-semibold text-background">
-                  Warning
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                className="rounded-full px-4 py-2"
-                style={{ backgroundColor: SchemeColors[colorScheme].error }}
-                onPress={() => {
-                  setPressCount((count) => count + 1);
-                  setLastAction("Pressed Error token");
-                }}
-              >
-                <Text className="text-sm font-semibold text-background">
-                  Error
-                </Text>
-              </TouchableOpacity>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={styles.flex}
+        >
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            keyboardDismissMode="on-drag"
+            keyboardShouldPersistTaps="handled"
+            showsHorizontalScrollIndicator={false}
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.header}>
+              <Text style={[styles.title, { color: palette.foreground }]}>
+                Theme Lab
+              </Text>
+              <Text style={[styles.body, { color: palette.muted }]}>
+                Preview palettes only within Theme Lab. Choosing a palette does
+                not change the app theme.
+              </Text>
             </View>
 
-            <View className="mt-4 rounded-xl bg-background p-4 border border-border">
-              <Text className="text-base font-semibold text-foreground">
-                useColors()
+            <View
+              accessibilityLabel="Theme Lab preview palette"
+              accessibilityRole="radiogroup"
+              style={styles.schemeGroup}
+            >
+              {themeLabPreviewSchemes.map((scheme) => {
+                const isSelected = previewScheme === scheme;
+                const optionPalette = themeLabPreviewPalettes[scheme];
+                const displayName = scheme === "light" ? "Light" : "Dark";
+
+                return (
+                  <Pressable
+                    key={scheme}
+                    accessibilityHint="Changes the preview in Theme Lab only; it does not change the app theme."
+                    accessibilityLabel={`${displayName} preview palette`}
+                    accessibilityRole="radio"
+                    accessibilityState={{
+                      checked: isSelected,
+                      selected: isSelected,
+                    }}
+                    onPress={() => {
+                      setPreviewScheme(scheme);
+                      setLastAction(`Selected ${displayName} preview palette`);
+                    }}
+                    style={({ pressed }) => [
+                      styles.schemeToggle,
+                      {
+                        backgroundColor: isSelected
+                          ? optionPalette.primary
+                          : palette.surface,
+                        borderColor: isSelected
+                          ? optionPalette.primary
+                          : palette.border,
+                        transform: [{ scale: pressed ? 0.99 : 1 }],
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.schemeToggleTitle,
+                        {
+                          color: isSelected
+                            ? optionPalette.actionForeground
+                            : palette.foreground,
+                        },
+                      ]}
+                    >
+                      {displayName} preview
+                    </Text>
+                    <Text
+                      style={[
+                        styles.schemeToggleSubtitle,
+                        {
+                          color: isSelected
+                            ? optionPalette.actionForeground
+                            : palette.muted,
+                        },
+                      ]}
+                    >
+                      Scoped token set
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <View
+              style={[
+                styles.section,
+                {
+                  backgroundColor: palette.surface,
+                  borderColor: palette.border,
+                },
+              ]}
+            >
+              <Text
+                style={[styles.sectionTitle, { color: palette.foreground }]}
+              >
+                Preview action tokens
               </Text>
-              <Text className="mt-1 text-sm text-muted">
-                Background: {colors.background} • Text: {colors.text} • Tint:{" "}
-                {colors.tint}
+              <Text style={[styles.body, { color: palette.muted }]}>
+                These controls use the selected scoped palette; they do not
+                apply app-wide settings.
               </Text>
-              <Text className="text-xs text-muted">
-                (Pressable uses style; Tailwind on Pressable is disabled via
-                remap)
-              </Text>
-              <View className="mt-3 gap-2">
-                <View className="flex-row items-center gap-2">
-                  <IconSymbol name="house.fill" color={colors.tint} size={20} />
-                  <Text className="text-sm text-foreground">
-                    Press count: {pressCount}
-                  </Text>
-                </View>
-                <Text className="text-sm text-muted">
+
+              <View style={styles.actionGroup}>
+                {themeLabPreviewActions.map((action) => (
+                  <Pressable
+                    key={action.label}
+                    accessibilityHint="Records a local Theme Lab preview interaction."
+                    accessibilityLabel={`Preview ${action.label} token`}
+                    accessibilityRole="button"
+                    onPress={() => {
+                      setPressCount((count) => count + 1);
+                      setLastAction(`Previewed ${action.label} token`);
+                    }}
+                    style={({ pressed }) => [
+                      styles.tokenAction,
+                      {
+                        backgroundColor: palette[action.background],
+                        borderColor: palette.border,
+                        borderWidth: action.background === "surface" ? 1 : 0,
+                        transform: [{ scale: pressed ? 0.99 : 1 }],
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.tokenActionLabel,
+                        { color: palette[action.foreground] },
+                      ]}
+                    >
+                      {action.label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              <View
+                style={[
+                  styles.previewDetails,
+                  {
+                    backgroundColor: palette.background,
+                    borderColor: palette.border,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.previewDetailsTitle,
+                    { color: palette.foreground },
+                  ]}
+                >
+                  Scoped preview details
+                </Text>
+                <Text
+                  style={[
+                    styles.body,
+                    styles.shrinkableText,
+                    { color: palette.muted },
+                  ]}
+                >
+                  Preview interactions: {pressCount}
+                </Text>
+                <Text
+                  style={[
+                    styles.body,
+                    styles.shrinkableText,
+                    { color: palette.muted },
+                  ]}
+                >
                   Last action: {lastAction}
                 </Text>
               </View>
             </View>
-          </ThemedView>
 
-          <ThemedView className="rounded-2xl border border-border p-4">
-            <Text className="text-lg font-bold text-foreground">
-              Palette values
-            </Text>
-            <Text className="mt-1 text-sm text-muted">
-              Live values for the selected scheme
-            </Text>
-            <View className="mt-3 gap-2">
-              {swatches.map((item) => (
-                <ColorSwatch
-                  key={item.name}
-                  name={item.name}
-                  value={item.value}
-                />
-              ))}
+            <View
+              style={[
+                styles.section,
+                {
+                  backgroundColor: palette.surface,
+                  borderColor: palette.border,
+                },
+              ]}
+            >
+              <Text
+                style={[styles.sectionTitle, { color: palette.foreground }]}
+              >
+                Scoped palette values
+              </Text>
+              <Text style={[styles.body, { color: palette.muted }]}>
+                Live values for the selected Theme Lab preview.
+              </Text>
+              <View style={styles.swatchList}>
+                {themeLabPreviewTokenNames.map((name) => (
+                  <ColorSwatch key={name} name={name} palette={palette} />
+                ))}
+              </View>
             </View>
-          </ThemedView>
-        </View>
-      </ScrollView>
-    </ScreenContainer>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  schemeToggle: {
+  screen: {
     flex: 1,
-    borderWidth: 1,
+  },
+  safeArea: {
+    flex: 1,
+  },
+  flex: {
+    flex: 1,
+  },
+  scrollContent: {
+    gap: 16,
+    padding: 20,
+    paddingBottom: 32,
+  },
+  header: {
+    gap: 6,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: "700",
+    lineHeight: 34,
+  },
+  body: {
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  schemeGroup: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  schemeToggle: {
     borderRadius: 16,
+    borderWidth: 1,
+    flexBasis: 144,
+    flexGrow: 1,
+    gap: 4,
+    justifyContent: "center",
+    minHeight: 96,
     paddingHorizontal: 16,
     paddingVertical: 12,
-    gap: 4,
   },
   schemeToggleTitle: {
     fontSize: 16,
     fontWeight: "600",
+    lineHeight: 22,
   },
   schemeToggleSubtitle: {
     fontSize: 12,
+    lineHeight: 18,
+  },
+  section: {
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 8,
+    padding: 16,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    lineHeight: 25,
+  },
+  actionGroup: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 8,
+  },
+  tokenAction: {
+    alignItems: "center",
+    borderRadius: 999,
+    justifyContent: "center",
+    minHeight: 48,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  tokenActionLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    lineHeight: 20,
+  },
+  previewDetails: {
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 6,
+    marginTop: 8,
+    padding: 16,
+  },
+  previewDetailsTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    lineHeight: 22,
+  },
+  shrinkableText: {
+    flexShrink: 1,
+  },
+  swatchList: {
+    gap: 8,
+    marginTop: 4,
+  },
+  swatch: {
+    alignItems: "center",
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    minHeight: 48,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  swatchHeading: {
+    alignItems: "center",
+    flex: 1,
+    flexDirection: "row",
+    gap: 12,
+    minWidth: 0,
+  },
+  swatchColor: {
+    borderRadius: 12,
+    borderWidth: 1,
+    height: 24,
+    width: 24,
+  },
+  swatchName: {
+    flexShrink: 1,
+    fontSize: 14,
+    fontWeight: "600",
+    lineHeight: 20,
+  },
+  swatchValue: {
+    flexShrink: 1,
+    fontFamily: Platform.select({ ios: "Menlo", default: "monospace" }),
+    fontSize: 12,
+    lineHeight: 18,
+    marginLeft: 8,
+    textAlign: "right",
   },
 });

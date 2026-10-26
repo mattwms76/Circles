@@ -102,9 +102,18 @@ describe("local cache parity invalidation helpers", () => {
       2,
     );
     expect(postCard).toContain("post.circleId !== null");
-    expect(postCard).toContain(
-      "requireAuth(() => remove.mutate({ postId: post.id }))",
+    expect(postCard).toContain("const operationPost = post;");
+    const removeHandler = postCard.slice(
+      postCard.indexOf("const removePost ="),
+      postCard.indexOf("  return (", postCard.indexOf("const removePost =")),
     );
+    expect(removeHandler).toContain("requireAuth(() => {");
+    expect(removeHandler).toContain("{ postId: operationPost.id }");
+    expect(removeHandler).toContain(
+      "if (!isCurrentSource(operationScope, operationPost)) return;",
+    );
+    expect(removeHandler).toContain("invalidatePostFeeds(utils)");
+    expect(removeHandler).toContain("invalidateModerationViews(utils)");
   });
 
   it("derives optimistic post state from the active source/account boundary", () => {
@@ -139,7 +148,7 @@ describe("local cache parity invalidation helpers", () => {
     expect(sourceLifecycle).not.toContain("setSaveOptimism");
     expect(
       postCard.match(/isCurrentSource\(operationScope, operationPost\)/g),
-    ).toHaveLength(4);
+    ).toHaveLength(11);
   });
 });
 

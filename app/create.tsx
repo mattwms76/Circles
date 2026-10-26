@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   ScrollView,
@@ -14,7 +14,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
 import { assetBase64, supportedMime } from "@/lib/media";
-import { createSingleFlightSubmitter } from "@/lib/single-flight-submit";
+import {
+  batch1OperationIdentityMatches,
+  batch1OperationKey,
+  createBatch1OperationGuard,
+  createBatch1OperationInstance,
+  type Batch1OperationScope,
+} from "@/lib/batch1-mutation-feedback";
 import {
   isCircleCoverMime,
   mediaUploadKey,
@@ -34,10 +40,10 @@ import {
   IconButton,
   Input,
   photo,
-  Pill,
   s,
   T,
   Wordmark,
+  type IconName,
 } from "@/components/circles-ui";
 import { INTRODUCTION_DRAFT } from "@/shared/onboarding";
 import { canPrefillIntroduction } from "@/lib/onboarding-introduction";
@@ -50,7 +56,88 @@ import {
   platformUploadLimitMb,
 } from "@/lib/platform-feature-ui";
 
+type ComposerPublishSnapshot = {
+  mode: CreateMode;
+  text: string;
+  name: string;
+  category: string;
+  privacy: "public" | "private";
+  circleId: number | undefined;
+  asset: ImagePicker.ImagePickerAsset | null;
+  reusableUpload: ReusableUpload | null;
+  liveThumbnail: string;
+};
+
+type ComposerPublishError = {
+  scope: Batch1OperationScope;
+  message: string;
+};
+
+function composerResourceId(mode: CreateMode, circleId: number | undefined) {
+  return `composer:${mode}:${circleId ?? "everyone"}`;
+}
+
+function ComposerPill({
+  title,
+  selected = false,
+  onPress,
+  icon,
+  disabled = false,
+}: {
+  title: string;
+  selected?: boolean;
+  onPress: () => void;
+  icon?: IconName;
+  disabled?: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={title}
+      accessibilityState={{ selected, disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [
+        {
+          paddingHorizontal: 15,
+          paddingVertical: 9,
+          minHeight: 44,
+          borderRadius: 24,
+          backgroundColor: selected ? C.ink : C.paper,
+          borderWidth: 1,
+          borderColor: selected ? C.ink : C.border,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 6,
+          opacity: disabled ? 0.55 : pressed ? 0.7 : 1,
+        },
+      ]}
+    >
+      {icon && (
+        <Icon name={icon} size={15} color={selected ? "#fff" : C.secondary} />
+      )}
+      <T
+        style={{
+          fontSize: 12,
+          fontWeight: "600",
+          lineHeight: 18,
+          color: selected ? "#fff" : C.secondary,
+        }}
+      >
+        {title}
+      </T>
+    </Pressable>
+  );
+}
+
 export default function CreateScreen() {
+  const { user } = useCircles();
+
+  return <CreateScreenForAccount key={user?.id ?? "anonymous"} />;
+}
+
+function CreateScreenForAccount() {
   const params = useLocalSearchParams<{
     mode?: string | string[];
     circleId?: string | string[];
@@ -94,6 +181,7 @@ export default function CreateScreen() {
   const text =
     !textEdited && verifiedIntroduction ? INTRODUCTION_DRAFT : draftText;
   function setText(value: string) {
+    if (draftEditingLocked()) return;
     setTextEdited(true);
     setDraftText(value);
   }
@@ -101,8 +189,49 @@ export default function CreateScreen() {
   const [reusableUpload, setReusableUpload] = useState<ReusableUpload | null>(
     null,
   );
-  const [busy, setBusy] = useState(false);
-  const publishSubmitter = useRef(createSingleFlightSubmitter()).current;
+  const mountedRef = useRef(false);
+  const scopeRef = useRef<Batch1OperationScope | null>(null);
+  const [operationInstance] = useState(() => createBatch1OperationInstance());
+  const [publishGuard] = useState(() => createBatch1OperationGuard());
+  const [composerRevision, setComposerRevision] = useState(0);
+  const [pendingPublishScope, setPendingPublishScope] =
+    useState<Batch1OperationScope | null>(null);
+  const [publishError, setPublishError] = useState<ComposerPublishError | null>(
+    null,
+  );
+  const accountId = user?.id ?? null;
+  const currentComposerResourceId = composerResourceId(mode, circleId);
+  const composerIdentity = useMemo(
+    () =>
+      operationInstance.createIdentity(
+        accountId,
+        currentComposerResourceId,
+        composerRevision,
+      ),
+    [accountId, composerRevision, currentComposerResourceId, operationInstance],
+  );
+  const isPublishing =
+    pendingPublishScope !== null &&
+    batch1OperationIdentityMatches(pendingPublishScope, composerIdentity);
+  const visiblePublishError =
+    publishError &&
+    batch1OperationIdentityMatches(publishError.scope, composerIdentity)
+      ? publishError.message
+      : null;
+
+  useEffect(() => {
+    mountedRef.current = true;
+    const scope = operationInstance.activate(composerIdentity);
+    scopeRef.current = scope;
+    return () => {
+      mountedRef.current = false;
+      operationInstance.deactivate(scope);
+      if (scopeRef.current?.instanceId === scope?.instanceId) {
+        scopeRef.current = null;
+      }
+    };
+  }, [composerIdentity, operationInstance]);
+
   const circles = trpc.social.circles.useQuery({});
   const profile = trpc.social.profile.useQuery({}, { enabled: !!user });
   const utils = trpc.useUtils();
@@ -125,12 +254,43 @@ export default function CreateScreen() {
   );
   const maxUploadMb = platformUploadLimitMb(visiblePlatformStatus);
 
+  function publishScopeIsCurrent(scope: Batch1OperationScope): boolean {
+    return mountedRef.current && operationInstance.isCurrent(scope);
+  }
+
+  function draftEditingLocked(): boolean {
+    const scope = scopeRef.current;
+    return !!scope && publishGuard.isActive(scope);
+  }
+
+  function changeName(value: string) {
+    if (draftEditingLocked()) return;
+    setName(value);
+  }
+
+  function changeCategory(value: string) {
+    if (draftEditingLocked()) return;
+    setCategory(value);
+  }
+
+  function changePrivacy(value: "public" | "private") {
+    if (draftEditingLocked()) return;
+    setPrivacy(value);
+  }
+
+  function changeCircleId(value: number | undefined) {
+    if (draftEditingLocked()) return;
+    if (value !== circleId) setComposerRevision((current) => current + 1);
+    setCircleId(value);
+  }
+
   function clearSelectedMedia() {
     setAsset(null);
     setReusableUpload(null);
   }
 
   function selectMode(nextMode: CreateMode) {
+    if (draftEditingLocked()) return;
     const issue = platformCreationIssue(
       visiblePlatformStatus,
       nextMode,
@@ -157,32 +317,45 @@ export default function CreateScreen() {
         );
       }
     }
+    if (nextMode !== mode) setComposerRevision((current) => current + 1);
     setMode(nextMode);
   }
 
   async function pickMedia() {
+    if (draftEditingLocked()) return;
+    const issue = platformCreationIssue(visiblePlatformStatus, mode, true);
+    if (issue) {
+      notify(issue);
+      return;
+    }
+    const scope = scopeRef.current;
+    if (!scope) return;
+    const pickerSnapshot = {
+      scope,
+      mode,
+      maxUploadMb,
+    };
     try {
-      const issue = platformCreationIssue(visiblePlatformStatus, mode, true);
-      if (issue) {
-        notify(issue);
-        return;
-      }
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: mode === "circle" ? ["images"] : ["images", "videos"],
+        mediaTypes:
+          pickerSnapshot.mode === "circle" ? ["images"] : ["images", "videos"],
         quality: 0.8,
         base64: true,
       });
+      if (!publishScopeIsCurrent(pickerSnapshot.scope)) return;
       if (!result.canceled) {
         const nextAsset = result.assets[0];
         if (
           nextAsset.fileSize &&
-          nextAsset.fileSize > maxUploadMb * 1024 * 1024
+          nextAsset.fileSize > pickerSnapshot.maxUploadMb * 1024 * 1024
         ) {
-          notify(`Choose media no larger than ${maxUploadMb} MiB.`);
+          notify(
+            `Choose media no larger than ${pickerSnapshot.maxUploadMb} MiB.`,
+          );
           return;
         }
         const mimeType = supportedMime(nextAsset);
-        if (mode === "circle" && !isCircleCoverMime(mimeType)) {
+        if (pickerSnapshot.mode === "circle" && !isCircleCoverMime(mimeType)) {
           notify("Circle covers need a JPEG, PNG, or WebP photo.");
           return;
         }
@@ -191,6 +364,7 @@ export default function CreateScreen() {
         setReusableUpload(null);
       }
     } catch (error) {
+      if (!publishScopeIsCurrent(pickerSnapshot.scope)) return;
       notify(
         error instanceof Error
           ? error.message
@@ -198,24 +372,30 @@ export default function CreateScreen() {
       );
     }
   }
-  async function uploadAsset() {
-    if (!asset) return undefined;
-    const mimeType = supportedMime(asset);
-    if (mode === "circle" && !isCircleCoverMime(mimeType)) {
+  async function uploadAsset(
+    snapshot: ComposerPublishSnapshot,
+    scope: Batch1OperationScope,
+  ): Promise<string | undefined | null> {
+    if (!snapshot.asset) return undefined;
+    const mimeType = supportedMime(snapshot.asset);
+    if (snapshot.mode === "circle" && !isCircleCoverMime(mimeType)) {
       throw new Error("Circle covers need a JPEG, PNG, or WebP photo.");
     }
     const key = mediaUploadKey({
-      uri: asset.uri,
+      uri: snapshot.asset.uri,
       mimeType,
-      fileSize: asset.fileSize,
+      fileSize: snapshot.asset.fileSize,
     });
-    const previousUrl = reusableUploadUrl(reusableUpload, key);
+    const previousUrl = reusableUploadUrl(snapshot.reusableUpload, key);
     if (previousUrl) return previousUrl;
 
+    const base64 = await assetBase64(snapshot.asset);
+    if (!publishScopeIsCurrent(scope)) return null;
     const result = await upload.mutateAsync({
-      base64: await assetBase64(asset),
+      base64,
       mimeType,
     });
+    if (!publishScopeIsCurrent(scope)) return null;
     // Keep the canonical URL only for this exact selected asset. A failed
     // subsequent publish can retry without duplicating media; the client never
     // deletes an upload because it cannot prove that it is still unreferenced.
@@ -223,92 +403,137 @@ export default function CreateScreen() {
     return result.url;
   }
 
-  async function publishAfterAuth() {
+  async function publishAfterAuth(
+    scope: Batch1OperationScope,
+    snapshot: ComposerPublishSnapshot,
+  ) {
     const validationError = validateComposerDraft({
-      mode,
-      text,
-      name,
-      category,
-      hasMedia: !!asset,
+      mode: snapshot.mode,
+      text: snapshot.text,
+      name: snapshot.name,
+      category: snapshot.category,
+      hasMedia: !!snapshot.asset,
     });
     if (validationError) {
-      notify(validationError);
+      if (publishScopeIsCurrent(scope)) {
+        setPublishError({ scope, message: validationError });
+        notify(validationError);
+      }
       return;
     }
     if (
-      mode === "live" &&
+      snapshot.mode === "live" &&
       Platform.OS !== "web" &&
       Constants.executionEnvironment === "storeClient"
     ) {
-      notify(
-        "Live broadcasting needs a Circles development or release build. Expo Go can preview the social screens.",
-      );
+      const message =
+        "Live broadcasting needs a Circles development or release build. Expo Go can preview the social screens.";
+      if (publishScopeIsCurrent(scope)) {
+        setPublishError({ scope, message });
+        notify(message);
+      }
       return;
     }
-    setBusy(true);
     try {
       const currentStatus = await platformStatus.refetch();
+      if (!publishScopeIsCurrent(scope)) return;
       const issue = platformCreationIssue(
         currentStatus.isError ? undefined : currentStatus.data,
-        mode,
-        !!asset,
+        snapshot.mode,
+        !!snapshot.asset,
       );
       if (issue) throw new Error(issue);
-      const media = await uploadAsset();
-      if (mode === "post") {
+      const media = await uploadAsset(snapshot, scope);
+      if (media === null || !publishScopeIsCurrent(scope)) return;
+      if (snapshot.mode === "post") {
         await post.mutateAsync({
-          text: text.trim(),
+          text: snapshot.text.trim(),
           media,
-          mediaType: asset
-            ? asset.type === "video"
+          mediaType: snapshot.asset
+            ? snapshot.asset.type === "video"
               ? "video"
               : "photo"
             : "text",
-          circleId,
+          circleId: snapshot.circleId,
         });
+        if (!publishScopeIsCurrent(scope)) return;
         void invalidatePostFeeds(utils);
         notify("Your moment is out in the world.");
         router.back();
-      } else if (mode === "circle") {
+      } else if (snapshot.mode === "circle") {
         const result = await circle.mutateAsync({
-          name: name.trim(),
-          description: text.trim(),
-          category,
-          privacy,
+          name: snapshot.name.trim(),
+          description: snapshot.text.trim(),
+          category: snapshot.category,
+          privacy: snapshot.privacy,
           image:
-            media || (category === "Outdoors" ? photo.mountains : photo.coffee),
+            media ||
+            (snapshot.category === "Outdoors" ? photo.mountains : photo.coffee),
           color: C.sage,
         });
+        if (!publishScopeIsCurrent(scope)) return;
         void invalidateCircleDirectories(utils);
         notify("A new circle. A new beginning.");
         router.replace(`/circle/${result.id}`);
       } else {
         const result = await live.mutateAsync({
-          title: name.trim(),
-          circleId,
-          thumbnail: media || profile.data?.avatar || photo.mountains,
+          title: snapshot.name.trim(),
+          circleId: snapshot.circleId,
+          thumbnail: media || snapshot.liveThumbnail,
         });
+        if (!publishScopeIsCurrent(scope)) return;
         router.replace(`/live/${result.id}?host=1`);
       }
     } catch (e) {
-      notify(
+      if (!publishScopeIsCurrent(scope)) return;
+      const message =
         e instanceof Error
           ? e.message
-          : reusableUpload
+          : snapshot.reusableUpload
             ? "Could not share. Your media is ready to reuse when you try again."
-            : "Could not share. Please try again.",
-      );
-    } finally {
-      setBusy(false);
+            : "Could not share. Please try again.";
+      setPublishError({ scope, message });
+      notify(message);
     }
   }
 
   function publish() {
-    const run = () => {
-      void publishSubmitter.run(publishAfterAuth);
+    const startPublish = () => {
+      const scope = scopeRef.current;
+      if (!scope) return;
+      const snapshot: ComposerPublishSnapshot = {
+        mode,
+        text,
+        name,
+        category,
+        privacy,
+        circleId,
+        asset,
+        reusableUpload,
+        liveThumbnail: profile.data?.avatar || photo.mountains,
+      };
+
+      void publishGuard.run(scope, async () => {
+        setPendingPublishScope(scope);
+        setPublishError((current) =>
+          current &&
+          batch1OperationKey(current.scope) === batch1OperationKey(scope)
+            ? null
+            : current,
+        );
+        try {
+          await publishAfterAuth(scope, snapshot);
+        } finally {
+          if (!publishScopeIsCurrent(scope)) return;
+          setPendingPublishScope((current) =>
+            current && batch1OperationKey(current) === batch1OperationKey(scope)
+              ? null
+              : current,
+          );
+        }
+      });
     };
-    if (!requireAuth(run)) return;
-    run();
+    requireAuth(startPublish);
   }
   return (
     <View style={{ flex: 1, backgroundColor: C.bg, paddingTop: insets.top }}>
@@ -321,10 +546,16 @@ export default function CreateScreen() {
         <Wordmark />
         <IconButton
           icon="close"
-          onPress={() =>
-            router.canGoBack() ? router.back() : router.replace("/")
-          }
+          onPress={() => {
+            if (draftEditingLocked()) return;
+            if (router.canGoBack()) {
+              router.back();
+            } else {
+              router.replace("/");
+            }
+          }}
           label="Close composer"
+          disabled={isPublishing}
         />
       </View>
       <KeyboardAvoidingView
@@ -354,24 +585,27 @@ export default function CreateScreen() {
                 ? "A moment, in real time."
                 : "What’s your world today?"}
           </T>
-          <View style={[s.row, { gap: 8 }]}>
-            <Pill
+          <View style={[s.row, { gap: 8, flexWrap: "wrap" }]}>
+            <ComposerPill
               title="Post"
               icon="image-outline"
               selected={mode === "post"}
               onPress={() => selectMode("post")}
+              disabled={isPublishing}
             />
-            <Pill
+            <ComposerPill
               title="Circle"
               icon="ellipse-outline"
               selected={mode === "circle"}
               onPress={() => selectMode("circle")}
+              disabled={isPublishing}
             />
-            <Pill
+            <ComposerPill
               title="Go live"
               icon="radio-outline"
               selected={mode === "live"}
               onPress={() => selectMode("live")}
+              disabled={isPublishing}
             />
           </View>
           {creationIssue && user && (
@@ -386,6 +620,7 @@ export default function CreateScreen() {
                 onPress={() => {
                   void platformStatus.refetch();
                 }}
+                disabled={isPublishing}
               />
             </View>
           )}
@@ -405,8 +640,11 @@ export default function CreateScreen() {
                   name={user.name || ""}
                   size={44}
                 />
-                <View>
-                  <T style={{ fontWeight: "700" }}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <T
+                    style={{ fontWeight: "700", flexShrink: 1 }}
+                    numberOfLines={2}
+                  >
                     {profile.data?.name || user.name}
                   </T>
                   <T style={{ fontSize: 12, color: C.muted }}>
@@ -417,7 +655,7 @@ export default function CreateScreen() {
               {mode !== "post" && (
                 <Input
                   value={name}
-                  onChangeText={setName}
+                  onChangeText={changeName}
                   label={
                     mode === "circle" ? "CIRCLE NAME" : "LIVE SESSION TITLE"
                   }
@@ -426,6 +664,8 @@ export default function CreateScreen() {
                       ? "e.g. Sunday Coffee Club"
                       : "What are we talking about?"
                   }
+                  editable={!isPublishing}
+                  accessibilityState={{ disabled: isPublishing }}
                 />
               )}
               <Input
@@ -444,6 +684,8 @@ export default function CreateScreen() {
                     ? "What brings your people together?"
                     : "A thought, a story, something worth sharing…"
                 }
+                editable={!isPublishing}
+                accessibilityState={{ disabled: isPublishing }}
               />
               {mode === "circle" ? (
                 <>
@@ -458,27 +700,30 @@ export default function CreateScreen() {
                       "Music",
                       "Food",
                     ].map((item) => (
-                      <Pill
+                      <ComposerPill
                         key={item}
                         title={item}
                         selected={category === item}
-                        onPress={() => setCategory(item)}
+                        onPress={() => changeCategory(item)}
+                        disabled={isPublishing}
                       />
                     ))}
                   </View>
                   <T style={s.eyebrow}>WHO CAN JOIN?</T>
                   <View style={[s.row, { gap: 9, flexWrap: "wrap" }]}>
-                    <Pill
+                    <ComposerPill
                       title="Public · anyone can join"
                       icon="globe-outline"
                       selected={privacy === "public"}
-                      onPress={() => setPrivacy("public")}
+                      onPress={() => changePrivacy("public")}
+                      disabled={isPublishing}
                     />
-                    <Pill
+                    <ComposerPill
                       title="Private · approval needed"
                       icon="lock-closed-outline"
                       selected={privacy === "private"}
-                      onPress={() => setPrivacy("private")}
+                      onPress={() => changePrivacy("private")}
+                      disabled={isPublishing}
                     />
                   </View>
                 </>
@@ -491,19 +736,21 @@ export default function CreateScreen() {
                     showsHorizontalScrollIndicator={false}
                     contentContainerStyle={{ gap: 8 }}
                   >
-                    <Pill
+                    <ComposerPill
                       title="Everyone"
                       selected={!circleId}
-                      onPress={() => setCircleId(undefined)}
+                      onPress={() => changeCircleId(undefined)}
+                      disabled={isPublishing}
                     />
                     {circles.data
                       ?.filter((item) => item.joined)
                       .map((item) => (
-                        <Pill
+                        <ComposerPill
                           key={item.id}
                           title={item.name}
                           selected={circleId === item.id}
-                          onPress={() => setCircleId(item.id)}
+                          onPress={() => changeCircleId(item.id)}
+                          disabled={isPublishing}
                         />
                       ))}
                   </ScrollView>
@@ -512,6 +759,14 @@ export default function CreateScreen() {
               {mode !== "live" && (
                 <Pressable
                   onPress={pickMedia}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    asset
+                      ? `Change selected ${asset.type === "video" ? "video" : "photo"}`
+                      : `Add ${mode === "circle" ? "a cover photo" : "a photo or video"}`
+                  }
+                  accessibilityState={{ disabled: isPublishing }}
+                  disabled={isPublishing}
                   style={{
                     backgroundColor: C.paper,
                     borderWidth: 1,
@@ -522,6 +777,7 @@ export default function CreateScreen() {
                     alignItems: "center",
                     gap: 10,
                     overflow: "hidden",
+                    opacity: isPublishing ? 0.55 : 1,
                   }}
                 >
                   {asset ? (
@@ -570,6 +826,24 @@ export default function CreateScreen() {
                   </T>
                 </View>
               )}
+              {visiblePublishError && (
+                <View
+                  accessibilityLiveRegion="polite"
+                  style={[s.card, { padding: 14, gap: 10 }]}
+                >
+                  <T
+                    style={{ color: C.secondary, fontSize: 13, lineHeight: 19 }}
+                  >
+                    {visiblePublishError}
+                  </T>
+                  <Button
+                    title="Try again"
+                    secondary
+                    disabled={isPublishing}
+                    onPress={publish}
+                  />
+                </View>
+              )}
               <Button
                 title={
                   mode === "post"
@@ -579,8 +853,8 @@ export default function CreateScreen() {
                       : "Start live session"
                 }
                 icon={mode === "live" ? "radio-outline" : "arrow-up-outline"}
-                loading={busy}
-                disabled={!!creationIssue}
+                loading={isPublishing}
+                disabled={!!creationIssue || isPublishing}
                 onPress={publish}
               />
               <T style={{ color: C.muted, fontSize: 12, textAlign: "center" }}>

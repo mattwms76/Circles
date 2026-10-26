@@ -201,6 +201,33 @@ function bytesMatchMime(bytes: Buffer, type: string): boolean {
  * Circles API. Public procedures expose only public content; every user-owned mutation uses
  * the starter's real session-backed protectedProcedure rather than accepting a caller user id.
  */
+export const circlesPageInput = z.object({
+  search: z.string().trim().max(120).optional(),
+  category: z.string().trim().max(80).optional(),
+  // Optional preserves every legacy directory caller while making the complete joined
+  // collection, rather than only the loaded client page, an explicit server filter.
+  joinedOnly: z.boolean().optional(),
+  cursor: dateIdCursor
+    .extend({
+      createdAtExact: z
+        .string()
+        .datetime({ offset: true })
+        .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/)
+        .optional(),
+    })
+    .refine(
+      (cursor) =>
+        !cursor.createdAtExact ||
+        new Date(cursor.createdAtExact).getTime() ===
+          new Date(cursor.createdAt).getTime(),
+      {
+        message: "Exact timestamp must match the cursor's displayed timestamp",
+      },
+    )
+    .optional(),
+  limit: pageLimit,
+});
+
 export const socialRouter = router({
   feed: publicProcedure
     .input(
@@ -289,23 +316,18 @@ export const socialRouter = router({
     ),
 
   circlesPage: publicProcedure
-    .input(
-      z.object({
-        search: z.string().trim().max(120).optional(),
-        category: z.string().trim().max(80).optional(),
-        cursor: dateIdCursor.optional(),
-        limit: pageLimit,
-      }),
-    )
+    .input(circlesPageInput)
     .query(async ({ ctx, input }) => {
       const page = await listCirclesPage(ctx.user?.id ?? null, {
         search: input.search,
         category: input.category,
+        joinedOnly: input.joinedOnly,
         ...(input.cursor
           ? {
               cursor: {
                 createdAt: new Date(input.cursor.createdAt),
                 id: input.cursor.id,
+                createdAtExact: input.cursor.createdAtExact,
               },
             }
           : {}),
@@ -317,6 +339,7 @@ export const socialRouter = router({
           ? {
               createdAt: page.nextCursor.createdAt.toISOString(),
               id: page.nextCursor.id,
+              createdAtExact: page.nextCursor.createdAtExact,
             }
           : null,
       };

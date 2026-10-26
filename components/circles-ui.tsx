@@ -356,14 +356,14 @@ export function Pill({
       ]}
     >
       {icon && (
-        <Icon name={icon} size={15} color={selected ? "#fff" : C.muted} />
+        <Icon name={icon} size={15} color={selected ? "#fff" : C.secondary} />
       )}
       <T
         style={{
           fontSize: 12,
           fontWeight: "600",
           lineHeight: 18,
-          color: selected ? "#fff" : C.muted,
+          color: selected ? "#fff" : C.secondary,
         }}
       >
         {title}
@@ -471,7 +471,7 @@ export function Empty({
       <T style={{ fontSize: 19, fontWeight: "700", textAlign: "center" }}>
         {title}
       </T>
-      <T style={{ color: C.muted, textAlign: "center", maxWidth: 330 }}>
+      <T style={{ color: C.secondary, textAlign: "center", maxWidth: 330 }}>
         {text}
       </T>
       {action && onAction && (
@@ -484,7 +484,7 @@ export function Loading() {
   return (
     <View style={{ paddingVertical: 45, alignItems: "center", gap: 12 }}>
       <ActivityIndicator color={C.coral} />
-      <T style={{ color: C.muted, fontSize: 12 }}>
+      <T style={{ color: C.secondary, fontSize: 12 }}>
         Bringing your world together…
       </T>
     </View>

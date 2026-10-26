@@ -39,6 +39,13 @@ describe("FND-001 rejected route queries", () => {
     expect(errorIndex).toBeGreaterThan(-1);
     expect(emptyCopyIndex).toBeGreaterThan(errorIndex);
     expect(liveRoute).toContain("We couldn’t load the conversation.");
-    expect(liveRoute).toContain("onAction={() => void chat.refetch()}");
+    expect(liveRoute).toContain("onRetry={retryChat}");
+    const retry = liveRoute.slice(
+      liveRoute.indexOf("const refetchChat ="),
+      liveRoute.indexOf("const livesRetrying ="),
+    );
+    expect(retry).toContain("await chat.refetch()");
+    expect(retry).toContain("if (!isCurrentLiveScope(operationScope)) return;");
+    expect(retry).toContain("void refetchChat()");
   });
 });

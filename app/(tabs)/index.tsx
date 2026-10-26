@@ -217,12 +217,16 @@ export default function HomeScreen() {
             style={{ alignSelf: "center", marginVertical: 14 }}
           />
         ) : (
-          <View style={{ alignItems: "center", paddingVertical: 14, gap: 5 }}>
+          <View
+            accessible
+            accessibilityLabel="End of feed. Example community content. Your own story starts with sign-in."
+            style={{ alignItems: "center", paddingVertical: 14, gap: 5 }}
+          >
             <Icon name="leaf-outline" color="#A0AB91" size={20} />
-            <T style={{ color: C.muted, fontSize: 11 }}>
+            <T style={{ color: C.secondary, fontSize: 11 }}>
               You’re all caught up. Go make a moment.
             </T>
-            <T style={{ color: "#A3A799", fontSize: 9 }}>
+            <T style={{ color: C.secondary, fontSize: 9 }}>
               Example community content · Your own story starts with sign-in.
             </T>
           </View>

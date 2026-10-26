@@ -33,6 +33,12 @@ import {
   readReceiptRetryDelayMs,
 } from "@/lib/message-composition";
 import {
+  canSendMessage,
+  createMessageCompositionSingleFlight,
+  isCurrentMessageCompositionOperation,
+  type MessageCompositionOperation,
+} from "@/lib/batch2-message-accessibility";
+import {
   mergeMessageHistoryPages,
   MESSAGE_PAGE_DEFAULT_LIMIT,
   olderMessagePageCursor,
@@ -52,6 +58,8 @@ function ChatVideo({ uri, width }: { uri: string; width: number }) {
   return (
     <VideoView
       player={player}
+      accessible
+      accessibilityLabel="Video attachment"
       style={{ width, aspectRatio: 1.38 }}
       nativeControls
       contentFit="contain"
@@ -59,6 +67,15 @@ function ChatVideo({ uri, width }: { uri: string; width: number }) {
   );
 }
 export default function ChatScreen() {
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const { user } = useCircles();
+  const conversationId = Number(id);
+  const compositionKey = `${user?.id ?? "guest"}:${conversationId}`;
+
+  return <ChatScreenInstance key={compositionKey} />;
+}
+
+function ChatScreenInstance() {
   const { id, name } = useLocalSearchParams<{ id: string; name?: string }>();
   const conversationId = Number(id);
   const router = useRouter();
@@ -81,10 +98,15 @@ export default function ChatScreen() {
   const [sendingMedia, setSendingMedia] = useState(false);
   const [asset, setAsset] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const compositionScope = `${user?.id ?? "guest"}:${conversationId}`;
-  const [uncertainDeliveryScope, setUncertainDeliveryScope] = useState<
-    string | null
-  >(null);
-  const deliveryUncertain = uncertainDeliveryScope === compositionScope;
+  const activeCompositionOperation = useRef<MessageCompositionOperation | null>(
+    null,
+  );
+  const compositionGeneration = useRef(0);
+  const sendFlight = useRef(createMessageCompositionSingleFlight());
+  const [uncertainDeliveryOperation, setUncertainDeliveryOperation] =
+    useState<MessageCompositionOperation | null>(null);
+  const deliveryUncertain = uncertainDeliveryOperation !== null;
+  const hasSendableMessage = canSendMessage(text, !!asset);
   const chatMediaWidth = Math.min(
     220,
     Math.max(120, Math.floor((windowWidth - 44) * 0.8) - 26),
@@ -103,19 +125,32 @@ export default function ChatScreen() {
   const newestLivePage = messages.data?.pages[0] ?? [];
   const newestDeliveredMessageId = newestLivePage.at(-1)?.id;
   const userId = user?.id;
-  const send = trpc.social.sendMessage.useMutation({
-    onSuccess: () => {
-      compositionRetryId.current = null;
-      uploadedMediaUrl.current = null;
-      compositionRetryScope.current = null;
-      setUncertainDeliveryScope(null);
-      setText("");
-      setAsset(null);
-      void messages.refetch();
-      void utils.social.conversations.invalidate();
-    },
-  });
+  const send = trpc.social.sendMessage.useMutation();
   const upload = trpc.social.upload.useMutation();
+  const isFetchingEarlierMessages = messages.isFetchingNextPage;
+  const hasOlderPageError = messages.isFetchNextPageError;
+  const messagesError = messages.error;
+  const conversationUnavailable = !!messagesError && !hasOlderPageError;
+  const sendDisabled = !hasSendableMessage || send.isPending || sendingMedia;
+  useEffect(() => {
+    const operation = {
+      scope: compositionScope,
+      generation: compositionGeneration.current + 1,
+    };
+    compositionGeneration.current = operation.generation;
+    activeCompositionOperation.current = operation;
+
+    return () => {
+      if (
+        isCurrentMessageCompositionOperation(
+          activeCompositionOperation.current,
+          operation,
+        )
+      ) {
+        activeCompositionOperation.current = null;
+      }
+    };
+  }, [compositionScope]);
   useEffect(() => {
     if (!userId || !newestDeliveredMessageId) return;
     const scope = `${userId}:${conversationId}`;
@@ -186,48 +221,82 @@ export default function ChatScreen() {
   }, [newestDeliveredMessageId]);
 
   function loadEarlierMessages() {
-    void messages.fetchNextPage();
+    if (!isFetchingEarlierMessages) void messages.fetchNextPage();
   }
 
   async function selectMedia() {
-    if (deliveryUncertain) return;
+    if (deliveryUncertain || sendFlight.current.isActive) return;
+    const selectionOperation = activeCompositionOperation.current;
+    if (!selectionOperation) return;
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ["images", "videos"],
         quality: 0.7,
         base64: true,
       });
-      if (!result.canceled) {
+      if (
+        !result.canceled &&
+        isCurrentMessageCompositionOperation(
+          activeCompositionOperation.current,
+          selectionOperation,
+        )
+      ) {
         compositionRetryId.current = null;
         uploadedMediaUrl.current = null;
-        compositionRetryScope.current = compositionScope;
+        compositionRetryScope.current = selectionOperation.scope;
         setAsset(result.assets[0]);
       }
     } catch {
-      notify("Your photo library could not open.");
+      if (
+        isCurrentMessageCompositionOperation(
+          activeCompositionOperation.current,
+          selectionOperation,
+        )
+      ) {
+        notify("Your photo library could not open.");
+      }
     }
   }
   async function sendMessage() {
-    if (!user || (!text.trim() && !asset) || send.isPending || sendingMedia)
-      return;
+    if (!user || !hasSendableMessage) return;
+    const operation = activeCompositionOperation.current;
+    if (!operation || !sendFlight.current.start(operation)) return;
     setSendingMedia(true);
+    let sendWasAttempted = false;
     try {
-      if (compositionRetryScope.current !== compositionScope) {
+      if (compositionRetryScope.current !== operation.scope) {
         compositionRetryId.current = null;
         uploadedMediaUrl.current = null;
-        compositionRetryScope.current = compositionScope;
+        compositionRetryScope.current = operation.scope;
       }
       const clientMessageId =
         compositionRetryId.current ?? createMessageCompositionRetryId();
       compositionRetryId.current = clientMessageId;
       let media = uploadedMediaUrl.current ?? undefined;
       if (asset && !media) {
+        const base64 = await assetBase64(asset);
+        if (
+          !isCurrentMessageCompositionOperation(
+            activeCompositionOperation.current,
+            operation,
+          )
+        ) {
+          return;
+        }
         media = (
           await upload.mutateAsync({
-            base64: await assetBase64(asset),
+            base64,
             mimeType: supportedMime(asset),
           })
         ).url;
+        if (
+          !isCurrentMessageCompositionOperation(
+            activeCompositionOperation.current,
+            operation,
+          )
+        ) {
+          return;
+        }
         uploadedMediaUrl.current = media;
       }
       // `clientMessageId` is deliberately retained through an ambiguous
@@ -239,14 +308,52 @@ export default function ChatScreen() {
         media,
         clientMessageId,
       };
+      sendWasAttempted = true;
       await send.mutateAsync(messageInput);
+      if (
+        !isCurrentMessageCompositionOperation(
+          activeCompositionOperation.current,
+          operation,
+        )
+      ) {
+        return;
+      }
+      compositionRetryId.current = null;
+      uploadedMediaUrl.current = null;
+      compositionRetryScope.current = null;
+      setUncertainDeliveryOperation(null);
+      setText("");
+      setAsset(null);
+      void messages.refetch();
+      void utils.social.conversations.invalidate();
     } catch {
-      setUncertainDeliveryScope(compositionScope);
-      notify(
-        "We couldn’t confirm this message. Retry sends the same message, not a duplicate.",
-      );
+      if (
+        isCurrentMessageCompositionOperation(
+          activeCompositionOperation.current,
+          operation,
+        )
+      ) {
+        if (sendWasAttempted) {
+          setUncertainDeliveryOperation(operation);
+          notify(
+            "We couldn’t confirm this message. Retry sends the same message, not a duplicate.",
+          );
+        } else {
+          notify(
+            "We couldn’t prepare this attachment. Try again when you’re ready.",
+          );
+        }
+      }
     } finally {
-      setSendingMedia(false);
+      sendFlight.current.finish(operation);
+      if (
+        isCurrentMessageCompositionOperation(
+          activeCompositionOperation.current,
+          operation,
+        )
+      ) {
+        setSendingMedia(false);
+      }
     }
   }
   return (
@@ -295,10 +402,10 @@ export default function ChatScreen() {
           />
         ) : messages.isLoading ? (
           <Loading />
-        ) : messages.error ? (
+        ) : conversationUnavailable ? (
           <Empty
             title="This conversation is unavailable."
-            text={messages.error.message}
+            text={messagesError?.message ?? "This conversation is unavailable."}
             action="Back to inbox"
             onAction={() => router.replace("/messages")}
           />
@@ -310,7 +417,7 @@ export default function ChatScreen() {
               ref={scroll}
               style={{ flex: 1 }}
               onContentSizeChange={() => {
-                if (!messages.isFetchingNextPage)
+                if (!isFetchingEarlierMessages)
                   scroll.current?.scrollToEnd({ animated: false });
               }}
               keyboardShouldPersistTaps="handled"
@@ -320,33 +427,57 @@ export default function ChatScreen() {
               <View style={{ alignItems: "center", marginBottom: 15 }}>
                 <T style={s.eyebrow}>GOOD CONVERSATIONS START WITH KINDNESS</T>
               </View>
-              {messages.hasNextPage && (
+              {messages.hasNextPage && !hasOlderPageError && (
                 <Pressable
-                  disabled={messages.isFetchingNextPage}
+                  disabled={isFetchingEarlierMessages}
                   onPress={loadEarlierMessages}
+                  accessibilityRole="button"
                   accessibilityLabel="Load earlier messages"
+                  accessibilityState={{
+                    disabled: isFetchingEarlierMessages,
+                    busy: isFetchingEarlierMessages,
+                  }}
                   style={{
                     alignSelf: "center",
-                    opacity: messages.isFetchingNextPage ? 0.5 : 1,
+                    minHeight: 44,
+                    paddingHorizontal: 12,
+                    justifyContent: "center",
+                    opacity: isFetchingEarlierMessages ? 0.5 : 1,
                   }}
                 >
                   <T
-                    style={{ color: C.green, fontSize: 12, fontWeight: "700" }}
+                    style={{ color: C.action, fontSize: 12, fontWeight: "700" }}
                   >
-                    {messages.isFetchingNextPage
+                    {isFetchingEarlierMessages
                       ? "Loading earlier messages…"
                       : "Load earlier messages"}
                   </T>
                 </Pressable>
               )}
-              {messages.isFetchNextPageError && (
+              {hasOlderPageError && (
                 <Pressable
+                  disabled={isFetchingEarlierMessages}
                   onPress={loadEarlierMessages}
+                  accessibilityRole="button"
                   accessibilityLabel="Retry loading earlier messages"
-                  style={{ alignSelf: "center" }}
+                  accessibilityState={{
+                    disabled: isFetchingEarlierMessages,
+                    busy: isFetchingEarlierMessages,
+                  }}
+                  style={{
+                    alignSelf: "center",
+                    minHeight: 44,
+                    paddingHorizontal: 12,
+                    justifyContent: "center",
+                    opacity: isFetchingEarlierMessages ? 0.5 : 1,
+                  }}
                 >
                   <T
-                    style={{ color: C.coral, fontSize: 12, fontWeight: "700" }}
+                    style={{
+                      color: C.secondary,
+                      fontSize: 12,
+                      fontWeight: "700",
+                    }}
                   >
                     Could not load earlier messages. Try again.
                   </T>
@@ -411,6 +542,8 @@ export default function ChatScreen() {
                           ) : (
                             <Image
                               source={{ uri: message.media }}
+                              accessible
+                              accessibilityLabel="Photo attachment"
                               style={{
                                 width: chatMediaWidth,
                                 aspectRatio: 1.38,
@@ -465,6 +598,12 @@ export default function ChatScreen() {
               >
                 <Image
                   source={{ uri: asset.uri }}
+                  accessible
+                  accessibilityLabel={
+                    asset.type === "video"
+                      ? "Selected video attachment"
+                      : "Selected photo attachment"
+                  }
                   style={{ width: 54, height: 54, borderRadius: 8 }}
                 />
                 <T style={{ color: C.muted, fontSize: 12, flex: 1 }}>
@@ -473,7 +612,8 @@ export default function ChatScreen() {
                 </T>
                 <IconButton
                   icon="close"
-                  disabled={deliveryUncertain}
+                  disabled={deliveryUncertain || sendingMedia}
+                  label="Remove selected attachment"
                   onPress={() => {
                     uploadedMediaUrl.current = null;
                     compositionRetryId.current = null;
@@ -509,13 +649,14 @@ export default function ChatScreen() {
                 color={C.green}
                 onPress={selectMedia}
                 label="Attach photo or video"
-                disabled={deliveryUncertain}
+                disabled={deliveryUncertain || sendingMedia}
               />
               <TextInput
                 value={text}
                 onChangeText={setText}
-                editable={!deliveryUncertain}
+                editable={!deliveryUncertain && !sendingMedia}
                 placeholder="Say something kind…"
+                accessibilityLabel="Message text"
                 placeholderTextColor={C.muted}
                 onSubmitEditing={sendMessage}
                 returnKeyType="send"
@@ -534,11 +675,16 @@ export default function ChatScreen() {
                 }}
               />
               <Pressable
-                disabled={send.isPending || sendingMedia}
+                disabled={sendDisabled}
                 onPress={sendMessage}
+                accessibilityRole="button"
                 accessibilityLabel={
                   deliveryUncertain ? "Retry message delivery" : "Send message"
                 }
+                accessibilityState={{
+                  disabled: sendDisabled,
+                  busy: send.isPending || sendingMedia,
+                }}
                 style={{
                   width: 44,
                   height: 44,
@@ -546,7 +692,7 @@ export default function ChatScreen() {
                   backgroundColor: C.coral,
                   alignItems: "center",
                   justifyContent: "center",
-                  opacity: send.isPending || sendingMedia ? 0.5 : 1,
+                  opacity: sendDisabled ? 0.5 : 1,
                 }}
               >
                 <Icon name="arrow-up" color="#fff" size={22} />

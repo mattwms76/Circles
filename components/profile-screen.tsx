@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Modal,
@@ -12,6 +12,13 @@ import { useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
 import { resolveFnd001QueryDisplayState } from "@/lib/fnd001-query-display-state";
+import {
+  batch1OperationIdentityMatches,
+  batch1OperationKey,
+  createBatch1OperationGuard,
+  createBatch1OperationInstance,
+  type Batch1OperationScope,
+} from "@/lib/batch1-mutation-feedback";
 import { invalidateProfileViews } from "@/lib/source-query-invalidation";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppShell } from "./app-shell";
@@ -120,12 +127,158 @@ function ProfileEditModal({
   );
 }
 
+type FollowTarget = {
+  id: number;
+  name: string;
+  isFollowing?: boolean;
+};
+
+function ProfileFollowActions({
+  accountId,
+  target,
+  onMessage,
+  onRefetch,
+  requireAuth,
+}: {
+  accountId: number | null;
+  target: FollowTarget;
+  onMessage: () => void;
+  onRefetch: () => void;
+  requireAuth: (action: () => void) => void;
+  notify: (message: string) => void;
+}) {
+  const utils = trpc.useUtils();
+  const follow = trpc.social.follow.useMutation();
+  const mountedRef = useRef(false);
+  const scopeRef = useRef<Batch1OperationScope | null>(null);
+  const [operationInstance] = useState(() => createBatch1OperationInstance());
+  const [followGuard] = useState(() => createBatch1OperationGuard());
+  const [pendingFollowScope, setPendingFollowScope] =
+    useState<Batch1OperationScope | null>(null);
+  const [followError, setFollowError] = useState<{
+    scope: Batch1OperationScope;
+    message: string;
+  } | null>(null);
+  const identity = useMemo(
+    () => operationInstance.createIdentity(accountId, `profile:${target.id}`),
+    [accountId, operationInstance, target.id],
+  );
+
+  useEffect(() => {
+    mountedRef.current = true;
+    const scope = operationInstance.activate(identity);
+    scopeRef.current = scope;
+    return () => {
+      mountedRef.current = false;
+      operationInstance.deactivate(scope);
+      if (scopeRef.current?.instanceId === scope?.instanceId) {
+        scopeRef.current = null;
+      }
+    };
+  }, [identity, operationInstance]);
+
+  function followScopeIsCurrent(scope: Batch1OperationScope): boolean {
+    return mountedRef.current && operationInstance.isCurrent(scope);
+  }
+
+  function requestFollow() {
+    const startFollow = () => {
+      const scope = scopeRef.current;
+      if (!scope) return;
+      const desiredFollowing = !target.isFollowing;
+
+      void followGuard.run(scope, async () => {
+        setPendingFollowScope(scope);
+        setFollowError((current) =>
+          current &&
+          batch1OperationKey(current.scope) === batch1OperationKey(scope)
+            ? null
+            : current,
+        );
+        try {
+          await follow.mutateAsync({
+            userId: target.id,
+            following: desiredFollowing,
+          });
+          if (!followScopeIsCurrent(scope)) return;
+          onRefetch();
+          void invalidateProfileViews(utils);
+        } catch {
+          if (!followScopeIsCurrent(scope)) return;
+          setFollowError({
+            scope,
+            message: `Couldn’t ${desiredFollowing ? "follow" : "unfollow"} ${target.name}. Check your connection and try again.`,
+          });
+        } finally {
+          if (!followScopeIsCurrent(scope)) return;
+          setPendingFollowScope((current) =>
+            current && batch1OperationKey(current) === batch1OperationKey(scope)
+              ? null
+              : current,
+          );
+        }
+      });
+    };
+
+    requireAuth(startFollow);
+  }
+
+  const followPending =
+    pendingFollowScope !== null &&
+    batch1OperationIdentityMatches(pendingFollowScope, identity);
+  const visibleFollowError =
+    followError && batch1OperationIdentityMatches(followError.scope, identity)
+      ? followError.message
+      : null;
+
+  return (
+    <View style={{ gap: 8 }}>
+      <View style={[s.row, { gap: 9 }]}>
+        <Button
+          title={
+            followPending
+              ? target.isFollowing
+                ? "Unfollowing…"
+                : "Following…"
+              : target.isFollowing
+                ? "Following"
+                : "Follow"
+          }
+          accessibilityLabel={`${target.isFollowing ? "Unfollow" : "Follow"} ${target.name}`}
+          secondary={target.isFollowing}
+          loading={followPending}
+          disabled={followPending}
+          onPress={requestFollow}
+          style={{ flex: 1 }}
+        />
+        <Button
+          title="Say hello"
+          icon="chatbubble-outline"
+          secondary
+          onPress={onMessage}
+          style={{ flex: 1 }}
+        />
+      </View>
+      {visibleFollowError && (
+        <T
+          accessibilityLiveRegion="polite"
+          style={{ color: C.secondary, fontSize: 12, lineHeight: 18 }}
+        >
+          {visibleFollowError}
+        </T>
+      )}
+    </View>
+  );
+}
+
 export default function ProfileScreen({
   personId,
   invalidPersonRoute = false,
+  onBack,
 }: {
   personId?: number;
   invalidPersonRoute?: boolean;
+  onBack?: () => void;
 }) {
   const router = useRouter();
   const { user, requireAuth, notify, showLogin, logout } = useCircles();
@@ -147,19 +300,16 @@ export default function ProfileScreen({
   );
   const [edit, setEdit] = useState(false);
   const utils = trpc.useUtils();
+  const accountId = user?.id ?? null;
+  const p = profile.data;
+  const profileResourceId = p ? `profile:${p.id}` : null;
+
   const update = trpc.social.updateProfile.useMutation({
     onSuccess: () => {
       setEdit(false);
       void profile.refetch();
       void invalidateProfileViews(utils);
       notify("Your profile feels a little more you.");
-    },
-    onError: (e) => notify(e.message),
-  });
-  const follow = trpc.social.follow.useMutation({
-    onSuccess: () => {
-      void profile.refetch();
-      void invalidateProfileViews(utils);
     },
     onError: (e) => notify(e.message),
   });
@@ -170,7 +320,6 @@ export default function ProfileScreen({
       ),
     onError: (e) => notify(e.message),
   });
-  const p = profile.data;
   const posts =
     feed.data?.filter(
       (post) => (own && tab === "Saved") || post.author.id === p?.id,
@@ -182,6 +331,16 @@ export default function ProfileScreen({
   });
   return (
     <AppShell>
+      {onBack && (
+        <Button
+          title="Back"
+          accessibilityLabel="Go back from this profile"
+          icon="arrow-back"
+          secondary
+          onPress={onBack}
+          style={{ alignSelf: "flex-start", marginBottom: 16 }}
+        />
+      )}
       {invalidPersonRoute ? (
         <Empty
           icon="person-outline"
@@ -296,25 +455,17 @@ export default function ProfileScreen({
               ))}
             </View>
             {!own && (
-              <View style={[s.row, { gap: 9 }]}>
-                <Button
-                  title={p.isFollowing ? "Following" : "Follow"}
-                  secondary={p.isFollowing}
-                  onPress={() =>
-                    requireAuth(() => follow.mutate({ userId: p.id }))
-                  }
-                  style={{ flex: 1 }}
-                />
-                <Button
-                  title="Say hello"
-                  icon="chatbubble-outline"
-                  secondary
-                  onPress={() =>
-                    requireAuth(() => message.mutate({ userId: p.id }))
-                  }
-                  style={{ flex: 1 }}
-                />
-              </View>
+              <ProfileFollowActions
+                key={`${accountId ?? "anonymous"}:${profileResourceId ?? "none"}`}
+                accountId={accountId}
+                target={p}
+                onMessage={() =>
+                  requireAuth(() => message.mutate({ userId: p.id }))
+                }
+                onRefetch={() => void profile.refetch()}
+                requireAuth={requireAuth}
+                notify={notify}
+              />
             )}
           </View>
           <View style={[s.row, { gap: 9, marginBottom: 22, paddingTop: 8 }]}>

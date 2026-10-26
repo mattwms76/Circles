@@ -15,6 +15,7 @@ import type { User } from "../drizzle/schema";
 import type { TrpcContext } from "../server/_core/context";
 import { router } from "../server/_core/trpc";
 import { circleHomeRouter } from "../server/circle-home-router";
+import { socialRouter } from "../server/social-router";
 import {
   createRuntimeRolePool,
   type RuntimeRolePool,
@@ -35,7 +36,10 @@ vi.mock("../server/db", () => ({
 }));
 
 const databaseSchema = { ...coreSchema, ...liveSchema, ...sessionSchema };
-const circleHomeHttpRouter = router({ circleHome: circleHomeRouter });
+const circleHomeHttpRouter = router({
+  circleHome: circleHomeRouter,
+  social: socialRouter,
+});
 type TrpcWireResult = {
   status: number;
   data: unknown;
@@ -115,11 +119,16 @@ async function startLoopbackServer(): Promise<string> {
 }
 
 async function trpc(
-  procedure: "circleHome.get" | "circleHome.update" | "circleHome.pin",
+  procedure:
+    | "circleHome.get"
+    | "circleHome.update"
+    | "circleHome.pin"
+    | "social.circlesPage",
   input: Record<string, unknown>,
   actorId: number | null,
 ): Promise<TrpcWireResult> {
-  const isQuery = procedure === "circleHome.get";
+  const isQuery =
+    procedure === "circleHome.get" || procedure === "social.circlesPage";
   const url = new URL(`/api/trpc/${procedure}`, apiBaseUrl);
   const headers: Record<string, string> = { Accept: "application/json" };
   if (actorId !== null) headers[ACTOR_HEADER] = String(actorId);
@@ -574,3 +583,102 @@ describe.sequential("Circle Home isolated HTTP E2E", () => {
     }
   });
 });
+
+describe.sequential(
+  "Joined directory isolated HTTP/PostgreSQL17 integrity",
+  () => {
+    it("filters approved memberships before keyset pagination across the complete directory", async () => {
+      const first = await trpc(
+        "social.circlesPage",
+        { joinedOnly: true, limit: 1 },
+        3,
+      );
+      expectSuccess(first);
+      expect(first.data).toMatchObject({
+        items: [{ id: 12, joined: true, role: "member", privacy: "private" }],
+        hasMore: true,
+      });
+      expect(first.data.nextCursor).toBeTruthy();
+      expect(first.data.nextCursor).toHaveProperty("createdAtExact");
+      expect(
+        (first.data.nextCursor as { createdAtExact: string }).createdAtExact,
+      ).toMatch(/\.\d{6}Z$/);
+      const second = await trpc(
+        "social.circlesPage",
+        { joinedOnly: true, limit: 1, cursor: first.data.nextCursor },
+        3,
+      );
+      expectSuccess(second);
+      expect(second.data).toMatchObject({
+        items: [{ id: 11, joined: true, role: "member" }],
+        hasMore: false,
+        nextCursor: null,
+      });
+    });
+
+    it("excludes pending and guest memberships and cannot adopt a caller-supplied viewer identity", async () => {
+      for (const actor of [null, 4]) {
+        const result = await trpc(
+          "social.circlesPage",
+          { joinedOnly: true, viewerId: 3, limit: 20 },
+          actor,
+        );
+        expectSuccess(result);
+        expect(result.data).toMatchObject({
+          items: [],
+          hasMore: false,
+          nextCursor: null,
+        });
+      }
+      const ordinary = await trpc("social.circlesPage", { limit: 20 }, null);
+      expectSuccess(ordinary);
+      expect(ordinary.data.items).toHaveLength(3);
+      const items = ordinary.data.items as Record<string, unknown>[];
+      const privateTeaser = items.find((item) => item.id === 12);
+      expect(privateTeaser).toMatchObject({
+        privacy: "private",
+      });
+      expect(privateTeaser).not.toHaveProperty("joined");
+      expect(privateTeaser).not.toHaveProperty("role");
+      for (const key of [
+        "welcomeMessage",
+        "rules",
+        "pinnedPost",
+        "messages",
+        "members",
+      ]) {
+        expect(privateTeaser).not.toHaveProperty(key);
+      }
+    });
+
+    it("retains bounded search and categories and rejects invalid filter/paging inputs", async () => {
+      const result = await trpc(
+        "social.circlesPage",
+        {
+          joinedOnly: true,
+          search: "Private fixture",
+          category: "Art",
+          limit: 1,
+        },
+        3,
+      );
+      expectSuccess(result);
+      expect(result.data).toMatchObject({
+        items: [{ id: 12 }],
+        hasMore: false,
+      });
+      for (const input of [
+        { search: "x".repeat(121) },
+        { category: "x".repeat(81) },
+        { joinedOnly: "true" },
+        { limit: 51 },
+      ]) {
+        const invalid = await trpc("social.circlesPage", input, 3);
+        expect(invalid).toMatchObject({
+          status: 400,
+          errorCode: "BAD_REQUEST",
+        });
+      }
+    });
+  },
+);
