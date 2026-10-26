@@ -25,8 +25,10 @@ import {
 import { sdk } from "./sdk";
 
 const OAUTH_STATE_COOKIE = "manus_oauth_state";
+const OAUTH_CONTINUATION_COOKIE = "manus_oauth_continuation";
 const OAUTH_CALLBACK_PATH = "/api/oauth/callback";
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+const ACCOUNT_EMAIL_CONTINUATION = "/account/email";
 
 export type OAuthStatePayload = {
   redirectUri: string;
@@ -47,6 +49,12 @@ type NativePendingOAuthState = OAuthStatePayload & {
 type OAuthStateCookie = {
   state: string;
   cookieBinding: string;
+  expiresAt: number;
+};
+
+type OAuthContinuationCookie = {
+  state: string;
+  continuation: typeof ACCOUNT_EMAIL_CONTINUATION;
   expiresAt: number;
 };
 
@@ -257,6 +265,12 @@ function buildAuthorizationUrl(redirectUri: string, state: string): string {
   return url.toString();
 }
 
+function isAllowedOAuthContinuation(
+  value: string | undefined,
+): value is typeof ACCOUNT_EMAIL_CONTINUATION {
+  return value === ACCOUNT_EMAIL_CONTINUATION;
+}
+
 function signPendingState(pending: OAuthStateCookie): string {
   if (!ENV.cookieSecret)
     throw new Error("OAuth session signing is unavailable");
@@ -318,6 +332,58 @@ function oauthStateCookieOptions(req: Request) {
 
 function clearOAuthStateCookie(req: Request, res: Response) {
   res.clearCookie(OAUTH_STATE_COOKIE, oauthStateCookieOptions(req));
+}
+
+function signOAuthContinuation(pending: OAuthContinuationCookie): string {
+  if (!ENV.cookieSecret)
+    throw new Error("OAuth session signing is unavailable");
+  const payload = Buffer.from(JSON.stringify(pending), "utf8").toString(
+    "base64url",
+  );
+  const signature = createHmac("sha256", ENV.cookieSecret)
+    .update(payload)
+    .digest("base64url");
+  return `${payload}.${signature}`;
+}
+
+function readOAuthContinuation(req: Request): OAuthContinuationCookie | null {
+  if (!ENV.cookieSecret || !req.headers.cookie) return null;
+  const raw = parseCookieHeader(req.headers.cookie)[OAUTH_CONTINUATION_COOKIE];
+  if (!raw) return null;
+  const [payload, signature, ...extra] = raw.split(".");
+  if (!payload || !signature || extra.length > 0) return null;
+  const expected = createHmac("sha256", ENV.cookieSecret)
+    .update(payload)
+    .digest("base64url");
+  if (!constantTimeEqual(signature, expected)) return null;
+  try {
+    const value: unknown = JSON.parse(
+      Buffer.from(payload, "base64url").toString("utf8"),
+    );
+    if (
+      !value ||
+      typeof value !== "object" ||
+      typeof (value as Record<string, unknown>).state !== "string" ||
+      typeof (value as Record<string, unknown>).continuation !== "string" ||
+      typeof (value as Record<string, unknown>).expiresAt !== "number"
+    ) {
+      return null;
+    }
+    const pending = value as OAuthContinuationCookie;
+    if (
+      pending.expiresAt <= Date.now() ||
+      !isAllowedOAuthContinuation(pending.continuation)
+    ) {
+      return null;
+    }
+    return pending;
+  } catch {
+    return null;
+  }
+}
+
+function clearOAuthContinuationCookie(req: Request, res: Response) {
+  res.clearCookie(OAUTH_CONTINUATION_COOKIE, oauthStateCookieOptions(req));
 }
 
 async function issueNativeOAuthFlow(redirectUri: string): Promise<{
@@ -476,9 +542,12 @@ export function registerOAuthRoutes(app: Express) {
   app.get("/api/oauth/start", async (req: Request, res: Response) => {
     const redirectUri = getQueryParam(req, "redirectUri");
     const frontendOrigin = getQueryParam(req, "frontendOrigin");
+    const continuation = getQueryParam(req, "continuation");
     if (
       !redirectUri ||
       !frontendOrigin ||
+      (continuation !== undefined &&
+        !isAllowedOAuthContinuation(continuation)) ||
       !isTrustedFrontendOrigin(frontendOrigin) ||
       !isTrustedWebCallbackRedirect(redirectUri, frontendOrigin)
     ) {
@@ -505,6 +574,20 @@ export function registerOAuthRoutes(app: Express) {
         ...oauthStateCookieOptions(req),
         maxAge: OAUTH_STATE_TTL_MS,
       });
+      if (continuation) {
+        res.cookie(
+          OAUTH_CONTINUATION_COOKIE,
+          signOAuthContinuation({
+            state: issued.state,
+            continuation,
+            expiresAt,
+          }),
+          {
+            ...oauthStateCookieOptions(req),
+            maxAge: OAUTH_STATE_TTL_MS,
+          },
+        );
+      }
       res.setHeader("Cache-Control", "no-store");
       res.redirect(302, buildAuthorizationUrl(redirectUri, issued.state));
     } catch {
@@ -537,7 +620,9 @@ export function registerOAuthRoutes(app: Express) {
     const code = getQueryParam(req, "code");
     const state = getQueryParam(req, "state");
     const cookie = readPendingState(req);
+    const continuationCookie = readOAuthContinuation(req);
     clearOAuthStateCookie(req, res);
+    clearOAuthContinuationCookie(req, res);
 
     if (!code || !state || !cookie || !constantTimeEqual(state, cookie.state)) {
       res.status(400).json({ error: "Invalid OAuth state" });
@@ -578,8 +663,18 @@ export function registerOAuthRoutes(app: Express) {
     try {
       const { sessionToken } = await completeOAuthLogin(code, state);
       setApplicationSession(req, res, sessionToken);
-      // The redirect target is the signed, configured origin and a fixed in-app path.
-      res.redirect(302, new URL("/", pending.frontendOrigin).toString());
+      const continuation =
+        continuationCookie &&
+        constantTimeEqual(continuationCookie.state, state) &&
+        isAllowedOAuthContinuation(continuationCookie.continuation)
+          ? continuationCookie.continuation
+          : "/";
+      // The redirect target remains the signed configured origin plus a single
+      // allow-listed protected migration path, never caller-controlled URL text.
+      res.redirect(
+        302,
+        new URL(continuation, pending.frontendOrigin).toString(),
+      );
     } catch {
       res.status(500).json({ error: "OAuth callback failed" });
     }

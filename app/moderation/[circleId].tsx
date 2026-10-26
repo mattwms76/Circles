@@ -5,6 +5,7 @@ import { Empty, Loading } from "@/components/circles-ui";
 import { useCircles } from "@/hooks/circles-context";
 import { parsePositiveSafeId } from "@/lib/feed-ui-helpers";
 import { moderationScopeKey } from "@/lib/moderation-ui";
+import { resolveModerationRouteAuthGate } from "@/lib/a26-moderation-authority";
 
 export default function ModerationReportsScreen() {
   const { circleId: rawCircleId } = useLocalSearchParams<{
@@ -12,7 +13,11 @@ export default function ModerationReportsScreen() {
   }>();
   const circleId = parsePositiveSafeId(rawCircleId);
   const router = useRouter();
-  const { authState, showLogin, user } = useCircles();
+  const { authState, refresh, showLogin, user } = useCircles();
+  const authGate = resolveModerationRouteAuthGate({
+    authState,
+    hasUser: !!user,
+  });
 
   if (!circleId) {
     return (
@@ -28,7 +33,21 @@ export default function ModerationReportsScreen() {
     );
   }
 
-  if (!user && authState === "checking") {
+  if (authGate === "auth-error") {
+    return (
+      <AppShell>
+        <Empty
+          icon="shield-outline"
+          title="We couldn’t confirm your sign-in."
+          text="Check your connection, then try again before reviewing this circle’s reports."
+          action="Try again"
+          onAction={refresh}
+        />
+      </AppShell>
+    );
+  }
+
+  if (authGate === "checking") {
     return (
       <AppShell>
         <Loading />
@@ -36,7 +55,7 @@ export default function ModerationReportsScreen() {
     );
   }
 
-  if (!user) {
+  if (authGate === "guest" || !user) {
     return (
       <AppShell>
         <Empty

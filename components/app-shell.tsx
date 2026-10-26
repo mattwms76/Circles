@@ -4,6 +4,10 @@ import { usePathname, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
+import {
+  getA26CurrentAvatar,
+  getA26OwnProfileQueryInput,
+} from "../lib/a26-directory-ui";
 import { appShellLayout } from "@/lib/app-shell-layout";
 import type { StatusTone } from "@/lib/status-announcement";
 import {
@@ -102,7 +106,11 @@ export function AppShell({
   const layout = appShellLayout(width, insets);
   const { wide, gutter } = layout;
   const selectedSection = resolveAppNavigationSection(path);
-  const myProfile = trpc.social.profile.useQuery({}, { enabled: !!user });
+  const ownProfileInput = getA26OwnProfileQueryInput(user?.id);
+  const myProfile = trpc.social.profile.useQuery(ownProfileInput, {
+    enabled: ownProfileInput !== undefined,
+  });
+  const ownAvatar = getA26CurrentAvatar(user?.id, myProfile.data);
   return (
     <View
       testID="app-shell-frame"
@@ -237,7 +245,7 @@ export function AppShell({
                   }}
                 >
                   <UserAvatar
-                    uri={myProfile.data?.avatar}
+                    uri={ownAvatar}
                     name={user?.name || "You"}
                     size={35}
                     userId={user?.id}

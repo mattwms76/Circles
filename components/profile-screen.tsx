@@ -11,8 +11,25 @@ import { Image } from "@/components/media-image";
 import { useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
-import { resolveFnd001QueryDisplayState } from "@/lib/fnd001-query-display-state";
 import type { StatusTone } from "@/lib/status-announcement";
+import { resolvePagedDisplayState } from "@/lib/a26-paged-display";
+import {
+  getA26OwnProfileQueryInput,
+  isA26CurrentActorProfile,
+} from "@/lib/a26-directory-ui";
+import {
+  A26_PROFILE_BIO_MAX_LENGTH,
+  A26_PROFILE_HANDLE_MAX_LENGTH,
+  A26_PROFILE_NAME_MAX_LENGTH,
+  a26ProfileMomentStat,
+  a26ProfileStatsLayout,
+  a26ProfileUpdateErrorMessage,
+  formatA26ProfileStatCount,
+  flattenA26ProfilePages,
+  hasA26ProfileDraftErrors,
+  normalizeA26ProfileDraft,
+  validateA26ProfileDraft,
+} from "@/lib/a26-profile";
 import {
   batch1OperationIdentityMatches,
   batch1OperationKey,
@@ -24,6 +41,7 @@ import { invalidateProfileViews } from "@/lib/source-query-invalidation";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppShell } from "./app-shell";
 import { PostCard } from "./post-card";
+import { StatusMessage } from "./status-message";
 import { UserAvatar } from "./user-avatar";
 import {
   Button,
@@ -44,20 +62,47 @@ function ProfileEditModal({
   topInset,
   bottomInset,
   saving,
+  saveError,
   onClose,
   onSave,
+  onDraftChange,
 }: {
   profile: { name: string; handle: string; bio?: string | null };
   editorOuterPadding: number;
   topInset: number;
   bottomInset: number;
   saving: boolean;
+  saveError: string | null;
   onClose: () => void;
   onSave: (draft: { name: string; handle: string; bio: string }) => void;
+  onDraftChange: () => void;
 }) {
   const [name, setName] = useState(profile.name);
   const [handle, setHandle] = useState(profile.handle);
   const [bio, setBio] = useState(profile.bio ?? "");
+  const [errors, setErrors] = useState<{
+    name?: string;
+    handle?: string;
+    bio?: string;
+  }>({});
+
+  function updateDraftField(field: "name" | "handle" | "bio", value: string) {
+    if (field === "name") setName(value);
+    if (field === "handle") setHandle(value);
+    if (field === "bio") setBio(value);
+    setErrors((current) =>
+      current[field] ? { ...current, [field]: undefined } : current,
+    );
+    onDraftChange();
+  }
+
+  function submitDraft() {
+    const draft = normalizeA26ProfileDraft({ name, handle, bio });
+    const nextErrors = validateA26ProfileDraft(draft);
+    setErrors(nextErrors);
+    if (hasA26ProfileDraftErrors(nextErrors)) return;
+    onSave(draft);
+  }
 
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>
@@ -97,28 +142,41 @@ function ProfileEditModal({
               <T style={{ fontWeight: "700", fontSize: 20 }}>Make it you.</T>
               <IconButton icon="close" onPress={onClose} />
             </View>
-            <Input label="YOUR NAME" value={name} onChangeText={setName} />
+            <Input
+              label="YOUR NAME"
+              value={name}
+              onChangeText={(value) => updateDraftField("name", value)}
+              maxLength={A26_PROFILE_NAME_MAX_LENGTH}
+              accessibilityHint={
+                errors.name ?? "Required. Up to 120 characters."
+              }
+            />
+            <StatusMessage message={errors.name} tone="error" />
             <Input
               label="YOUR HANDLE"
               value={handle}
-              onChangeText={setHandle}
+              onChangeText={(value) => updateDraftField("handle", value)}
               placeholder="letters, numbers, underscores"
+              maxLength={A26_PROFILE_HANDLE_MAX_LENGTH}
+              accessibilityHint={
+                errors.handle ??
+                "Two to 48 characters. Use letters, numbers, underscores, periods, or hyphens."
+              }
             />
+            <StatusMessage message={errors.handle} tone="error" />
             <Input
               label="A LITTLE ABOUT YOU"
               value={bio}
-              onChangeText={setBio}
+              onChangeText={(value) => updateDraftField("bio", value)}
               multiline
+              maxLength={A26_PROFILE_BIO_MAX_LENGTH}
+              accessibilityHint={errors.bio ?? "Up to 2,000 characters."}
             />
+            <StatusMessage message={errors.bio} tone="error" />
+            <StatusMessage message={saveError} tone="error" />
             <Button
               title="Save profile"
-              onPress={() =>
-                onSave({
-                  name: name.trim(),
-                  handle: handle.trim(),
-                  bio: bio.trim(),
-                })
-              }
+              onPress={submitDraft}
               loading={saving}
             />
           </ScrollView>
@@ -304,12 +362,11 @@ function ProfileFollowActions({
         />
       </View>
       {visibleFollowError && (
-        <T
-          accessibilityLiveRegion="polite"
+        <StatusMessage
+          message={visibleFollowError}
+          tone="error"
           style={{ color: C.secondary, fontSize: 12, lineHeight: 18 }}
-        >
-          {visibleFollowError}
-        </T>
+        />
       )}
     </View>
   );
@@ -332,45 +389,66 @@ export default function ProfileScreen({
   const compactOwnProfileActions = width <= 360 || fontScale >= 1.2;
   const own = !personId || personId === user?.id;
   const profile = trpc.social.profile.useQuery(
-    personId ? { id: personId } : {},
+    personId ? { id: personId } : getA26OwnProfileQueryInput(user?.id),
     { enabled: !invalidPersonRoute && (!!personId || !!user) },
   );
-  const [tab, setTab] = useState("Moments");
-  const feed = trpc.social.feed.useQuery(
+  const [tab, setTab] = useState<"Moments" | "Saved">("Moments");
+  const p =
+    !own ||
+    (profile.data && isA26CurrentActorProfile(user?.id, profile.data.id))
+      ? profile.data
+      : undefined;
+  const feed = trpc.social.feedPage.useInfiniteQuery(
     {
       filter: own && tab === "Saved" ? "saved" : "for-you",
-      authorId: own && tab === "Saved" ? undefined : profile.data?.id,
+      authorId: own && tab === "Saved" ? undefined : p?.id,
+      limit: 20,
     },
-    { enabled: !!profile.data },
+    {
+      enabled: !!p,
+      getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    },
   );
   const [edit, setEdit] = useState(false);
+  const [profileUpdateError, setProfileUpdateError] = useState<string | null>(
+    null,
+  );
   const utils = trpc.useUtils();
   const accountId = user?.id ?? null;
-  const p = profile.data;
   const profileResourceId = p ? `profile:${p.id}` : null;
 
   const update = trpc.social.updateProfile.useMutation({
     onSuccess: () => {
       setEdit(false);
+      setProfileUpdateError(null);
       void profile.refetch();
       void invalidateProfileViews(utils);
       notify("Your profile feels a little more you.", "success");
     },
-    onError: () =>
-      notify(
-        "We couldn’t update your profile. Check your connection and try again.",
-        "error",
-      ),
+    onError: (error) =>
+      setProfileUpdateError(a26ProfileUpdateErrorMessage(error)),
   });
-  const posts =
-    feed.data?.filter(
-      (post) => (own && tab === "Saved") || post.author.id === p?.id,
-    ) || [];
-  const feedDisplayState = resolveFnd001QueryDisplayState({
+  const loadedPosts = flattenA26ProfilePages(feed.data?.pages);
+  const posts = loadedPosts.filter(
+    (post) => (own && tab === "Saved") || post.author.id === p?.id,
+  );
+  const feedDisplayState = resolvePagedDisplayState({
     isLoading: feed.isLoading,
     isError: feed.isError,
-    hasContent: !!posts.length,
+    hasContent: posts.length > 0 || !!feed.hasNextPage,
+    isFetchingNextPage: feed.isFetchingNextPage,
+    isFetchNextPageError: feed.isFetchNextPageError,
+    isRefetchError: feed.isRefetchError,
+    error: feed.error,
   });
+  const momentStat = a26ProfileMomentStat({
+    tab,
+    loadedCount: posts.length,
+    hasNextPage: !!feed.hasNextPage,
+    isInitialLoading: feed.isLoading && !posts.length,
+    hasInitialError: feed.isError && !posts.length,
+  });
+  const statsLayout = a26ProfileStatsLayout(width, fontScale);
   return (
     <AppShell>
       {onBack && (
@@ -493,7 +571,10 @@ export default function ProfileScreen({
                 <Button
                   title="Edit profile"
                   secondary
-                  onPress={() => setEdit(true)}
+                  onPress={() => {
+                    setProfileUpdateError(null);
+                    setEdit(true);
+                  }}
                   style={{
                     borderRadius: 9,
                     width: compactOwnProfileActions ? "100%" : undefined,
@@ -530,15 +611,40 @@ export default function ProfileScreen({
             <T style={{ color: C.muted, fontSize: 14, lineHeight: 21 }}>
               {p.bio || "A new face. A new connection."}
             </T>
-            <View style={[s.row, { gap: 25, marginVertical: 8 }]}>
+            <View
+              testID="profile-stats"
+              style={{
+                marginVertical: 8,
+                alignItems: "flex-start",
+                ...statsLayout.container,
+              }}
+            >
               {[
-                [posts.length, "moments"],
-                [p.followers, "followers"],
-                [p.following, "following"],
-              ].map(([count, label]) => (
-                <View key={String(label)}>
-                  <T style={{ fontWeight: "800", fontSize: 20 }}>{count}</T>
-                  <T style={{ color: C.muted, fontSize: 12 }}>{label}</T>
+                { key: "moments", ...momentStat },
+                {
+                  key: "followers",
+                  displayValue: formatA26ProfileStatCount(p.followers),
+                  label: "followers",
+                  accessibilityLabel: `${p.followers} followers`,
+                },
+                {
+                  key: "following",
+                  displayValue: formatA26ProfileStatCount(p.following),
+                  label: "following",
+                  accessibilityLabel: `${p.following} following`,
+                },
+              ].map((stat) => (
+                <View
+                  key={stat.key}
+                  testID={`profile-stat-${stat.key}`}
+                  accessible
+                  accessibilityLabel={stat.accessibilityLabel}
+                  style={statsLayout.item}
+                >
+                  <T style={{ fontWeight: "800", fontSize: 20 }}>
+                    {stat.displayValue}
+                  </T>
+                  <T style={{ color: C.muted, fontSize: 12 }}>{stat.label}</T>
                 </View>
               ))}
             </View>
@@ -568,9 +674,9 @@ export default function ProfileScreen({
               />
             )}
           </View>
-          {feedDisplayState === "loading" ? (
+          {feedDisplayState.kind === "loading" ? (
             <Loading />
-          ) : feedDisplayState === "error" ? (
+          ) : feedDisplayState.kind === "error" ? (
             <Empty
               icon="images-outline"
               title={
@@ -582,7 +688,7 @@ export default function ProfileScreen({
               action="Try again"
               onAction={() => void feed.refetch()}
             />
-          ) : feedDisplayState === "empty" ? (
+          ) : feedDisplayState.kind === "empty" ? (
             <Empty
               icon="images-outline"
               title={
@@ -601,7 +707,64 @@ export default function ProfileScreen({
               onAction={() => router.push("/create")}
             />
           ) : (
-            posts.map((post) => <PostCard key={post.id} post={post} />)
+            <>
+              {posts.map((post) => (
+                <PostCard key={post.id} post={post} />
+              ))}
+              {feedDisplayState.showRetainedError ? (
+                <View style={{ gap: 8, marginTop: 14 }}>
+                  <StatusMessage
+                    testID="profile-feed-retained-error"
+                    tone="error"
+                    message={
+                      feedDisplayState.retryMode === "next"
+                        ? "We couldn’t load more moments. Your loaded moments are still here."
+                        : "We couldn’t refresh these moments. Your loaded moments are still here."
+                    }
+                  />
+                  <Button
+                    title={
+                      feedDisplayState.retryMode === "next"
+                        ? "Try loading more"
+                        : "Refresh moments"
+                    }
+                    secondary
+                    loading={
+                      feedDisplayState.retryMode === "next"
+                        ? feed.isFetchingNextPage
+                        : feed.isRefetching
+                    }
+                    onPress={() => {
+                      if (feedDisplayState.retryMode === "next") {
+                        void feed.fetchNextPage();
+                        return;
+                      }
+                      void feed.refetch();
+                    }}
+                    style={{ alignSelf: "flex-start" }}
+                  />
+                </View>
+              ) : feed.hasNextPage ? (
+                <Button
+                  title="Load more moments"
+                  secondary
+                  loading={feed.isFetchingNextPage}
+                  onPress={() => void feed.fetchNextPage()}
+                  style={{ alignSelf: "center", marginVertical: 14 }}
+                />
+              ) : (
+                <View
+                  testID="profile-feed-end"
+                  accessible
+                  accessibilityLabel={`${posts.length} ${tab === "Saved" ? "saved moments" : "moments"} loaded. End of list.`}
+                  style={{ alignItems: "center", paddingVertical: 14 }}
+                >
+                  <T style={{ color: C.secondary, fontSize: 12 }}>
+                    {`All ${posts.length} ${tab === "Saved" ? "saved moments" : "moments"} loaded.`}
+                  </T>
+                </View>
+              )}
+            </>
           )}
         </>
       )}
@@ -612,8 +775,13 @@ export default function ProfileScreen({
           topInset={insets.top}
           bottomInset={insets.bottom}
           saving={update.isPending}
-          onClose={() => setEdit(false)}
+          saveError={profileUpdateError}
+          onClose={() => {
+            setEdit(false);
+            setProfileUpdateError(null);
+          }}
           onSave={(draft) => requireAuth(() => update.mutate(draft))}
+          onDraftChange={() => setProfileUpdateError(null)}
         />
       )}
     </AppShell>

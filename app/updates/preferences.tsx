@@ -1,8 +1,12 @@
 import { View } from "react-native";
 import { useRouter } from "expo-router";
-import { ActivityPreferencesPanel } from "@/components/activity-preferences";
+import {
+  ActivityOutcomeStatus,
+  ActivityPreferencesPanel,
+} from "@/components/activity-preferences";
 import { AppShell } from "@/components/app-shell";
 import { useCircles } from "@/hooks/circles-context";
+import { ACTIVITY_PREFERENCES_LOAD_ERROR } from "@/lib/a26-activity-repairs";
 import { activityScopeKey } from "@/lib/activity-ui";
 import {
   Button,
@@ -32,13 +36,19 @@ export default function ActivityPreferencesScreen() {
             onAction={showLogin}
           />
         ) : (
-          <Empty
-            icon="alert-circle-outline"
-            title="We couldn’t check your sign-in."
-            text="Check your connection, then try again before changing update preferences."
-            action="Try again"
-            onAction={refresh}
-          />
+          <View style={{ gap: 10 }}>
+            <ActivityOutcomeStatus
+              message={ACTIVITY_PREFERENCES_LOAD_ERROR}
+              tone="error"
+            />
+            <Empty
+              icon="alert-circle-outline"
+              title="We couldn’t check your sign-in."
+              text="Check your connection, then try again before changing update preferences."
+              action="Try again"
+              onAction={refresh}
+            />
+          </View>
         )
       ) : (
         <View style={{ gap: 18 }}>

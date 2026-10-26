@@ -6,6 +6,10 @@ import { PostCard } from "@/components/post-card";
 import { StatusMessage } from "@/components/status-message";
 import { useCircles } from "@/hooks/circles-context";
 import {
+  activityPostCardActionsAvailable,
+  resolveActivityRouteGate,
+} from "@/lib/a26-activity-repairs";
+import {
   activityScopeKey,
   isCurrentActivityScope,
   isCurrentActivityTarget,
@@ -15,7 +19,7 @@ import {
 import { trpc } from "@/lib/trpc";
 import { Button, C, Empty, Icon, Loading, s, T } from "@/components/circles-ui";
 
-function ActivityDetail({
+export function ActivityDetail({
   viewerId,
   activityId,
 }: {
@@ -156,7 +160,12 @@ function ActivityDetail({
         style={{ fontSize: 13, lineHeight: 19 }}
       />
       {resolved.type === "post" ? (
-        <PostCard post={resolved.post} />
+        <PostCard
+          post={resolved.post}
+          actionsAvailable={activityPostCardActionsAvailable(
+            targetState.isAuthorityAvailable,
+          )}
+        />
       ) : (
         <View style={[s.card, { padding: 20, gap: 13 }]}>
           <View style={[s.row, { gap: 10 }]}>
@@ -201,13 +210,32 @@ export default function ActivityDetailScreen() {
   const { id } = useLocalSearchParams<{ id?: string | string[] }>();
   const activityId = parseActivityRouteId(Array.isArray(id) ? undefined : id);
   const router = useRouter();
-  const { authState, showLogin, user } = useCircles();
+  const { authState, refresh, showLogin, user } = useCircles();
+  const routeGate = resolveActivityRouteGate({
+    authState,
+    viewerId: user?.id,
+  });
 
   return (
     <AppShell>
-      {!user && authState === "checking" ? (
+      {routeGate === "checking" ? (
         <Loading />
-      ) : !user ? (
+      ) : routeGate === "auth-error" ? (
+        <View style={{ gap: 10 }}>
+          <StatusMessage
+            message="We couldn’t confirm your sign-in. Try again."
+            tone="error"
+            style={{ fontSize: 13, lineHeight: 19 }}
+          />
+          <Empty
+            icon="alert-circle-outline"
+            title="We couldn’t check your sign-in."
+            text="Check your connection, then try again before opening this update."
+            action="Try again"
+            onAction={refresh}
+          />
+        </View>
+      ) : routeGate === "guest" ? (
         <Empty
           icon="notifications-outline"
           title="Updates are waiting for you."
@@ -225,8 +253,8 @@ export default function ActivityDetailScreen() {
         />
       ) : (
         <ActivityDetail
-          key={`${activityScopeKey({ viewerId: user.id })}:${activityId}`}
-          viewerId={user.id}
+          key={`${activityScopeKey({ viewerId: user!.id })}:${activityId}`}
+          viewerId={user!.id}
           activityId={activityId}
         />
       )}

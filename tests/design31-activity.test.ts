@@ -33,6 +33,10 @@ vi.mock(
 vi.mock("@/components/status-message", () => ({
   StatusMessage: "StatusMessage",
 }));
+vi.mock(
+  "@/lib/a26-activity-repairs",
+  async () => import("../lib/a26-activity-repairs"),
+);
 vi.mock("@/lib/activity-ui", async () => import("../lib/activity-ui"));
 vi.mock("@/hooks/circles-context", () => ({
   useCircles: () => context,

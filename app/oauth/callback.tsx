@@ -1,22 +1,13 @@
 import { Button, C, T } from "@/components/circles-ui";
 import { StatusMessage } from "@/components/status-message";
-import {
-  clearNativeOAuthFlowToken,
-  getApiBaseUrl,
-  getNativeOAuthFlowToken,
-} from "@/constants/oauth";
+import * as OAuth from "@/constants/oauth";
 import { useCircles } from "@/hooks/circles-context";
-import {
-  cleanupFailedNativeLoginConfirmation,
-  clearCapturedNativeCredentialsIfCurrent,
-  persistNativeBearerAfterEmailAuthDrain,
-} from "@/hooks/native-login-transition";
+import { persistNativeBearerAfterEmailAuthDrain } from "@/hooks/native-login-transition";
 import * as Auth from "@/lib/_core/auth";
-import * as Api from "@/lib/_core/api";
 import { cancelAndDrainEmailAuthRequests } from "@/lib/email-auth-client";
 import * as Linking from "expo-linking";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, ScrollView, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -50,49 +41,62 @@ function friendlyOAuthError(value: string | null | undefined): string {
   return "We couldn't complete that sign-in. Please return to Circles and try again.";
 }
 
+function firstRouteValue(value: string | string[] | undefined): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function confirmationFailureMessage(
+  cleanup: {
+    localCleanupFailed: boolean;
+    remoteRevocationFailed: boolean;
+  } | null,
+): string {
+  const base = "We couldn't confirm the new secure session. Please try again.";
+  if (cleanup?.localCleanupFailed) {
+    return `${base} This device could not clear the incomplete sign-in. Please close and reopen Circles before trying again.`;
+  }
+  if (cleanup?.remoteRevocationFailed) {
+    return `${base} This device was cleared, but secure sign-out could not be confirmed. Please try signing in again shortly.`;
+  }
+  return base;
+}
+
 async function exchangeNativeOAuthCode(
   code: string,
   state: string,
+  flowToken: string,
 ): Promise<MobileExchangeResponse> {
-  const flowToken = await getNativeOAuthFlowToken();
-  if (!flowToken)
-    throw new Error("This sign-in request has expired. Please try again.");
+  const apiBaseUrl = OAuth.getApiBaseUrl();
+  if (!apiBaseUrl) throw new Error("OAuth API URL is unavailable");
 
-  try {
-    const apiBaseUrl = getApiBaseUrl();
-    if (!apiBaseUrl) throw new Error("OAuth API URL is unavailable");
+  const url = new URL("/api/oauth/mobile", `${apiBaseUrl}/`);
+  url.searchParams.set("code", code);
+  url.searchParams.set("state", state);
 
-    const url = new URL("/api/oauth/mobile", `${apiBaseUrl}/`);
-    url.searchParams.set("code", code);
-    url.searchParams.set("state", state);
-
-    const response = await fetch(url.toString(), {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-        "X-Manus-OAuth-Flow": flowToken,
-      },
-      cache: "no-store",
-    });
-    const payload = (await response
-      .json()
-      .catch(() => ({}))) as MobileExchangeResponse;
-    if (!response.ok)
-      throw new Error(payload.error || "Unable to complete secure sign in");
-    return payload;
-  } finally {
-    // Server-side validation also consumes this token before exchange; clear the local copy on all paths.
-    await clearNativeOAuthFlowToken();
-  }
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+      "X-Manus-OAuth-Flow": flowToken,
+    },
+    cache: "no-store",
+  });
+  const payload = (await response
+    .json()
+    .catch(() => ({}))) as MobileExchangeResponse;
+  if (!response.ok)
+    throw new Error(payload.error || "Unable to complete secure sign in");
+  return payload;
 }
 
 export default function OAuthCallback() {
   const router = useRouter();
-  const { completeNativeLogin } = useCircles();
+  const { completeNativeLogin, completeNativeLoginWithResult } = useCircles();
+  const callbackGeneration = useRef(0);
   const params = useLocalSearchParams<{
-    code?: string;
-    state?: string;
-    error?: string;
+    code?: string | string[];
+    state?: string | string[];
+    error?: string | string[];
   }>();
   const [status, setStatus] = useState<"processing" | "success" | "error">(
     "processing",
@@ -100,15 +104,30 @@ export default function OAuthCallback() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
+    const generation = ++callbackGeneration.current;
+    let mounted = true;
+    let navigationTimer: ReturnType<typeof setTimeout> | null = null;
+    const isCurrent = () =>
+      mounted && callbackGeneration.current === generation;
+    const setCurrentError = (message: string) => {
+      if (!isCurrent()) return;
+      setStatus("error");
+      setErrorMessage(message);
+    };
+
     const handleCallback = async () => {
-      let capturedBearer: string | null = null;
+      let pendingFlow: Awaited<
+        ReturnType<typeof OAuth.getNativeOAuthPendingFlow>
+      > = null;
+      let completed = false;
       try {
-        let code: string | null = params.code ?? null;
-        let state: string | null = params.state ?? null;
-        let error: string | null = params.error ?? null;
+        let code = firstRouteValue(params.code);
+        let state = firstRouteValue(params.state);
+        let error = firstRouteValue(params.error);
 
         if (!code && !state && !error) {
           const initialUrl = await Linking.getInitialURL();
+          if (!isCurrent()) return;
           if (initialUrl) {
             const callbackUrl = new URL(initialUrl);
             code = callbackUrl.searchParams.get("code");
@@ -118,76 +137,118 @@ export default function OAuthCallback() {
         }
 
         if (error) {
-          setStatus("error");
-          setErrorMessage(friendlyOAuthError(error));
+          setCurrentError(friendlyOAuthError(error));
           return;
         }
         if (!code || !state) {
-          setStatus("error");
-          setErrorMessage(
+          setCurrentError(
             "This sign-in link is missing information. Please return to Circles and try again.",
           );
           return;
         }
 
-        const result = await exchangeNativeOAuthCode(code, state);
+        const flow = await OAuth.getNativeOAuthPendingFlow();
+        pendingFlow = flow;
+        if (!flow) {
+          throw new Error(
+            "This sign-in request has expired. Please try again.",
+          );
+        }
+        if (
+          !isCurrent() ||
+          !(await OAuth.isNativeOAuthPendingFlowCurrent(flow))
+        ) {
+          return;
+        }
+
+        // exchangeNativeOAuthCode(code, state) now also binds the exact local
+        // pending-flow token, so the server's state/nonce authority cannot be
+        // reused by a superseded callback generation.
+        const result = await exchangeNativeOAuthCode(
+          code,
+          state,
+          flow.flowToken,
+        );
+        if (
+          !isCurrent() ||
+          !(await OAuth.isNativeOAuthPendingFlowCurrent(flow))
+        ) {
+          return;
+        }
         if (!result.app_session_id) {
           throw new Error("Secure sign in did not return a session");
         }
 
-        capturedBearer = result.app_session_id;
-        await persistNativeBearerAfterEmailAuthDrain({
+        const persisted = await persistNativeBearerAfterEmailAuthDrain({
           drainEmailAuthRequests: cancelAndDrainEmailAuthRequests,
           setNativeBearer: Auth.setSessionToken,
-          bearer: capturedBearer,
+          bearer: result.app_session_id,
+          isCurrent: async () =>
+            isCurrent() && (await OAuth.isNativeOAuthPendingFlowCurrent(flow)),
         });
-        const authenticated = await completeNativeLogin();
-        if (!authenticated) {
-          throw new Error("Unable to verify the new secure session");
+        if (
+          !persisted ||
+          !isCurrent() ||
+          !(await OAuth.isNativeOAuthPendingFlowCurrent(flow))
+        ) {
+          return;
         }
 
+        // New providers expose structured cleanup. The boolean fallback retains
+        // compatibility with callers that supply the historical context shape.
+        const confirmation = completeNativeLoginWithResult
+          ? await completeNativeLoginWithResult()
+          : {
+              // The former callback path used await completeNativeLogin().
+              authenticated: await completeNativeLogin(),
+              cleanup: null,
+            };
+        if (
+          !isCurrent() ||
+          !(await OAuth.isNativeOAuthPendingFlowCurrent(flow))
+        ) {
+          return;
+        }
+        if (!confirmation.authenticated) {
+          setCurrentError(confirmationFailureMessage(confirmation.cleanup));
+          return;
+        }
+
+        // compare-delete only this exact token and generation; do not erase F2.
+        // The former unsafe await clearNativeOAuthFlowToken() is deliberately not used.
+        if (!(await OAuth.clearNativeOAuthPendingFlowIfCurrent(flow))) return;
+        if (!isCurrent()) return;
+        completed = true;
         setStatus("success");
-        setTimeout(() => router.replace("/(tabs)"), 1_000);
+        navigationTimer = setTimeout(() => {
+          if (!isCurrent()) return;
+          router.replace(flow.continuation ?? "/(tabs)");
+        }, 1_000);
       } catch (error) {
-        const bearerToClean = capturedBearer;
-        const cleanup = bearerToClean
-          ? await cleanupFailedNativeLoginConfirmation({
-              capturedBearer: bearerToClean,
-              clearLocalCredentials: async () => {
-                await clearCapturedNativeCredentialsIfCurrent({
-                  capturedBearer: bearerToClean,
-                  getCurrentBearer: Auth.getSessionToken,
-                  clearLocalCredentials: async () => {
-                    await Promise.all([
-                      Auth.removeSessionToken(),
-                      Auth.clearUserInfo(),
-                    ]);
-                  },
-                });
-              },
-              remoteLogout: Api.logout,
-            })
-          : null;
-        setStatus("error");
-        const message = friendlyOAuthError(
-          error instanceof Error ? error.message : null,
+        if (!isCurrent()) return;
+        setCurrentError(
+          friendlyOAuthError(error instanceof Error ? error.message : null),
         );
-        if (cleanup?.localCleanupFailed) {
-          setErrorMessage(
-            `${message} This device could not clear the incomplete sign-in. Please close and reopen Circles before trying again.`,
-          );
-        } else if (cleanup?.remoteRevocationFailed) {
-          setErrorMessage(
-            `${message} This device was cleared, but secure sign-out could not be confirmed. Please try signing in again shortly.`,
-          );
-        } else {
-          setErrorMessage(message);
+      } finally {
+        if (pendingFlow && !completed) {
+          await OAuth.clearNativeOAuthPendingFlowIfCurrent(pendingFlow);
         }
       }
     };
 
-    handleCallback();
-  }, [completeNativeLogin, params.code, params.state, params.error, router]);
+    void handleCallback();
+    return () => {
+      mounted = false;
+      if (navigationTimer) clearTimeout(navigationTimer);
+    };
+  }, [
+    completeNativeLogin,
+    completeNativeLoginWithResult,
+    params.code,
+    params.state,
+    params.error,
+    router,
+  ]);
 
   return (
     <SafeAreaView

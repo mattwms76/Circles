@@ -91,7 +91,10 @@ describe("Batch 4 live operation scope", () => {
     expect(liveRoute).toContain("onRetry={retryLiveList}");
     expect(liveRoute).toContain("onRetry={retryChat}");
     expect(liveRoute).toContain("onError={handleLiveMediaError}");
-    expect(liveRoute).toContain("onReady={handleLiveMediaReady}");
+    expect(liveRoute).toContain(
+      "onMediaPhaseChange={handleLiveMediaPhaseChange}",
+    );
+    expect(liveRoute).not.toContain("onReady={");
     expect(liveRoute).toContain('router.replace("/live");');
     expect(liveRoute).toContain("const generation = hostGeneration;");
     expect(liveRoute).toContain("{ streamId, generation },");

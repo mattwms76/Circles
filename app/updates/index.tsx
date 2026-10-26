@@ -3,6 +3,10 @@ import { Pressable, StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
+import {
+  resolveActivityRouteGate,
+  resolveActivityUnreadControls,
+} from "@/lib/a26-activity-repairs";
 import { AppShell } from "@/components/app-shell";
 import { StatusMessage } from "@/components/status-message";
 import {
@@ -155,7 +159,7 @@ export function ActivityRow({
   );
 }
 
-function ActivityInbox({ viewerId }: { viewerId: number }) {
+export function ActivityInbox({ viewerId }: { viewerId: number }) {
   const router = useRouter();
   const scope = useMemo(() => ({ viewerId }), [viewerId]);
   const scopeKey = activityScopeKey(scope);
@@ -340,6 +344,12 @@ function ActivityInbox({ viewerId }: { viewerId: number }) {
   );
   const interactionsDisabled = !listState.isAuthorityAvailable || markingAll;
   const throughId = capturedUnreadThroughId(unreadState.value, scope);
+  const unreadControls = resolveActivityUnreadControls({
+    hasItems: listState.items.length > 0,
+    unreadIsError: unreadState.isError,
+    unreadAuthorityAvailable: unreadState.isAuthorityAvailable,
+    throughId,
+  });
 
   return (
     <View style={{ gap: 18 }}>
@@ -389,7 +399,24 @@ function ActivityInbox({ viewerId }: { viewerId: number }) {
         />
       ) : (
         <View style={{ gap: 10 }}>
-          {throughId && unreadState.isAuthorityAvailable && (
+          {unreadControls.showRecovery ? (
+            <View style={styles.unreadRecovery}>
+              <StatusMessage
+                message="We couldn’t check unread updates. Mark all read is unavailable until it refreshes."
+                tone="error"
+                style={styles.outcome}
+              />
+              <Button
+                title="Try again"
+                accessibilityLabel="Try checking unread updates again"
+                secondary
+                disabled={unread.isFetching}
+                loading={unread.isFetching}
+                onPress={() => void unread.refetch()}
+                style={{ alignSelf: "flex-start" }}
+              />
+            </View>
+          ) : unreadControls.showMarkAll ? (
             <Button
               title={markingAll ? "Marking updates…" : "Mark all read"}
               secondary
@@ -398,7 +425,7 @@ function ActivityInbox({ viewerId }: { viewerId: number }) {
               onPress={intentionalMarkAllRead}
               style={{ alignSelf: "flex-start" }}
             />
-          )}
+          ) : null}
           {listState.items.map((item) => (
             <ActivityRow
               key={item.id}
@@ -433,18 +460,32 @@ function ActivityInbox({ viewerId }: { viewerId: number }) {
 }
 
 export default function UpdatesScreen() {
-  const { authState, showLogin, user } = useCircles();
-  if (!user && authState === "checking") {
-    return (
-      <AppShell>
-        <Loading />
-      </AppShell>
-    );
-  }
+  const { authState, refresh, showLogin, user } = useCircles();
+  const routeGate = resolveActivityRouteGate({
+    authState,
+    viewerId: user?.id,
+  });
 
   return (
     <AppShell>
-      {!user ? (
+      {routeGate === "checking" ? (
+        <Loading />
+      ) : routeGate === "auth-error" ? (
+        <View style={{ gap: 10 }}>
+          <StatusMessage
+            message="We couldn’t confirm your sign-in. Try again."
+            tone="error"
+            style={styles.outcome}
+          />
+          <Empty
+            icon="alert-circle-outline"
+            title="We couldn’t check your sign-in."
+            text="Check your connection, then try again before opening Updates."
+            action="Try again"
+            onAction={refresh}
+          />
+        </View>
+      ) : routeGate === "guest" ? (
         <Empty
           icon="notifications-outline"
           title="Updates are waiting for you."
@@ -454,8 +495,8 @@ export default function UpdatesScreen() {
         />
       ) : (
         <ActivityInbox
-          key={activityScopeKey({ viewerId: user.id })}
-          viewerId={user.id}
+          key={activityScopeKey({ viewerId: user!.id })}
+          viewerId={user!.id}
         />
       )}
     </AppShell>
@@ -535,6 +576,14 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   outcome: { fontSize: 13, lineHeight: 19 },
+  unreadRecovery: {
+    gap: 8,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 12,
+    backgroundColor: C.soft,
+  },
   endCopy: {
     paddingVertical: 14,
     color: C.secondary,

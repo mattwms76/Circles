@@ -318,6 +318,14 @@ vi.mock("@/lib/source-query-invalidation", () => ({
   invalidatePostFeeds: vi.fn(),
 }));
 
+vi.mock(
+  "@/lib/a26-messaging-state",
+  async () => import("../lib/a26-messaging-state"),
+);
+vi.mock(
+  "@/lib/a26-paged-display",
+  async () => import("../lib/a26-paged-display"),
+);
 const mediaModule = await vi.importActual<
   typeof import("../components/media-image")
 >("../components/media-image");

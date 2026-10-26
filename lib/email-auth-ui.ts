@@ -66,7 +66,7 @@ export function resolveEmailAuthAvailability({
 }): EmailAuthAvailability {
   if (checking) return "loading";
   if (failed || !status) return "retry";
-  if (!status.ready) return "notReady";
   if (!status.enabled || !status.emailEnabled) return "disabled";
+  if (!status.ready) return "notReady";
   return "available";
 }

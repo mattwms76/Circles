@@ -5,7 +5,7 @@ import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
 import { AppShell } from "@/components/app-shell";
 import { UserAvatar } from "@/components/user-avatar";
-import { platformCreationIssue } from "@/lib/platform-feature-ui";
+import { resolveA26LiveCreationAvailability } from "@/lib/a26-live-lobby-state";
 import { Button, C, Empty, Icon, Loading, s, T } from "@/components/circles-ui";
 
 export default function LiveLobby() {
@@ -17,10 +17,11 @@ export default function LiveLobby() {
     refetchOnMount: "always",
     retry: false,
   });
-  const creationIssue = platformCreationIssue(
-    platformStatus.isError ? undefined : platformStatus.data,
-    "live",
-  );
+  const creationAvailability = resolveA26LiveCreationAvailability({
+    isLoading: platformStatus.isLoading,
+    isError: platformStatus.isError,
+    status: platformStatus.data,
+  });
   const liveRetrying = lives.isFetching && !lives.isLoading;
   return (
     <AppShell>
@@ -59,12 +60,12 @@ export default function LiveLobby() {
         <Button
           title="Start a live conversation"
           icon="radio-outline"
-          disabled={!!creationIssue}
+          disabled={creationAvailability.kind !== "available"}
           onPress={() => requireAuth(() => router.push("/create?mode=live"))}
         />
-        {creationIssue && (
+        {creationAvailability.message && (
           <View accessibilityLiveRegion="polite" style={{ gap: 8 }}>
-            <T style={{ color: C.secondary }}>{creationIssue}</T>
+            <T style={{ color: C.secondary }}>{creationAvailability.message}</T>
             <Button
               title="Check availability"
               secondary
@@ -120,60 +121,74 @@ export default function LiveLobby() {
             text="No active broadcasts yet. Go live, share a skill, or just spend a little time with your people."
           />
         ) : (
-          lives.data.map((live) => (
-            <Pressable
-              key={live.id}
-              onPress={() => requireAuth(() => router.push(`/live/${live.id}`))}
-              accessibilityRole="button"
-              accessibilityLabel={`Open live conversation: ${live.title}`}
-              accessibilityHint={`Hosted by ${live.host.name}.`}
-              style={[s.card, { overflow: "hidden", marginBottom: 19 }]}
-            >
-              <Image
-                source={{ uri: live.thumbnail }}
-                style={{ width: "100%", aspectRatio: 16 / 9 }}
-                contentFit="cover"
-              />
-              <View
-                style={{
-                  position: "absolute",
-                  top: 13,
-                  left: 13,
-                  backgroundColor: C.action,
-                  paddingHorizontal: 9,
-                  paddingVertical: 5,
-                  borderRadius: 6,
-                }}
+          lives.data.map((live) => {
+            const preparing = live.liveReady === false;
+            const actionLabel = preparing
+              ? `Continue camera setup: ${live.title}`
+              : `Open live conversation: ${live.title}`;
+            const actionHint = preparing
+              ? "Your stream will be visible after camera setup is complete."
+              : `Hosted by ${live.host.name}.`;
+
+            return (
+              <Pressable
+                key={live.id}
+                onPress={() =>
+                  requireAuth(() => router.push(`/live/${live.id}`))
+                }
+                accessibilityRole="button"
+                accessibilityLabel={actionLabel}
+                accessibilityHint={actionHint}
+                style={[s.card, { overflow: "hidden", marginBottom: 19 }]}
               >
-                <T
+                <Image
+                  source={{ uri: live.thumbnail }}
+                  style={{ width: "100%", aspectRatio: 16 / 9 }}
+                  contentFit="cover"
+                />
+                <View
                   style={{
-                    color: C.actionText,
-                    fontSize: 10,
-                    fontWeight: "700",
+                    position: "absolute",
+                    top: 13,
+                    left: 13,
+                    backgroundColor: preparing ? C.secondary : C.action,
+                    paddingHorizontal: 9,
+                    paddingVertical: 5,
+                    borderRadius: 6,
                   }}
                 >
-                  LIVE · {live.viewers} watching
-                </T>
-              </View>
-              <View style={[s.row, { padding: 17, gap: 12 }]}>
-                <UserAvatar
-                  uri={live.host.avatar}
-                  name={live.host.name}
-                  size={39}
-                  userId={live.host.id}
-                />
-                <View style={{ flex: 1 }}>
-                  <T style={{ fontWeight: "700", fontSize: 15 }}>
-                    {live.title}
-                  </T>
-                  <T style={{ color: C.secondary, fontSize: 12 }}>
-                    {live.host.name}
+                  <T
+                    style={{
+                      color: C.actionText,
+                      fontSize: 10,
+                      fontWeight: "700",
+                    }}
+                  >
+                    {preparing
+                      ? "CAMERA SETUP"
+                      : `LIVE · ${live.viewers} watching`}
                   </T>
                 </View>
-                <Icon name="arrow-forward" color={C.coral} size={20} />
-              </View>
-            </Pressable>
-          ))
+                <View style={[s.row, { padding: 17, gap: 12 }]}>
+                  <UserAvatar
+                    uri={live.host.avatar}
+                    name={live.host.name}
+                    size={39}
+                    userId={live.host.id}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <T style={{ fontWeight: "700", fontSize: 15 }}>
+                      {live.title}
+                    </T>
+                    <T style={{ color: C.secondary, fontSize: 12 }}>
+                      {preparing ? "Continue camera setup" : live.host.name}
+                    </T>
+                  </View>
+                  <Icon name="arrow-forward" color={C.coral} size={20} />
+                </View>
+              </Pressable>
+            );
+          })
         )}
       </View>
       <View

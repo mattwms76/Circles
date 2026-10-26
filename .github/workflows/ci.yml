@@ -106,6 +106,9 @@ jobs:
       - name: Run isolated Moderator Workspace HTTP and PostgreSQL E2E
         run: pnpm test:e2e:moderation
 
+      - name: Run isolated A26 conversation authority and pagination HTTP E2E
+        run: /usr/bin/python3 -B scripts/run-circle-home-e2e.py --suite a26-authority
+
       - name: Run isolated email identity roles and allocation-race drills
         env:
           CIRCLES_EMAIL_AUTH_LOCAL_PG17: "1"

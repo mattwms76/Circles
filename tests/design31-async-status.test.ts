@@ -201,7 +201,10 @@ vi.mock("@/lib/trpc", () => ({
           isError: false,
           isFetchedAfterMount: true,
           isFetching: false,
-          refetch: vi.fn(),
+          refetch: vi.fn(async () => ({
+            data: runtime.moderationDetail,
+            error: undefined,
+          })),
         }),
       },
       list: {
@@ -212,7 +215,10 @@ vi.mock("@/lib/trpc", () => ({
           isFetching: false,
           isFetchingNextPage: false,
           fetchNextPage: vi.fn(),
-          refetch: vi.fn(),
+          refetch: vi.fn(async () => ({
+            data: { pages: [] },
+            error: undefined,
+          })),
         }),
       },
       resolve: {
@@ -223,6 +229,11 @@ vi.mock("@/lib/trpc", () => ({
   },
 }));
 
+vi.mock(
+  "@/lib/a26-moderation-authority",
+  async () => import("../lib/a26-moderation-authority"),
+);
+vi.mock("@/lib/a26-auth-oauth", async () => import("../lib/a26-auth-oauth"));
 const { StatusMessage } = await import("../components/status-message");
 const { ModerationWorkspace } =
   await import("../components/moderation-workspace");

@@ -34,6 +34,7 @@ import {
 } from "./turn-config";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import {
+  assertCircleCoverImageOwnership,
   canAccessCircle,
   getDisplayProfile,
   getProfile,
@@ -994,6 +995,9 @@ export const liveRouter = router({
         // Serialize admission with the lifecycle transaction. The settings
         // reader runs before this path locks the host lease or any stream row.
         await assertPlatformFeature(tx, "liveStreamingEnabled");
+        // Live cards render this value to other viewers. Reuse the circle-cover policy so only a
+        // canonical upload owned by this host or an explicit trusted starter image can persist.
+        await assertCircleCoverImageOwnership(tx, ctx.user.id, input.thumbnail);
         const lease = await lockActiveHostLease(tx, ctx.user.id);
         const active = await reconcileActiveHostLease(
           tx,

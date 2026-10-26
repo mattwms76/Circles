@@ -134,7 +134,14 @@ type ActivePostSource = {
   post: Post;
 };
 
-export function PostCard({ post }: { post: Post }) {
+export function PostCard({
+  post,
+  /** Defaults to preserve action availability for all existing non-Activity callers. */
+  actionsAvailable = true,
+}: {
+  post: Post;
+  actionsAvailable?: boolean;
+}) {
   const router = useRouter();
   const { user, requireAuth, notify } = useCircles();
   const insets = useSafeAreaInsets();
@@ -151,6 +158,19 @@ export function PostCard({ post }: { post: Post }) {
   const sourceScope = `${user?.id ?? "guest"}:${post.id}`;
   const mediaAccessibilityLabel = `${post.mediaType === "video" ? "Video" : "Photo"} shared by ${post.author.name}`;
   const currentSourceScope = useRef<ActivePostSource | null>(null);
+  const [previousActionsAvailable, setPreviousActionsAvailable] =
+    useState(actionsAvailable);
+
+  // A retained Activity target remains readable while its exact authorization
+  // refreshes, but it cannot start a resource action. Closing target-bound
+  // sheets keeps drafts in state without allowing a stale modal to submit.
+  if (previousActionsAvailable !== actionsAvailable) {
+    setPreviousActionsAvailable(actionsAvailable);
+    if (!actionsAvailable) {
+      setCommentsOpen(false);
+      setMenu(false);
+    }
+  }
 
   // Setup/cleanup keeps late completion checks current across source changes and Strict Mode.
   useEffect(() => {
@@ -186,6 +206,7 @@ export function PostCard({ post }: { post: Post }) {
   const like = trpc.social.likePost.useMutation();
   const save = trpc.social.savePost.useMutation();
   const toggleLike = useCallback(() => {
+    if (!actionsAvailable) return;
     requireAuth(() => {
       const operationScope = sourceScope;
       const operationPost = post;
@@ -221,6 +242,7 @@ export function PostCard({ post }: { post: Post }) {
       );
     });
   }, [
+    actionsAvailable,
     isCurrentSource,
     like,
     liked,
@@ -231,6 +253,7 @@ export function PostCard({ post }: { post: Post }) {
     utils,
   ]);
   const toggleSave = useCallback(() => {
+    if (!actionsAvailable) return;
     requireAuth(() => {
       const operationScope = sourceScope;
       const operationPost = post;
@@ -267,6 +290,7 @@ export function PostCard({ post }: { post: Post }) {
       );
     });
   }, [
+    actionsAvailable,
     isCurrentSource,
     notify,
     post,
@@ -278,7 +302,7 @@ export function PostCard({ post }: { post: Post }) {
   ]);
   const comments = trpc.social.comments.useQuery(
     { postId: post.id },
-    { enabled: commentsOpen },
+    { enabled: commentsOpen && actionsAvailable },
   );
   const commentsDisplayState = resolveFnd001QueryDisplayState({
     isLoading: comments.isLoading,
@@ -288,7 +312,7 @@ export function PostCard({ post }: { post: Post }) {
   const addComment = trpc.social.comment.useMutation();
   const submitComment = useCallback(() => {
     const text = commentText.trim();
-    if (!text || commentSubmitter.isBusy) {
+    if (!actionsAvailable || !text || commentSubmitter.isBusy) {
       return;
     }
 
@@ -315,6 +339,7 @@ export function PostCard({ post }: { post: Post }) {
     });
   }, [
     addComment,
+    actionsAvailable,
     commentSubmitter,
     commentText,
     comments,
@@ -327,6 +352,7 @@ export function PostCard({ post }: { post: Post }) {
   ]);
   const report = trpc.social.report.useMutation();
   const submitReport = useCallback(() => {
+    if (!actionsAvailable) return;
     const operationScope = sourceScope;
     const operationPost = post;
     requireAuth(() => {
@@ -352,10 +378,21 @@ export function PostCard({ post }: { post: Post }) {
         },
       );
     });
-  }, [isCurrentSource, notify, post, report, requireAuth, sourceScope, utils]);
+  }, [
+    actionsAvailable,
+    isCurrentSource,
+    notify,
+    post,
+    report,
+    requireAuth,
+    sourceScope,
+    utils,
+  ]);
   const remove = trpc.social.deletePost.useMutation();
   const menuBusy = report.isPending || remove.isPending;
+  const actionBusy = !actionsAvailable;
   const removePost = useCallback(() => {
+    if (!actionsAvailable) return;
     const operationScope = sourceScope;
     const operationPost = post;
     requireAuth(() => {
@@ -376,15 +413,32 @@ export function PostCard({ post }: { post: Post }) {
         },
       );
     });
-  }, [isCurrentSource, notify, post, remove, requireAuth, sourceScope, utils]);
+  }, [
+    actionsAvailable,
+    isCurrentSource,
+    notify,
+    post,
+    remove,
+    requireAuth,
+    sourceScope,
+    utils,
+  ]);
   return (
     <View style={[s.card, { marginBottom: 20, overflow: "hidden" }]}>
       <View style={[s.between, { padding: 15, gap: 10 }]}>
         <Pressable
-          onPress={() => router.push(`/person/${post.author.id}`)}
+          disabled={actionBusy}
+          onPress={() => {
+            if (actionsAvailable) router.push(`/person/${post.author.id}`);
+          }}
           accessibilityRole="button"
           accessibilityLabel={`Open ${post.author.name}'s profile`}
-          style={[s.row, { gap: 10, flex: 1, minHeight: 44 }]}
+          accessibilityState={{ disabled: actionBusy, busy: actionBusy }}
+          style={[
+            s.row,
+            { gap: 10, flex: 1, minHeight: 44 },
+            actionBusy && { opacity: 0.55 },
+          ]}
         >
           <UserAvatar
             uri={post.author.avatar}
@@ -410,31 +464,42 @@ export function PostCard({ post }: { post: Post }) {
         <IconButton
           icon="ellipsis-horizontal"
           size={20}
-          onPress={() => setMenu(true)}
+          onPress={() => {
+            if (actionsAvailable) setMenu(true);
+          }}
           label="Post options"
+          disabled={actionBusy}
+          loading={actionBusy}
         />
       </View>
       {post.circleName && (
         <Pressable
-          onPress={() => router.push(`/circle/${post.circleId}`)}
+          disabled={actionBusy}
+          onPress={() => {
+            if (actionsAvailable) router.push(`/circle/${post.circleId}`);
+          }}
           accessibilityRole="button"
           accessibilityLabel={`Open ${post.circleName} circle`}
-          style={{
-            alignSelf: "flex-start",
-            maxWidth: "90%",
-            minWidth: 0,
-            flexShrink: 1,
-            marginHorizontal: 15,
-            marginBottom: 13,
-            paddingHorizontal: 10,
-            paddingVertical: 4,
-            minHeight: 44,
-            borderRadius: 7,
-            backgroundColor: C.sage,
-            flexDirection: "row",
-            gap: 5,
-            alignItems: "center",
-          }}
+          accessibilityState={{ disabled: actionBusy, busy: actionBusy }}
+          style={[
+            {
+              alignSelf: "flex-start",
+              maxWidth: "90%",
+              minWidth: 0,
+              flexShrink: 1,
+              marginHorizontal: 15,
+              marginBottom: 13,
+              paddingHorizontal: 10,
+              paddingVertical: 4,
+              minHeight: 44,
+              borderRadius: 7,
+              backgroundColor: C.sage,
+              flexDirection: "row",
+              gap: 5,
+              alignItems: "center",
+            },
+            actionBusy && { opacity: 0.55 },
+          ]}
         >
           <Icon name="ellipse-outline" size={11} color={C.green} />
           <T
@@ -489,13 +554,13 @@ export function PostCard({ post }: { post: Post }) {
         <View style={s.between}>
           <View style={[s.row, { gap: 15 }]}>
             <Pressable
-              disabled={like.isPending}
+              disabled={actionBusy || like.isPending}
               onPress={toggleLike}
               accessibilityRole="button"
               accessibilityLabel={liked ? "Unlike post" : "Like post"}
               accessibilityState={{
-                disabled: like.isPending,
-                busy: like.isPending,
+                disabled: actionBusy || like.isPending,
+                busy: actionBusy || like.isPending,
                 selected: liked,
               }}
               style={[
@@ -505,7 +570,7 @@ export function PostCard({ post }: { post: Post }) {
                   paddingVertical: 5,
                   minWidth: 44,
                   minHeight: 44,
-                  opacity: like.isPending ? 0.55 : 1,
+                  opacity: actionBusy || like.isPending ? 0.55 : 1,
                 },
               ]}
             >
@@ -519,13 +584,26 @@ export function PostCard({ post }: { post: Post }) {
               </T>
             </Pressable>
             <Pressable
-              onPress={() => setCommentsOpen(true)}
+              disabled={actionBusy}
+              onPress={() => {
+                if (actionsAvailable) setCommentsOpen(true);
+              }}
               accessibilityRole="button"
               accessibilityLabel={`Open ${post.comments} comments`}
-              accessibilityState={{ selected: commentsOpen }}
+              accessibilityState={{
+                disabled: actionBusy,
+                busy: actionBusy,
+                selected: commentsOpen,
+              }}
               style={[
                 s.row,
-                { gap: 5, paddingVertical: 5, minWidth: 44, minHeight: 44 },
+                {
+                  gap: 5,
+                  paddingVertical: 5,
+                  minWidth: 44,
+                  minHeight: 44,
+                  opacity: actionBusy ? 0.55 : 1,
+                },
               ]}
             >
               <Icon name="chatbubble-outline" size={21} />
@@ -535,6 +613,7 @@ export function PostCard({ post }: { post: Post }) {
               icon="paper-plane-outline"
               size={20}
               onPress={async () => {
+                if (!actionsAvailable) return;
                 try {
                   await Share.share({
                     message: `${post.author.name} on Circles: ${post.text}${post.media ? `\n${post.media}` : ""}`,
@@ -544,6 +623,8 @@ export function PostCard({ post }: { post: Post }) {
                 }
               }}
               label="Share post"
+              disabled={actionBusy}
+              loading={actionBusy}
             />
           </View>
           <IconButton
@@ -552,8 +633,8 @@ export function PostCard({ post }: { post: Post }) {
             size={20}
             onPress={toggleSave}
             label={saved ? "Remove saved post" : "Save post"}
-            disabled={save.isPending}
-            loading={save.isPending}
+            disabled={actionBusy || save.isPending}
+            loading={actionBusy || save.isPending}
           />
         </View>
         <T style={{ fontSize: 14, lineHeight: 21 }}>
@@ -564,15 +645,22 @@ export function PostCard({ post }: { post: Post }) {
         </T>
         {post.comments > 0 && (
           <Pressable
-            onPress={() => setCommentsOpen(true)}
+            disabled={actionBusy}
+            onPress={() => {
+              if (actionsAvailable) setCommentsOpen(true);
+            }}
             accessibilityRole="button"
             accessibilityLabel={`Open all ${post.comments} comments`}
-            style={{
-              minWidth: 44,
-              minHeight: 44,
-              justifyContent: "center",
-              alignSelf: "flex-start",
-            }}
+            accessibilityState={{ disabled: actionBusy, busy: actionBusy }}
+            style={[
+              {
+                minWidth: 44,
+                minHeight: 44,
+                justifyContent: "center",
+                alignSelf: "flex-start",
+              },
+              actionBusy && { opacity: 0.55 },
+            ]}
           >
             <T style={{ fontSize: 12, color: C.muted }}>
               View all {post.comments} comments
@@ -628,8 +716,10 @@ export function PostCard({ post }: { post: Post }) {
                   icon="chatbubble-ellipses-outline"
                   title="We couldn’t load the comments."
                   text="Check your connection and try again."
-                  action="Try again"
-                  onAction={() => void comments.refetch()}
+                  action={actionsAvailable ? "Try again" : undefined}
+                  onAction={
+                    actionsAvailable ? () => void comments.refetch() : undefined
+                  }
                 />
               ) : commentsDisplayState === "empty" ? (
                 <T
@@ -691,7 +781,7 @@ export function PostCard({ post }: { post: Post }) {
                 <TextInput
                   value={commentText}
                   onChangeText={setCommentText}
-                  editable={!isCommentSubmitting}
+                  editable={actionsAvailable && !isCommentSubmitting}
                   placeholder="Add to the conversation…"
                   placeholderTextColor={C.muted}
                   accessibilityLabel="Comment text"
@@ -711,8 +801,10 @@ export function PostCard({ post }: { post: Post }) {
                   icon="arrow-up-circle"
                   color={C.coral}
                   size={32}
-                  disabled={isCommentSubmitting || !commentText.trim()}
-                  loading={isCommentSubmitting}
+                  disabled={
+                    actionBusy || isCommentSubmitting || !commentText.trim()
+                  }
+                  loading={actionBusy || isCommentSubmitting}
                   onPress={submitComment}
                   label={
                     isCommentSubmitting
@@ -776,8 +868,8 @@ export function PostCard({ post }: { post: Post }) {
                 title="Report inappropriate content"
                 icon="flag-outline"
                 secondary
-                disabled={remove.isPending}
-                loading={report.isPending}
+                disabled={actionBusy || remove.isPending}
+                loading={actionBusy || report.isPending}
                 onPress={submitReport}
               />
             )}
@@ -786,8 +878,8 @@ export function PostCard({ post }: { post: Post }) {
                 title="Remove my post"
                 icon="trash-outline"
                 secondary
-                disabled={report.isPending}
-                loading={remove.isPending}
+                disabled={actionBusy || report.isPending}
+                loading={actionBusy || remove.isPending}
                 onPress={removePost}
               />
             )}

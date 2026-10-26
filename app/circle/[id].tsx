@@ -20,6 +20,13 @@ import {
 import { resolveFnd001QueryDisplayState } from "@/lib/fnd001-query-display-state";
 import { parsePositiveSafeId } from "@/lib/feed-ui-helpers";
 import { invalidateCircleDirectories } from "@/lib/source-query-invalidation";
+import {
+  a26MembershipIntent,
+  a26MembershipNotice,
+  captureA26CircleChatOperation,
+  createA26CircleChatSingleFlight,
+  isCurrentA26CircleChatOperation,
+} from "../../lib/a26-circle-ui";
 import { AppShell } from "@/components/app-shell";
 import {
   CircleHomeEditor,
@@ -87,10 +94,12 @@ function CircleScreenInstance() {
   );
   const membershipGeneration = useRef(0);
   const membershipFlight = useRef(createBatch3AccountResourceSingleFlight());
+  const chatFlight = useRef(createA26CircleChatSingleFlight());
   const manageActionFlight = useRef(createCircleManageActionSingleFlight());
   const [pendingMembershipScope, setPendingMembershipScope] = useState<
     string | null
   >(null);
+  const [pendingChatScope, setPendingChatScope] = useState<string | null>(null);
   const [pendingManageActions, setPendingManageActions] = useState<
     CircleManagePendingAction[]
   >([]);
@@ -223,6 +232,7 @@ function CircleScreenInstance() {
   const membership = trpc.social.setMembership.useMutation();
   const isMembershipPending = pendingMembershipScope === circleActionScope;
   const updateMembership = (joined: boolean) => {
+    const intent = a26MembershipIntent(joined, group?.role);
     requireAuth(() => {
       const capturedScope = mountedMembershipScope.current;
       if (
@@ -247,11 +257,11 @@ function CircleScreenInstance() {
             );
             refresh();
             notify(
-              result.role === "pending"
-                ? "Your request has been sent to the owner."
-                : result.joined
-                  ? "You’re in. Make yourself at home."
-                  : "You’ve left this circle.",
+              a26MembershipNotice({
+                intent,
+                joined: result.joined,
+                role: result.role,
+              }),
               "success",
             );
           },
@@ -270,17 +280,61 @@ function CircleScreenInstance() {
       );
     });
   };
-  const chat = trpc.social.openCircleChat.useMutation({
-    onSuccess: (result) =>
-      router.push(
-        `/chat/${result.id}?name=${encodeURIComponent(group?.name || "Circle chat")}`,
-      ),
-    onError: () =>
-      notify(
-        "We couldn’t open the circle chat. Check your connection and try again.",
-        "error",
-      ),
-  });
+  const chat = trpc.social.openCircleChat.useMutation();
+  const isChatPending = pendingChatScope === circleActionScope;
+  const openCircleChat = () => {
+    const operation = captureA26CircleChatOperation({
+      mountedOperation: mountedMembershipScope.current,
+      currentScope: circleActionScope,
+      circleId,
+      circleName: group?.name,
+    });
+    if (!operation || !chatFlight.current.start(operation)) return;
+
+    setPendingChatScope(operation.operation.scope);
+    chat.mutate(
+      { circleId: operation.circleId },
+      {
+        onSuccess: (result) => {
+          chatFlight.current.finish(operation);
+          if (
+            !isCurrentA26CircleChatOperation({
+              capturedOperation: operation,
+              mountedOperation: mountedMembershipScope.current,
+              currentScope: circleActionScope,
+            })
+          ) {
+            return;
+          }
+          setPendingChatScope((current) =>
+            current === operation.operation.scope ? null : current,
+          );
+          router.push(
+            `/chat/${result.id}?name=${encodeURIComponent(operation.circleName)}`,
+          );
+        },
+        onError: () => {
+          chatFlight.current.finish(operation);
+          if (
+            !isCurrentA26CircleChatOperation({
+              capturedOperation: operation,
+              mountedOperation: mountedMembershipScope.current,
+              currentScope: circleActionScope,
+            })
+          ) {
+            return;
+          }
+          setPendingChatScope((current) =>
+            current === operation.operation.scope ? null : current,
+          );
+          notify(
+            "We couldn’t open the circle chat. Check your connection and try again.",
+            "error",
+          );
+        },
+      },
+    );
+  };
   const role = trpc.social.setRole.useMutation();
   const remove = trpc.social.removeMember.useMutation();
   const approve = trpc.social.approveMember.useMutation();
@@ -603,8 +657,9 @@ function CircleScreenInstance() {
                   <Button
                     title="Circle chat"
                     icon="chatbubble-ellipses-outline"
-                    onPress={() => chat.mutate({ circleId })}
-                    loading={chat.isPending}
+                    onPress={openCircleChat}
+                    loading={isChatPending}
+                    disabled={isChatPending}
                     style={{ flex: 1 }}
                   />
                   <Button

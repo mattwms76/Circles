@@ -392,7 +392,7 @@ describe("D26 Shell navigation and sidebar accessibility", () => {
       minHeight: 72,
     });
 
-    const live = byAccessibilityLabel(home, "Open Live now");
+    const live = byAccessibilityLabel(home, "Open Live now, 0 live sessions");
     expect(live?.props.accessibilityRole).toBe("button");
     expect(flattenedStyle(live?.props.style).minHeight).toBe(44);
   });

@@ -2,7 +2,13 @@ import { useState } from "react";
 import { Pressable, ScrollView, useWindowDimensions, View } from "react-native";
 import { useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
-import { resolveFnd001QueryDisplayState } from "@/lib/fnd001-query-display-state";
+import { resolvePagedDisplayState } from "../../lib/a26-paged-display";
+import {
+  getA26CurrentAvatar,
+  getA26LiveControlCopy,
+  getA26MomentsRailState,
+  getA26OwnProfileQueryInput,
+} from "../../lib/a26-directory-ui";
 import { AppShell } from "@/components/app-shell";
 import { PostCard } from "@/components/post-card";
 import { UserAvatar } from "@/components/user-avatar";
@@ -33,14 +39,32 @@ export default function HomeScreen() {
     },
   );
   const profiles = trpc.social.profilesPage.useQuery({ limit: 6 });
-  const myProfile = trpc.social.profile.useQuery({}, { enabled: !!user });
+  const ownProfileInput = getA26OwnProfileQueryInput(user?.id);
+  const myProfile = trpc.social.profile.useQuery(ownProfileInput, {
+    enabled: ownProfileInput !== undefined,
+  });
   const lives = trpc.live.list.useQuery({});
   const feedItems = feed.data?.pages.flatMap((page) => page.items) ?? [];
-  const feedDisplayState = resolveFnd001QueryDisplayState({
+  const feedDisplayState = resolvePagedDisplayState({
     isLoading: feed.isLoading,
     isError: feed.isError,
     hasContent: feedItems.length > 0 || !!feed.hasNextPage,
+    isFetchingNextPage: feed.isFetchingNextPage,
+    isFetchNextPageError: feed.isFetchNextPageError,
+    isRefetchError: feed.isRefetchError,
+    error: feed.error,
   });
+  const momentsRailState = getA26MomentsRailState({
+    isLoading: profiles.isLoading,
+    isError: profiles.isError,
+    itemCount: profiles.data?.items.length ?? 0,
+  });
+  const liveControlCopy = getA26LiveControlCopy({
+    count: lives.data?.length,
+    isLoading: lives.isLoading,
+    isError: lives.isError,
+  });
+  const ownAvatar = getA26CurrentAvatar(user?.id, myProfile.data);
   return (
     <AppShell>
       <View style={{ gap: 6 }}>
@@ -93,7 +117,7 @@ export default function HomeScreen() {
         >
           <View>
             <UserAvatar
-              uri={myProfile.data?.avatar}
+              uri={ownAvatar}
               name={user?.name || "You"}
               size={54}
               userId={user?.id}
@@ -118,31 +142,65 @@ export default function HomeScreen() {
           </View>
           <T style={{ fontSize: 10, color: C.muted }}>Your moment</T>
         </Pressable>
-        {profiles.data?.items.map((profile) => (
-          <Pressable
-            key={profile.id}
-            onPress={() => router.push(`/person/${profile.id}`)}
-            accessibilityRole="button"
-            accessibilityLabel={`Open profile for ${profile.name}`}
-            style={{
-              alignItems: "center",
-              gap: 5,
-              minWidth: 50,
-              minHeight: 72,
-            }}
+        {momentsRailState === "loading" ? (
+          <T
+            testID="home-moments-loading"
+            style={{ color: C.secondary, fontSize: 11, lineHeight: 18 }}
           >
-            <UserAvatar
-              uri={profile.avatar}
-              name={profile.name}
-              size={50}
-              ring
-              userId={profile.id}
-            />
-            <T style={{ fontSize: 10, color: C.ink }}>
-              {profile.name.split(" ")[0]}
+            Finding people to know…
+          </T>
+        ) : momentsRailState === "error" ? (
+          <View testID="home-moments-error" style={{ gap: 7, minWidth: 190 }}>
+            <T
+              accessibilityRole="alert"
+              style={{ fontSize: 11, lineHeight: 17 }}
+            >
+              We couldn’t load people to know. Your moment tools are still
+              available.
             </T>
-          </Pressable>
-        ))}
+            <Button
+              title="Try again"
+              secondary
+              onPress={() => {
+                void profiles.refetch();
+              }}
+              style={{ alignSelf: "flex-start", paddingHorizontal: 12 }}
+            />
+          </View>
+        ) : momentsRailState === "empty" ? (
+          <T
+            testID="home-moments-empty"
+            style={{ color: C.secondary, fontSize: 11, lineHeight: 18 }}
+          >
+            No new people to know right now.
+          </T>
+        ) : (
+          profiles.data?.items.map((profile) => (
+            <Pressable
+              key={profile.id}
+              onPress={() => router.push(`/person/${profile.id}`)}
+              accessibilityRole="button"
+              accessibilityLabel={`Open profile for ${profile.name}`}
+              style={{
+                alignItems: "center",
+                gap: 5,
+                minWidth: 50,
+                minHeight: 72,
+              }}
+            >
+              <UserAvatar
+                uri={profile.avatar}
+                name={profile.name}
+                size={50}
+                ring
+                userId={profile.id}
+              />
+              <T style={{ fontSize: 10, color: C.ink }}>
+                {profile.name.split(" ")[0]}
+              </T>
+            </Pressable>
+          ))
+        )}
       </ScrollView>
       <View style={[s.divider, { marginBottom: 19 }]} />
       <ScrollView
@@ -172,7 +230,7 @@ export default function HomeScreen() {
         <Pressable
           onPress={() => router.push("/live")}
           accessibilityRole="button"
-          accessibilityLabel="Open Live now"
+          accessibilityLabel={liveControlCopy.accessibilityLabel}
           style={[
             s.row,
             {
@@ -192,13 +250,13 @@ export default function HomeScreen() {
             }}
           />
           <T style={{ fontSize: 12, lineHeight: 18, fontWeight: "600" }}>
-            Live now{lives.data?.length ? ` · ${lives.data.length}` : ""}
+            {liveControlCopy.visibleText}
           </T>
         </Pressable>
       </ScrollView>
-      {feedDisplayState === "loading" ? (
+      {feedDisplayState.kind === "loading" ? (
         <Loading />
-      ) : feedDisplayState === "error" ? (
+      ) : feedDisplayState.kind === "error" ? (
         <Empty
           title="A small pause in the connection."
           text={feed.error?.message || "Check your connection and try again."}
@@ -207,7 +265,7 @@ export default function HomeScreen() {
             void feed.refetch();
           }}
         />
-      ) : feedDisplayState === "empty" ? (
+      ) : feedDisplayState.kind === "empty" ? (
         <Empty
           icon="leaf-outline"
           title={
@@ -232,7 +290,36 @@ export default function HomeScreen() {
       ) : (
         feedItems.map((post) => <PostCard key={post.id} post={post} />)
       )}
-      {feedDisplayState === "content" &&
+      {feedDisplayState.kind === "content" &&
+        feedDisplayState.showRetainedError && (
+          <View style={{ alignItems: "center", gap: 8, marginTop: 12 }}>
+            <T
+              accessibilityRole="alert"
+              style={{ fontSize: 12, lineHeight: 18, textAlign: "center" }}
+            >
+              {feedDisplayState.retryMode === "next"
+                ? "We couldn’t load more moments. Your loaded moments are still here."
+                : "We couldn’t refresh moments. Your loaded moments are still here."}
+            </T>
+            <Button
+              title={
+                feedDisplayState.retryMode === "next"
+                  ? "Retry loading more moments"
+                  : "Refresh moments"
+              }
+              secondary
+              onPress={() => {
+                if (feedDisplayState.retryMode === "next") {
+                  void feed.fetchNextPage();
+                  return;
+                }
+                void feed.refetch();
+              }}
+              style={{ alignSelf: "center" }}
+            />
+          </View>
+        )}
+      {feedDisplayState.kind === "content" &&
         (feed.hasNextPage ? (
           <Button
             title="Show more moments"

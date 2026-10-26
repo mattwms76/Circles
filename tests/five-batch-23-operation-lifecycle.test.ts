@@ -127,7 +127,9 @@ describe("Batch 2/3 operation lifecycle integrity", () => {
   });
 
   it("keeps effect-owned operation identity, synchronous ref guards, and reachable older-page retry in the owned screens", () => {
-    expect(chat).toContain("<ChatScreenInstance key={compositionKey} />");
+    expect(chat).toContain(
+      "<ChatScreenInstance key={compositionKey} conversationId={conversationId} />",
+    );
     expect(chat).toContain("sendFlight.current.start(operation)");
     expect(chat).toContain("sendWasAttempted");
     expect(chat).toContain("uploadedMediaUrl.current = media");

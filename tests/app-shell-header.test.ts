@@ -201,7 +201,10 @@ describe("actual shell elements with mock native primitives, not device/layout r
         activity.props.onPress?.();
         expect(runtime.push).toHaveBeenLastCalledWith("/updates");
       }
-      expect(runtime.profile).toHaveBeenCalledWith({}, { enabled: signedIn });
+      expect(runtime.profile).toHaveBeenCalledWith(
+        signedIn ? { id: 42 } : undefined,
+        { enabled: signedIn },
+      );
     },
   );
   it("protects wide top and asymmetric horizontal edges once without changing bottom ownership", () => {

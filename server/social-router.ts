@@ -64,6 +64,24 @@ const dateIdCursor = z.object({
   createdAt: z.string().datetime({ offset: true }),
   id,
 });
+const feedPageCursor = dateIdCursor
+  .extend({
+    // JS Date truncates PostgreSQL microseconds; legacy callers may omit this exact companion.
+    createdAtExact: z
+      .string()
+      .datetime({ offset: true })
+      .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/)
+      .optional(),
+  })
+  .refine(
+    (cursor) =>
+      !cursor.createdAtExact ||
+      new Date(cursor.createdAtExact).getTime() ===
+        new Date(cursor.createdAt).getTime(),
+    {
+      message: "Exact timestamp must match the cursor's displayed timestamp",
+    },
+  );
 const pageLimit = z.number().int().positive().max(50).default(20);
 const shortText = z.string().trim().min(1).max(10_000);
 const optionalMediaUrl = z
@@ -113,6 +131,14 @@ export const markReadInput = z.object({
   conversationId: id,
   throughMessageId: id,
 });
+export const conversationsInput = z
+  .object({
+    /** Optional exact thread metadata lookup; omitted input preserves the inbox array contract. */
+    conversationId: id.optional(),
+    /** Optional actor affinity check; request context remains the identity authority. */
+    viewerScope: id.optional(),
+  })
+  .optional();
 const ALLOWED_MIME_TYPES = [
   "image/jpeg",
   "image/png",
@@ -269,7 +295,7 @@ export const socialRouter = router({
         circleId: id.optional(),
         authorId: id.optional(),
         search: z.string().trim().max(120).optional(),
-        cursor: dateIdCursor.optional(),
+        cursor: feedPageCursor.optional(),
         limit: pageLimit,
       }),
     )
@@ -286,6 +312,7 @@ export const socialRouter = router({
                 cursor: {
                   createdAt: new Date(input.cursor.createdAt),
                   id: input.cursor.id,
+                  createdAtExact: input.cursor.createdAtExact,
                 },
               }
             : {}),
@@ -298,6 +325,7 @@ export const socialRouter = router({
           ? {
               createdAt: page.nextCursor.createdAt.toISOString(),
               id: page.nextCursor.id,
+              createdAtExact: page.nextCursor.createdAtExact,
             }
           : null,
       };
@@ -579,9 +607,20 @@ export const socialRouter = router({
       reportPost(ctx.user.id, input.postId, input.reason),
     ),
 
-  conversations: protectedProcedure.query(
-    ({ ctx }): Promise<Conversation[]> => listConversations(ctx.user.id),
-  ),
+  conversations: protectedProcedure
+    .input(conversationsInput)
+    .query(({ ctx, input }): Promise<Conversation[]> => {
+      if (
+        input?.viewerScope !== undefined &&
+        input.viewerScope !== ctx.user.id
+      ) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You are not allowed to access these conversations",
+        });
+      }
+      return listConversations(ctx.user.id, input?.conversationId);
+    }),
 
   openDirect: protectedProcedure
     .input(z.object({ userId: id }))

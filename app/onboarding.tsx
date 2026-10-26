@@ -11,6 +11,10 @@ import {
   hydrateOnboardingForAccount,
   toggleInterestSelection,
 } from "@/lib/onboarding-ui";
+import {
+  canChangeA26IntroductionCircle,
+  captureA26IntroductionCircleId,
+} from "../lib/a26-circle-ui";
 import { trpc } from "@/lib/trpc";
 import {
   INTERESTS,
@@ -691,6 +695,9 @@ function OnboardingWizard({
   const selectedCircle =
     joinedPublicCircles.find((circle) => circle.id === introductionCircleId) ??
     null;
+  const introductionDestination = captureA26IntroductionCircleId(
+    selectedCircle?.id,
+  );
   return (
     <View style={{ gap: 18 }}>
       <View style={{ gap: 8 }}>
@@ -723,8 +730,22 @@ function OnboardingWizard({
               key={circle.id}
               accessibilityRole="radio"
               accessibilityLabel={`Introduce yourself in ${circle.name}`}
-              accessibilityState={{ selected: selectedCircleOption }}
-              onPress={() => setIntroductionCircleId(circle.id)}
+              accessibilityState={{
+                selected: selectedCircleOption,
+                disabled: controlsBusy,
+              }}
+              disabled={controlsBusy}
+              onPress={() => {
+                if (
+                  !canChangeA26IntroductionCircle({
+                    controlsBusy,
+                    operationLocked: operationLock.current,
+                  })
+                ) {
+                  return;
+                }
+                setIntroductionCircleId(circle.id);
+              }}
               style={({ pressed }) => ({
                 minHeight: 52,
                 borderRadius: 13,
@@ -736,7 +757,7 @@ function OnboardingWizard({
                 flexDirection: "row",
                 alignItems: "center",
                 gap: 10,
-                opacity: pressed ? 0.75 : 1,
+                opacity: controlsBusy ? 0.52 : pressed ? 0.75 : 1,
               })}
             >
               <Icon
@@ -759,11 +780,12 @@ function OnboardingWizard({
       </View>
       <Button
         title="Open my editable introduction"
-        disabled={!selectedCircle}
+        disabled={!introductionDestination || controlsBusy}
         loading={controlsBusy}
-        onPress={() =>
-          selectedCircle && void finishAndNavigate("intro", selectedCircle.id)
-        }
+        onPress={() => {
+          if (!introductionDestination) return;
+          void finishAndNavigate("intro", introductionDestination);
+        }}
       />
       <Button
         title="Not now — explore circles"

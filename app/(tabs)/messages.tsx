@@ -6,6 +6,7 @@ import { useCircles } from "@/hooks/circles-context";
 import { AppShell } from "@/components/app-shell";
 import { StatusMessage } from "@/components/status-message";
 import { conversationAccessibility } from "@/lib/batch2-message-accessibility";
+import { inboxMatchState, visibleUnreadCount } from "@/lib/a26-messaging-state";
 import {
   ago,
   Avatar,
@@ -36,6 +37,12 @@ export default function MessagesScreen() {
           (filter === "Circles" && item.kind === "circle") ||
           (filter === "Direct" && item.kind === "direct")),
     ) || [];
+  const matchState = inboxMatchState({
+    conversationCount: conversations.data?.length ?? 0,
+    filteredCount: items.length,
+    filter,
+    search,
+  });
   return (
     <AppShell>
       <View style={{ gap: 19 }}>
@@ -150,7 +157,18 @@ export default function MessagesScreen() {
               }}
             />
           </View>
-        ) : !items.length ? (
+        ) : matchState === "no-match" ? (
+          <Empty
+            icon="search-outline"
+            title="No conversations match your filters."
+            text="Try a different search, or clear your search and filters to see every conversation."
+            action="Clear search and filters"
+            onAction={() => {
+              setSearch("");
+              setFilter("All");
+            }}
+          />
+        ) : matchState === "empty" ? (
           <Empty
             icon="chatbubble-ellipses-outline"
             title="It starts with a hello."
@@ -164,17 +182,14 @@ export default function MessagesScreen() {
               conversation.name,
               conversation.unread,
             );
+            const unreadDisplay = visibleUnreadCount(conversation.unread);
             return (
               <Pressable
                 key={conversation.id}
                 accessibilityRole="button"
                 accessibilityLabel={accessibility.label}
                 accessibilityValue={{ text: accessibility.value }}
-                onPress={() =>
-                  router.push(
-                    `/chat/${conversation.id}?name=${encodeURIComponent(conversation.name)}`,
-                  )
-                }
+                onPress={() => router.push(`/chat/${conversation.id}`)}
                 style={[
                   s.row,
                   {
@@ -251,7 +266,7 @@ export default function MessagesScreen() {
                           fontWeight: "700",
                         }}
                       >
-                        {conversation.unread}
+                        {unreadDisplay}
                       </T>
                     </View>
                   )}
