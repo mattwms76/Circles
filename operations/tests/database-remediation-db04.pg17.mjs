@@ -89,7 +89,9 @@ const failingFixtures = [
     name: "follow_self",
     code: "23514",
     sql: `INSERT INTO circles_app.follows ("followerId", "followingId") VALUES (11, 11)`,
-    retained: "SELECT 1 FROM circles_app.follows WHERE " + '"followerId" = 11 AND "followingId" = 11',
+    retained:
+      "SELECT 1 FROM circles_app.follows WHERE " +
+      '"followerId" = 11 AND "followingId" = 11',
   },
   {
     name: "client_message_id_too_short",
@@ -264,7 +266,8 @@ async function createBaseline(client, syntheticViolation = undefined) {
 }
 
 async function targetValidationStates(client) {
-  const result = await client.query(`
+  const result = await client.query(
+    `
     SELECT constraint_catalog.conname, constraint_catalog.convalidated
     FROM pg_catalog.pg_constraint AS constraint_catalog
     JOIN pg_catalog.pg_class AS relation_catalog
@@ -274,7 +277,9 @@ async function targetValidationStates(client) {
     WHERE namespace_catalog.nspname = 'circles_app'
       AND constraint_catalog.conname = ANY($1::text[])
     ORDER BY constraint_catalog.conname
-  `, [targetConstraints]);
+  `,
+    [targetConstraints],
+  );
   assert.equal(result.rowCount, targetConstraints.length);
   return result.rows;
 }
@@ -323,11 +328,19 @@ try {
   await createBaseline(admin);
   await admin.query(validationMigration);
   const validated = await targetValidationStates(admin);
-  assert.equal(validated.every((row) => row.convalidated === true), true);
+  assert.equal(
+    validated.every((row) => row.convalidated === true),
+    true,
+  );
   await admin.query(validationMigration);
   const validatedRerun = await targetValidationStates(admin);
-  assert.equal(validatedRerun.every((row) => row.convalidated === true), true);
-  console.log("PASS: valid historical fixture validates all eleven constraints and approved rerun is idempotent");
+  assert.equal(
+    validatedRerun.every((row) => row.convalidated === true),
+    true,
+  );
+  console.log(
+    "PASS: valid historical fixture validates all eleven constraints and approved rerun is idempotent",
+  );
 
   for (const fixture of failingFixtures) {
     await createBaseline(admin, fixture);
@@ -341,15 +354,26 @@ try {
       `${fixture.name} must roll back every target validation`,
     );
     const retained = await admin.query(fixture.retained);
-    assert.equal(retained.rowCount, 1, `${fixture.name} row must not be repaired`);
+    assert.equal(
+      retained.rowCount,
+      1,
+      `${fixture.name} row must not be repaired`,
+    );
   }
-  console.log("PASS: failing historical fixture leaves every target unvalidated and preserves the synthetic row");
+  console.log(
+    "PASS: failing historical fixture leaves every target unvalidated and preserves the synthetic row",
+  );
 } finally {
   if (admin) await admin.end().catch(() => undefined);
   if (serverStarted) {
-    await run(pgCtl, ["-D", dataDirectory, "-m", "immediate", "-w", "stop"]).catch(
-      () => undefined,
-    );
+    await run(pgCtl, [
+      "-D",
+      dataDirectory,
+      "-m",
+      "immediate",
+      "-w",
+      "stop",
+    ]).catch(() => undefined);
   }
   await rm(directory, { recursive: true, force: true });
 }

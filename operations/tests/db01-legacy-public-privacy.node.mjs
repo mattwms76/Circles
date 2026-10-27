@@ -39,13 +39,19 @@ test("DB-01 is a transaction-bound, explicit-approval candidate", () => {
     /current_setting\('circles\.db01_legacy_public_privacy_contract', true\)/,
   );
   assert.match(sql, /DB01_LEGACY_PUBLIC_PRIVACY_APPROVED_V1/);
-  assert.match(sql, /DB-01 requires explicit legacy compatibility\/privacy approval/);
+  assert.match(
+    sql,
+    /DB-01 requires explicit legacy compatibility\/privacy approval/,
+  );
 });
 
 test("DB-01 asserts the audited pre-state before replacing exactly three broad reads", () => {
   assert.match(sql, /DB-01 legacy table shape drift on public\.%/);
   assert.match(sql, /DB-01 legacy RLS\/owner precondition drift on public\.%/);
-  assert.match(sql, /DB-01 legacy direct SELECT grant precondition drift on public\.%/);
+  assert.match(
+    sql,
+    /DB-01 legacy direct SELECT grant precondition drift on public\.%/,
+  );
   assert.match(
     sql,
     /DB-01 expected exactly one authenticated SELECT policy on public\.%/,
@@ -54,8 +60,14 @@ test("DB-01 asserts the audited pre-state before replacing exactly three broad r
     sql,
     /DB-01 expected broad authenticated SELECT policy definition drift on public\.%/,
   );
-  assert.match(sql, /policy_catalog\.polcmd IN \('r'::pg_catalog\."char", '\*'::pg_catalog\."char"\)/);
-  assert.match(sql, /policy_catalog\.polroles = ARRAY\[0::pg_catalog\.oid\]::pg_catalog\.oid\[\]/);
+  assert.match(
+    sql,
+    /policy_catalog\.polcmd IN \('r'::pg_catalog\."char", '\*'::pg_catalog\."char"\)/,
+  );
+  assert.match(
+    sql,
+    /policy_catalog\.polroles = ARRAY\[0::pg_catalog\.oid\]::pg_catalog\.oid\[\]/,
+  );
 
   for (const { table, policy, prior, predicate } of expectedPolicies) {
     assert.match(sql, new RegExp(`'${table}'::pg_catalog\\.name`));
@@ -79,8 +91,14 @@ test("DB-01 asserts the audited pre-state before replacing exactly three broad r
 
 test("DB-01 preserves non-target grants, DML policies, and identity design", () => {
   assert.doesNotMatch(sql, /\b(?:GRANT|REVOKE)\b/);
-  assert.doesNotMatch(sql, /\b(?:CREATE|DROP)\s+(?:VIEW|TABLE|FUNCTION|ROLE)\b/);
-  assert.doesNotMatch(sql, /\b(?:INSERT|UPDATE|DELETE|TRUNCATE)\s+(?:INTO|FROM|public\.)/);
+  assert.doesNotMatch(
+    sql,
+    /\b(?:CREATE|DROP)\s+(?:VIEW|TABLE|FUNCTION|ROLE)\b/,
+  );
+  assert.doesNotMatch(
+    sql,
+    /\b(?:INSERT|UPDATE|DELETE|TRUNCATE)\s+(?:INTO|FROM|public\.)/,
+  );
   assert.doesNotMatch(sql, /pg_catalog\.pg_count\(/);
   assert.doesNotMatch(sql, /auth\.users|circle_memberships|public\.users/);
   assert.match(sql, /auth\.uid\(\)/);
@@ -88,9 +106,18 @@ test("DB-01 preserves non-target grants, DML policies, and identity design", () 
 });
 
 test("DB-01 postflight proves the narrow predicates and leaves anonymous access denied", () => {
-  assert.match(sql, /DB-01 postflight failed for public\.circles SELECT policy/);
-  assert.match(sql, /DB-01 postflight failed for public\.profiles SELECT policy/);
-  assert.match(sql, /DB-01 postflight failed for public\.follows SELECT policy/);
+  assert.match(
+    sql,
+    /DB-01 postflight failed for public\.circles SELECT policy/,
+  );
+  assert.match(
+    sql,
+    /DB-01 postflight failed for public\.profiles SELECT policy/,
+  );
+  assert.match(
+    sql,
+    /DB-01 postflight failed for public\.follows SELECT policy/,
+  );
   assert.match(sql, /DB-01 postflight direct SELECT grant boundary drift/);
   assert.match(
     sql,
