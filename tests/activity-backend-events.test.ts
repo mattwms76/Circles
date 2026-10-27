@@ -16,7 +16,7 @@ describe("activity source-event safety", () => {
         postId: 19,
         circleId: null,
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(false);
     await expect(
       recordMembershipApprovalActivity(untouched, {
         recipientId: 7,
@@ -24,7 +24,7 @@ describe("activity source-event safety", () => {
         sourceId: 32,
         circleId: 9,
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(false);
   });
 
   it("keeps event creation after actual social writes and preserves stable source IDs", () => {

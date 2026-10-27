@@ -568,6 +568,36 @@ async function authenticateSupabasePassword(
   };
 }
 
+function parseResetBody(body: unknown): { email: string; client: EmailClient } {
+  const object = exactBody(body, ["email", "client"]);
+  const email = object ? normalizeEmail(object.email) : null;
+  const client = object?.client;
+  if (!object || !email || (client !== "web" && client !== "native")) {
+    throw emailError("INVALID_CREDENTIALS");
+  }
+  return { email, client };
+}
+
+async function requestSupabasePasswordReset(
+  fetchImpl: FetchImplementation,
+  config: EmailAuthConfig,
+  email: string,
+): Promise<void> {
+  // The provider response is never returned. A missing account and a sent mail
+  // look the same to the caller, and no session or recovery token is minted here.
+  const response = await providerRequest(fetchImpl, config, "/auth/v1/recover", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  try {
+    if (response.status === 429) throw emailError("RATE_LIMITED");
+    if (response.status >= 500) throw new ProviderTransportError();
+  } finally {
+    if (response.body) await response.body.cancel().catch(() => undefined);
+  }
+}
+
 async function requestSupabaseSignup(
   fetchImpl: FetchImplementation,
   config: EmailAuthConfig,
@@ -858,6 +888,28 @@ export function registerEmailAuthRoutes(
       );
       res.setHeader("Cache-Control", "no-store");
       res.json({ success: true, confirmationRequired: true });
+    } catch (error) {
+      sendFailure(res, error);
+    }
+  });
+
+  app.post("/api/auth/email/password-reset", async (req, res) => {
+    try {
+      const config = configuredEmailAuth(environment);
+      if (!config) throw emailError("UNAVAILABLE");
+      const reset = parseResetBody(req.body);
+      enforceBrowserOrNativeRequest(req, reset.client);
+      if (
+        !throttle.checkAndRecordAdmission(
+          emailAdmissionKeys(req, reset.email),
+          now(),
+        )
+      ) {
+        throw emailError("RATE_LIMITED");
+      }
+      await requestSupabasePasswordReset(fetchImpl, config, reset.email);
+      res.setHeader("Cache-Control", "no-store");
+      res.json({ success: true });
     } catch (error) {
       sendFailure(res, error);
     }

@@ -12,11 +12,20 @@ import {
 } from "../../drizzle/schema";
 import { streams } from "../../drizzle/live-schema";
 import { getDb, type CirclesDatabase, type CirclesTransaction } from "../db";
-import {
+import * as storageModule from "../storage";
+
+const {
   storageFetchSignedObject,
   storageGetSignedUrl,
   StorageOperationTimeoutError,
-} from "../storage";
+} = storageModule;
+
+function privateMediaStoreActive(): boolean {
+  const probe = storageModule as {
+    privateMediaStoreActive?: () => boolean;
+  };
+  return probe.privateMediaStoreActive?.() === true;
+}
 import {
   decryptSocialMedia,
   SOCIAL_MEDIA_FRAME_OVERHEAD,
@@ -724,14 +733,23 @@ async function sendDecryptedSocialMedia(req: Request, res: Response) {
 
     try {
       const expectedEncryptedBytes = upload.bytes + SOCIAL_MEDIA_FRAME_OVERHEAD;
-      const signedUrl = await storageGetSignedUrl(key, {
-        signal: cancellation.signal,
-      });
-      const encrypted = await fetchBoundedEncryptedMedia(
-        signedUrl,
-        expectedEncryptedBytes,
-        cancellation.signal,
-      );
+      let encrypted: Buffer;
+      if (privateMediaStoreActive()) {
+        const { readPrivateMedia } = await import("../private-media-store");
+        encrypted = await readPrivateMedia(key);
+        if (encrypted.length !== expectedEncryptedBytes) {
+          throw new Error("Invalid encrypted media length");
+        }
+      } else {
+        const signedUrl = await storageGetSignedUrl(key, {
+          signal: cancellation.signal,
+        });
+        encrypted = await fetchBoundedEncryptedMedia(
+          signedUrl,
+          expectedEncryptedBytes,
+          cancellation.signal,
+        );
+      }
       const plaintext = decryptSocialMedia(encrypted);
       if (plaintext.length !== upload.bytes) {
         res.status(502).send("Invalid decrypted media");

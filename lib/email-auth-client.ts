@@ -298,6 +298,32 @@ export async function signUpWithEmailPassword(
   }
 }
 
+export async function requestPasswordReset(
+  email: string,
+  options: EmailAuthRequestOptions = {},
+): Promise<void> {
+  const request = beginEmailAuthRequest(options);
+
+  try {
+    let result: unknown;
+    try {
+      result = await Api.apiCall<unknown>("/api/auth/email/password-reset", {
+        method: "POST",
+        body: JSON.stringify({ email, client: emailAuthClientKind() }),
+        signal: request.signal,
+      });
+    } catch {
+      throw new EmailAuthClientError("email_auth_failed");
+    }
+
+    if (!isRecord(result) || result.success !== true) {
+      throw new EmailAuthClientError("email_auth_failed");
+    }
+  } finally {
+    request.dispose();
+  }
+}
+
 export async function connectEmailPassword(
   email: string,
   password: string,

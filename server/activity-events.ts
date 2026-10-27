@@ -97,20 +97,21 @@ async function isCurrentApprovedMember(
 export async function recordCommentActivity(
   tx: CirclesTransaction,
   source: CommentActivitySource,
-): Promise<void> {
-  if (source.recipientId === source.actorId) return;
-  if (!(await lockActivityRecipient(tx, source.recipientId))) return;
+): Promise<boolean> {
+  if (source.recipientId === source.actorId) return false;
+  if (!(await lockActivityRecipient(tx, source.recipientId))) return false;
   if (!(await categoryEnabled(tx, source.recipientId, "commentsEnabled")))
-    return;
+    return false;
   if (source.circleId !== null) {
     // Public-circle activity is still recipient-member-only; public visibility is not inbox authority.
     if (
       !(await isCurrentApprovedMember(tx, source.recipientId, source.circleId))
     )
-      return;
-    if (await isMutedForCircle(tx, source.recipientId, source.circleId)) return;
+      return false;
+    if (await isMutedForCircle(tx, source.recipientId, source.circleId))
+      return false;
   }
-  await tx
+  const inserted = await tx
     .insert(activityItems)
     .values({
       recipientId: source.recipientId,
@@ -126,16 +127,18 @@ export async function recordCommentActivity(
         activityItems.kind,
         activityItems.sourceId,
       ],
-    });
+    })
+    .returning({ id: activityItems.id });
+  return inserted.length === 1;
 }
 
 /** Called only after a pending membership row was durably transitioned to `member`. */
 export async function recordMembershipApprovalActivity(
   tx: CirclesTransaction,
   source: MembershipApprovalActivitySource,
-): Promise<void> {
-  if (source.recipientId === source.actorId) return;
-  if (!(await lockActivityRecipient(tx, source.recipientId))) return;
+): Promise<boolean> {
+  if (source.recipientId === source.actorId) return false;
+  if (!(await lockActivityRecipient(tx, source.recipientId))) return false;
   if (
     !(await categoryEnabled(
       tx,
@@ -143,9 +146,10 @@ export async function recordMembershipApprovalActivity(
       "membershipApprovalsEnabled",
     ))
   )
-    return;
-  if (await isMutedForCircle(tx, source.recipientId, source.circleId)) return;
-  await tx
+    return false;
+  if (await isMutedForCircle(tx, source.recipientId, source.circleId))
+    return false;
+  const inserted = await tx
     .insert(activityItems)
     .values({
       recipientId: source.recipientId,
@@ -161,5 +165,7 @@ export async function recordMembershipApprovalActivity(
         activityItems.kind,
         activityItems.sourceId,
       ],
-    });
+    })
+    .returning({ id: activityItems.id });
+  return inserted.length === 1;
 }
