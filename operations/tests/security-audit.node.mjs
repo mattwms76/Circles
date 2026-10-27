@@ -242,6 +242,85 @@ test("policy evaluator requires exact runtime role, command, and marker read-onl
   );
 });
 
+test("policy evaluator keeps the runtime shape when approved deny and admin companions are present", () => {
+  const runtimePolicies = [
+    ...APP_TABLES.map(appPolicy),
+    {
+      table_name: "_dataMigrations",
+      policy_name: "runtime_data_migrations_read_policy",
+      roles: [RUNTIME],
+      command: "SELECT",
+      using_qualification: "true",
+      with_check_qualification: null,
+    },
+  ];
+  const companions = [
+    ...ALL_TABLES.map((table_name) => ({
+      table_name,
+      policy_name: "circles_app_deny_anon_authenticated",
+      roles: ["authenticated", "anon"],
+      command: "ALL",
+      using_qualification: "(false)",
+      with_check_qualification: "false",
+    })),
+    {
+      table_name: "users",
+      policy_name: "circles_admin_read_users",
+      roles: ["circles_admin_runtime"],
+      command: "SELECT",
+      using_qualification: "true",
+      with_check_qualification: null,
+    },
+    {
+      table_name: "users",
+      policy_name: "circles_admin_native_users_lock_only",
+      roles: ["circles_admin_native_executor"],
+      command: "UPDATE",
+      using_qualification: "true",
+      with_check_qualification: "false",
+    },
+  ];
+  assert.equal(
+    evaluatePolicies(
+      APP_TABLES,
+      "_dataMigrations",
+      [...runtimePolicies, ...companions],
+      RUNTIME,
+    ).status,
+    "pass",
+  );
+
+  const widenedDeny = companions.map((policy) => ({ ...policy }));
+  widenedDeny[0].using_qualification = "true";
+  assert.equal(
+    evaluatePolicies(
+      APP_TABLES,
+      "_dataMigrations",
+      [...runtimePolicies, ...widenedDeny],
+      RUNTIME,
+    ).status,
+    "fail",
+  );
+
+  const extraApiPolicy = [
+    ...runtimePolicies,
+    ...companions,
+    {
+      table_name: "posts",
+      policy_name: "extra_api_read",
+      roles: ["authenticated"],
+      command: "SELECT",
+      using_qualification: "true",
+      with_check_qualification: null,
+    },
+  ];
+  assert.equal(
+    evaluatePolicies(APP_TABLES, "_dataMigrations", extraApiPolicy, RUNTIME)
+      .status,
+    "fail",
+  );
+});
+
 test("runtime role permits only reviewed SET ROLE actors and rejects outbound or untrusted membership", () => {
   const safeRole = {
     role_name: RUNTIME,
@@ -284,6 +363,13 @@ test("runtime role permits only reviewed SET ROLE actors and rejects outbound or
   ]);
   assert.equal(untrustedInbound.status, "fail");
   assert.deepEqual(untrustedInbound.violations, [
+    "runtime_role_membership_untrusted_set_role_actor",
+  ]);
+  const loginRole = evaluateRuntimeRole(safeRole, [
+    runtimeMembership("circles_app_login", { inherit_option: false }),
+  ]);
+  assert.equal(loginRole.status, "fail");
+  assert.deepEqual(loginRole.violations, [
     "runtime_role_membership_untrusted_set_role_actor",
   ]);
   const missingSetOption = evaluateRuntimeRole(safeRole, [
@@ -446,6 +532,26 @@ test("reviewed provider capabilities are distinct, while anonymous, unknown-admi
     ),
     true,
   );
+
+  const installedAdmin = completePrivilegeEvidence([
+    "postgres",
+    RUNTIME,
+    ...EXTERNAL_ROLES,
+    "circles_admin_runtime",
+  ]);
+  installedAdmin.table_privileges.find(
+    (row) => row.role_name === "circles_admin_runtime",
+  ).can_select = true;
+  installedAdmin.table_acl_privileges.push({
+    table_name: "users",
+    grantee: "circles_admin_runtime",
+    privilege_type: "SELECT",
+    is_grantable: false,
+  });
+  assert.equal(evaluateExternalPrivileges(installedAdmin).status, "pass");
+  const grantableAdmin = structuredClone(installedAdmin);
+  grantableAdmin.table_acl_privileges[0].is_grantable = true;
+  assert.equal(evaluateExternalPrivileges(grantableAdmin).status, "fail");
 
   const unknownAdmin = completePrivilegeEvidence([
     "postgres",

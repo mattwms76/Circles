@@ -17,7 +17,7 @@ Both report paths are required, must be distinct and new, and are validated befo
 
 ## What it evaluates
 
-- exact **27-table** inventory, ownership, RLS enablement, and server-only policy shapes;
+- exact **27-table** inventory, ownership, RLS enablement, and server-only runtime policy shapes, with the approved `anon`/`authenticated` deny policy and the installed circles-admin companion policies set aside;
 - runtime-role identity/flags and both directions of any membership edge involving the role;
 - complete effective privilege matrices for all cataloged non-owner roles, including schema `USAGE`/`CREATE`; table CRUD, `TRUNCATE`, `REFERENCES`, `TRIGGER`, and PostgreSQL 17 `MAINTAIN`; column privileges; sequence `USAGE`/`SELECT`/`UPDATE`; and routine `EXECUTE`;
 - direct ACL attribution, including `PUBLIC` and grant-option rows, in addition to effective privileges (so inherited membership effects are not hidden);
@@ -29,7 +29,7 @@ The audit uses catalog queries inside a read-only transaction and bounded `SELEC
 
 ## Reading results and limits
 
-The full matrix is retained for all roles. Only exact reviewed PostgreSQL built-ins and Supabase administrative roles are classified separately, with identity checks and privileged membership-path validation. Ordinary/API/runtime roles and lookalikes remain fail-closed; a NOINHERIT/SET ROLE path to an administrative capability is still rejected. `has_*_privilege` metadata alone does not demonstrate RLS row access or Data API exposure.
+The full matrix is retained for all roles. Only exact reviewed PostgreSQL built-ins, Supabase administrative roles, and the two installed circles-admin roles (`circles_admin_runtime`, `circles_admin_native_executor`) are classified separately, with identity checks and privileged membership-path validation. Ordinary/API/runtime roles and lookalikes remain fail-closed; a NOINHERIT/SET ROLE path to an administrative capability is still rejected. `has_*_privilege` metadata alone does not demonstrate RLS row access or Data API exposure.
 
 A `fail` means the evidence was incomplete or an enforced boundary differs from the reviewed design. An `unknown` schema-exposure indicator is **not** evidence that the schema is absent from every API gateway; confirm gateway configuration separately. The report does not test a live user journey, signed-in authorization, revocation, device/provider behavior, or public HTTP API behavior.
 
