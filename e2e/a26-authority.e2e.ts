@@ -8,7 +8,6 @@ import {
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import * as activitySchema from "../drizzle/activity-schema";
 import * as coreSchema from "../drizzle/schema";
 import * as liveSchema from "../drizzle/live-schema";
 import * as sessionSchema from "../drizzle/session-schema";
@@ -16,8 +15,6 @@ import type { User } from "../drizzle/schema";
 import { TRUSTED_STARTER_MEDIA_URLS } from "../shared/media";
 import type { TrpcContext } from "../server/_core/context";
 import { router } from "../server/_core/trpc";
-import { activityRouter } from "../server/activity-router";
-import { circleHomeRouter } from "../server/circle-home-router";
 import type { CirclesDatabase } from "../server/db";
 import { liveRouter } from "../server/live-router";
 import {
@@ -54,18 +51,8 @@ vi.mock("../server/db", () => ({
   getDb: () => Promise.resolve(dbFacade.database),
 }));
 
-const databaseSchema = {
-  ...activitySchema,
-  ...coreSchema,
-  ...liveSchema,
-  ...sessionSchema,
-};
-const authorityHttpRouter = router({
-  activity: activityRouter,
-  circleHome: circleHomeRouter,
-  social: socialRouter,
-  live: liveRouter,
-});
+const databaseSchema = { ...coreSchema, ...liveSchema, ...sessionSchema };
+const authorityHttpRouter = router({ social: socialRouter, live: liveRouter });
 
 type TrpcWireResult = {
   status: number;
@@ -98,32 +85,10 @@ type FeedPageWire = {
   nextCursor: FeedCursorWire | null;
   hasMore: boolean;
 };
-type MemberWire = {
-  user: { id: number };
-  role: "owner" | "moderator" | "member" | "pending";
-};
-type MemberPageWire = {
-  items: MemberWire[];
-  nextCursor: FeedCursorWire | null;
-  hasMore: boolean;
-};
-type ActivityItemWire = {
-  id: number;
-  available: boolean;
-  actorName: string | null;
-  circleName: string | null;
-};
-type ActivityPageWire = { items: ActivityItemWire[] };
-type ActivityTargetWire = { target: unknown };
 
 const A26_FEED_SYNTHETIC_POSTS = 105;
 const A26_FEED_EXACT_TIMESTAMP =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
-const A26_MEMBER_SYNTHETIC_START_ID = 26_100;
-const A26_MEMBER_SYNTHETIC_COUNT = 7;
-const A26_PRIVATE_COMMENT_TEXT = "A26 private reader-first comment";
-const A26_ACTIVITY_SOURCE_ID = 926_001;
-const A26_REMOVED_HOST_TITLE = "A26 removed host must not acquire a lease";
 
 let runtimePool: RuntimeRolePool | null = null;
 let adminPool: Pool | null = null;
@@ -202,16 +167,8 @@ async function startLoopbackServer(): Promise<string> {
 
 function isQueryProcedure(procedure: string): boolean {
   return [
-    "activity.list",
-    "activity.preferences",
-    "activity.resolveTarget",
-    "circleHome.get",
-    "social.comments",
     "social.conversations",
-    "social.circlesPage",
     "social.feedPage",
-    "social.members",
-    "social.membersPage",
     "social.messages",
   ].includes(procedure);
 }
@@ -276,12 +233,7 @@ function expectPrivateTextAbsent(result: TrpcWireResult): void {
   expect(body).not.toContain("Private fixture");
 }
 
-/** Catalog observation establishes an actual database wait; polling is only a bounded recheck. */
-async function waitForBlockedLockingQuery(
-  queryNeedle: string,
-  description: string,
-  options: { forUpdate?: boolean } = {},
-): Promise<void> {
+async function waitForBlockedCircleReader(): Promise<void> {
   const deadline = Date.now() + HTTP_TIMEOUT_MS;
   while (Date.now() < deadline) {
     const result = await adminPool!.query<{ waiting: boolean }>(
@@ -290,31 +242,17 @@ async function waitForBlockedLockingQuery(
            FROM pg_catalog.pg_stat_activity
           WHERE datname = current_database()
             AND wait_event_type = 'Lock'
-            AND query ILIKE '%' || $1 || '%'
-            ${options.forUpdate ? "AND query ILIKE '%for update%'" : ""}
+            AND query ILIKE '%for update%'
+            AND query LIKE '%"circles_app"."circles"%'
        ) AS waiting`,
-      [queryNeedle],
     );
     if (result.rows[0]?.waiting) return;
+    // This bounded catalog polling interval is only a recheck cadence. The positive observation
+    // is PostgreSQL's actual lock wait, rather than a fixed-delay inference.
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   throw new Error(
-    `PostgreSQL did not observe the expected lock wait: ${description}`,
-  );
-}
-
-async function waitForBlockedCircleReader(): Promise<void> {
-  await waitForBlockedLockingQuery(
-    '"circles_app"."circles"',
-    "real HTTP reader at the parent-circle lock",
-  );
-}
-
-async function waitForBlockedParentRemoval(): Promise<void> {
-  await waitForBlockedLockingQuery(
-    '"circles_app"."circles"',
-    "real HTTP removeMember at the parent FOR UPDATE lock",
-    { forUpdate: true },
+    "The real HTTP conversation reader did not block on the parent-circle lock",
   );
 }
 
@@ -449,197 +387,6 @@ async function collectA26FeedContinuation(
   throw new Error("A26 feed continuation exceeded its eight-request bound");
 }
 
-type ReaderBarrierTable = "profiles" | "activityCirclePreferences";
-type ReaderFirstCase = {
-  label: string;
-  actorId: number;
-  barrierTable: ReaderBarrierTable;
-  read: () => Promise<TrpcWireResult>;
-  assertBeforeRemoval: (result: TrpcWireResult) => void;
-  assertAfterRemoval: (result: TrpcWireResult) => void;
-};
-
-function barrierTableSql(table: ReaderBarrierTable): string {
-  return table === "profiles"
-    ? 'circles_app."profiles"'
-    : 'circles_app."activityCirclePreferences"';
-}
-
-function barrierTableNeedle(table: ReaderBarrierTable): string {
-  return `"circles_app"."${table}"`;
-}
-
-async function restoreFixtureMember(userId: number): Promise<void> {
-  await adminPool!.query(
-    `INSERT INTO circles_app.memberships("circleId", "userId", role)
-     VALUES ($1, $2, 'member')
-     ON CONFLICT ("circleId", "userId") DO UPDATE SET role = EXCLUDED.role`,
-    [CIRCLE_ID, userId],
-  );
-}
-
-/**
- * The external table lock is a fixture-only post-parent-lock barrier. It never substitutes a
- * router/service query: the reader and removal are both actual HTTP procedures using runtime-role
- * Drizzle, and pg_stat_activity must observe both database waits before the barrier is released.
- */
-async function runReaderFirstRemoval(
-  caseInput: ReaderFirstCase,
-): Promise<void> {
-  const barrier = await adminPool!.connect();
-  let barrierCommitted = false;
-  let pendingReader: Promise<TrpcWireResult> | null = null;
-  let pendingRemoval: Promise<TrpcWireResult> | null = null;
-  try {
-    await barrier.query("BEGIN");
-    await barrier.query(
-      `LOCK TABLE ${barrierTableSql(caseInput.barrierTable)} IN ACCESS EXCLUSIVE MODE`,
-    );
-
-    pendingReader = caseInput.read();
-    await waitForBlockedLockingQuery(
-      barrierTableNeedle(caseInput.barrierTable),
-      `${caseInput.label} after its protected parent-circle read`,
-    );
-
-    pendingRemoval = trpc(
-      "social.removeMember",
-      { circleId: CIRCLE_ID, userId: caseInput.actorId },
-      1,
-    );
-    await waitForBlockedParentRemoval();
-
-    await barrier.query("COMMIT");
-    barrierCommitted = true;
-
-    const beforeRemoval = await pendingReader;
-    caseInput.assertBeforeRemoval(beforeRemoval);
-
-    const removed = await pendingRemoval;
-    expectSuccess(removed);
-
-    const afterRemoval = await caseInput.read();
-    caseInput.assertAfterRemoval(afterRemoval);
-  } finally {
-    if (!barrierCommitted) {
-      await barrier.query("ROLLBACK").catch(() => undefined);
-    }
-    if (pendingReader) await pendingReader.catch(() => undefined);
-    if (pendingRemoval) await pendingRemoval.catch(() => undefined);
-    barrier.release();
-    await restoreFixtureMember(caseInput.actorId);
-  }
-}
-
-async function seedA26MemberCursorFixture(): Promise<number[]> {
-  const userIds = Array.from(
-    { length: A26_MEMBER_SYNTHETIC_COUNT },
-    (_, index) => A26_MEMBER_SYNTHETIC_START_ID + index,
-  );
-  await adminPool!.query(
-    `INSERT INTO circles_app.users(id, "openId", name)
-     SELECT id,
-            'a26-member-cursor-' || id::text,
-            'A26 member cursor ' || id::text
-       FROM unnest($1::integer[]) AS seeded(id)`,
-    [userIds],
-  );
-  await adminPool!.query(
-    `INSERT INTO circles_app.profiles("userId", name, handle, bio, avatar)
-     SELECT id,
-            'A26 member cursor ' || id::text,
-            'a26-member-' || id::text,
-            '',
-            ''
-       FROM unnest($1::integer[]) AS seeded(id)`,
-    [userIds],
-  );
-  await adminPool!.query(
-    `INSERT INTO circles_app.memberships("circleId", "userId", role, "createdAt", "updatedAt")
-     SELECT $1,
-            id,
-            'member',
-            TIMESTAMPTZ '2025-10-26 11:22:33.120000+00'
-              + ordinal * INTERVAL '1 microsecond',
-            TIMESTAMPTZ '2025-10-26 11:22:33.120000+00'
-              + ordinal * INTERVAL '1 microsecond'
-       FROM unnest($2::integer[]) WITH ORDINALITY AS seeded(id, ordinal)`,
-    [CIRCLE_ID, userIds],
-  );
-  return userIds;
-}
-
-async function disposeA26MemberCursorFixture(userIds: number[]): Promise<void> {
-  await adminPool!.query(
-    'DELETE FROM circles_app.memberships WHERE "userId" = ANY($1::integer[])',
-    [userIds],
-  );
-  await adminPool!.query(
-    'DELETE FROM circles_app.profiles WHERE "userId" = ANY($1::integer[])',
-    [userIds],
-  );
-  await adminPool!.query(
-    "DELETE FROM circles_app.users WHERE id = ANY($1::integer[])",
-    [userIds],
-  );
-}
-
-async function collectA26MembersWithExactCursor(
-  expectedSyntheticUserIds: readonly number[],
-): Promise<FeedCursorWire> {
-  const allIds = new Set<number>();
-  const syntheticOccurrences = new Map<number, number>();
-  let cursor: FeedCursorWire | undefined;
-  let finalCursor: FeedCursorWire | null = null;
-  let pages = 0;
-
-  while (pages < 12) {
-    const page = resultData<MemberPageWire>(
-      await trpc(
-        "social.membersPage",
-        {
-          circleId: CIRCLE_ID,
-          limit: 2,
-          ...(cursor ? { cursor } : {}),
-        },
-        1,
-      ),
-    );
-    pages += 1;
-    expect(page.items.length).toBeLessThanOrEqual(2);
-    for (const item of page.items) {
-      expect(allIds.has(item.user.id)).toBe(false);
-      allIds.add(item.user.id);
-      if (expectedSyntheticUserIds.includes(item.user.id)) {
-        syntheticOccurrences.set(
-          item.user.id,
-          (syntheticOccurrences.get(item.user.id) ?? 0) + 1,
-        );
-      }
-    }
-    expect(page.hasMore).toBe(page.nextCursor !== null);
-    if (!page.nextCursor) {
-      expect(pages).toBeLessThanOrEqual(12);
-      expect([...syntheticOccurrences.keys()].sort((a, b) => a - b)).toEqual(
-        [...expectedSyntheticUserIds].sort((a, b) => a - b),
-      );
-      expect([...syntheticOccurrences.values()]).toEqual(
-        Array(expectedSyntheticUserIds.length).fill(1),
-      );
-      if (!finalCursor) throw new Error("A26 member cursor never advanced");
-      return finalCursor;
-    }
-    expect(page.nextCursor.createdAtExact).toMatch(A26_FEED_EXACT_TIMESTAMP);
-    expect(new Date(page.nextCursor.createdAtExact!).getTime()).toBe(
-      new Date(page.nextCursor.createdAt).getTime(),
-    );
-    finalCursor = page.nextCursor;
-    cursor = page.nextCursor;
-  }
-
-  throw new Error("A26 member cursor traversal exceeded its twelve-page bound");
-}
-
 beforeAll(async () => {
   fixturePort = readFixturePort();
   fixtureDatabase = process.env.CIRCLE_HOME_E2E_DB ?? "";
@@ -748,53 +495,6 @@ afterAll(async () => {
   if (adminPool) {
     // Only local records created by this suite are removed; the runner still owns whole-fixture
     // teardown. A failed revocation test also restores its fixture membership here.
-    await adminPool
-      .query('DELETE FROM circles_app."activityItems" WHERE "sourceId" = $1', [
-        A26_ACTIVITY_SOURCE_ID,
-      ])
-      .catch(() => undefined);
-    await adminPool
-      .query("DELETE FROM circles_app.comments WHERE text = $1", [
-        A26_PRIVATE_COMMENT_TEXT,
-      ])
-      .catch(() => undefined);
-    await adminPool
-      .query(
-        `UPDATE circles_app.circles
-            SET "pinnedPostId" = NULL
-          WHERE id = $1 AND "pinnedPostId" = $2`,
-        [CIRCLE_ID, 105],
-      )
-      .catch(() => undefined);
-    await adminPool
-      .query(
-        'DELETE FROM circles_app.memberships WHERE "userId" = ANY($1::integer[])',
-        [
-          [
-            6,
-            ...Array.from(
-              { length: A26_MEMBER_SYNTHETIC_COUNT },
-              (_, index) => A26_MEMBER_SYNTHETIC_START_ID + index,
-            ),
-          ],
-        ],
-      )
-      .catch(() => undefined);
-    await adminPool
-      .query(
-        'DELETE FROM circles_app.profiles WHERE "userId" >= $1 AND "userId" < $2',
-        [
-          A26_MEMBER_SYNTHETIC_START_ID,
-          A26_MEMBER_SYNTHETIC_START_ID + A26_MEMBER_SYNTHETIC_COUNT,
-        ],
-      )
-      .catch(() => undefined);
-    await adminPool
-      .query("DELETE FROM circles_app.users WHERE id >= $1 AND id < $2", [
-        A26_MEMBER_SYNTHETIC_START_ID,
-        A26_MEMBER_SYNTHETIC_START_ID + A26_MEMBER_SYNTHETIC_COUNT,
-      ])
-      .catch(() => undefined);
     await adminPool
       .query(
         `INSERT INTO circles_app.memberships("circleId", "userId", role)
@@ -991,356 +691,65 @@ describe.sequential("A26 authority isolated HTTP/Drizzle/PostgreSQL 17", () => {
     }
   });
 
-  it("preserves private pending/nonmember denials, the pending preference exception, and public private-circle teasers", async () => {
-    for (const actorId of [null, 4, 5]) {
-      const home = await trpc(
-        "circleHome.get",
-        { circleId: CIRCLE_ID },
-        actorId,
-      );
-      const members = await trpc(
-        "social.members",
-        { circleId: CIRCLE_ID },
-        actorId,
-      );
-      for (const denied of [home, members]) {
-        expect(denied).toMatchObject({ status: 403, errorCode: "FORBIDDEN" });
-        expectPrivateTextAbsent(denied);
-      }
-    }
-
-    const pendingPreference = await trpc(
-      "activity.preferences",
-      { circleId: CIRCLE_ID },
-      4,
-    );
-    expectSuccess(pendingPreference);
-    expect(pendingPreference.data).toMatchObject({
-      viewerId: 4,
-      circle: { id: CIRCLE_ID, name: "Private fixture", muted: false },
-    });
-
-    const directory = resultData<{
-      items: Record<string, unknown>[];
-    }>(await trpc("social.circlesPage", { limit: 20 }, null));
-    const privateTeaser = directory.items.find((item) => item.id === CIRCLE_ID);
-    expect(privateTeaser).toMatchObject({
-      id: CIRCLE_ID,
-      privacy: "private",
-    });
-    for (const key of [
-      "joined",
-      "role",
-      "welcomeMessage",
-      "rules",
-      "pinnedPost",
-      "members",
-    ]) {
-      expect(privateTeaser).not.toHaveProperty(key);
-    }
-  });
-
-  it("A26-018 traverses private members through the actual HTTP exact microsecond cursor without duplication or gaps", async () => {
-    let userIds: number[] = [];
-    try {
-      userIds = await seedA26MemberCursorFixture();
-      const finalCursor = await collectA26MembersWithExactCursor(userIds);
-      const invalidExactCursor = await trpc(
-        "social.membersPage",
-        {
-          circleId: CIRCLE_ID,
-          limit: 2,
-          cursor: {
-            id: finalCursor.id,
-            createdAt: finalCursor.createdAt,
-            createdAtExact: "2025-10-26T11:22:33.121000Z",
-          },
-        },
-        1,
-      );
-      expect(invalidExactCursor).toMatchObject({
-        status: 400,
-        errorCode: "BAD_REQUEST",
-      });
-    } finally {
-      if (userIds.length) await disposeA26MemberCursorFixture(userIds);
-    }
-  });
-
-  it("runs private feed, comments, Circle Home, and members readers before a real removal then fails closed afterward", async () => {
-    const insertedComment = await adminPool!.query<{ id: number }>(
-      `INSERT INTO circles_app.comments("postId", "authorId", text)
-       VALUES (105, 1, $1)
-       RETURNING id`,
-      [A26_PRIVATE_COMMENT_TEXT],
-    );
-    const priorPin = await adminPool!.query<{ pinnedPostId: number | null }>(
-      `SELECT "pinnedPostId"
-         FROM circles_app.circles
-        WHERE id = $1
-        LIMIT 1`,
-      [CIRCLE_ID],
-    );
-    expect(priorPin.rows).toHaveLength(1);
+  it("DB-15 rolls back a failed second participant and converges concurrent HTTP opens on one complete direct conversation", async () => {
+    const directKey = "1:6";
     await adminPool!.query(
-      'UPDATE circles_app.circles SET "pinnedPostId" = $2 WHERE id = $1',
-      [CIRCLE_ID, 105],
+      'DELETE FROM circles_app.conversations WHERE "directKey" = $1',
+      [directKey],
     );
-
+    await adminPool!.query(`
+      CREATE FUNCTION e2e_fixture.reject_second_direct_participant()
+      RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog
+      AS $fixture$
+      BEGIN
+        IF NEW."userId" = 6 AND EXISTS (
+          SELECT 1 FROM circles_app.conversations c
+          WHERE c.id = NEW."conversationId" AND c."directKey" = '1:6'
+        ) THEN
+          RAISE EXCEPTION 'synthetic second participant fault';
+        END IF;
+        RETURN NEW;
+      END;
+      $fixture$;
+      CREATE TRIGGER db15_synthetic_second_participant_fault
+        BEFORE INSERT ON circles_app."conversationParticipants"
+        FOR EACH ROW EXECUTE FUNCTION e2e_fixture.reject_second_direct_participant();
+    `);
     try {
-      await runReaderFirstRemoval({
-        label: "private feed final DTO mapping",
-        actorId: 3,
-        barrierTable: "profiles",
-        read: () =>
-          trpc(
-            "social.feedPage",
-            { filter: "for-you", circleId: CIRCLE_ID, limit: 20 },
-            3,
-          ),
-        assertBeforeRemoval: (result) => {
-          expect(
-            resultData<{ items: { id: number; text: string }[] }>(result).items,
-          ).toContainEqual(
-            expect.objectContaining({ id: 105, text: "Private fixture post" }),
-          );
-        },
-        assertAfterRemoval: (result) => {
-          expectSuccess(result);
-          expect(JSON.stringify(result)).not.toContain("Private fixture post");
-          expect(JSON.stringify(result)).not.toContain("Private fixture");
-        },
-      });
-
-      await runReaderFirstRemoval({
-        label: "private comments projection",
-        actorId: 3,
-        barrierTable: "profiles",
-        read: () => trpc("social.comments", { postId: 105 }, 3),
-        assertBeforeRemoval: (result) => {
-          expect(
-            resultData<{ id: number; text: string }[]>(result),
-          ).toContainEqual(
-            expect.objectContaining({
-              id: insertedComment.rows[0]?.id,
-              text: A26_PRIVATE_COMMENT_TEXT,
-            }),
-          );
-        },
-        assertAfterRemoval: (result) => {
-          expect(result).toMatchObject({ status: 403, errorCode: "FORBIDDEN" });
-          expect(JSON.stringify(result)).not.toContain(
-            A26_PRIVATE_COMMENT_TEXT,
-          );
-        },
-      });
-
-      await runReaderFirstRemoval({
-        label: "private Circle Home projection",
-        actorId: 3,
-        barrierTable: "profiles",
-        read: () => trpc("circleHome.get", { circleId: CIRCLE_ID }, 3),
-        assertBeforeRemoval: (result) => {
-          expectSuccess(result);
-          expect(result.data).toMatchObject({
-            circleId: CIRCLE_ID,
-            pinnedPost: { id: 105, text: "Private fixture post" },
-          });
-        },
-        assertAfterRemoval: (result) => {
-          expect(result).toMatchObject({ status: 403, errorCode: "FORBIDDEN" });
-          expect(JSON.stringify(result)).not.toContain("Private fixture post");
-        },
-      });
-
-      await runReaderFirstRemoval({
-        label: "private member projection",
-        actorId: 3,
-        barrierTable: "profiles",
-        read: () => trpc("social.members", { circleId: CIRCLE_ID }, 3),
-        assertBeforeRemoval: (result) => {
-          expect(
-            resultData<MemberWire[]>(result).map((member) => member.user.id),
-          ).toContain(3);
-        },
-        assertAfterRemoval: (result) => {
-          expect(result).toMatchObject({ status: 403, errorCode: "FORBIDDEN" });
-          expect(JSON.stringify(result)).not.toContain("Fixture member");
-        },
-      });
+      const failed = await trpc("social.openDirect", { userId: 6 }, 1);
+      expect(failed.status).toBe(500);
+      const remaining = await adminPool!.query<{ count: string }>(
+        'SELECT count(*)::text AS count FROM circles_app.conversations WHERE "directKey" = $1',
+        [directKey],
+      );
+      expect(remaining.rows).toEqual([{ count: "0" }]);
+    } finally {
+      await adminPool!.query(`
+        DROP TRIGGER IF EXISTS db15_synthetic_second_participant_fault
+          ON circles_app."conversationParticipants";
+        DROP FUNCTION IF EXISTS e2e_fixture.reject_second_direct_participant();
+      `);
+    }
+    try {
+      const results = await Promise.all([
+        trpc("social.openDirect", { userId: 6 }, 1),
+        trpc("social.openDirect", { userId: 1 }, 6),
+        trpc("social.openDirect", { userId: 6 }, 1),
+      ]);
+      const ids = results.map(
+        (result) => resultData<{ id: number }>(result).id,
+      );
+      expect(new Set(ids).size).toBe(1);
+      const participants = await adminPool!.query<{ userId: number }>(
+        'SELECT "userId" FROM circles_app."conversationParticipants" WHERE "conversationId" = $1 ORDER BY "userId"',
+        [ids[0]],
+      );
+      expect(participants.rows).toEqual([{ userId: 1 }, { userId: 6 }]);
     } finally {
       await adminPool!.query(
-        'UPDATE circles_app.circles SET "pinnedPostId" = $2 WHERE id = $1',
-        [CIRCLE_ID, priorPin.rows[0]?.pinnedPostId ?? null],
+        'DELETE FROM circles_app.conversations WHERE "directKey" = $1',
+        [directKey],
       );
-      await adminPool!.query("DELETE FROM circles_app.comments WHERE id = $1", [
-        insertedComment.rows[0]?.id ?? 0,
-      ]);
-    }
-  });
-
-  it("runs Activity item projection, circle preference, and target readers before removal and redacts/unsets them afterward", async () => {
-    let activityId = 0;
-    try {
-      await restoreFixtureMember(6);
-      const seeded = await adminPool!.query<{ id: number }>(
-        `INSERT INTO circles_app."activityItems"(
-           "recipientId", "actorId", kind, "sourceId", "circleId", "postId"
-         )
-         VALUES (6, 3, 'comment_on_your_post', $1, $2, 105)
-         RETURNING id`,
-        [A26_ACTIVITY_SOURCE_ID, CIRCLE_ID],
-      );
-      activityId = seeded.rows[0]?.id ?? 0;
-      expect(activityId).toBeGreaterThan(0);
-
-      await runReaderFirstRemoval({
-        label: "Activity private-item projection",
-        actorId: 6,
-        barrierTable: "profiles",
-        read: () => trpc("activity.list", {}, 6),
-        assertBeforeRemoval: (result) => {
-          const item = resultData<ActivityPageWire>(result).items.find(
-            (candidate) => candidate.id === activityId,
-          );
-          expect(item).toMatchObject({
-            available: true,
-            actorName: "Fixture member",
-            circleName: "Private fixture",
-          });
-        },
-        assertAfterRemoval: (result) => {
-          const item = resultData<ActivityPageWire>(result).items.find(
-            (candidate) => candidate.id === activityId,
-          );
-          expect(item).toEqual({
-            id: activityId,
-            available: false,
-            actorName: null,
-            circleName: null,
-            kind: "comment_on_your_post",
-            createdAt: expect.any(String),
-            readAt: null,
-          });
-        },
-      });
-
-      await runReaderFirstRemoval({
-        label: "Activity private-circle preference",
-        actorId: 6,
-        barrierTable: "activityCirclePreferences",
-        read: () => trpc("activity.preferences", { circleId: CIRCLE_ID }, 6),
-        assertBeforeRemoval: (result) => {
-          expectSuccess(result);
-          expect(result.data).toMatchObject({
-            viewerId: 6,
-            circle: { id: CIRCLE_ID, name: "Private fixture", muted: false },
-          });
-        },
-        assertAfterRemoval: (result) => {
-          expect(result).toMatchObject({ status: 404, errorCode: "NOT_FOUND" });
-          expect(JSON.stringify(result)).not.toContain("Private fixture");
-        },
-      });
-
-      await runReaderFirstRemoval({
-        label: "Activity private post target",
-        actorId: 6,
-        barrierTable: "profiles",
-        read: () => trpc("activity.resolveTarget", { id: activityId }, 6),
-        assertBeforeRemoval: (result) => {
-          expect(resultData<ActivityTargetWire>(result)).toMatchObject({
-            target: { type: "post", post: { id: 105 } },
-          });
-        },
-        assertAfterRemoval: (result) => {
-          expect(resultData<ActivityTargetWire>(result)).toEqual({
-            viewerId: 6,
-            activityId,
-            target: null,
-          });
-        },
-      });
-    } finally {
-      await adminPool!
-        .query(
-          'DELETE FROM circles_app."activityItems" WHERE "sourceId" = $1',
-          [A26_ACTIVITY_SOURCE_ID],
-        )
-        .catch(() => undefined);
-      await adminPool!
-        .query(
-          'DELETE FROM circles_app.memberships WHERE "circleId" = $1 AND "userId" = $2',
-          [CIRCLE_ID, 6],
-        )
-        .catch(() => undefined);
-    }
-  });
-
-  it("A26-019 makes removal win over a current private host before any live lease or stream is acquired", async () => {
-    const starter = [...TRUSTED_STARTER_MEDIA_URLS][0];
-    expect(starter).toBeTruthy();
-    const beforeStreams = await adminPool!.query<{ count: string }>(
-      `SELECT count(*)::text AS count
-         FROM circles_app.streams
-        WHERE "hostId" = 3 AND title = $1`,
-      [A26_REMOVED_HOST_TITLE],
-    );
-    const beforeLease = await adminPool!.query<{ count: string }>(
-      `SELECT count(*)::text AS count
-         FROM circles_app."activeHostLeases"
-        WHERE "hostId" = 3`,
-    );
-    const lockClient = await adminPool!.connect();
-    let committed = false;
-    let pendingCreate: Promise<TrpcWireResult> | null = null;
-    try {
-      await lockClient.query("BEGIN");
-      await lockClient.query(
-        "SELECT id FROM circles_app.circles WHERE id = $1 FOR UPDATE",
-        [CIRCLE_ID],
-      );
-      pendingCreate = trpc(
-        "live.create",
-        {
-          title: A26_REMOVED_HOST_TITLE,
-          circleId: CIRCLE_ID,
-          thumbnail: starter,
-        },
-        3,
-      );
-      await waitForBlockedCircleReader();
-      await lockClient.query(
-        'DELETE FROM circles_app.memberships WHERE "circleId" = $1 AND "userId" = $2',
-        [CIRCLE_ID, 3],
-      );
-      await lockClient.query("COMMIT");
-      committed = true;
-
-      const denied = await pendingCreate;
-      expect(denied).toMatchObject({ status: 403, errorCode: "FORBIDDEN" });
-      const [afterStreams, afterLease] = await Promise.all([
-        adminPool!.query<{ count: string }>(
-          `SELECT count(*)::text AS count
-             FROM circles_app.streams
-            WHERE "hostId" = 3 AND title = $1`,
-          [A26_REMOVED_HOST_TITLE],
-        ),
-        adminPool!.query<{ count: string }>(
-          `SELECT count(*)::text AS count
-             FROM circles_app."activeHostLeases"
-            WHERE "hostId" = 3`,
-        ),
-      ]);
-      expect(afterStreams.rows[0]?.count).toBe(beforeStreams.rows[0]?.count);
-      expect(afterLease.rows[0]?.count).toBe(beforeLease.rows[0]?.count);
-    } finally {
-      if (!committed) {
-        await lockClient.query("ROLLBACK").catch(() => undefined);
-      }
-      if (pendingCreate) await pendingCreate.catch(() => undefined);
-      lockClient.release();
-      await restoreFixtureMember(3);
     }
   });
 

@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AppState,
   KeyboardAvoidingView,
+  Modal,
   ScrollView,
   View,
   Pressable,
@@ -9,7 +11,8 @@ import {
 import Constants from "expo-constants";
 import { Image } from "@/components/media-image";
 import * as ImagePicker from "expo-image-picker";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import * as Crypto from "expo-crypto";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
@@ -63,6 +66,18 @@ import {
   platformCreationIssue,
   platformUploadLimitMb,
 } from "@/lib/platform-feature-ui";
+import { VideoRecorder } from "@/components/video-recorder";
+import { RecordedVideoPreview } from "@/components/recorded-video-preview";
+import type { RecordedVideoDraft } from "@/shared/recorded-video";
+import {
+  deleteRecordedVideo,
+  recordedVideoBase64,
+} from "@/lib/recorded-video-files";
+import {
+  createPostPublishAttemptTracker,
+  isDefinitivePostPublishError,
+} from "@/lib/post-publish-attempt";
+import { postPublishErrorMessage } from "@/lib/post-publish-error";
 
 type ComposerPublishSnapshot = {
   mode: CreateMode;
@@ -72,6 +87,7 @@ type ComposerPublishSnapshot = {
   privacy: "public" | "private";
   circleId: number | undefined;
   asset: ImagePicker.ImagePickerAsset | null;
+  recordedDraft: RecordedVideoDraft | null;
   reusableUpload: ReusableUpload | null;
   liveThumbnail: string;
 };
@@ -141,8 +157,11 @@ function ComposerPill({
 
 export default function CreateScreen() {
   const { user } = useCircles();
-
-  return <CreateScreenForAccount key={user?.id ?? "anonymous"} />;
+  const params = useLocalSearchParams();
+  const routeKey = JSON.stringify([params.mode, params.circleId, params.intro]);
+  return (
+    <CreateScreenForAccount key={`${user?.id ?? "anonymous"}:${routeKey}`} />
+  );
 }
 
 function CreateScreenForAccount() {
@@ -197,6 +216,19 @@ function CreateScreenForAccount() {
   const [reusableUpload, setReusableUpload] = useState<ReusableUpload | null>(
     null,
   );
+  const [recordedDraft, setRecordedDraft] = useState<RecordedVideoDraft | null>(
+    null,
+  );
+  const recordedDraftRef = useRef<RecordedVideoDraft | null>(null);
+  const [recorderScope, setRecorderScope] =
+    useState<Batch1OperationScope | null>(null);
+  const focusedRef = useRef(false);
+  const foregroundRef = useRef(AppState.currentState === "active");
+  const [postAttempt] = useState(() => createPostPublishAttemptTracker());
+  const [publishUncertain, setPublishUncertain] = useState(false);
+  const [publishStage, setPublishStage] = useState<
+    "uploading" | "publishing" | null
+  >(null);
   const mountedRef = useRef(false);
   const scopeRef = useRef<Batch1OperationScope | null>(null);
   const [operationInstance] = useState(() => createBatch1OperationInstance());
@@ -226,19 +258,39 @@ function CreateScreenForAccount() {
     batch1OperationIdentityMatches(publishError.scope, composerIdentity)
       ? publishError.message
       : null;
+  const isDraftLocked = isPublishing || publishUncertain;
+
+  useFocusEffect(
+    useCallback(() => {
+      focusedRef.current = true;
+      mountedRef.current = true;
+      const scope = operationInstance.activate(composerIdentity);
+      scopeRef.current = scope;
+      return () => {
+        focusedRef.current = false;
+        mountedRef.current = false;
+        operationInstance.deactivate(scope);
+        if (scopeRef.current?.instanceId === scope?.instanceId) {
+          scopeRef.current = null;
+        }
+        const owned = recordedDraftRef.current;
+        recordedDraftRef.current = null;
+        if (owned)
+          void deleteRecordedVideo(owned.localUri).catch(() => undefined);
+        setRecordedDraft(null);
+        setAsset((current) => (owned ? null : current));
+        setRecorderScope(null);
+      };
+    }, [composerIdentity, operationInstance, setRecorderScope]),
+  );
 
   useEffect(() => {
-    mountedRef.current = true;
-    const scope = operationInstance.activate(composerIdentity);
-    scopeRef.current = scope;
-    return () => {
-      mountedRef.current = false;
-      operationInstance.deactivate(scope);
-      if (scopeRef.current?.instanceId === scope?.instanceId) {
-        scopeRef.current = null;
-      }
-    };
-  }, [composerIdentity, operationInstance]);
+    const subscription = AppState.addEventListener("change", (state) => {
+      foregroundRef.current = state === "active";
+      if (state !== "active") setRecorderScope(null);
+    });
+    return () => subscription.remove();
+  }, []);
 
   const circles = trpc.social.circles.useQuery({});
   const recipient = resolveCreateRecipient({
@@ -261,6 +313,19 @@ function CreateScreenForAccount() {
     refetchOnMount: "always",
     retry: false,
   });
+  const publicationStatus = trpc.social.publicationStatus.useQuery(undefined, {
+    enabled: authState === "authenticated" && mode === "post",
+    retry: false,
+    staleTime: 0,
+  });
+  const publicationIssue =
+    mode === "post" && user
+      ? !publicationStatus.isFetchedAfterMount || publicationStatus.isFetching
+        ? "Checking retry-safe publishing…"
+        : publicationStatus.isError || publicationStatus.data?.ready !== true
+          ? "Retry-safe publishing is not enabled yet. You can record and preview locally; Publish is unavailable until the reviewed database update is installed."
+          : null
+      : null;
   const visiblePlatformStatus = platformStatus.isError
     ? undefined
     : platformStatus.data;
@@ -272,12 +337,23 @@ function CreateScreenForAccount() {
   const maxUploadMb = platformUploadLimitMb(visiblePlatformStatus);
 
   function publishScopeIsCurrent(scope: Batch1OperationScope): boolean {
-    return mountedRef.current && operationInstance.isCurrent(scope);
+    return (
+      mountedRef.current &&
+      focusedRef.current &&
+      operationInstance.isCurrent(scope)
+    );
   }
 
   function draftEditingLocked(): boolean {
     const scope = scopeRef.current;
-    return !!scope && publishGuard.isActive(scope);
+    return (
+      postAttempt.isUnsettled() || (!!scope && publishGuard.isActive(scope))
+    );
+  }
+
+  function changeText(value: string) {
+    if (draftEditingLocked()) return;
+    setText(value);
   }
 
   function changeName(value: string) {
@@ -297,13 +373,67 @@ function CreateScreenForAccount() {
 
   function changeCircleId(value: number | undefined) {
     if (draftEditingLocked()) return;
-    if (value !== circleId) setComposerRevision((current) => current + 1);
+    if (value !== circleId) {
+      clearSelectedMedia();
+      setRecorderScope(null);
+      setComposerRevision((current) => current + 1);
+    }
     setCircleId(value);
   }
 
   function clearSelectedMedia() {
+    const owned = recordedDraftRef.current;
+    recordedDraftRef.current = null;
+    if (owned) void deleteRecordedVideo(owned.localUri).catch(() => undefined);
+    setRecordedDraft(null);
     setAsset(null);
     setReusableUpload(null);
+    postAttempt.clear();
+  }
+
+  function recordVideo() {
+    if (
+      draftEditingLocked() ||
+      mode !== "post" ||
+      authState !== "authenticated"
+    )
+      return;
+    const scope = scopeRef.current;
+    if (!scope || !foregroundRef.current || !publishScopeIsCurrent(scope))
+      return;
+    const issue = platformCreationIssue(visiblePlatformStatus, "post", true);
+    if (issue) {
+      notify(issue, "error");
+      return;
+    }
+    setRecorderScope(scope);
+  }
+
+  function acceptRecording(
+    draft: RecordedVideoDraft,
+    scope: Batch1OperationScope,
+  ) {
+    if (
+      !foregroundRef.current ||
+      !publishScopeIsCurrent(scope) ||
+      draftEditingLocked()
+    ) {
+      void deleteRecordedVideo(draft.localUri).catch(() => undefined);
+      return;
+    }
+    clearSelectedMedia();
+    recordedDraftRef.current = draft;
+    setRecordedDraft(draft);
+    setAsset({
+      uri: draft.localUri,
+      type: "video",
+      mimeType: draft.mimeType,
+      fileSize: draft.fileSize,
+      duration: draft.durationMs,
+      width: draft.width,
+      height: draft.height,
+    });
+    setRecorderScope(null);
   }
 
   function selectMode(nextMode: CreateMode) {
@@ -331,7 +461,11 @@ function CreateScreenForAccount() {
         notify("Choose a supported cover photo for your circle.", "error");
       }
     }
-    if (nextMode !== mode) setComposerRevision((current) => current + 1);
+    if (nextMode !== mode) {
+      if (recordedDraftRef.current) clearSelectedMedia();
+      setRecorderScope(null);
+      setComposerRevision((current) => current + 1);
+    }
     setMode(nextMode);
   }
 
@@ -378,6 +512,7 @@ function CreateScreenForAccount() {
         notify(validation.message, "error");
         return;
       }
+      clearSelectedMedia();
       setAsset(nextAsset);
       // A changed selection cannot safely reuse the prior upload URL.
       setReusableUpload(null);
@@ -400,11 +535,23 @@ function CreateScreenForAccount() {
     const previousUrl = reusableUploadUrl(snapshot.reusableUpload, key);
     if (previousUrl) return previousUrl;
 
-    const base64 = await assetBase64(snapshot.asset);
+    const base64 = snapshot.recordedDraft
+      ? await recordedVideoBase64(
+          snapshot.recordedDraft,
+          maxUploadMb * 1024 * 1024,
+        )
+      : await assetBase64(snapshot.asset);
     if (!publishScopeIsCurrent(scope)) return null;
     const result = await upload.mutateAsync({
       base64,
       mimeType,
+      ...(snapshot.recordedDraft
+        ? {
+            recording: {
+              maxDurationSeconds: snapshot.recordedDraft.maxDurationSeconds,
+            },
+          }
+        : {}),
     });
     if (!publishScopeIsCurrent(scope)) return null;
     // Keep the canonical URL only for this exact selected asset. A failed
@@ -454,20 +601,40 @@ function CreateScreenForAccount() {
         !!snapshot.asset,
       );
       if (issue) throw new Error(issue);
+      if (snapshot.mode === "post") {
+        const status = await publicationStatus.refetch();
+        if (!publishScopeIsCurrent(scope)) return;
+        if (status.isError || status.data?.ready !== true) {
+          throw new Error(
+            "Retry-safe publishing is temporarily unavailable. Your local draft has been kept.",
+          );
+        }
+      }
+      setPublishStage("uploading");
       const media = await uploadAsset(snapshot, scope);
       if (media === null || !publishScopeIsCurrent(scope)) return;
       if (snapshot.mode === "post") {
-        await post.mutateAsync({
-          text: snapshot.text.trim(),
-          media,
-          mediaType: snapshot.asset
-            ? snapshot.asset.type === "video"
-              ? "video"
-              : "photo"
-            : "text",
-          circleId: snapshot.circleId,
-        });
+        const attempt = postAttempt.prepare(
+          {
+            text: snapshot.text.trim(),
+            media,
+            mediaType: snapshot.asset
+              ? snapshot.asset.type === "video"
+                ? "video"
+                : "photo"
+              : "text",
+            circleId: snapshot.circleId,
+          },
+          () => Crypto.randomUUID(),
+        );
+        postAttempt.markSubmitted();
+        setPublishUncertain(true);
+        setPublishStage("publishing");
+        await post.mutateAsync(attempt);
         if (!publishScopeIsCurrent(scope)) return;
+        postAttempt.clear();
+        setPublishUncertain(false);
+        clearSelectedMedia();
         void invalidatePostFeeds(utils);
         notify("Your moment is out in the world.", "success");
         router.back();
@@ -495,11 +662,17 @@ function CreateScreenForAccount() {
         if (!publishScopeIsCurrent(scope)) return;
         router.replace(`/live/${result.id}?host=1`);
       }
-    } catch {
+    } catch (error) {
       if (!publishScopeIsCurrent(scope)) return;
-      const message = snapshot.reusableUpload
-        ? "Could not share. Your media is ready to reuse when you try again."
-        : "Could not share. Please try again.";
+      const uncertain =
+        snapshot.mode === "post" &&
+        postAttempt.isUnsettled() &&
+        !isDefinitivePostPublishError(error);
+      if (!uncertain) postAttempt.reject();
+      setPublishUncertain(uncertain);
+      const message = uncertain
+        ? "Publication hasn't been confirmed. Your draft is locked so Retry checks the same publication without creating another post."
+        : postPublishErrorMessage(error);
       setPublishError({ scope, message });
       notify(message, "error");
     }
@@ -519,6 +692,7 @@ function CreateScreenForAccount() {
         privacy,
         circleId,
         asset,
+        recordedDraft,
         reusableUpload,
         liveThumbnail: profile.data?.avatar || photo.mountains,
       };
@@ -535,6 +709,7 @@ function CreateScreenForAccount() {
           await publishAfterAuth(scope, snapshot);
         } finally {
           if (!publishScopeIsCurrent(scope)) return;
+          setPublishStage(null);
           setPendingPublishScope((current) =>
             current && batch1OperationKey(current) === batch1OperationKey(scope)
               ? null
@@ -570,7 +745,7 @@ function CreateScreenForAccount() {
             }
           }}
           label="Close composer"
-          disabled={isPublishing}
+          disabled={isDraftLocked}
         />
       </View>
       <KeyboardAvoidingView
@@ -606,21 +781,21 @@ function CreateScreenForAccount() {
               icon="image-outline"
               selected={mode === "post"}
               onPress={() => selectMode("post")}
-              disabled={isPublishing}
+              disabled={isDraftLocked}
             />
             <ComposerPill
               title="Circle"
               icon="ellipse-outline"
               selected={mode === "circle"}
               onPress={() => selectMode("circle")}
-              disabled={isPublishing}
+              disabled={isDraftLocked}
             />
             <ComposerPill
               title="Go live"
               icon="radio-outline"
               selected={mode === "live"}
               onPress={() => selectMode("live")}
-              disabled={isPublishing}
+              disabled={isDraftLocked}
             />
           </View>
           {creationIssue && user && (
@@ -632,7 +807,29 @@ function CreateScreenForAccount() {
                 onPress={() => {
                   void platformStatus.refetch();
                 }}
-                disabled={isPublishing}
+                disabled={isDraftLocked}
+              />
+            </View>
+          )}
+          {publicationIssue && user && (
+            <View style={[s.card, { padding: 14, gap: 8 }]}>
+              <StatusMessage
+                message={publicationIssue}
+                tone={
+                  publicationStatus.isFetching ||
+                  !publicationStatus.isFetchedAfterMount
+                    ? "info"
+                    : "error"
+                }
+                testID="create-publication-readiness"
+              />
+              <Button
+                title="Check publishing availability"
+                secondary
+                disabled={isPublishing || publicationStatus.isFetching}
+                onPress={() => {
+                  void publicationStatus.refetch();
+                }}
               />
             </View>
           )}
@@ -677,13 +874,13 @@ function CreateScreenForAccount() {
                       ? "e.g. Sunday Coffee Club"
                       : "What are we talking about?"
                   }
-                  editable={!isPublishing}
-                  accessibilityState={{ disabled: isPublishing }}
+                  editable={!isDraftLocked}
+                  accessibilityState={{ disabled: isDraftLocked }}
                 />
               )}
               <Input
                 value={text}
-                onChangeText={setText}
+                onChangeText={changeText}
                 multiline
                 label={
                   mode === "circle"
@@ -697,8 +894,8 @@ function CreateScreenForAccount() {
                     ? "What brings your people together?"
                     : "A thought, a story, something worth sharing…"
                 }
-                editable={!isPublishing}
-                accessibilityState={{ disabled: isPublishing }}
+                editable={!isDraftLocked}
+                accessibilityState={{ disabled: isDraftLocked }}
               />
               {mode === "circle" ? (
                 <>
@@ -718,7 +915,7 @@ function CreateScreenForAccount() {
                         title={item}
                         selected={category === item}
                         onPress={() => changeCategory(item)}
-                        disabled={isPublishing}
+                        disabled={isDraftLocked}
                       />
                     ))}
                   </View>
@@ -729,14 +926,14 @@ function CreateScreenForAccount() {
                       icon="globe-outline"
                       selected={privacy === "public"}
                       onPress={() => changePrivacy("public")}
-                      disabled={isPublishing}
+                      disabled={isDraftLocked}
                     />
                     <ComposerPill
                       title="Private · approval needed"
                       icon="lock-closed-outline"
                       selected={privacy === "private"}
                       onPress={() => changePrivacy("private")}
-                      disabled={isPublishing}
+                      disabled={isDraftLocked}
                     />
                   </View>
                 </>
@@ -753,7 +950,7 @@ function CreateScreenForAccount() {
                       title="Everyone"
                       selected={!circleId}
                       onPress={() => changeCircleId(undefined)}
-                      disabled={isPublishing}
+                      disabled={isDraftLocked}
                     />
                     {circles.data
                       ?.filter((item) => item.joined)
@@ -763,7 +960,7 @@ function CreateScreenForAccount() {
                           title={item.name}
                           selected={circleId === item.id}
                           onPress={() => changeCircleId(item.id)}
-                          disabled={isPublishing}
+                          disabled={isDraftLocked}
                         />
                       ))}
                   </ScrollView>
@@ -805,17 +1002,86 @@ function CreateScreenForAccount() {
                   )}
                 </>
               )}
-              {mode !== "live" && (
+              {mode === "post" && (
+                <View style={{ gap: 10 }}>
+                  {Platform.OS !== "web" ? (
+                    <Button
+                      title="Record video"
+                      icon="videocam-outline"
+                      secondary
+                      disabled={isDraftLocked || !!creationIssue}
+                      onPress={recordVideo}
+                    />
+                  ) : (
+                    <T style={{ color: C.secondary, fontSize: 13 }}>
+                      Record a 30- or 60-second clip in the iOS or Android app.
+                      On web, upload an existing MP4 video.
+                    </T>
+                  )}
+                  <T style={{ color: C.secondary, fontSize: 12 }}>
+                    30s or 60s · 720p where supported · up to{" "}
+                    {Math.min(20, maxUploadMb)} MiB. Capture may stop sooner at
+                    the size limit.
+                  </T>
+                </View>
+              )}
+              {mode !== "live" && asset?.type === "video" && (
+                <View style={[s.card, { padding: 14, gap: 12 }]}>
+                  <RecordedVideoPreview
+                    key={asset.uri}
+                    uri={asset.uri}
+                    disabled={isDraftLocked || recorderScope !== null}
+                  />
+                  {recordedDraft && (
+                    <T style={{ fontSize: 12, color: C.secondary }}>
+                      {(recordedDraft.durationMs / 1000).toFixed(1)}s ·{" "}
+                      {recordedDraft.width} × {recordedDraft.height} ·{" "}
+                      {(recordedDraft.fileSize / (1024 * 1024)).toFixed(1)} MiB
+                    </T>
+                  )}
+                  <View
+                    style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}
+                  >
+                    <Button
+                      title="Change video"
+                      secondary
+                      disabled={isDraftLocked}
+                      onPress={pickMedia}
+                    />
+                    {recordedDraft && Platform.OS !== "web" && (
+                      <Button
+                        title="Retake video"
+                        secondary
+                        disabled={isDraftLocked}
+                        onPress={() => {
+                          if (draftEditingLocked()) return;
+                          clearSelectedMedia();
+                          recordVideo();
+                        }}
+                      />
+                    )}
+                    <Button
+                      title="Remove video"
+                      secondary
+                      disabled={isDraftLocked}
+                      onPress={() => {
+                        if (!draftEditingLocked()) clearSelectedMedia();
+                      }}
+                    />
+                  </View>
+                </View>
+              )}
+              {mode !== "live" && asset?.type !== "video" && (
                 <Pressable
                   onPress={pickMedia}
                   accessibilityRole="button"
                   accessibilityLabel={
                     asset
-                      ? `Change selected ${asset.type === "video" ? "video" : "photo"}`
+                      ? "Change selected photo"
                       : `Add ${mode === "circle" ? "a cover photo" : "a photo or video"}`
                   }
-                  accessibilityState={{ disabled: isPublishing }}
-                  disabled={isPublishing}
+                  accessibilityState={{ disabled: isDraftLocked }}
+                  disabled={isDraftLocked}
                   style={{
                     backgroundColor: C.paper,
                     borderWidth: 1,
@@ -826,7 +1092,7 @@ function CreateScreenForAccount() {
                     alignItems: "center",
                     gap: 10,
                     overflow: "hidden",
-                    opacity: isPublishing ? 0.55 : 1,
+                    opacity: isDraftLocked ? 0.55 : 1,
                   }}
                 >
                   {asset ? (
@@ -837,7 +1103,7 @@ function CreateScreenForAccount() {
                         contentFit="cover"
                       />
                       <T style={{ padding: 12, color: C.action, fontSize: 12 }}>
-                        Change {asset.type === "video" ? "video" : "photo"}
+                        Change photo
                       </T>
                     </>
                   ) : (
@@ -855,6 +1121,16 @@ function CreateScreenForAccount() {
                     </>
                   )}
                 </Pressable>
+              )}
+              {mode !== "live" && asset && asset.type !== "video" && (
+                <Button
+                  title="Remove photo"
+                  secondary
+                  disabled={isDraftLocked}
+                  onPress={() => {
+                    if (!draftEditingLocked()) clearSelectedMedia();
+                  }}
+                />
               )}
               {mode === "live" && (
                 <View
@@ -883,9 +1159,9 @@ function CreateScreenForAccount() {
                     style={{ fontSize: 13, lineHeight: 19 }}
                   />
                   <Button
-                    title="Try again"
+                    title="Retry publication"
                     secondary
-                    disabled={isPublishing}
+                    disabled={isPublishing || !!publicationIssue}
                     onPress={publish}
                   />
                 </View>
@@ -893,7 +1169,9 @@ function CreateScreenForAccount() {
               <Button
                 title={
                   mode === "post"
-                    ? "Share your moment"
+                    ? publishUncertain
+                      ? "Retry publication"
+                      : "Publish your moment"
                     : mode === "circle"
                       ? "Create your circle"
                       : "Start live session"
@@ -901,10 +1179,23 @@ function CreateScreenForAccount() {
                 icon={mode === "live" ? "radio-outline" : "arrow-up-outline"}
                 loading={isPublishing}
                 disabled={
-                  !!creationIssue || isPublishing || !recipientAllowsPublish
+                  !!creationIssue ||
+                  !!publicationIssue ||
+                  isPublishing ||
+                  !recipientAllowsPublish
                 }
                 onPress={publish}
               />
+              {isPublishing && (
+                <StatusMessage
+                  message={
+                    publishStage === "publishing"
+                      ? "Publishing your moment…"
+                      : "Preparing and uploading encrypted media…"
+                  }
+                  tone="info"
+                />
+              )}
               <T style={{ color: C.muted, fontSize: 12, textAlign: "center" }}>
                 A kind word goes a long way. Keep your circle welcoming.
               </T>
@@ -912,6 +1203,46 @@ function CreateScreenForAccount() {
           )}
         </ScrollView>
       </KeyboardAvoidingView>
+      <Modal
+        visible={
+          recorderScope !== null &&
+          batch1OperationIdentityMatches(recorderScope, composerIdentity)
+        }
+        animationType="slide"
+        onRequestClose={() => setRecorderScope(null)}
+      >
+        {recorderScope &&
+          batch1OperationIdentityMatches(recorderScope, composerIdentity) && (
+            <View
+              style={{
+                flex: 1,
+                backgroundColor: C.bg,
+                paddingTop: insets.top,
+                paddingBottom: insets.bottom,
+                paddingLeft: insets.left,
+                paddingRight: insets.right,
+              }}
+            >
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{
+                  padding: 14,
+                  maxWidth: 620,
+                  width: "100%",
+                  alignSelf: "center",
+                }}
+              >
+                <VideoRecorder
+                  key={batch1OperationKey(recorderScope)}
+                  maxBytes={Math.min(20, maxUploadMb) * 1024 * 1024}
+                  onUse={(draft) => acceptRecording(draft, recorderScope)}
+                  onClose={() => setRecorderScope(null)}
+                />
+              </ScrollView>
+            </View>
+          )}
+      </Modal>
     </View>
   );
 }

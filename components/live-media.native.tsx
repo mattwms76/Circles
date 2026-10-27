@@ -21,7 +21,6 @@ import {
   type LiveOfferEpoch,
   withLiveOfferEpoch,
 } from "@/lib/live-ice";
-import { shouldPreserveLiveParticipantReadiness } from "@/lib/parity27-live-media-recovery";
 import { createTRPCClient } from "@/lib/trpc";
 import type {
   A26LiveMediaPhase,
@@ -407,15 +406,6 @@ export default function LiveMedia({
       if (terminateLiveTransportForError(error, terminate)) return;
       const message = messageFor(error);
       setStatus(message);
-      if (
-        shouldPreserveLiveParticipantReadiness({
-          host,
-          hostMediaReady,
-          viewerMediaReady,
-        })
-      ) {
-        return;
-      }
       emitMediaPhase("error", message);
       callbackRef.current.onError?.(message);
     };
@@ -783,7 +773,6 @@ export default function LiveMedia({
         hostId = session.hostId;
         hostGeneration = session.hostGeneration;
         cursor = session.signalCursor;
-        emitMediaPhase("admitted");
         await applyRelayCredentials(session.ice, false);
       } catch {
         const nextRecoveryPlan = recoveringFailedPeer
@@ -928,15 +917,6 @@ export default function LiveMedia({
             report(error);
           }
           cursor = Math.max(cursor, signal.id);
-        }
-        if (
-          shouldPreserveLiveParticipantReadiness({
-            host,
-            hostMediaReady,
-            viewerMediaReady,
-          })
-        ) {
-          setStatus("Live");
         }
       } catch (error) {
         report(error);

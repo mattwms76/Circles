@@ -4,13 +4,13 @@ import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 
 describe("current Activity Inbox recovery manifests", () => {
-  it("loads the actual example and packaged template against the reviewed 30-query inventory", async () => {
+  it("loads the actual example and packaged template against the reviewed 31-query inventory", async () => {
     const root = process.cwd();
     const recovery = await import(
       pathToFileURL(path.join(root, "scripts/recover-api.mjs")).href
     );
     const inventory = recovery.deriveEndpointInventory(root);
-    expect(inventory.endpoints).toHaveLength(30);
+    expect(inventory.endpoints).toHaveLength(31);
     expect(
       inventory.endpoints.every(
         (endpoint: { supported: boolean }) => endpoint.supported,
@@ -32,6 +32,7 @@ describe("current Activity Inbox recovery manifests", () => {
       ]) {
         expect(overrides[name]).toEqual({ input: {} });
       }
+      expect(overrides["social.publicationStatus"]).toEqual({ input: {} });
     }
   });
 });

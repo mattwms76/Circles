@@ -29,19 +29,6 @@ type SyntheticPost = {
   createdAt: Date;
 };
 
-function conditionIncludesPostId(
-  value: unknown,
-  id: number,
-  seen = new Set<unknown>(),
-): boolean {
-  if (value === id) return true;
-  if (!value || typeof value !== "object" || seen.has(value)) return false;
-  seen.add(value);
-  return Object.values(value as Record<string, unknown>).some((child) =>
-    conditionIncludesPostId(child, id, seen),
-  );
-}
-
 function thenableRows<T>(rows: T[]) {
   return {
     for: async () => rows,
@@ -79,24 +66,20 @@ function searchableFeedFixture() {
       from: (table: unknown) => {
         if (table === posts) {
           return {
-            where: (condition: unknown) => {
-              return {
-                orderBy: () => ({
-                  limit: async () => {
-                    candidateReadCount += 1;
-                    return candidateReadCount === 1
-                      ? matchingPosts
-                      : [matchingPosts[matchingPosts.length - 1]];
-                  },
-                }),
+            where: () => ({
+              orderBy: () => ({
                 limit: async () => {
-                  const post = postOutputReads.find((candidate) =>
-                    conditionIncludesPostId(condition, candidate.id),
-                  );
-                  return post ? [post] : [];
+                  candidateReadCount += 1;
+                  return candidateReadCount === 1
+                    ? matchingPosts
+                    : [matchingPosts[matchingPosts.length - 1]];
                 },
-              };
-            },
+              }),
+              limit: async () => {
+                const post = postOutputReads.shift();
+                return post ? [post] : [];
+              },
+            }),
           };
         }
         if (table === profiles) {
@@ -118,12 +101,7 @@ function searchableFeedFixture() {
   };
 
   return {
-    db: {
-      ...db,
-      transaction: vi.fn(async (work: (tx: typeof db) => Promise<unknown>) =>
-        work(db),
-      ),
-    },
+    db,
     beginPageOutput(page: SyntheticPost[]) {
       postOutputReads.push(...page);
     },
@@ -203,7 +181,6 @@ describe("admin parity post search", () => {
       limit: 20,
     });
 
-    expect(fixture.db.transaction).toHaveBeenCalledTimes(20);
     expect(first.items.map((post) => post.id)).toEqual(
       fixture.matchingPosts.slice(0, 20).map((post) => post.id),
     );

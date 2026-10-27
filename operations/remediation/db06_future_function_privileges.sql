@@ -1,0 +1,63 @@
+-- DB-06: future private-function EXECUTE guardrails (PREPARED, NOT ACTIVATED).
+--
+-- PostgreSQL 17 semantics, verified against the source auditor:
+--   * A global ALTER DEFAULT PRIVILEGES entry replaces PostgreSQL's built-in
+--     default ACL for that creator/object type.
+--   * An IN SCHEMA entry is additive. It cannot revoke PUBLIC EXECUTE which a
+--     global creator default grants. Therefore this file deliberately does NOT
+--     claim that a per-schema REVOKE fixes the observed default.
+--
+-- Sanitized audit evidence collected 2026-10-27 found that eligible creator
+-- supabase_admin retains global PUBLIC EXECUTE for future functions. The same
+-- evidence found no currently browser-executable circles_* function. Altering
+-- that global default would affect *every future function made by
+-- supabase_admin in every present and future schema, including provider-managed
+-- schemas. It is not an application-only migration and is intentionally not
+-- executed by this candidate.
+--
+-- Required live preflight before any provider-approved global change:
+--   1. The provider and object owner explicitly approve a provider-wide change
+--      to supabase_admin's default FUNCTION ACL, including unrelated schemas.
+--   2. Query pg_default_acl as a privileged approved operator and record the
+--      exact supabase_admin global FUNCTION ACL and all schema-additive FUNCTION
+--      ACLs. Confirm supabase_admin is still an eligible creator for each
+--      affected schema (owner or CREATE privilege).
+--   3. Enumerate provider automation / extensions that create functions as
+--      supabase_admin and test them in an isolated PG17/provider-equivalent
+--      environment. No current provider routine is altered by DB-06.
+--   4. Obtain an exact rollback ACL approved by the provider. Do not infer it
+--      from a per-schema ACL or from PostgreSQL's built-in default.
+--
+-- Provider-reviewed command (INTENTIONALLY COMMENTED; not auto-applied):
+-- ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin
+--   REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+--
+-- The command above is global: omitting IN SCHEMA is intentional, because an
+-- IN SCHEMA revoke cannot counteract a global PUBLIC EXECUTE grant. It must be
+-- run only in the separate provider-approved change window after the preflight
+-- above. This candidate makes no DDL/DML, does not alter existing routines, and
+-- does not change roles, schemas, default TYPE USAGE, grants, RLS, or schedules.
+
+-- ---------------------------------------------------------------------------
+-- Required guardrail for EVERY new private routine while the global provider
+-- default remains under review. Put this immediately after CREATE OR REPLACE
+-- FUNCTION, use the routine's exact identity arguments, then grant only the
+-- reviewed caller(s). This is per-routine and safely overrides the function's
+-- initial PUBLIC EXECUTE ACL without changing unrelated existing functions.
+--
+-- Example (replace all angle-bracketed values; do not run as-is):
+--
+-- CREATE OR REPLACE FUNCTION <private_schema>.<private_function>(<identity_args>)
+-- RETURNS <return_type>
+-- LANGUAGE <language>
+-- ...;
+-- REVOKE EXECUTE ON FUNCTION <private_schema>.<private_function>(<identity_args>)
+--   FROM PUBLIC;
+-- GRANT EXECUTE ON FUNCTION <private_schema>.<private_function>(<identity_args>)
+--   TO <reviewed_role>;
+--
+-- For an intentionally uncallable trigger helper, stop after REVOKE EXECUTE;
+-- trigger invocation does not require a direct callable grant to browser roles.
+-- For overloaded routines, repeat the REVOKE/GRANT for each exact identity.
+-- Do not use REVOKE ... ON ALL FUNCTIONS IN SCHEMA: that would silently change
+-- unrelated provider/application routines and is outside DB-06.

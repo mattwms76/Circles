@@ -37,7 +37,6 @@ import {
   createBatch1OperationInstance,
   type Batch1OperationScope,
 } from "@/lib/batch1-mutation-feedback";
-import { ownProfileEditorScope } from "../lib/parity27-chat-editor-state";
 import { invalidateProfileViews } from "@/lib/source-query-invalidation";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppShell } from "./app-shell";
@@ -373,186 +372,6 @@ function ProfileFollowActions({
   );
 }
 
-function OwnProfileActions({
-  accountId,
-  profile,
-  profileEditorScope,
-  compactOwnProfileActions,
-  editorOuterPadding,
-  topInset,
-  bottomInset,
-  requireAuth,
-  notify,
-  refetchProfile,
-}: {
-  accountId: number;
-  profile: { id: number; name: string; handle: string; bio?: string | null };
-  profileEditorScope: string;
-  compactOwnProfileActions: boolean;
-  editorOuterPadding: number;
-  topInset: number;
-  bottomInset: number;
-  requireAuth: (action: () => void) => void;
-  notify: (message: string, tone?: StatusTone) => void;
-  refetchProfile: () => void;
-}) {
-  const router = useRouter();
-  const utils = trpc.useUtils();
-  const [editScope, setEditScope] = useState<string | null>(null);
-  const [profileUpdateError, setProfileUpdateError] = useState<{
-    scope: Batch1OperationScope;
-    message: string;
-  } | null>(null);
-  const [pendingProfileUpdateScope, setPendingProfileUpdateScope] =
-    useState<Batch1OperationScope | null>(null);
-  const [profileUpdateInstance] = useState(() =>
-    createBatch1OperationInstance(),
-  );
-  const [profileUpdateGuard] = useState(() => createBatch1OperationGuard());
-  const profileUpdateScopeRef = useRef<Batch1OperationScope | null>(null);
-  const profileUpdateIdentity = useMemo(
-    () =>
-      profileUpdateInstance.createIdentity(accountId, `profile:${profile.id}`),
-    [accountId, profile.id, profileUpdateInstance],
-  );
-  const updateMutation = trpc.social.updateProfile.useMutation();
-
-  function profileUpdateScopeIsCurrent(scope: Batch1OperationScope): boolean {
-    return profileUpdateInstance.isCurrent(scope);
-  }
-
-  useEffect(() => {
-    const scope = profileUpdateInstance.activate(profileUpdateIdentity);
-    profileUpdateScopeRef.current = scope;
-
-    return () => {
-      profileUpdateInstance.deactivate(scope);
-      if (
-        scope &&
-        profileUpdateScopeRef.current?.instanceId === scope.instanceId
-      ) {
-        profileUpdateScopeRef.current = null;
-      }
-    };
-  }, [profileUpdateIdentity, profileUpdateInstance]);
-
-  function saveOwnProfile(draft: {
-    name: string;
-    handle: string;
-    bio: string;
-  }) {
-    const scope = profileUpdateScopeRef.current;
-    if (!scope || !profileUpdateScopeIsCurrent(scope)) return;
-
-    void profileUpdateGuard.run(scope, async () => {
-      if (!profileUpdateScopeIsCurrent(scope)) return;
-      setPendingProfileUpdateScope(scope);
-      setProfileUpdateError(null);
-      try {
-        await updateMutation.mutateAsync(draft);
-        if (!profileUpdateScopeIsCurrent(scope)) return;
-        setEditScope(null);
-        setProfileUpdateError(null);
-        refetchProfile();
-        void invalidateProfileViews(utils);
-        notify("Your profile feels a little more you.", "success");
-      } catch (error) {
-        if (!profileUpdateScopeIsCurrent(scope)) return;
-        setProfileUpdateError({
-          scope,
-          message: a26ProfileUpdateErrorMessage(error),
-        });
-      } finally {
-        if (!profileUpdateScopeIsCurrent(scope)) return;
-        setPendingProfileUpdateScope((current) =>
-          current && batch1OperationKey(current) === batch1OperationKey(scope)
-            ? null
-            : current,
-        );
-      }
-    });
-  }
-
-  const editorOpen = editScope === profileEditorScope;
-  const profileUpdatePending =
-    pendingProfileUpdateScope !== null &&
-    batch1OperationIdentityMatches(
-      pendingProfileUpdateScope,
-      profileUpdateIdentity,
-    );
-  const visibleProfileUpdateError =
-    profileUpdateError &&
-    batch1OperationIdentityMatches(
-      profileUpdateError.scope,
-      profileUpdateIdentity,
-    )
-      ? profileUpdateError.message
-      : null;
-
-  return (
-    <>
-      <View
-        testID="profile-own-actions"
-        style={{
-          marginTop: compactOwnProfileActions ? 12 : 36,
-          gap: 7,
-          alignItems: compactOwnProfileActions ? "stretch" : "flex-end",
-          width: compactOwnProfileActions ? "100%" : undefined,
-          minWidth: 0,
-        }}
-      >
-        <Button
-          title="Edit profile"
-          secondary
-          onPress={() => {
-            setProfileUpdateError(null);
-            setEditScope(profileEditorScope);
-          }}
-          style={{
-            borderRadius: 9,
-            width: compactOwnProfileActions ? "100%" : undefined,
-          }}
-        />
-        <Button
-          title="Edit interests"
-          secondary
-          onPress={() => router.push("/onboarding?edit=1")}
-          style={{
-            borderRadius: 9,
-            width: compactOwnProfileActions ? "100%" : undefined,
-          }}
-        />
-        <Button
-          title="Connect email sign-in"
-          secondary
-          onPress={() => requireAuth(() => router.push("/account/email"))}
-          style={{
-            borderRadius: 9,
-            width: compactOwnProfileActions ? "100%" : undefined,
-          }}
-        />
-      </View>
-      {editorOpen && (
-        <ProfileEditModal
-          key={profileEditorScope}
-          profile={profile}
-          editorOuterPadding={editorOuterPadding}
-          topInset={topInset}
-          bottomInset={bottomInset}
-          saving={profileUpdatePending}
-          saveError={visibleProfileUpdateError}
-          onClose={() => {
-            setEditScope(null);
-            setProfileUpdateError(null);
-          }}
-          onSave={(draft) => requireAuth(() => saveOwnProfile(draft))}
-          onDraftChange={() => setProfileUpdateError(null)}
-        />
-      )}
-    </>
-  );
-}
-
 export default function ProfileScreen({
   personId,
   invalidPersonRoute = false,
@@ -590,12 +409,24 @@ export default function ProfileScreen({
       getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     },
   );
+  const [edit, setEdit] = useState(false);
+  const [profileUpdateError, setProfileUpdateError] = useState<string | null>(
+    null,
+  );
+  const utils = trpc.useUtils();
   const accountId = user?.id ?? null;
   const profileResourceId = p ? `profile:${p.id}` : null;
-  const profileEditorScope = ownProfileEditorScope({
-    accountId,
-    profileId: p?.id,
-    ownsProfile: own,
+
+  const update = trpc.social.updateProfile.useMutation({
+    onSuccess: () => {
+      setEdit(false);
+      setProfileUpdateError(null);
+      void profile.refetch();
+      void invalidateProfileViews(utils);
+      notify("Your profile feels a little more you.", "success");
+    },
+    onError: (error) =>
+      setProfileUpdateError(a26ProfileUpdateErrorMessage(error)),
   });
   const loadedPosts = flattenA26ProfilePages(feed.data?.pages);
   const posts = loadedPosts.filter(
@@ -726,20 +557,50 @@ export default function ProfileScreen({
                 userId={p.id}
               />
             </View>
-            {own && profileEditorScope && accountId !== null && (
-              <OwnProfileActions
-                key={profileEditorScope}
-                accountId={accountId}
-                profile={p}
-                profileEditorScope={profileEditorScope}
-                compactOwnProfileActions={compactOwnProfileActions}
-                editorOuterPadding={editorOuterPadding}
-                topInset={insets.top}
-                bottomInset={insets.bottom}
-                requireAuth={requireAuth}
-                notify={notify}
-                refetchProfile={() => void profile.refetch()}
-              />
+            {own && (
+              <View
+                testID="profile-own-actions"
+                style={{
+                  marginTop: compactOwnProfileActions ? 12 : 36,
+                  gap: 7,
+                  alignItems: compactOwnProfileActions ? "stretch" : "flex-end",
+                  width: compactOwnProfileActions ? "100%" : undefined,
+                  minWidth: 0,
+                }}
+              >
+                <Button
+                  title="Edit profile"
+                  secondary
+                  onPress={() => {
+                    setProfileUpdateError(null);
+                    setEdit(true);
+                  }}
+                  style={{
+                    borderRadius: 9,
+                    width: compactOwnProfileActions ? "100%" : undefined,
+                  }}
+                />
+                <Button
+                  title="Edit interests"
+                  secondary
+                  onPress={() => router.push("/onboarding?edit=1")}
+                  style={{
+                    borderRadius: 9,
+                    width: compactOwnProfileActions ? "100%" : undefined,
+                  }}
+                />
+                <Button
+                  title="Connect email sign-in"
+                  secondary
+                  onPress={() =>
+                    requireAuth(() => router.push("/account/email"))
+                  }
+                  style={{
+                    borderRadius: 9,
+                    width: compactOwnProfileActions ? "100%" : undefined,
+                  }}
+                />
+              </View>
             )}
           </View>
           <View style={{ paddingVertical: 16, gap: 10, minWidth: 0 }}>
@@ -906,6 +767,22 @@ export default function ProfileScreen({
             </>
           )}
         </>
+      )}
+      {edit && p && (
+        <ProfileEditModal
+          profile={p}
+          editorOuterPadding={editorOuterPadding}
+          topInset={insets.top}
+          bottomInset={insets.bottom}
+          saving={update.isPending}
+          saveError={profileUpdateError}
+          onClose={() => {
+            setEdit(false);
+            setProfileUpdateError(null);
+          }}
+          onSave={(draft) => requireAuth(() => update.mutate(draft))}
+          onDraftChange={() => setProfileUpdateError(null)}
+        />
       )}
     </AppShell>
   );

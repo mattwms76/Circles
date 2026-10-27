@@ -27,6 +27,7 @@ describe("optional email-auth deployment readiness", () => {
           runtime_role: "circles_app_runtime",
           app_table_count: 27,
           oauth_store_ready: true,
+          critical_contract_ready: true,
         },
       ],
     });

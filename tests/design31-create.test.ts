@@ -18,6 +18,8 @@ const fixture = vi.hoisted(() => ({
     circleId: "12" as string | undefined,
     intro: undefined as string | undefined,
   },
+  publicationReady: true,
+  publicationFetched: true,
   circles: {
     data: undefined as
       | { id: number; name: string; joined?: boolean }[]
@@ -33,6 +35,7 @@ vi.mock("react", async (importOriginal) => {
   const actual = await importOriginal<typeof import("react")>();
   return {
     ...actual,
+    useCallback: <T>(callback: T) => callback,
     useEffect: () => undefined,
     useMemo: <T>(factory: () => T) => factory(),
     useRef: <T>(initialValue: T) => ({ current: initialValue }),
@@ -46,7 +49,9 @@ vi.mock("react", async (importOriginal) => {
 });
 
 vi.mock("react-native", () => ({
+  AppState: { currentState: "active", addEventListener: vi.fn() },
   KeyboardAvoidingView: "KeyboardAvoidingView",
+  Modal: "Modal",
   Platform: { OS: "web" },
   Pressable: "Pressable",
   ScrollView: "ScrollView",
@@ -58,7 +63,19 @@ vi.mock("expo-constants", () => ({
 vi.mock("expo-image-picker", () => ({
   launchImageLibraryAsync: vi.fn(),
 }));
+vi.mock("expo-crypto", () => ({ randomUUID: vi.fn() }));
+vi.mock("@/components/video-recorder", () => ({
+  VideoRecorder: "VideoRecorder",
+}));
+vi.mock("@/components/recorded-video-preview", () => ({
+  RecordedVideoPreview: "RecordedVideoPreview",
+}));
+vi.mock("@/lib/recorded-video-files", () => ({
+  deleteRecordedVideo: vi.fn(),
+  recordedVideoBase64: vi.fn(),
+}));
 vi.mock("expo-router", () => ({
+  useFocusEffect: vi.fn(),
   useLocalSearchParams: () => fixture.params,
   useRouter: () => ({
     back: vi.fn(),
@@ -75,6 +92,14 @@ vi.mock("@/components/status-message", () => ({
 }));
 vi.mock("@/components/user-avatar", () => ({ UserAvatar: "UserAvatar" }));
 vi.mock("@/lib/design31-create", async () => import("../lib/design31-create"));
+vi.mock(
+  "@/lib/post-publish-attempt",
+  async () => import("../lib/post-publish-attempt"),
+);
+vi.mock(
+  "@/lib/post-publish-error",
+  async () => import("../lib/post-publish-error"),
+);
 vi.mock("@/components/circles-ui", () => ({
   Button: "Button",
   C: {
@@ -180,6 +205,15 @@ vi.mock("@/lib/trpc", () => ({
       },
     },
     social: {
+      publicationStatus: {
+        useQuery: () => ({
+          data: { ready: fixture.publicationReady },
+          isFetchedAfterMount: fixture.publicationFetched,
+          isFetching: false,
+          isError: false,
+          refetch: vi.fn(),
+        }),
+      },
       circles: { useQuery: () => fixture.circles },
       createCircle: { useMutation: () => ({ mutateAsync: vi.fn() }) },
       createPost: { useMutation: () => ({ mutateAsync: vi.fn() }) },
@@ -244,11 +278,55 @@ beforeEach(() => {
   fixture.params.mode = "post";
   fixture.params.circleId = "12";
   fixture.params.intro = undefined;
+  fixture.publicationReady = true;
+  fixture.publicationFetched = true;
   fixture.circles.data = undefined;
   fixture.circles.isPending = false;
   fixture.circles.isFetching = false;
   fixture.circles.isError = false;
   fixture.circles.refetch.mockReset();
+});
+
+describe("Record–Preview–Publish receipt readiness", () => {
+  it("blocks Publish when durable receipts are unavailable without blocking local media selection", () => {
+    fixture.publicationReady = false;
+    fixture.params.circleId = undefined;
+    const rendered = renderCreateScreen();
+    expect(findButton(rendered, "Publish your moment")?.props.disabled).toBe(
+      true,
+    );
+    expect(
+      findElement(
+        rendered,
+        "StatusMessage",
+        (element) =>
+          element.props.testID === "create-publication-readiness" &&
+          String(element.props.message).includes("record and preview locally"),
+      ),
+    ).toBeDefined();
+    expect(
+      findElement(rendered, "Pressable", (element) =>
+        String(element.props.accessibilityLabel).startsWith("Add "),
+      )?.props.disabled,
+    ).toBe(false);
+  });
+  it("does not trust cached readiness before this account/composer has fetched it", () => {
+    fixture.publicationFetched = false;
+    fixture.params.circleId = undefined;
+    const rendered = renderCreateScreen();
+    expect(findButton(rendered, "Publish your moment")?.props.disabled).toBe(
+      true,
+    );
+    expect(
+      findElement(
+        rendered,
+        "StatusMessage",
+        (element) =>
+          element.props.message === "Checking retry-safe publishing…" &&
+          element.props.tone === "info",
+      ),
+    ).toBeDefined();
+  });
 });
 
 describe("D26-16 Create retained recipient states", () => {
@@ -277,7 +355,7 @@ describe("D26-16 Create retained recipient states", () => {
           "Selected circle: Night Hikers.",
       ),
     ).toBeDefined();
-    expect(findButton(rendered, "Share your moment")?.props.disabled).toBe(
+    expect(findButton(rendered, "Publish your moment")?.props.disabled).toBe(
       false,
     );
   });
@@ -303,7 +381,7 @@ describe("D26-16 Create retained recipient states", () => {
           element.props.tone === "info",
       ),
     ).toBeDefined();
-    expect(findButton(rendered, "Share your moment")?.props.disabled).toBe(
+    expect(findButton(rendered, "Publish your moment")?.props.disabled).toBe(
       true,
     );
   });
@@ -335,7 +413,7 @@ describe("D26-16 Create retained recipient states", () => {
     expect(retry?.props.disabled).toBe(false);
     (retry?.props.onPress as (() => void) | undefined)?.();
     expect(fixture.circles.refetch).toHaveBeenCalledTimes(1);
-    expect(findButton(rendered, "Share your moment")?.props.disabled).toBe(
+    expect(findButton(rendered, "Publish your moment")?.props.disabled).toBe(
       true,
     );
   });

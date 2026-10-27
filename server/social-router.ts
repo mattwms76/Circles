@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { isAllowedMediaAttachmentReference } from "../shared/media";
+import { inspectRecordedMp4 } from "../shared/recorded-video";
 import type {
   Circle,
   Comment,
@@ -18,7 +19,7 @@ import {
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { requestCancellation } from "./_core/bounded-network";
 import { getDb } from "./db";
-import { assertPlatformUploadSize } from "./platform-settings";
+import { assertPlatformUploadSizeWithLimit } from "./platform-settings";
 import { storagePut } from "./storage";
 import {
   approveMember,
@@ -32,6 +33,7 @@ import {
   feedPage,
   findProfile,
   getCircle,
+  getPostPublicationStatus,
   getProfile,
   joinCircle,
   leaveCircle,
@@ -158,6 +160,47 @@ const mimeType = z
   );
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 const MAX_BASE64_CHARACTERS = Math.ceil((MAX_UPLOAD_BYTES * 4) / 3) + 4;
+const clientPublishId = z
+  .string()
+  .min(16)
+  .max(96)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/);
+const recordingUpload = z.object({
+  maxDurationSeconds: z.union([z.literal(30), z.literal(60)]),
+});
+
+export const createPostInput = z
+  .object({
+    text: z.string().trim().max(10_000),
+    media: optionalMediaUrl,
+    mediaType: z.enum(["text", "photo", "video"]),
+    circleId: id.optional(),
+    // Omission preserves legacy callers; the client owns retrying one generated operation ID.
+    clientPublishId: clientPublishId.optional(),
+  })
+  .superRefine((value, issue) => {
+    if (!value.text && !value.media) {
+      issue.addIssue({
+        code: "custom",
+        message: "A post needs text or media",
+        path: ["text"],
+      });
+    }
+    if (value.mediaType !== "text" && !value.media) {
+      issue.addIssue({
+        code: "custom",
+        message: "Photo and video posts need media",
+        path: ["media"],
+      });
+    }
+    if (value.mediaType === "text" && value.media) {
+      issue.addIssue({
+        code: "custom",
+        message: "Text posts cannot include media",
+        path: ["media"],
+      });
+    }
+  });
 
 function decodeBase64(base64: string): Buffer {
   const value = base64.trim();
@@ -483,8 +526,7 @@ export const socialRouter = router({
     .input(
       z.object({
         circleId: id,
-        // JS Date truncates PostgreSQL microseconds; accept the exact companion when supplied.
-        cursor: feedPageCursor.optional(),
+        cursor: dateIdCursor.optional(),
         limit: pageLimit,
       }),
     )
@@ -495,7 +537,6 @@ export const socialRouter = router({
               cursor: {
                 createdAt: new Date(input.cursor.createdAt),
                 id: input.cursor.id,
-                createdAtExact: input.cursor.createdAtExact,
               },
             }
           : {}),
@@ -507,7 +548,6 @@ export const socialRouter = router({
           ? {
               createdAt: page.nextCursor.createdAt.toISOString(),
               id: page.nextCursor.id,
-              createdAtExact: page.nextCursor.createdAtExact,
             }
           : null,
       };
@@ -538,41 +578,13 @@ export const socialRouter = router({
     ),
 
   createPost: protectedProcedure
-    .input(
-      z
-        .object({
-          text: z.string().trim().max(10_000),
-          media: optionalMediaUrl,
-          mediaType: z.enum(["text", "photo", "video"]),
-          circleId: id.optional(),
-        })
-        .superRefine((value, issue) => {
-          if (!value.text && !value.media) {
-            issue.addIssue({
-              code: "custom",
-              message: "A post needs text or media",
-              path: ["text"],
-            });
-          }
-          if (value.mediaType !== "text" && !value.media) {
-            issue.addIssue({
-              code: "custom",
-              message: "Photo and video posts need media",
-              path: ["media"],
-            });
-          }
-          if (value.mediaType === "text" && value.media) {
-            issue.addIssue({
-              code: "custom",
-              message: "Text posts cannot include media",
-              path: ["media"],
-            });
-          }
-        }),
-    )
+    .input(createPostInput)
     .mutation(
       ({ ctx, input }): Promise<Post> => createPost(ctx.user.id, input),
     ),
+
+  /** Catalog-only preflight for a composer that will send a retry-safe clientPublishId. */
+  publicationStatus: protectedProcedure.query(() => getPostPublicationStatus()),
 
   likePost: protectedProcedure
     .input(z.object({ postId: id, liked: z.boolean().optional() }))
@@ -662,7 +674,12 @@ export const socialRouter = router({
 
   upload: protectedProcedure
     .input(
-      z.object({ base64: z.string().max(MAX_BASE64_CHARACTERS), mimeType }),
+      z.object({
+        base64: z.string().max(MAX_BASE64_CHARACTERS),
+        mimeType,
+        /** Only explicit recorder submissions receive authoritative MP4 metadata inspection. */
+        recording: recordingUpload.optional(),
+      }),
     )
     .mutation(async ({ ctx, input }): Promise<{ url: string }> => {
       const cancellation = requestCancellation(ctx.req, ctx.res);
@@ -675,6 +692,7 @@ export const socialRouter = router({
           });
         }
         const db = await getDb().catch(() => null);
+        let effectiveMaxBytes = MAX_UPLOAD_BYTES;
         if (!db) {
           if (process.env.CIRCLES_PLATFORM_SETTINGS_ENABLED === "true") {
             throw new TRPCError({
@@ -683,7 +701,32 @@ export const socialRouter = router({
             });
           }
         } else {
-          await assertPlatformUploadSize(db, bytes.length);
+          effectiveMaxBytes = await assertPlatformUploadSizeWithLimit(
+            db,
+            bytes.length,
+          );
+        }
+        if (input.recording) {
+          if (input.mimeType !== "video/mp4") {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Recorded video uploads must use video/mp4",
+            });
+          }
+          try {
+            inspectRecordedMp4(bytes, {
+              maxDurationSeconds: input.recording.maxDurationSeconds,
+              maxBytes: effectiveMaxBytes,
+            });
+          } catch (error) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message:
+                error instanceof Error && error.message
+                  ? error.message
+                  : "Recorded video is invalid or unsupported",
+            });
+          }
         }
         const extension =
           input.mimeType === "image/jpeg"

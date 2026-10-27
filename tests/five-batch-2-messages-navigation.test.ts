@@ -71,9 +71,7 @@ describe("Batch 2 messages and navigation accessibility", () => {
     );
     expect(chat).toContain("busy: isFetchingEarlierMessages");
     expect(chat).toContain('accessibilityLabel="Message text"');
-    expect(chat).toContain("const sendDisabled =");
-    expect(chat).toContain("chatAuthorityLocked ||");
-    expect(chat).toContain("!hasSendableMessage");
+    expect(chat).toContain("const sendDisabled = !hasSendableMessage");
     expect(chat).toContain("disabled={sendDisabled}");
     expect(chat).toContain("busy: send.isPending || sendingMedia");
     expect(chat).toContain('label="Remove selected attachment"');

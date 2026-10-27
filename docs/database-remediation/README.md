@@ -1,0 +1,53 @@
+# Database remediation register — 27 October 2026
+
+This change addresses every item DB-01 through DB-17 in the audit. **Implemented source, rehearsed SQL, production activation, and verified incident closure are separate states.** None of the new production SQL has been applied by this implementation. No live data was rewritten, normalized, deleted, restored or seeded. No credential was rotated, no authentication provider enabled, no application published, and no retention job scheduled.
+
+## Per-issue implementation and remaining activation
+
+| Issue | Delivered source/remediation | Verification | Remaining live or owner-dependent work |
+| --- | --- | --- | --- |
+| DB-01 | Exact guarded legacy SELECT-policy candidate; limits private Circle/profile/follow reads under the existing UUID identity model. | Local PG17 rejects absent approval and enforces the authenticated predicates while retaining all synthetic rows. | Product must approve compatibility/privacy behavior before these legacy policies change. This does not establish end-to-end provider Data API behavior. |
+| DB-02 | Dedicated `circles_app_login` creation with NOLOGIN/NOINHERIT, no elevated flags, SET-only non-admin runtime membership; connection parsing supports its protected cutover. | Actual local role flags, membership, SET ROLE and refusal to reuse an existing principal. | Protected credential provisioning, all-consumer inventory, separate operational credentials, LOGIN activation and verified application cutover. The existing privileged connection remains in place meanwhile. |
+| DB-03 | Executable-SQL lexical recognition; verified runtime checkout; bounded raw DISCARD ALL release barrier, destruction on leaks/failure/timeout; terminal released clients. Existing API resource/account authorization retained. | Unit cases and actual PG17 literals, prepared statements, GUC cleanup, leaked transactions, callbacks, configuration and replacement clients; HTTP authorization regression. | This is defense in depth, **not account-scoped RLS** and not a sandbox for hostile trusted-server code. An actor-scoped database architecture still needs its own design decision. |
+| DB-04 | Exact validation of ten historical CHECKs and the pinned-post FK; guarded definitions, lock/statement budgets and all-or-nothing validation. | Actual PG17 valid history and eleven distinct invalid historical fixtures; idempotence and retained invalid fixture rows. Catalog hashes use the audited rendering mode and ASCII-only whitespace normalization, avoiding locale-dependent Unicode-rule corruption. | Approve and execute guarded production validation, then confirm all eleven catalog validation flags. |
+| DB-05 | Exact integrated app/admin ACL/policy/membership contract, baseline/provisioned/cutover login states and complete DB-09 pre/post states; unknown gateway setting is non-passing UNKNOWN. | Positive transitions; extra memberships, admin options, direct ACLs, policy changes/partial consolidation fail closed. | Rerun against live state and independently settle provider gateway UNKNOWN. An expected global creator default remains a reported warning until DB-06 approval. |
+| DB-06 | Explicit per-routine EXECUTE revocation pattern and a provider-wide-default candidate that is deliberately not auto-applied. | Source tests of scope and the global-versus-additive-schema default distinction. | Changing global `supabase_admin` defaults affects unrelated/provider functions and needs provider/owner approval. No current-function browser exposure was found. |
+| DB-07 | Twelve exact covering child-FK B-tree indexes, concurrent/autocommit runner requirements and postflight catalog checks. | Actual PG17 definitions, mismatched-name rejection, no-transaction enforcement and safe rerun. | Approve the workload/maintenance window and execute the reviewed concurrent-index runner. No indexes dropped. |
+| DB-08 | Guarded pg_catalog-only paths for two exact admin invoker trigger helpers. | Local PG17 verifies bodies, owners and ACLs unchanged; refuses preconfigured drift. | Apply exact additive SQL and recheck actual helper settings. |
+| DB-09 | Consolidates only the twelve complete named duplicate groups after exact role/predicate/native/browser-denial checks. | Actual PG17 mismatch rollback, complete consolidation and idempotent post-state; auditor rejects partial states. | Approve production policy removal and verify effective admin/native/browser boundaries. |
+| DB-10 | Workload-aware, read-only index comparison tooling rather than dropping zero-scan indexes. | Source-contract and statistics-lifetime/baseline comparison tests. | Collect representative workload and query plans before any separate removal proposal. All 98 observed zero-scan indexes are retained. |
+| DB-11 | Compatible composite receipt PK with a separate PK-owned index and the existing named UNIQUE constraint accurately represented in Drizzle. | Local PG17 validates both distinct arbiters, ON CONFLICT retries, post-delete tombstone and actor-delete cascade; actual publication HTTP suite. | Review downstream tooling/replication and approve production PK creation. |
+| DB-12 | Source-derived full durable recovery manifest, fail-closed evidence checker and explicit empty OAuth-state recreation. Fixed current backup CI's root initdb failure and non-portable source/bootstrap assumptions in the separate backup repository. | Full existing backup safety suite: 109 tests, zero skips, actual OS postgres with minimal environment and bundled immutable historical migrations. Recovery manifest tests do not claim external recovery proof. | Current full encrypted backup, asset integrity/retention and isolated complete restore comparison; admin/publish backup-scope candidate remains unactivated. Media bytes, existing key continuity and provider-managed state are separate unverified prerequisites. |
+| DB-13 | Bounded protected Management API/evidence verification tool; explicit source/timestamp/project/schema checks and unknown propagation. | Offline positive, negative, stale and malformed evidence cases. | Authorized actual gateway/auto-exposure settings remain unknown: enabling a connector alone did not expose those settings or a protected management token. No setting is invented or changed. |
+| DB-14 | Bounded critical table/type/constraint/index/trigger/policy/ACL checks for readiness, publish preflight and enabled identity; additive independently callable ops integrity helper. Helper rejects prior overloads, has exact owner/security/search path/ACL and bounded install waits. | Unit/readiness tests and actual PG17 healthy baseline plus negative column/index/policy/helper ACL/prior-signature cases. | Deploy source and approve installing the separate health helper. Existing Cron identity/schedule and historical health function are not silently replaced; no claim that Cron calls the new helper. |
+| DB-15 | Direct conversation creation/resolution and both participant upserts share one Drizzle transaction. | Actual HTTP→tRPC→service→PG17 synthetic second-participant trigger failure leaves zero conversation; concurrent opens converge on one conversation/two participants. | Source deployment; no production inconsistency was repaired because none was observed. |
+| DB-16 | Bounded opportunistic OAuth cleanup; separate operator-only helper defaults to aggregate dry run and caps batches with SKIP LOCKED. | Local PG17 dry run preserves all rows; explicit synthetic delete is capped and browser/runtime execution denied. | Proposed 90-day expired/180-day revoked session horizons require retention/legal/product approval; no live delete or unattended schedule is activated. |
+| DB-17 | Exact same-Circle composite pin FK/index candidate retaining clear-on-delete semantics. Live host/Circle/stream alternatives are documented, not silently chosen. | Local PG17 accepts own post, rejects cross-parent/reparent changes, preserves Circle identity on post delete and reruns safely. | Approve pin rollout and separately choose user/stream/chat/signal retention/tombstone semantics before any live-table FK enforcement. New composite FK is NOT VALID until separately certified. |
+
+## Reproducible validation
+
+Use only repository-owned, disposable loopback fixtures, never the managed/shared database:
+
+```bash
+pnpm check
+pnpm lint:ci --max-warnings=0
+pnpm format:check
+pnpm test
+pnpm test:database-remediation
+pnpm build
+CIRCLES_DB03_LOCAL_PG17=1 pnpm exec tsx operations/tests/db03-runtime-pool.pg17.mjs
+CIRCLES_DB04_LOCAL_PG17=1 node operations/tests/database-remediation-db04.pg17.mjs
+DB07_RUN_SYNTHETIC_PG17=1 node --test operations/tests/db07-foreign-key-indexes.node.mjs
+/usr/bin/python3 -B operations/tests/database-remediation-integration.pg17.py
+CIRCLES_DB14_LOCAL_PG17=1 /usr/bin/python3 -B operations/tests/db14-critical-contracts.pg17.py
+/usr/bin/python3 -B scripts/run-circle-home-e2e.py --suite a26-authority
+/usr/bin/python3 -B scripts/run-circle-home-e2e.py --suite post-publish-idempotency
+```
+
+The added integration fixture recreates only the selected exact admin/legacy contracts required by each candidate. It does not purport to reproduce the entire provider catalog or prove complete admin recovery. All fixture processes and temporary clusters are removed. The existing credential-free CI now includes the focused migrations/runtime/health drills; no provider credentials are added to CI.
+
+The canonical app starts from `e0e83778af66494c60dfdd0511b51b50e3d369a5`. The separately authorized GitHub mirror has newer unrelated cleanup on main. Preserve that main and both histories: use a named validation branch for a source-tree-equivalent remediation snapshot rather than overwriting cleanup or changing repository ownership. Source-equivalent CI success does not mean production publication or native-device verification.
+
+## Production gate
+
+Do not run `db:push` or execute all SQL files indiscriminately. The concurrent-index files cannot run inside a transaction. Start with fresh catalog preflight/aggregate checks, an independently verified backup/restore decision and an approved maintenance window. Only then submit the exact reviewed private migrations. Dedicated-login activation, legacy privacy changes, global provider defaults, retention deletion, relationship deletion semantics and backup-scope expansion are separate explicit choices, not implicit consequences of fixing source.

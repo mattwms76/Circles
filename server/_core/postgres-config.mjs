@@ -14,7 +14,12 @@ const PROJECT_REF = "vvclcsqletcxzoaayqzq";
 const DATABASE_NAME = "postgres";
 const DIRECT_HOST = `db.${PROJECT_REF}.supabase.co`;
 const SESSION_POOLER_HOST = "aws-0-eu-west-1.pooler.supabase.com";
-const SESSION_POOLER_USER = `postgres.${PROJECT_REF}`;
+const LEGACY_LOGIN_ROLE = "postgres";
+const DEDICATED_APP_LOGIN_ROLE = "circles_app_login";
+const SESSION_POOLER_USERS = new Map([
+  [LEGACY_LOGIN_ROLE, `${LEGACY_LOGIN_ROLE}.${PROJECT_REF}`],
+  [DEDICATED_APP_LOGIN_ROLE, `${DEDICATED_APP_LOGIN_ROLE}.${PROJECT_REF}`],
+]);
 const SUPABASE_ROOT_CA_SHA256 =
   "807025ad50d4ed219d2c9c7d299c004f824eb00cf7f65afef607d07b72e6cafa";
 const SUPABASE_CA_RELATIVE_PATH = "server/certificates/supabase-root-2021.crt";
@@ -81,10 +86,17 @@ export function getPostgresConnectionOptions(
       "SUPABASE_DATABASE_URL targets an unexpected host",
     );
   }
-  if (
-    (isKnownDirectHost && sourceUser !== "postgres") ||
-    (isKnownSessionPooler && sourceUser !== SESSION_POOLER_USER)
-  ) {
+
+  // Keep the existing postgres principal valid until the protected credential
+  // cutover is complete, while accepting only the separately provisioned app
+  // principal. URL query options are intentionally ignored below: the returned
+  // config always pins the host, port, database, CA, and TLS server name.
+  const sessionPoolerUser = isKnownDirectHost
+    ? SESSION_POOLER_USERS.get(sourceUser)
+    : [...SESSION_POOLER_USERS.values()].find(
+        (poolerUser) => poolerUser === sourceUser,
+      );
+  if (!sessionPoolerUser) {
     throw configurationError(
       "SUPABASE_DATABASE_URL targets an unexpected database user",
     );
@@ -120,7 +132,7 @@ export function getPostgresConnectionOptions(
     host: SESSION_POOLER_HOST,
     port: 5432,
     database: DATABASE_NAME,
-    user: SESSION_POOLER_USER,
+    user: sessionPoolerUser,
     password,
     // These limits apply before application code sees a client, including
     // readiness and the role-initialization query. They are intentionally

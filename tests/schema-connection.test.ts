@@ -88,7 +88,17 @@ describe("private Supabase PostgreSQL configuration", () => {
 describe("runtime-role Pool guard", () => {
   it("initializes every supplied client before use", async () => {
     const client = {
-      query: vi.fn().mockResolvedValue({}),
+      query: vi
+        .fn()
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              runtime_role_active: true,
+              runtime_role_restricted: true,
+            },
+          ],
+        }),
       release: vi.fn(),
     };
 

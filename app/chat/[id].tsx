@@ -4,13 +4,7 @@ import {
   useMediaSource,
 } from "@/components/media-image";
 import { StatusMessage } from "@/components/status-message";
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -61,12 +55,6 @@ import {
   messageTextIsWithinLimit,
   positiveSafeConversationId,
 } from "@/lib/a26-messaging-state";
-import {
-  canReleaseChatEditorAuthorityLatch,
-  createChatEditorAuthorityLatch,
-  isExplicitChatEditorAuthorityError,
-  type ChatEditorAuthorityLatch,
-} from "../../lib/parity27-chat-editor-state";
 
 type ReadReceiptState = {
   scope: string;
@@ -200,11 +188,8 @@ function ChatScreenInstance({ conversationId }: { conversationId: number }) {
   );
   const compositionGeneration = useRef(0);
   const sendFlight = useRef(createMessageCompositionSingleFlight());
-  const chatAuthorityLockScope = useRef<string | null>(null);
   const [uncertainDeliveryOperation, setUncertainDeliveryOperation] =
     useState<MessageCompositionOperation | null>(null);
-  const [chatAuthorityLatch, setChatAuthorityLatch] =
-    useState<ChatEditorAuthorityLatch | null>(null);
   const deliveryUncertain = uncertainDeliveryOperation !== null;
   const hasSendableMessage = canSendMessage(text, !!asset);
   const canLoadProtectedChat = authState === "authenticated" && !!user;
@@ -241,109 +226,9 @@ function ChatScreenInstance({ conversationId }: { conversationId: number }) {
   const isFetchingEarlierMessages = messages.isFetchingNextPage;
   const hasOlderPageError = messages.isFetchNextPageError;
   const messagesError = messages.error;
-  const chatAuthorityScope = `${user?.id ?? "guest"}:${conversationId}`;
-  const explicitChatAuthorityLoss =
-    isExplicitChatEditorAuthorityError(messages.error) ||
-    isExplicitChatEditorAuthorityError(conversationMetadata.error);
-  const activeChatAuthorityLatch =
-    chatAuthorityLatch?.scope === chatAuthorityScope
-      ? chatAuthorityLatch
-      : null;
-  const pendingChatAuthorityLatch =
-    explicitChatAuthorityLoss && activeChatAuthorityLatch === null
-      ? createChatEditorAuthorityLatch({
-          scope: chatAuthorityScope,
-          messagesDataUpdatedAt: messages.dataUpdatedAt,
-          metadataDataUpdatedAt: conversationMetadata.dataUpdatedAt,
-        })
-      : activeChatAuthorityLatch;
-  const canReleaseChatAuthority = canReleaseChatEditorAuthorityLatch({
-    latch: pendingChatAuthorityLatch,
-    scope: chatAuthorityScope,
-    transcriptAuthorityAvailable:
-      !messages.isError && !messages.error && messages.data !== undefined,
-    messagesDataUpdatedAt: messages.dataUpdatedAt,
-    metadataAuthorityAvailable:
-      !conversationMetadata.isError && authorizedConversation !== null,
-    metadataDataUpdatedAt: conversationMetadata.dataUpdatedAt,
-  });
-  const releaseChatAuthorityLatch =
-    !explicitChatAuthorityLoss &&
-    activeChatAuthorityLatch !== null &&
-    canReleaseChatAuthority;
-  if (explicitChatAuthorityLoss && activeChatAuthorityLatch === null) {
-    // React restarts this render with the latch and clean draft state before
-    // committing descendants, so a structured denial has no permissive frame.
-    setChatAuthorityLatch(pendingChatAuthorityLatch);
-    setText("");
-    setAsset(null);
-    setSendingMedia(false);
-    setUncertainDeliveryOperation(null);
-  }
-  if (releaseChatAuthorityLatch) {
-    // The latch can only leave render state after both newer, authorized query
-    // generations are present. Ref cleanup/re-activation happens on commit.
-    setChatAuthorityLatch(null);
-  }
-  const chatAuthorityLocked =
-    explicitChatAuthorityLoss ||
-    (!!pendingChatAuthorityLatch && !releaseChatAuthorityLatch);
-  const clearLockedChatOperations = useCallback(() => {
-    if (chatAuthorityLockScope.current === chatAuthorityScope) return;
-
-    chatAuthorityLockScope.current = chatAuthorityScope;
-    if (receiptRetryTimer.current) {
-      clearTimeout(receiptRetryTimer.current);
-      receiptRetryTimer.current = null;
-    }
-    readReceipt.current = {
-      scope: "",
-      acknowledgedThrough: 0,
-      targetMessageId: 0,
-      failedAttempts: 0,
-      inFlight: false,
-    };
-    compositionRetryId.current = null;
-    uploadedMediaUrl.current = null;
-    compositionRetryScope.current = null;
-    activeCompositionOperation.current = null;
-  }, [chatAuthorityScope]);
-  const lockChatAuthority = useCallback(() => {
-    clearLockedChatOperations();
-    setText("");
-    setAsset(null);
-    setSendingMedia(false);
-    setUncertainDeliveryOperation(null);
-    setChatAuthorityLatch((current) =>
-      current?.scope === chatAuthorityScope
-        ? current
-        : createChatEditorAuthorityLatch({
-            scope: chatAuthorityScope,
-            messagesDataUpdatedAt: messages.dataUpdatedAt,
-            metadataDataUpdatedAt: conversationMetadata.dataUpdatedAt,
-          }),
-    );
-  }, [
-    chatAuthorityScope,
-    clearLockedChatOperations,
-    conversationMetadata.dataUpdatedAt,
-    messages.dataUpdatedAt,
-  ]);
-  useLayoutEffect(() => {
-    if (chatAuthorityLocked) {
-      clearLockedChatOperations();
-      return;
-    }
-    chatAuthorityLockScope.current = null;
-  }, [chatAuthorityLocked, clearLockedChatOperations]);
   const conversationUnavailable = !!messagesError && !hasOlderPageError;
-  const sendDisabled =
-    chatAuthorityLocked ||
-    !hasSendableMessage ||
-    send.isPending ||
-    sendingMedia;
+  const sendDisabled = !hasSendableMessage || send.isPending || sendingMedia;
   useEffect(() => {
-    if (chatAuthorityLocked) return;
     const operation = {
       scope: compositionScope,
       generation: compositionGeneration.current + 1,
@@ -361,9 +246,9 @@ function ChatScreenInstance({ conversationId }: { conversationId: number }) {
         activeCompositionOperation.current = null;
       }
     };
-  }, [chatAuthorityLocked, compositionScope]);
+  }, [compositionScope]);
   useEffect(() => {
-    if (chatAuthorityLocked || !userId || !newestDeliveredMessageId) return;
+    if (!userId || !newestDeliveredMessageId) return;
     const scope = `${userId}:${conversationId}`;
     let state = readReceipt.current;
     if (state.scope !== scope) {
@@ -403,11 +288,7 @@ function ChatScreenInstance({ conversationId }: { conversationId: number }) {
           throughMessageId,
         );
         state.failedAttempts = 0;
-      } catch (error) {
-        if (isExplicitChatEditorAuthorityError(error)) {
-          lockChatAuthority();
-          return;
-        }
+      } catch {
         if (state.scope !== scope || state.targetMessageId !== throughMessageId)
           return;
         state.failedAttempts += 1;
@@ -430,32 +311,17 @@ function ChatScreenInstance({ conversationId }: { conversationId: number }) {
         receiptRetryTimer.current = null;
       }
     };
-  }, [
-    chatAuthorityLocked,
-    conversationId,
-    lockChatAuthority,
-    markRead,
-    newestDeliveredMessageId,
-    userId,
-  ]);
+  }, [conversationId, markRead, newestDeliveredMessageId, userId]);
   useEffect(() => {
     scroll.current?.scrollToEnd({ animated: true });
   }, [newestDeliveredMessageId]);
 
   function loadEarlierMessages() {
-    if (!chatAuthorityLocked && !isFetchingEarlierMessages) {
-      void messages.fetchNextPage();
-    }
+    if (!isFetchingEarlierMessages) void messages.fetchNextPage();
   }
 
   async function selectMedia() {
-    if (
-      chatAuthorityLocked ||
-      deliveryUncertain ||
-      sendFlight.current.isActive
-    ) {
-      return;
-    }
+    if (deliveryUncertain || sendFlight.current.isActive) return;
     const selectionOperation = activeCompositionOperation.current;
     if (!selectionOperation) return;
     try {
@@ -488,14 +354,7 @@ function ChatScreenInstance({ conversationId }: { conversationId: number }) {
     }
   }
   async function sendMessage() {
-    if (
-      chatAuthorityLocked ||
-      !user ||
-      !canLoadProtectedChat ||
-      !hasSendableMessage
-    ) {
-      return;
-    }
+    if (!user || !canLoadProtectedChat || !hasSendableMessage) return;
     if (!messageTextIsWithinLimit(text)) {
       notify(
         `Messages can be up to ${MAX_MESSAGE_TEXT_LENGTH.toLocaleString()} characters. Edit your draft and try again.`,
@@ -571,16 +430,6 @@ function ChatScreenInstance({ conversationId }: { conversationId: number }) {
       void messages.refetch();
       void utils.social.conversations.invalidate();
     } catch (error) {
-      if (
-        isCurrentMessageCompositionOperation(
-          activeCompositionOperation.current,
-          operation,
-        ) &&
-        isExplicitChatEditorAuthorityError(error)
-      ) {
-        lockChatAuthority();
-        return;
-      }
       if (
         isCurrentMessageCompositionOperation(
           activeCompositionOperation.current,
@@ -694,13 +543,6 @@ function ChatScreenInstance({ conversationId }: { conversationId: number }) {
             text="Try again before opening this conversation."
             action="Try again"
             onAction={refresh}
-          />
-        ) : chatAuthorityLocked ? (
-          <Empty
-            title="This conversation is unavailable."
-            text="You no longer have access to this conversation."
-            action="Back to inbox"
-            onAction={() => router.replace("/messages")}
           />
         ) : messages.isLoading ? (
           <Loading />
@@ -905,7 +747,7 @@ function ChatScreenInstance({ conversationId }: { conversationId: number }) {
                 );
               })}
             </ScrollView>
-            {!chatAuthorityLocked && asset && (
+            {asset && (
               <View
                 style={[
                   s.row,
@@ -939,7 +781,7 @@ function ChatScreenInstance({ conversationId }: { conversationId: number }) {
                 />
               </View>
             )}
-            {!chatAuthorityLocked && deliveryUncertain && (
+            {deliveryUncertain && (
               <View style={{ paddingHorizontal: 22, paddingBottom: 8 }}>
                 <StatusMessage
                   message="Delivery is unconfirmed. Retry sends this same message and attachment without creating a new one."
@@ -948,78 +790,74 @@ function ChatScreenInstance({ conversationId }: { conversationId: number }) {
                 />
               </View>
             )}
-            {!chatAuthorityLocked && (
-              <View
-                style={[
-                  s.row,
-                  {
-                    gap: 8,
-                    padding: 14,
-                    paddingBottom: Math.max(14, insets.bottom + 8),
-                    borderTopWidth: 1,
-                    borderColor: C.border,
-                    backgroundColor: C.bg,
-                  },
-                ]}
+            <View
+              style={[
+                s.row,
+                {
+                  gap: 8,
+                  padding: 14,
+                  paddingBottom: Math.max(14, insets.bottom + 8),
+                  borderTopWidth: 1,
+                  borderColor: C.border,
+                  backgroundColor: C.bg,
+                },
+              ]}
+            >
+              <IconButton
+                icon="add-circle-outline"
+                color={C.green}
+                onPress={selectMedia}
+                label="Attach photo or video"
+                disabled={deliveryUncertain || sendingMedia}
+              />
+              <TextInput
+                value={text}
+                onChangeText={setText}
+                editable={!deliveryUncertain && !sendingMedia}
+                maxLength={MAX_MESSAGE_TEXT_LENGTH}
+                placeholder="Say something kind…"
+                accessibilityLabel="Message text"
+                placeholderTextColor={C.muted}
+                onSubmitEditing={sendMessage}
+                returnKeyType="send"
+                style={{
+                  flex: 1,
+                  borderWidth: 1,
+                  borderColor: C.border,
+                  borderRadius: 24,
+                  paddingHorizontal: 16,
+                  paddingVertical: 11,
+                  backgroundColor: C.paper,
+                  fontSize: 14,
+                  lineHeight: 21,
+                  minHeight: 44,
+                  color: C.ink,
+                }}
+              />
+              <Pressable
+                disabled={sendDisabled}
+                onPress={sendMessage}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  deliveryUncertain ? "Retry message delivery" : "Send message"
+                }
+                accessibilityState={{
+                  disabled: sendDisabled,
+                  busy: send.isPending || sendingMedia,
+                }}
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 15,
+                  backgroundColor: C.action,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  opacity: sendDisabled ? 0.5 : 1,
+                }}
               >
-                <IconButton
-                  icon="add-circle-outline"
-                  color={C.green}
-                  onPress={selectMedia}
-                  label="Attach photo or video"
-                  disabled={deliveryUncertain || sendingMedia}
-                />
-                <TextInput
-                  value={text}
-                  onChangeText={setText}
-                  editable={!deliveryUncertain && !sendingMedia}
-                  maxLength={MAX_MESSAGE_TEXT_LENGTH}
-                  placeholder="Say something kind…"
-                  accessibilityLabel="Message text"
-                  placeholderTextColor={C.muted}
-                  onSubmitEditing={sendMessage}
-                  returnKeyType="send"
-                  style={{
-                    flex: 1,
-                    borderWidth: 1,
-                    borderColor: C.border,
-                    borderRadius: 24,
-                    paddingHorizontal: 16,
-                    paddingVertical: 11,
-                    backgroundColor: C.paper,
-                    fontSize: 14,
-                    lineHeight: 21,
-                    minHeight: 44,
-                    color: C.ink,
-                  }}
-                />
-                <Pressable
-                  disabled={sendDisabled}
-                  onPress={sendMessage}
-                  accessibilityRole="button"
-                  accessibilityLabel={
-                    deliveryUncertain
-                      ? "Retry message delivery"
-                      : "Send message"
-                  }
-                  accessibilityState={{
-                    disabled: sendDisabled,
-                    busy: send.isPending || sendingMedia,
-                  }}
-                  style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: 15,
-                    backgroundColor: C.action,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    opacity: sendDisabled ? 0.5 : 1,
-                  }}
-                >
-                  <Icon name="arrow-up" color={C.actionText} size={22} />
-                </Pressable>
-              </View>
-            )}
+                <Icon name="arrow-up" color={C.actionText} size={22} />
+              </Pressable>
+            </View>
           </>
         )}
       </KeyboardAvoidingView>

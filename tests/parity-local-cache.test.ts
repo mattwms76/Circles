@@ -87,11 +87,7 @@ describe("local cache parity invalidation helpers", () => {
     const postCard = source("components/post-card.tsx");
 
     expect(profile).toContain("invalidateProfileViews(utils)");
-    expect(profile).toContain("requireAuth(() => saveOwnProfile(draft))");
-    expect(profile).toContain("await updateMutation.mutateAsync(draft)");
-    expect(profile).toContain(
-      "if (!profileUpdateScopeIsCurrent(scope)) return;",
-    );
+    expect(profile).toContain("requireAuth(() => update.mutate(draft))");
     expect(circleCard).toContain("invalidateCircleDirectories(utils)");
     expect(circleScreen).toContain("invalidateCircleDirectories(utils)");
 
