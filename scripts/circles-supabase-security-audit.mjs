@@ -2276,7 +2276,7 @@ export function renderMarkdown(report) {
     "",
     "## Recommended follow-up",
     "",
-    "1. Rotate the privileged PostgreSQL connection credential through Supabase protected controls and update the server-only deployment secret. The privileged `postgres` connection remains a trust boundary because it can `SET ROLE` to the backend role.",
+    "1. Complete the separately approved dedicated application-login cutover with protected credential provisioning, consumer inventory, and verified runtime authority. Keep operational/backup credentials separate and server-only; do not repeat a completed credential rotation merely to satisfy audit boilerplate.",
     "2. Keep `circles_app` absent from externally exposed PostgREST/API schema configuration; verify this in Supabase/API-gateway configuration because database catalog evidence alone can be incomplete.",
     "3. Maintain server-side user/circle authorization before any backend-role query. `USING true` backend policies are not row authorization controls.",
     "4. Re-run this checker after role, RLS, grants, functions, default privileges, Supabase exposure configuration, or schema changes.",
@@ -2370,7 +2370,8 @@ async function collectEvidence(client, schemaName, runtimeRole) {
   const policyResult = await queryCatalog(
     client,
     `
-    SELECT p.tablename AS table_name,
+    SELECT p.schemaname AS schema_name,
+           p.tablename AS table_name,
            p.policyname AS policy_name,
            p.permissive AS permissive,
            p.roles AS roles,
@@ -2959,7 +2960,7 @@ function buildFindings(report) {
     );
   }
   findings.push(
-    "The privileged PostgreSQL connection principal is a trust boundary: it can select the restricted backend role. Rotate the database credential and keep it server-only.",
+    "The connection principal remains a trust boundary until the protected dedicated-login cutover is verified. Preserve operational separation, server-only credentials, and the exact login/membership contract; no rotation or activation is implied by this report.",
   );
   findings.push(
     "The `USING true` backend RLS policies intentionally gate only the server runtime role; they do not impose per-user or per-circle authorization.",
