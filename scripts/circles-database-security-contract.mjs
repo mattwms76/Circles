@@ -85,10 +85,12 @@ export const REVIEWED_ROLE_MEMBERSHIPS = Object.freeze([
 /**
  * DB-02 is intentionally phased. Historical catalog evidence predates the
  * dedicated connection principal; after provisioning, the only accepted
- * authority transition is the exact SET-only grant below. A protected
- * credential/cutover operation may later toggle LOGIN, but cannot add any
- * database-superuser, role-administration, replication, inheritance, object,
- * or membership authority.
+ * authority transition is the exact SET-only grant below. Provider-managed
+ * operational administration may also create the exact incoming edge recorded
+ * in the named variants below. A protected credential/cutover operation may
+ * later toggle LOGIN, but cannot add any database-superuser,
+ * role-administration, replication, inheritance, object, or membership
+ * authority.
  */
 export const APP_LOGIN_CONTRACT_VARIANTS = Object.freeze({
   baseline_pre_db02: Object.freeze({
@@ -121,6 +123,39 @@ export const APP_LOGIN_CONTRACT_VARIANTS = Object.freeze({
     ]),
     direct_object_acl: Object.freeze([]),
   }),
+  no_login_provisioned_provider_owned_incoming_edge: Object.freeze({
+    roles: Object.freeze([
+      {
+        role_name: "circles_app_login",
+        can_login: false,
+        inherits: false,
+        is_superuser: false,
+        can_create_db: false,
+        can_create_role: false,
+        bypasses_rls: false,
+        can_replicate: false,
+      },
+    ]),
+    memberships: Object.freeze([
+      {
+        parent_role: "circles_app_login",
+        member_role: "postgres",
+        grantor_role: "supabase_admin",
+        inherit_option: false,
+        set_option: false,
+        admin_option: true,
+      },
+      {
+        parent_role: "circles_app_runtime",
+        member_role: "circles_app_login",
+        grantor_role: "postgres",
+        inherit_option: false,
+        set_option: true,
+        admin_option: false,
+      },
+    ]),
+    direct_object_acl: Object.freeze([]),
+  }),
   login_cutover: Object.freeze({
     roles: Object.freeze([
       {
@@ -135,6 +170,39 @@ export const APP_LOGIN_CONTRACT_VARIANTS = Object.freeze({
       },
     ]),
     memberships: Object.freeze([
+      {
+        parent_role: "circles_app_runtime",
+        member_role: "circles_app_login",
+        grantor_role: "postgres",
+        inherit_option: false,
+        set_option: true,
+        admin_option: false,
+      },
+    ]),
+    direct_object_acl: Object.freeze([]),
+  }),
+  login_cutover_provider_owned_incoming_edge: Object.freeze({
+    roles: Object.freeze([
+      {
+        role_name: "circles_app_login",
+        can_login: true,
+        inherits: false,
+        is_superuser: false,
+        can_create_db: false,
+        can_create_role: false,
+        bypasses_rls: false,
+        can_replicate: false,
+      },
+    ]),
+    memberships: Object.freeze([
+      {
+        parent_role: "circles_app_login",
+        member_role: "postgres",
+        grantor_role: "supabase_admin",
+        inherit_option: false,
+        set_option: false,
+        admin_option: true,
+      },
       {
         parent_role: "circles_app_runtime",
         member_role: "circles_app_login",

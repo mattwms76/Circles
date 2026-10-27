@@ -382,3 +382,13 @@ Source closure:869 tests/167 files passed; strict unused TypeScript, zero-warnin
 - [ ] Integrated evidence: isolated PostgreSQL 17 migration and negative-contract tests, affected authorization/regression tests, TypeScript, lint and API build; independent read-only review; normal canonical save. Publication, signed/native testing and real-provider recovery remain separate.
 
 Implementation status: all17items have source candidates, verification tooling or explicit approval gates in `docs/database-remediation/README.md`. Checked items above mean the stated source/tooling outcome, not live issue closure. The dedicated-login cutover, actor-scoped RLS architecture, legacy privacy decision, live constraint/policy rollout, approved retention horizons and live deletion semantics remain open. Production SQL, retention deletion, provider/default changes and complete external recovery are not claimed.
+
+## All-phase database activation — owner request27 October2026,12:38 UTC
+
+- [ ] Establish a current encrypted backup and isolated recovery checkpoint for the exact changed scope; complete the full37/optional38 durable-table export/restore candidate without weakening source/ACL/TOC or secret/media boundaries.
+- [ ] Apply the approved seven Phase1 files once, only after current preflight/recovery gates; verify11 prior constraints,12 FK indexes,2 invoker search paths,12 policy consolidations,receipt PK,health-helper ACL and same-Circle pin behavior by metadata/aggregate checks.
+- [ ] Complete the protected dedicated-login provisioning/cutover with all consumers inventoried and admin/backup credentials kept separate; do not rotate shared postgres or JWT/media keys as a shortcut.
+- [ ] Resolve actual gateway/provider-default authority where available; keep provider-only operations and missing dashboard/protected access explicitly blocked rather than guessed.
+- [ ] Settle and implement exact legacy privacy,session retention and live-history relationship policies; no live deletion or irreversible cascade is inferred from generic approval.
+- [ ] Integrate and verify operational health coverage while preserving Cron identity/schedule,history and provider enablement state; source/runtime publication remains separate.
+- [ ] Save activation evidence and tested source normally,await exact-source CI for further changes,and report each original issue as verified,partially applied or specifically blocked.
