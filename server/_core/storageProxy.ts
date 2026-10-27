@@ -12,11 +12,7 @@ import {
 } from "../../drizzle/schema";
 import { streams } from "../../drizzle/live-schema";
 import { getDb, type CirclesDatabase, type CirclesTransaction } from "../db";
-import {
-  storageFetchSignedObject,
-  storageGetSignedUrl,
-  StorageOperationTimeoutError,
-} from "../storage";
+import * as storageModule from "../storage";
 import {
   decryptSocialMedia,
   SOCIAL_MEDIA_FRAME_OVERHEAD,
@@ -24,6 +20,19 @@ import {
 import { previewLimiterIdentityFromRequest } from "./runtimeSecurity";
 import { sdk } from "./sdk";
 import { requestCancellation, RequestAbortedError } from "./bounded-network";
+
+const {
+  storageFetchSignedObject,
+  storageGetSignedUrl,
+  StorageOperationTimeoutError,
+} = storageModule;
+
+function privateMediaStoreActive(): boolean {
+  const probe = storageModule as {
+    privateMediaStoreActive?: () => boolean;
+  };
+  return probe.privateMediaStoreActive?.() === true;
+}
 
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 const HOST_LEASE_MS = 45_000;
@@ -724,14 +733,23 @@ async function sendDecryptedSocialMedia(req: Request, res: Response) {
 
     try {
       const expectedEncryptedBytes = upload.bytes + SOCIAL_MEDIA_FRAME_OVERHEAD;
-      const signedUrl = await storageGetSignedUrl(key, {
-        signal: cancellation.signal,
-      });
-      const encrypted = await fetchBoundedEncryptedMedia(
-        signedUrl,
-        expectedEncryptedBytes,
-        cancellation.signal,
-      );
+      let encrypted: Buffer;
+      if (privateMediaStoreActive()) {
+        const { readPrivateMedia } = await import("../private-media-store");
+        encrypted = await readPrivateMedia(key);
+        if (encrypted.length !== expectedEncryptedBytes) {
+          throw new Error("Invalid encrypted media length");
+        }
+      } else {
+        const signedUrl = await storageGetSignedUrl(key, {
+          signal: cancellation.signal,
+        });
+        encrypted = await fetchBoundedEncryptedMedia(
+          signedUrl,
+          expectedEncryptedBytes,
+          cancellation.signal,
+        );
+      }
       const plaintext = decryptSocialMedia(encrypted);
       if (plaintext.length !== upload.bytes) {
         res.status(502).send("Invalid decrypted media");

@@ -200,12 +200,23 @@ export function createLiveIceConfiguration(
   }
   liveRelayExpiryMs(relay, now);
 
-  return {
-    iceServers: relay.iceServers.map((server) => ({
-      urls: [...server.urls],
-      username: server.username,
-      credential: server.credential,
-      credentialType: "password" as const,
-    })),
-  };
+  const iceServers = relay.iceServers.map((server) => ({
+    urls: [...server.urls],
+    username: server.username,
+    credential: server.credential,
+    credentialType: "password" as const,
+  }));
+  // A loopback relay can only help this machine. Keep STUN so other peers
+  // still have a direct path while that preview relay is configured.
+  const loopbackOnly = relay.iceServers.every((server) =>
+    server.urls.every((url) =>
+      /^turns?:(?:127\.0\.0\.1|localhost|\[::1\])(?::|\?|$)/i.test(url),
+    ),
+  );
+  if (loopbackOnly) {
+    return {
+      iceServers: [...iceServers, { urls: [DEVELOPMENT_STUN_SERVER] }],
+    };
+  }
+  return { iceServers };
 }

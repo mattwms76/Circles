@@ -148,6 +148,7 @@ vi.mock("@/lib/email-auth-client", () => ({
   cancelAndDrainEmailAuthRequests: vi.fn(),
   connectEmailPassword: vi.fn(),
   readEmailAuthStatus: mocks.readEmailAuthStatus,
+  requestPasswordReset: vi.fn(),
   signInWithEmailPassword: mocks.signInWithEmailPassword,
   signUpWithEmailPassword: mocks.signUpWithEmailPassword,
 }));

@@ -94,6 +94,21 @@ export function configuredStorageObjectOrigins(
   return parseStorageObjectOrigins(configured);
 }
 
+export function forgeStorageIsConfigured(): boolean {
+  const forgeKey = ENV.forgeApiKey;
+  const signerOrigin = configuredOrigin(ENV.forgeApiUrl);
+  const objectOrigins = configuredStorageObjectOrigins();
+  return Boolean(forgeKey && signerOrigin && objectOrigins);
+}
+
+/** Private ciphertext is used only when managed object storage is not configured. */
+export function privateMediaStoreActive(): boolean {
+  return (
+    !forgeStorageIsConfigured() &&
+    process.env.CIRCLES_PRIVATE_MEDIA_STORE === "database"
+  );
+}
+
 function getForgeConfig() {
   const forgeKey = ENV.forgeApiKey;
   const signerOrigin = configuredOrigin(ENV.forgeApiUrl);
@@ -466,11 +481,19 @@ export async function storagePut(
   contentType = "application/octet-stream",
   options: { stableKey?: boolean } & StorageRequestOptions = {},
 ): Promise<{ key: string; url: string }> {
-  const { forgeUrl, forgeKey, objectOrigins } = getForgeConfig();
   const normalizedKey = normalizeKey(relKey);
   const key = options.stableKey
     ? normalizedKey
     : appendHashSuffix(normalizedKey);
+  const body =
+    typeof data === "string"
+      ? Buffer.from(data)
+      : Buffer.from(data as Uint8Array);
+  if (privateMediaStoreActive()) {
+    const { putPrivateMedia } = await import("./private-media-store");
+    return putPrivateMedia(key, body);
+  }
+  const { forgeUrl, forgeKey, objectOrigins } = getForgeConfig();
 
   const presignUrl = new URL("v1/storage/presign/put", `${forgeUrl}/`);
   presignUrl.searchParams.set("path", key);
@@ -491,10 +514,6 @@ export async function storagePut(
     throw new StorageOperationError("Storage upload could not be prepared");
   }
   const s3Url = await parsePresignedUrl(presignResp, objectOrigins);
-  const body =
-    typeof data === "string"
-      ? Buffer.from(data)
-      : Buffer.from(data as Uint8Array);
 
   const uploadResp = await storageFetch(
     s3Url,

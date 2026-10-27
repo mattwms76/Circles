@@ -138,4 +138,24 @@ describe("coturn REST relay configuration", () => {
       ),
     ).toBe(true);
   });
+
+  it("keeps development STUN beside a loopback preview relay", () => {
+    const now = Date.now();
+    const relay = createTurnIceConfiguration(
+      7,
+      loadTurnConfiguration({
+        NODE_ENV: "development",
+        TURN_SERVER_URLS: "turn:127.0.0.1:3478",
+        TURN_SHARED_SECRET: syntheticEnvironment.TURN_SHARED_SECRET,
+      }),
+      now,
+    );
+    expect(relay).not.toBeNull();
+    if (!relay) throw new Error("Loopback relay payload was not issued.");
+    const ice = createLiveIceConfiguration(relay, now);
+    expect(ice.iceServers[0]?.urls).toEqual(["turn:127.0.0.1:3478"]);
+    expect(ice.iceServers[1]).toEqual({
+      urls: ["stun:stun.l.google.com:19302"],
+    });
+  });
 });

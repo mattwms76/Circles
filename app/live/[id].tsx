@@ -487,6 +487,9 @@ function LiveSessionScreen({
                   </T>
                 </View>
               </View>
+              <T style={{ color: C.muted, fontSize: 13, lineHeight: 19 }}>
+                This room is direct. It holds the host and up to four viewers.
+              </T>
               {!!mediaError && (
                 <View
                   style={{

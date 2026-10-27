@@ -402,6 +402,43 @@ describe("email/password REST server contract", () => {
     }
   });
 
+  it("names an undeliverable sign-up address without returning the provider body", async () => {
+    const fetchImpl = providerFetch();
+    fetchImpl.mockImplementation(async (input) => {
+      if (String(input).endsWith("/auth/v1/signup")) {
+        return response(
+          {
+            error_code: "email_address_invalid",
+            msg: "Email address circles-preview-auth@example.test is invalid",
+            access_token: "must-not-reach-client",
+          },
+          400,
+        );
+      }
+      throw new Error("unexpected provider call");
+    });
+    const { server, baseUrl } = await start({ fetchImpl });
+    try {
+      const result = await post(
+        baseUrl,
+        "/api/auth/email/sign-up",
+        { email: verified.email, password: "password" },
+        {
+          Origin: "https://web.synthetic.invalid",
+          "Sec-Fetch-Site": "same-site",
+        },
+      );
+      expect(result.status).toBe(400);
+      expect(await result.json()).toEqual({
+        error: "Enter a valid email address.",
+        code: "INVALID_EMAIL",
+      });
+      expect(result.headers.get("set-cookie")).toBeNull();
+    } finally {
+      await close(server);
+    }
+  });
+
   it("derives connect authority from sdk.authenticateRequest and refuses cross-account provider links", async () => {
     const identityStore = {
       isReady: vi.fn(async () => true),
@@ -445,6 +482,84 @@ describe("email/password REST server contract", () => {
         verified,
         19,
       );
+    } finally {
+      await close(server);
+    }
+  });
+
+  it("sends a generic password reset and does not mint a session", async () => {
+    const fetchImpl = providerFetch();
+    fetchImpl.mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith("/auth/v1/recover")) {
+        expect(init?.method).toBe("POST");
+        expect(JSON.parse(String(init?.body))).toEqual({
+          email: "missing@example.test",
+        });
+        return response(
+          { access_token: "must-not-reach-client", message: "user not found" },
+          400,
+        );
+      }
+      throw new Error(`Unexpected provider request: ${url}`);
+    });
+    const {
+      server,
+      baseUrl,
+      dependencies: wired,
+    } = await start({
+      fetchImpl,
+    });
+    try {
+      const unknown = await post(baseUrl, "/api/auth/email/password-reset", {
+        email: "missing@example.test",
+        client: "native",
+      });
+      expect(unknown.status).toBe(200);
+      expect(await unknown.json()).toEqual({ success: true });
+      expect(unknown.headers.get("set-cookie")).toBeNull();
+      expect(wired.sdkServer.createSessionToken).not.toHaveBeenCalled();
+
+      fetchImpl.mockImplementation(async (input) => {
+        if (String(input).endsWith("/auth/v1/recover")) {
+          return response({ message: "slow down" }, 429);
+        }
+        throw new Error(`Unexpected provider request: ${String(input)}`);
+      });
+      const limited = await post(baseUrl, "/api/auth/email/password-reset", {
+        email: "other@example.test",
+        client: "native",
+      });
+      expect(limited.status).toBe(429);
+      expect(await limited.json()).toEqual({
+        error: "Too many email authentication attempts",
+        code: "RATE_LIMITED",
+      });
+
+      fetchImpl.mockImplementation(async (input) => {
+        if (String(input).endsWith("/auth/v1/recover")) {
+          return response({ message: "upstream" }, 503);
+        }
+        throw new Error(`Unexpected provider request: ${String(input)}`);
+      });
+      const unavailable = await post(
+        baseUrl,
+        "/api/auth/email/password-reset",
+        { email: "third@example.test", client: "native" },
+      );
+      expect(unavailable.status).toBe(503);
+      expect(await unavailable.json()).toEqual({
+        error: "Email authentication is temporarily unavailable",
+        code: "UNAVAILABLE",
+      });
+
+      const extra = await post(baseUrl, "/api/auth/email/password-reset", {
+        email: "third@example.test",
+        client: "native",
+        password: "must-not-be-accepted",
+      });
+      expect(extra.status).toBe(401);
+      expect(wired.sdkServer.createSessionToken).not.toHaveBeenCalled();
     } finally {
       await close(server);
     }

@@ -19,7 +19,9 @@ import { Button, C, IconButton, Input, T } from "@/components/circles-ui";
 import { StatusMessage } from "./status-message";
 import {
   connectEmailPassword,
+  EmailAuthClientError,
   readEmailAuthStatus,
+  requestPasswordReset,
   signInWithEmailPassword,
   signUpWithEmailPassword,
 } from "@/lib/email-auth-client";
@@ -209,6 +211,7 @@ function EmailAuthDialog({
   const [statusFailed, setStatusFailed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [resetNotice, setResetNotice] = useState<string | null>(null);
   const [signUpConfirmed, setSignUpConfirmed] = useState(false);
 
   const isCurrent = useCallback(
@@ -301,6 +304,7 @@ function EmailAuthDialog({
   const updateEmail = useCallback((value: string) => {
     setEmail(value);
     setFormError(null);
+    setResetNotice(null);
   }, []);
 
   const updatePassword = useCallback((value: string) => {
@@ -369,6 +373,7 @@ function EmailAuthDialog({
     };
     setSubmitting(true);
     setFormError(null);
+    setResetNotice(null);
     setSignUpConfirmed(false);
 
     try {
@@ -416,8 +421,15 @@ function EmailAuthDialog({
           "We couldn't confirm your sign-in. Check your connection and try again.",
         );
       }
-    } catch {
+    } catch (error) {
       if (!isCurrent(submissionGuard, scope)) return;
+      if (
+        error instanceof EmailAuthClientError &&
+        error.code === "email_auth_invalid_address"
+      ) {
+        setFormError(error.message);
+        return;
+      }
       setFormError(
         formMode === "signUp"
           ? "We couldn't create that account. Please try again."
@@ -442,6 +454,50 @@ function EmailAuthDialog({
     onAuthenticated,
     submissionGuard,
   ]);
+
+  const sendReset = useCallback(async () => {
+    const currentFlight = submissionFlightRef.current;
+    if (currentFlight && isCurrent(submissionGuard, currentFlight.scope))
+      return;
+    if (!isAvailable || formMode !== "signIn") return;
+
+    const scope = submissionGuard.begin(mode);
+    const controller = new AbortController();
+    submissionFlightRef.current = { scope, controller };
+    const emailToReset = email.trim();
+    setSubmitting(true);
+    setFormError(null);
+    setResetNotice(null);
+
+    try {
+      if (!emailToReset) {
+        if (isCurrent(submissionGuard, scope)) {
+          setFormError("Enter your email address to send a reset email.");
+        }
+        return;
+      }
+      await requestPasswordReset(emailToReset, {
+        signal: controller.signal,
+        isCurrent: () => isCurrent(submissionGuard, scope),
+      });
+      if (!isCurrent(submissionGuard, scope)) return;
+      setResetNotice(
+        "If an account exists for that address, a reset email is on its way.",
+      );
+    } catch {
+      if (!isCurrent(submissionGuard, scope)) return;
+      setFormError(
+        "We couldn't send a reset email right now. Please try again.",
+      );
+    } finally {
+      if (submissionFlightRef.current?.scope.sequence === scope.sequence) {
+        submissionFlightRef.current = null;
+      }
+      if (!isCurrent(submissionGuard, scope)) return;
+      setSubmitting(false);
+      submissionGuard.clear(scope);
+    }
+  }, [email, formMode, isAvailable, isCurrent, mode, submissionGuard]);
 
   const confirmedSignUp = formMode === "signUp" && signUpConfirmed;
   const isStandalone = presentation === "standalone";
@@ -622,6 +678,13 @@ function EmailAuthDialog({
                 style={{ fontSize: 13 }}
               />
             )}
+            {resetNotice && (
+              <StatusMessage
+                message={resetNotice}
+                tone="success"
+                style={{ fontSize: 13 }}
+              />
+            )}
             <Button
               title={submitting ? "Working…" : submitTitle(mode, formMode)}
               accessibilityLabel={submitTitle(mode, formMode)}
@@ -629,6 +692,24 @@ function EmailAuthDialog({
               loading={submitting}
               onPress={() => void submit()}
             />
+            {formMode === "signIn" && (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Send reset email"
+                accessibilityState={{ disabled: hasPendingOperation }}
+                disabled={hasPendingOperation}
+                onPress={() => void sendReset()}
+                style={{
+                  alignItems: "center",
+                  justifyContent: "center",
+                  minHeight: 44,
+                }}
+              >
+                <T style={{ color: C.secondary, fontWeight: "700" }}>
+                  Send reset email
+                </T>
+              </Pressable>
+            )}
             {formMode === "signIn" && (
               <Pressable
                 accessibilityRole="button"

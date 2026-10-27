@@ -29,6 +29,7 @@ import {
   validateMp4Upload,
 } from "./sec27-video-validation";
 import { storagePut } from "./storage";
+import { registerDevicePushToken } from "./device-push";
 import {
   approveMember,
   createCircle,
@@ -859,4 +860,34 @@ export const socialRouter = router({
       }),
     )
     .mutation(({ ctx, input }) => discardUnusedUpload(ctx.user.id, input.url)),
+
+  registerPushToken: protectedProcedure
+    .input(
+      z
+        .object({
+          token: z.string().trim().min(1).max(200),
+          platform: z.enum(["ios", "android"]),
+        })
+        .strict(),
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        await registerDevicePushToken(
+          ctx.user.id,
+          input.token,
+          input.platform,
+        );
+      } catch (error) {
+        const rejected =
+          error instanceof Error &&
+          error.message === "Push token was not accepted";
+        throw new TRPCError({
+          code: rejected ? "BAD_REQUEST" : "INTERNAL_SERVER_ERROR",
+          message: rejected
+            ? "Push token was not accepted"
+            : "Push registration is unavailable",
+        });
+      }
+      return { success: true as const };
+    }),
 });

@@ -91,6 +91,8 @@ export function CircleHomePanel({
         )}
       </View>
 
+      <CirclePromptSection home={home} />
+
       <View style={[s.card, { padding: 20, gap: 13 }]}>
         <T style={s.eyebrow}>CIRCLE GUIDELINES</T>
         {home.rules.length ? (
@@ -134,6 +136,122 @@ export function CircleHomePanel({
           </View>
         )}
       </View>
+    </View>
+  );
+}
+
+const CIRCLE_PROMPT_MAX = 180;
+
+function CirclePromptSection({ home }: { home: CircleHome }) {
+  const utils = trpc.useUtils();
+  const prompt = trpc.circleHome.prompt.useQuery({ circleId: home.circleId });
+  const setPrompt = trpc.circleHome.setPrompt.useMutation();
+  const [draft, setDraft] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const body = prompt.data?.body ?? "";
+  const posts = prompt.data?.posts ?? [];
+
+  useEffect(() => {
+    if (!editing) setDraft(body);
+  }, [body, editing]);
+
+  if (!body && !home.canManage && !prompt.isLoading && !prompt.isError) {
+    return null;
+  }
+
+  const save = (nextBody: string) => {
+    setError(null);
+    setPrompt.mutate(
+      { circleId: home.circleId, body: nextBody },
+      {
+        onSuccess: async () => {
+          setEditing(false);
+          await utils.circleHome.prompt.invalidate({ circleId: home.circleId });
+        },
+        onError: () => {
+          setError("The circle prompt could not be saved. Please try again.");
+        },
+      },
+    );
+  };
+
+  return (
+    <View style={[s.card, { padding: 20, gap: 12 }]}>
+      <T style={s.eyebrow}>THIS WEEK’S PROMPT</T>
+      {body ? (
+        <T style={{ color: C.ink, fontSize: 16, lineHeight: 23 }}>{body}</T>
+      ) : (
+        <T style={{ color: C.muted, fontSize: 14, lineHeight: 21 }}>
+          {home.canManage
+            ? "Set one prompt. New posts in this circle are gathered under it."
+            : "No prompt is active right now."}
+        </T>
+      )}
+      {posts.length > 0 && (
+        <View style={{ gap: 8 }}>
+          {posts.map((post) => (
+            <T
+              key={post.id}
+              style={{ color: C.muted, fontSize: 14, lineHeight: 21 }}
+            >
+              {post.text.trim() || "A photo or video"}
+            </T>
+          ))}
+        </View>
+      )}
+      {home.canManage &&
+        (editing ? (
+          <View style={{ gap: 10 }}>
+            <TextInput
+              accessibilityLabel="Circle prompt"
+              maxLength={CIRCLE_PROMPT_MAX}
+              multiline
+              onChangeText={setDraft}
+              placeholder="Ask the circle something"
+              value={draft}
+              style={{
+                color: C.ink,
+                fontSize: 15,
+                lineHeight: 22,
+                minHeight: 72,
+              }}
+            />
+            {error && <StatusMessage message={error} tone="error" />}
+            <View style={[s.row, { gap: 8 }]}>
+              <Button
+                title="Save prompt"
+                loading={setPrompt.isPending}
+                onPress={() => save(draft)}
+              />
+              <Button
+                title="Cancel"
+                secondary
+                onPress={() => {
+                  setEditing(false);
+                  setDraft(body);
+                  setError(null);
+                }}
+              />
+            </View>
+          </View>
+        ) : (
+          <View style={[s.row, { gap: 8 }]}>
+            <Button
+              title={body ? "Change prompt" : "Set prompt"}
+              secondary
+              onPress={() => setEditing(true)}
+            />
+            {body ? (
+              <Button
+                title="Clear prompt"
+                secondary
+                loading={setPrompt.isPending}
+                onPress={() => save("")}
+              />
+            ) : null}
+          </View>
+        ))}
     </View>
   );
 }
