@@ -4,7 +4,7 @@
 
 The app-side shared-permission and account-convergence repairs are implemented and all **838 unit/regression tests in 166 files** pass. The live database's selected app/auth/operations structural catalog matches the reviewed native migration contract. The separately approved admin security installation adds an exact verified security-policy extension, not unexplained structural drift.
 
-This is **not yet a claim of 100% operational parity**. One admin-only Circle-directory privacy discrepancy, exact admin manifest re-pinning, unavailable canonical Git transport and independent account/provider/deployment activation gates remain open at this report's initial save. The admin panel remains separate; consumer-private operations are intentionally not administrator features.
+This is **not yet a claim of 100% operational parity**. The admin-only Circle-directory discrepancy is now repaired in accepted source; final saved manifest re-pin, exact-source CI follow-up, unavailable canonical Git transport and independent account/provider/deployment activation gates remain open. The admin panel remains separate; consumer-private operations are intentionally not administrator features.
 
 ## App repairs
 
@@ -47,7 +47,9 @@ Ten read-only domain reviews covered **84 unique app capabilities** against acce
 
 Role-aware source coverage includes approved projections/native counterparts and deliberate protected-consumer exclusions. DM transcripts, participant identity graphs, consumer sessions/preferences/onboarding state, provider-link mappings and live signaling do not become general admin access.
 
-One current mismatch, **CIR-PRIV-001**, concerns three Circle-directory counterparts. The accepted admin policy permits public directory fields and exact-current-Circle private metadata; its implementation additionally admits global private metadata for a source-platform-admin reader. The admin task confirmed and is repairing only that broad directory/count admission, without changing the approved SQL or narrowing the app's deliberate private-circle join-request teasers. Final source acceptance and re-pinning are pending; original review evidence remains intact.
+The original mismatch, **CIR-PRIV-001**, concerned three Circle-directory counterparts. It is repaired at admin source `c068d54c937cd86ee374343abf83eac7c155957d`: private directory rows and counts require a selected exact Circle and current scoped authority; unscoped calls exclude them even for source-platform administrators. The accepted receipt reports339 tests/45 files and64 actual disposable PostgreSQL assertions, including the private-name/count regression and preserved private-post exception. Parent source inspection confirmed the exact-scope-only predicate. Approved SQL and ordinary app private-circle join-request teasers remain unchanged; original review evidence remains historical, not overwritten.
+
+The admin task reports its regenerated app1992245 contract covers84 IDs/70tRPC/14HTTP,66 modules (six changed hashes),15 unchanged SQL hashes and11 procedure declaration changes, with unchanged mapping dispositions and no blockers. It also reports19 tests over six app parity modules and340 admin tests/45 files passing. These are attributed admin-task results; its final saved manifest/receipt is still pending independent pin verification.
 
 ## Executed local tests
 
@@ -58,10 +60,18 @@ All15 final required local categories passed. Initial failed fixtures/test mocks
 - Existing private identity DDL/RLS, real Drizzle allocation/link-race store and HTTP/session drills passed. HTTP provider responses and actor injection remain synthetic; the HTTP auth fixture's actor lookup adapter is not falsely presented as production `SDK.authenticateRequest` transport proof.
 - Authority suite observes real `pg_stat_activity` lock waits, removal-wins live create with no lease/stream allocation, seven covered reader-first protected projections and exact member cursor traversal. Existing105-item Moments and105-item Saved traversals remain covered.
 
+## Exact-source save and CI follow-up
+
+Accepted app source is local canonical `51a61082c30a0bfc1b7679b27865a0bbeb23cd3a` and GitHub mirror `199224560485407047832dea0d0a873cbabcd78e`, both tree `26e8ea529beda7701ea9b8ccab84e1bf5b58f061`. Container run40479331685 passed. CI40479331760 passed unit/type/lint, Home/Activity/Moderation/authorityPG17 steps, then failed an existing-sign-in fixture assertion that stringified JavaScript Dates at second resolution after a5ms sleep. The raw identity-role/RLS drill passed first; later store assertions, HTTP/session, API build and platform bundles were not certified by that failed run. Preserve its failure receipt.
+
+The narrow follow-up changes only the identity fixture, two new runner regressions and documentation. It seeds two deterministic timestamps five milliseconds apart within the same second, preserves PostgreSQL text precision and asserts database equality with the exact timestamp supplied to the real upsert. No sleep or weakened identity/role/rebinding assertion is used. Local evidence: five focused tests in two files pass; the repaired real Drizzle/storePG17 drill passes three separate executions; raw roles/RLS/rebinding drill passes; real HTTP/sessionPG17 fixture passes12 cases with mocked provider, cleanup and no production access/write. These runs are not added together as a new full-suite total. Successor source saving and automatic exact-source CI remain pending at this follow-up save.
+
+After restricted read-only preflight, only the stale API was reloaded on3000. Metro8081 was preserved. Both listeners returned database-ready200, ordinary app email integration disabled and platform integration inactive/feature-readiness false. No SQL/provider/credential/opt-in/deployment/publication was performed by that reload or fixture repair.
+
 ## Remaining operational gates
 
-1. Save accepted app source and complete exact-source GitHub CI/container; canonical transport currently reports `bad band #78 / bad pack header` even after one trusted refresh/retry. Do not change remotes/providers, force-push or claim a recorded Manus checkpoint. Preserve the tested local commit and normal authorized mirror if transport remains unavailable.
-2. Accept the admin-only directory correction and regenerate its manifest from the newly accepted app SHA rather than a WIP hash or old pin.
+1. Save the checked fixture-only successor and complete its automatic exact-source GitHub CI; original app source/container acceptance is recorded above. Canonical transport reports `bad band #78 / bad pack header` even after one trusted refresh/retry. Do not repeat failed transport, change remotes/providers, force-push or claim a recorded Manus checkpoint. Preserve local commits, normal authorized mirror and recovery bundle.
+2. Verify the final saved admin manifest re-pin against accepted app1992245. The privacy implementation is accepted; the final re-pin receipt is not guessed from a pending task. A fixture/documentation successor changes no shared production contract.
 3. Admin SQL is installed, but the console still lacks a dedicated configured credential/operator/provider/session/deployment proof. Owner-account provisioning and configuration are separate from installation.
 4. Ordinary email identity migration0014, its controlled app opt-in and real email/account/native journeys remain separately gated. Google remains later; the optional five-field feature reader/app opt-in is not approved by the admin security installation.
 5. Private media admission-to-delivered-byte behaviour is unchanged. Already delivered bytes cannot be recalled; in-flight storage delivery policy remains a separate bounded decision. No TURN/WebRTC device, native keyboard/assistive-tech or full operational revocation matrix is claimed.

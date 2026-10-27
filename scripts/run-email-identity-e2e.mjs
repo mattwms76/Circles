@@ -257,25 +257,38 @@ try {
     ),
     0,
   );
+  // Keep both values within one second: Date.toString() drops milliseconds and
+  // made this assertion flaky. Check PostgreSQL text precision and the exact
+  // requested value instead of depending on wall-clock timing or a sleep.
+  const fixtureBeforeSignIn = "2026-01-01T00:00:00.001Z";
+  const expectedExistingSignIn = new Date("2026-01-01T00:00:00.006Z");
+  await admin.query(
+    `UPDATE circles_app.users SET "lastSignedIn" = $1::timestamptz
+     WHERE "openId" = 'fixture-actor-a'`,
+    [fixtureBeforeSignIn],
+  );
   const beforeExistingSignIn = await admin.query(
-    `SELECT "lastSignedIn" AS "lastSignedIn" FROM circles_app.users
+    `SELECT "lastSignedIn"::text AS "lastSignedIn" FROM circles_app.users
      WHERE "openId" = 'fixture-actor-a'`,
   );
-  await new Promise((resolve) => setTimeout(resolve, 5));
   await database.transaction((transaction) =>
     upsertUserInTransaction(transaction, {
       openId: "fixture-actor-a",
-      lastSignedIn: new Date(),
+      lastSignedIn: expectedExistingSignIn,
     }),
   );
   const afterExistingSignIn = await admin.query(
-    `SELECT "lastSignedIn" AS "lastSignedIn" FROM circles_app.users
+    `SELECT "lastSignedIn"::text AS "lastSignedIn",
+            "lastSignedIn" = $1::timestamptz AS "matchesExpected"
+     FROM circles_app.users
      WHERE "openId" = 'fixture-actor-a'`,
+    [expectedExistingSignIn.toISOString()],
   );
   assert.notEqual(
-    String(beforeExistingSignIn.rows[0].lastSignedIn),
-    String(afterExistingSignIn.rows[0].lastSignedIn),
+    beforeExistingSignIn.rows[0].lastSignedIn,
+    afterExistingSignIn.rows[0].lastSignedIn,
   );
+  assert.equal(afterExistingSignIn.rows[0].matchesExpected, true);
 
   // Active closed rejects first allocations; active open admits the race drill.
   await admin.query(
