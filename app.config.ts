@@ -109,6 +109,16 @@ const config: ExpoConfig = {
     "expo-asset",
     "expo-router",
     [
+      "expo-camera",
+      {
+        cameraPermission:
+          "Allow Circles to use your camera to record clips and join live conversations.",
+        microphonePermission:
+          "Allow Circles to record audio for clips and live conversations.",
+        recordAudioAndroid: true,
+      },
+    ],
+    [
       "expo-image-picker",
       {
         photosPermission:
@@ -119,16 +129,16 @@ const config: ExpoConfig = {
       "@config-plugins/react-native-webrtc",
       {
         cameraPermission:
-          "Allow Circles to use your camera for live conversations.",
+          "Allow Circles to use your camera to record clips and join live conversations.",
         microphonePermission:
-          "Allow Circles to use your microphone for live conversations.",
+          "Allow Circles to record audio for clips and live conversations.",
       },
     ],
     [
       "expo-audio",
       {
         microphonePermission:
-          "Allow $(PRODUCT_NAME) to access your microphone.",
+          "Allow Circles to record audio for clips and live conversations.",
       },
     ],
     [

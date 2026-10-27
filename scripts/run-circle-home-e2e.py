@@ -49,7 +49,17 @@ MODERATION_MIGRATIONS = (
     "operations/migrations/0012_circles_moderation.sql",
     "operations/migrations/0013_circles_ops_moderation_health.sql",
 )
-SUITES = ("circle-home", "activity", "moderation", "a26-authority")
+POST_PUBLICATION_MIGRATIONS = (
+    "operations/migrations/0014_circles_email_identity.sql",
+    "operations/migrations/0015_circles_publish_post_receipts.sql",
+)
+SUITES = (
+    "circle-home",
+    "activity",
+    "moderation",
+    "a26-authority",
+    "post-publish-idempotency",
+)
 
 
 def fail(message: str) -> NoReturn:
@@ -75,6 +85,11 @@ def fixture_migrations(suite: str) -> tuple[str, ...]:
         for relative_path in MODERATION_MIGRATIONS
         if PROJECT_ROOT.joinpath(relative_path).is_file()
     )
+    available_post_publication = tuple(
+        relative_path
+        for relative_path in POST_PUBLICATION_MIGRATIONS
+        if PROJECT_ROOT.joinpath(relative_path).is_file()
+    )
     if suite == "a26-authority" and (
         available_activity != ACTIVITY_MIGRATIONS
         or available_moderation != MODERATION_MIGRATIONS
@@ -86,6 +101,11 @@ def fixture_migrations(suite: str) -> tuple[str, ...]:
         fail("Moderation E2E requires the reviewed Activity schema and health pair")
     if suite == "moderation" and available_moderation != MODERATION_MIGRATIONS:
         fail("Moderation E2E requires the reviewed 0012 and 0013 fixture migrations")
+    if (
+        suite == "post-publish-idempotency"
+        and available_post_publication != POST_PUBLICATION_MIGRATIONS
+    ):
+        fail("Post publication E2E requires the reviewed 0014 and 0015 fixture migrations")
     # Circle Home keeps running during a concurrent additive migration rollout: it receives the
     # exact Activity schema/health pair together, never an orphan health definition that expects
     # tables not yet present. Activity mode above remains stricter and refuses a partial pair.
@@ -96,6 +116,10 @@ def fixture_migrations(suite: str) -> tuple[str, ...]:
     # Moderation mode is stricter above: it never silently tests a pre-feature fixture.
     if available_moderation == MODERATION_MIGRATIONS:
         migrations += MODERATION_MIGRATIONS
+    if suite == "post-publish-idempotency":
+        # The receipt table follows the prepared identity mapping. Run the exact pair only for
+        # this fixture mode; callers cannot supply a config path, DSN, or arbitrary migration.
+        migrations += POST_PUBLICATION_MIGRATIONS
     return migrations
 
 
@@ -106,6 +130,8 @@ def suite_config(suite: str) -> str:
         return "e2e/activity.e2e.config.ts"
     if suite == "moderation":
         return "e2e/moderation.e2e.config.ts"
+    if suite == "post-publish-idempotency":
+        return "e2e/post-publish-idempotency.e2e.config.ts"
     return "e2e/circle-home.e2e.config.ts"
 
 

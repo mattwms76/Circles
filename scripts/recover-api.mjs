@@ -507,6 +507,10 @@ const ENDPOINT_DEFINITIONS = Object.freeze({
     requiresAuth: true,
     identifier: { source: "conversationId", field: "conversationId" },
   },
+  "social.publicationStatus": {
+    expected: "publication-status",
+    requiresAuth: true,
+  },
   "live.list": { expected: "array" },
   "live.signals": {
     expected: "array",
@@ -1621,6 +1625,14 @@ function expectedShape(value, expected, input) {
   if (expected === "object") return plainObject(value);
   if (expected === "object-or-null")
     return value === null || plainObject(value);
+  if (expected === "publication-status") {
+    return (
+      plainObject(value) &&
+      Object.hasOwn(value, "ready") &&
+      Object.keys(value).length === 1 &&
+      typeof value.ready === "boolean"
+    );
+  }
   if (expected === "authenticated-object") return plainObject(value);
   if (expected === "health") return plainObject(value) && value.ok === true;
   return false;
@@ -1687,7 +1699,7 @@ export async function verifyReadOnlyEndpoints({
   apiBaseUrl,
   inventory,
   manifest = {},
-  auth = { bearerToken: null, ids: {} },
+  auth = { bearerToken: /** @type {string | null} */ (null), ids: {} },
   checkAnonymousGates = true,
   fetchImpl = fetch,
 }) {

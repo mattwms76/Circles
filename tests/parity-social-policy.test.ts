@@ -6,8 +6,10 @@ import { circles, memberships, posts, reports } from "../drizzle/schema";
 const mocks = vi.hoisted(() => ({
   assertPlatformFeature: vi.fn(),
   assertPlatformUploadSize: vi.fn(),
+  assertPlatformUploadSizeWithLimit: vi.fn(),
   encryptSocialMedia: vi.fn((bytes: Buffer) => bytes),
   getDb: vi.fn(),
+  inspectRecordedMp4: vi.fn(),
   recordModerationReport: vi.fn(),
   recordUpload: vi.fn(),
   storagePut: vi.fn(),
@@ -17,6 +19,10 @@ vi.mock("../server/db", () => ({ getDb: mocks.getDb }));
 vi.mock("../server/platform-settings", () => ({
   assertPlatformFeature: mocks.assertPlatformFeature,
   assertPlatformUploadSize: mocks.assertPlatformUploadSize,
+  assertPlatformUploadSizeWithLimit: mocks.assertPlatformUploadSizeWithLimit,
+}));
+vi.mock("../shared/recorded-video", () => ({
+  inspectRecordedMp4: mocks.inspectRecordedMp4,
 }));
 vi.mock("../server/storage", () => ({ storagePut: mocks.storagePut }));
 vi.mock("../server/moderation-events", async (importOriginal) => ({
@@ -104,6 +110,7 @@ beforeEach(() => {
   delete process.env.CIRCLES_PLATFORM_SETTINGS_ENABLED;
   mocks.assertPlatformFeature.mockResolvedValue(undefined);
   mocks.assertPlatformUploadSize.mockResolvedValue(undefined);
+  mocks.assertPlatformUploadSizeWithLimit.mockResolvedValue(20 * 1024 * 1024);
   mocks.recordModerationReport.mockResolvedValue(undefined);
 });
 
@@ -142,7 +149,7 @@ describe("admin parity social policy", () => {
 
   it("rejects an over-limit decoded upload before encryption, storage, or upload-record writes", async () => {
     mocks.getDb.mockResolvedValue({});
-    mocks.assertPlatformUploadSize.mockRejectedValue(
+    mocks.assertPlatformUploadSizeWithLimit.mockRejectedValue(
       new TRPCError({
         code: "FORBIDDEN",
         message: "Upload exceeds the active limit",
@@ -157,7 +164,7 @@ describe("admin parity social policy", () => {
       }),
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
 
-    expect(mocks.assertPlatformUploadSize).toHaveBeenCalledWith(
+    expect(mocks.assertPlatformUploadSizeWithLimit).toHaveBeenCalledWith(
       expect.any(Object),
       bytes.length,
     );
@@ -178,9 +185,35 @@ describe("admin parity social policy", () => {
       }),
     ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
 
-    expect(mocks.assertPlatformUploadSize).not.toHaveBeenCalled();
+    expect(mocks.assertPlatformUploadSizeWithLimit).not.toHaveBeenCalled();
     expect(mocks.encryptSocialMedia).not.toHaveBeenCalled();
     expect(mocks.storagePut).not.toHaveBeenCalled();
+  });
+
+  it("inspects explicit recorded MP4 metadata with the effective cap before encryption or storage", async () => {
+    mocks.getDb.mockResolvedValue({});
+    mocks.assertPlatformUploadSizeWithLimit.mockResolvedValue(1_024);
+    mocks.inspectRecordedMp4.mockImplementation(() => {
+      throw new Error("This video must use H.264 video with AAC audio.");
+    });
+    const bytes = Buffer.alloc(12);
+    bytes.write("ftyp", 4, "ascii");
+
+    await expect(
+      uploadCaller().upload({
+        base64: bytes.toString("base64"),
+        mimeType: "video/mp4",
+        recording: { maxDurationSeconds: 30 },
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+    expect(mocks.inspectRecordedMp4).toHaveBeenCalledWith(bytes, {
+      maxDurationSeconds: 30,
+      maxBytes: 1_024,
+    });
+    expect(mocks.encryptSocialMedia).not.toHaveBeenCalled();
+    expect(mocks.storagePut).not.toHaveBeenCalled();
+    expect(mocks.recordUpload).not.toHaveBeenCalled();
   });
 
   it("keeps circle reports actionable while rejecting global report targets before all writes", async () => {

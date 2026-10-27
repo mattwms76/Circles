@@ -35,7 +35,8 @@
     "ios": "expo start --ios",
     "qr": "node scripts/generate_qr.mjs",
     "test:e2e:activity": "/usr/bin/python3 scripts/run-circle-home-e2e.py --suite activity",
-    "test:e2e:moderation": "/usr/bin/python3 scripts/run-circle-home-e2e.py --suite moderation"
+    "test:e2e:moderation": "/usr/bin/python3 scripts/run-circle-home-e2e.py --suite moderation",
+    "test:e2e:post-publish": "/usr/bin/python3 -B scripts/run-circle-home-e2e.py --suite post-publish-idempotency"
   },
   "dependencies": {
     "@config-plugins/react-native-webrtc": "15.0.2",
@@ -55,7 +56,10 @@
     "expo-asset": "~57.0.18",
     "expo-audio": "~57.0.5",
     "expo-build-properties": "~57.0.21",
+    "expo-camera": "~57.0.6",
     "expo-constants": "~57.0.19",
+    "expo-crypto": "~57.0.4",
+    "expo-file-system": "~57.0.7",
     "expo-font": "~57.0.4",
     "expo-haptics": "~57.0.3",
     "expo-image": "~57.0.5",
@@ -99,6 +103,7 @@
     "@types/pg": "8.15.5",
     "@types/qrcode": "^1.5.6",
     "@types/react": "~19.2.18",
+    "@types/react-dom": "~19.2.7",
     "concurrently": "^9.2.1",
     "cross-env": "^7.0.3",
     "drizzle-kit": "^0.31.8",
@@ -110,8 +115,8 @@
     "tailwindcss": "^3.4.17",
     "tsx": "^4.21.0",
     "typescript": "~6.0.3",
-    "vitest": "^4.1.12",
-    "vite": "^8.3.5"
+    "vite": "^8.3.5",
+    "vitest": "^4.1.12"
   },
   "packageManager": "pnpm@9.12.0",
   "pnpm": {

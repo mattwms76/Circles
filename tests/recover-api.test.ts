@@ -21,6 +21,7 @@ import {
   restartKnownApiService,
   runRecovery,
   validateVerificationConfiguration,
+  verifyReadOnlyEndpoints,
   waitForApiReadiness,
 } from "../scripts/recover-api.mjs";
 
@@ -146,6 +147,7 @@ function mockTrpcFetch(calls: MockCall[]) {
       "onboarding.recommendations",
       "social.conversations",
       "social.messages",
+      "social.publicationStatus",
       "live.signals",
       "live.relay",
       "live.chat",
@@ -198,11 +200,13 @@ function mockTrpcFetch(calls: MockCall[]) {
         circle: null,
       },
       "activity.resolveTarget": { viewerId: 1, activityId: 17, target: null },
+      "social.publicationStatus": { ready: false },
     };
     const value =
       route.startsWith("activity.") ||
       route.startsWith("moderation.") ||
-      route === "platform.status"
+      route === "platform.status" ||
+      route === "social.publicationStatus"
         ? activityValues[route]
         : route === "auth.me"
           ? authenticated
@@ -274,11 +278,11 @@ describe("guarded API recovery", () => {
 
     expect(report.ok).toBe(true);
     expect(restartCalls).toBe(1);
-    expect(report.inventory.declaredQueries).toBe(30);
+    expect(report.inventory.declaredQueries).toBe(31);
     expect(report.verification.summary).toMatchObject({
       failed: 0,
       skipped: 0,
-      completedPositiveQueries: 30,
+      completedPositiveQueries: 31,
     });
     expect(calls.every((call) => call.method === "GET")).toBe(true);
     expect(
@@ -302,6 +306,68 @@ describe("guarded API recovery", () => {
     expect(
       signalInputs.every((input) => liveSignalsInput.safeParse(input).success),
     ).toBe(true);
+  });
+
+  it.each([
+    ["accepts a false catalog readiness", { ready: false }, true],
+    ["accepts a true catalog readiness", { ready: true }, true],
+    ["rejects a non-boolean readiness", { ready: "false" }, false],
+    [
+      "rejects expanded catalog data",
+      { ready: false, table: "private" },
+      false,
+    ],
+  ])("%s", async (_label, payload, complete) => {
+    const derived = deriveEndpointInventory(PROJECT_ROOT);
+    const endpoint = derived.endpoints.find(
+      (candidate: { name: string }) =>
+        candidate.name === "social.publicationStatus",
+    );
+    expect(endpoint).toMatchObject({
+      sourceAccess: "protected",
+      requiresAuth: true,
+      supported: true,
+      expected: "publication-status",
+    });
+    const endpoints = derived.endpoints.filter(
+      (candidate: { name: string }) =>
+        candidate.name === "auth.me" ||
+        candidate.name === "social.publicationStatus",
+    );
+    const result = await verifyReadOnlyEndpoints({
+      apiBaseUrl: "http://127.0.0.1:3000",
+      inventory: { ...derived, endpoints },
+      auth: { bearerToken: "synthetic-bearer", ids: {} },
+      fetchImpl: async (input: RequestInfo | URL, options?: RequestInit) => {
+        const route = new URL(String(input)).pathname.replace("/api/trpc/", "");
+        const authenticated = new Headers(options?.headers).has(
+          "Authorization",
+        );
+        expect(options?.method).toBe("GET");
+        if (route === "auth.me") {
+          return new Response(
+            JSON.stringify({
+              result: { data: { json: authenticated ? { id: 1 } : null } },
+            }),
+            { status: 200 },
+          );
+        }
+        if (!authenticated) return new Response("", { status: 401 });
+        return new Response(
+          JSON.stringify({ result: { data: { json: payload } } }),
+          { status: 200 },
+        );
+      },
+    });
+
+    expect(result.complete).toBe(complete);
+    expect(result.checks).toContainEqual(
+      expect.objectContaining({
+        name: "social.publicationStatus",
+        check: "anonymous_denial",
+        status: "passed",
+      }),
+    );
   });
 
   it("uses a reviewed live.signals manifest generation when no auth-file generation is supplied", async () => {
@@ -893,7 +959,7 @@ describe("guarded API recovery", () => {
     expect(databaseChecks).toBe(0);
     expect(schemaChecks).toBe(0);
     expect(restarts).toBe(0);
-    expect(report.inventory.declaredQueries).toBe(30);
+    expect(report.inventory.declaredQueries).toBe(31);
     expect(calls.every((call) => call.method === "GET")).toBe(true);
   });
 
@@ -926,7 +992,7 @@ describe("guarded API recovery", () => {
     expect(child.status).toBe(1);
     const report = JSON.parse(child.stdout);
     expect(report.configuration.ok).toBe(true);
-    expect(report.inventory.declaredQueries).toBe(30);
+    expect(report.inventory.declaredQueries).toBe(31);
     expect(report.restart.attempted).toBe(false);
     expect(report.database.required).toBe(false);
   });
