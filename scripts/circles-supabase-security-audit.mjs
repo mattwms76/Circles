@@ -80,9 +80,18 @@ const REVIEWED_BUILTIN_CAPABILITY_ROLES = Object.freeze([
   "pg_maintain",
 ]);
 const REVIEWED_PROVIDER_SUPERUSER_ROLES = Object.freeze(["supabase_admin"]);
+// Approved circles-admin installation on circles_app. These exact names classify
+// existing grants and companion policies; they do not grant anything.
+// circles_admin_runtime can log in and has no password, so it is not placed in
+// a group that requires NOLOGIN. Do not add roles here from a name pattern.
+const APPROVED_CIRCLES_ADMIN_ROLES = Object.freeze([
+  "circles_admin_native_executor",
+  "circles_admin_runtime",
+]);
 const REVIEWED_MANAGED_ADMIN_ROLES = Object.freeze([
   "supabase_etl_admin",
   "supabase_read_only_user",
+  ...APPROVED_CIRCLES_ADMIN_ROLES,
 ]);
 const TRUSTED_PRIVILEGED_ROLE_NAMES = Object.freeze([
   "postgres",
@@ -307,6 +316,32 @@ function hasExactRuntimeRole(roles, runtimeRole) {
   return normalized.length === 1 && normalized[0] === runtimeRole;
 }
 
+function isFalseExpression(expression) {
+  return normalizeExpression(expression) === "false";
+}
+
+function isApprovedDenyCompanion(policy) {
+  const roles = normalizedRoles(policy.roles);
+  return (
+    policy.policy_name === "circles_app_deny_anon_authenticated" &&
+    policy.command === "ALL" &&
+    roles.length === 2 &&
+    roles[0] === "anon" &&
+    roles[1] === "authenticated" &&
+    isFalseExpression(policy.using_qualification) &&
+    isFalseExpression(policy.with_check_qualification)
+  );
+}
+
+function isApprovedAdminCompanion(policy) {
+  const roles = normalizedRoles(policy.roles);
+  return roles.length === 1 && APPROVED_CIRCLES_ADMIN_ROLES.includes(roles[0]);
+}
+
+function isApprovedPolicyCompanion(policy) {
+  return isApprovedDenyCompanion(policy) || isApprovedAdminCompanion(policy);
+}
+
 function checkContext(context) {
   return {
     source_tree: context.sourceTree,
@@ -365,10 +400,12 @@ export function evaluatePolicies(
   }
   const violations = [];
   for (const tableName of expectedAppNames) {
-    const tablePolicies = byTable.get(tableName) ?? [];
+    const runtimePolicies = (byTable.get(tableName) ?? []).filter(
+      (policy) => !isApprovedPolicyCompanion(policy),
+    );
     const valid =
-      tablePolicies.length === 1 &&
-      tablePolicies.every(
+      runtimePolicies.length === 1 &&
+      runtimePolicies.every(
         (policy) =>
           policy.command === "ALL" &&
           hasExactRuntimeRole(policy.roles, runtimeRole) &&
@@ -377,7 +414,9 @@ export function evaluatePolicies(
       );
     if (!valid) violations.push(tableName);
   }
-  const markerPolicies = byTable.get(markerTable) ?? [];
+  const markerPolicies = (byTable.get(markerTable) ?? []).filter(
+    (policy) => !isApprovedPolicyCompanion(policy),
+  );
   const markerValid =
     markerPolicies.length === 1 &&
     markerPolicies.every(
@@ -691,14 +730,24 @@ function aclCoverage(rows, objects, objectKey) {
     const owner = objects.find(
       (object) => object[objectKey] === row[objectKey],
     )?.owner;
-    if (row.grantee !== owner && row.grantee !== "circles_app_runtime") {
+    const approvedAdminGrantee = APPROVED_CIRCLES_ADMIN_ROLES.includes(
+      row.grantee,
+    );
+    if (
+      row.grantee !== owner &&
+      row.grantee !== "circles_app_runtime" &&
+      !approvedAdminGrantee
+    ) {
       violations.push({
         object_name: row[objectKey],
         grantee: row.grantee,
         privilege_type: row.privilege_type,
         grantable: row.is_grantable,
       });
-    } else if (row.grantee === "circles_app_runtime" && row.is_grantable) {
+    } else if (
+      (row.grantee === "circles_app_runtime" || approvedAdminGrantee) &&
+      row.is_grantable
+    ) {
       violations.push({
         object_name: row[objectKey],
         grantee: row.grantee,
@@ -1571,7 +1620,7 @@ export function renderMarkdown(report) {
         [
           "Managed admin roles (reviewed)",
           reviewedGroupCount("managed_admin_roles"),
-          "supabase_etl_admin, supabase_read_only_user",
+          "supabase_etl_admin, supabase_read_only_user, circles_admin_native_executor, circles_admin_runtime",
         ],
       ],
     ),
@@ -2549,7 +2598,7 @@ export async function runAudit(options) {
         context,
         "exact_runtime_rls_policies",
         policyEvaluation,
-        "Each application table has one ALL runtime policy with USING/WITH CHECK true; the marker has one SELECT-only runtime policy.",
+        "Each application table has one ALL runtime policy with USING/WITH CHECK true; the marker has one SELECT-only runtime policy. Approved anon/authenticated deny policies and circles-admin companion policies remain beside them.",
         "RLS policy role, command, qualification, count, or table coverage differs from the expected server-only design.",
       ),
     );
