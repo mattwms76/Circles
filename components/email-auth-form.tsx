@@ -19,6 +19,7 @@ import { Button, C, IconButton, Input, T } from "@/components/circles-ui";
 import { StatusMessage } from "./status-message";
 import {
   connectEmailPassword,
+  EmailAuthClientError,
   readEmailAuthStatus,
   requestPasswordReset,
   signInWithEmailPassword,
@@ -420,8 +421,15 @@ function EmailAuthDialog({
           "We couldn't confirm your sign-in. Check your connection and try again.",
         );
       }
-    } catch {
+    } catch (error) {
       if (!isCurrent(submissionGuard, scope)) return;
+      if (
+        error instanceof EmailAuthClientError &&
+        error.code === "email_auth_invalid_address"
+      ) {
+        setFormError(error.message);
+        return;
+      }
       setFormError(
         formMode === "signUp"
           ? "We couldn't create that account. Please try again."

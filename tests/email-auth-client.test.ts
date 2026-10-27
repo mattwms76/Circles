@@ -145,6 +145,26 @@ describe("email authentication client protocol", () => {
     );
 
     mocks.apiCall.mockRejectedValueOnce(
+      new Error("Enter a valid email address."),
+    );
+    await expect(
+      client.signUpWithEmailPassword("new@example.test", "new-password"),
+    ).rejects.toMatchObject({
+      code: "email_auth_invalid_address",
+      message: "Enter a valid email address.",
+    });
+
+    mocks.apiCall.mockRejectedValueOnce(
+      new Error("Email address new@example.test is invalid"),
+    );
+    await expect(
+      client.signUpWithEmailPassword("new@example.test", "new-password"),
+    ).rejects.toMatchObject({
+      code: "email_auth_sign_up_failed",
+      message: "We couldn't create that account. Please try again.",
+    });
+
+    mocks.apiCall.mockRejectedValueOnce(
       new Error("raw provider token and password should never reach the UI"),
     );
     await expect(

@@ -11,8 +11,11 @@ export function PushRegistration() {
   const { user } = useCircles();
   const register = trpc.social.registerPushToken.useMutation();
   const registerRef = useRef(register.mutateAsync);
-  registerRef.current = register.mutateAsync;
   const registeredToken = useRef<string | null>(null);
+
+  useEffect(() => {
+    registerRef.current = register.mutateAsync;
+  }, [register.mutateAsync]);
 
   useEffect(() => {
     if (!user || Platform.OS === "web") return;
@@ -42,7 +45,7 @@ export function PushRegistration() {
     return () => {
       cancelled = true;
     };
-  }, [user?.id]);
+  }, [user]);
 
   return null;
 }

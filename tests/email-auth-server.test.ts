@@ -402,6 +402,43 @@ describe("email/password REST server contract", () => {
     }
   });
 
+  it("names an undeliverable sign-up address without returning the provider body", async () => {
+    const fetchImpl = providerFetch();
+    fetchImpl.mockImplementation(async (input) => {
+      if (String(input).endsWith("/auth/v1/signup")) {
+        return response(
+          {
+            error_code: "email_address_invalid",
+            msg: "Email address circles-preview-auth@example.test is invalid",
+            access_token: "must-not-reach-client",
+          },
+          400,
+        );
+      }
+      throw new Error("unexpected provider call");
+    });
+    const { server, baseUrl } = await start({ fetchImpl });
+    try {
+      const result = await post(
+        baseUrl,
+        "/api/auth/email/sign-up",
+        { email: verified.email, password: "password" },
+        {
+          Origin: "https://web.synthetic.invalid",
+          "Sec-Fetch-Site": "same-site",
+        },
+      );
+      expect(result.status).toBe(400);
+      expect(await result.json()).toEqual({
+        error: "Enter a valid email address.",
+        code: "INVALID_EMAIL",
+      });
+      expect(result.headers.get("set-cookie")).toBeNull();
+    } finally {
+      await close(server);
+    }
+  });
+
   it("derives connect authority from sdk.authenticateRequest and refuses cross-account provider links", async () => {
     const identityStore = {
       isReady: vi.fn(async () => true),
@@ -466,7 +503,11 @@ describe("email/password REST server contract", () => {
       }
       throw new Error(`Unexpected provider request: ${url}`);
     });
-    const { server, baseUrl, dependencies: wired } = await start({
+    const {
+      server,
+      baseUrl,
+      dependencies: wired,
+    } = await start({
       fetchImpl,
     });
     try {

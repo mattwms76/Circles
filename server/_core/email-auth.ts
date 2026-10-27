@@ -66,6 +66,7 @@ type EmailAuthConfig = {
 
 type EmailAuthFailureCode =
   | "INVALID_CREDENTIALS"
+  | "INVALID_EMAIL"
   | "REQUEST_NOT_ACCEPTED"
   | "RATE_LIMITED"
   | "LINK_REQUIRED"
@@ -178,6 +179,8 @@ function emailError(code: EmailAuthFailureCode): EmailAuthRouteError {
   switch (code) {
     case "INVALID_CREDENTIALS":
       return new EmailAuthRouteError(401, code, "Invalid email or password");
+    case "INVALID_EMAIL":
+      return new EmailAuthRouteError(400, code, "Enter a valid email address.");
     case "REQUEST_NOT_ACCEPTED":
       return new EmailAuthRouteError(
         403,
@@ -585,11 +588,16 @@ async function requestSupabasePasswordReset(
 ): Promise<void> {
   // The provider response is never returned. A missing account and a sent mail
   // look the same to the caller, and no session or recovery token is minted here.
-  const response = await providerRequest(fetchImpl, config, "/auth/v1/recover", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ email }),
-  });
+  const response = await providerRequest(
+    fetchImpl,
+    config,
+    "/auth/v1/recover",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email }),
+    },
+  );
   try {
     if (response.status === 429) throw emailError("RATE_LIMITED");
     if (response.status >= 500) throw new ProviderTransportError();
@@ -598,22 +606,65 @@ async function requestSupabasePasswordReset(
   }
 }
 
+async function providerClientErrorCode(
+  response: Response,
+): Promise<string | null> {
+  if (!response.body) return null;
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (total <= MAX_PROVIDER_RESPONSE_BYTES) {
+      const next = await reader.read();
+      if (next.done || !next.value) break;
+      total += next.value.byteLength;
+      if (total > MAX_PROVIDER_RESPONSE_BYTES) return null;
+      chunks.push(next.value);
+    }
+  } catch {
+    return null;
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  const record = parsed as Record<string, unknown>;
+  const candidate = record.error_code ?? record.error;
+  return typeof candidate === "string" && /^[a-z0-9_]{1,64}$/.test(candidate)
+    ? candidate
+    : null;
+}
+
 async function requestSupabaseSignup(
   fetchImpl: FetchImplementation,
   config: EmailAuthConfig,
   email: string,
   password: string,
 ): Promise<void> {
-  // Do not inspect or return the provider response. In particular, confirmation
-  // required means no session, auth code, provider identity, or token is minted here.
+  // Confirmation required means no session, auth code, provider identity, or
+  // token is minted here. A duplicate account stays indistinguishable from a
+  // sent confirmation. An address the provider rejects as undeliverable is the
+  // one client error named back to the form, without the provider's text.
   const response = await providerRequest(fetchImpl, config, "/auth/v1/signup", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ email, password }),
   });
-  if (!response.ok && response.status >= 500)
-    throw new ProviderTransportError();
-  if (response.body) await response.body.cancel().catch(() => undefined);
+  try {
+    if (response.ok) return;
+    if (response.status === 429) throw emailError("RATE_LIMITED");
+    if (response.status >= 500) throw new ProviderTransportError();
+    if ((await providerClientErrorCode(response)) === "email_address_invalid") {
+      throw emailError("INVALID_EMAIL");
+    }
+  } finally {
+    if (response.body) await response.body.cancel().catch(() => undefined);
+  }
 }
 
 function clientAddress(req: Request): string {

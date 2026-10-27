@@ -1,4 +1,5 @@
 import {
+  bigint,
   index,
   integer,
   pgSchema,
@@ -17,6 +18,9 @@ export const circlesPublish = pgSchema("circles_publish");
 export const postPublishReceipts = circlesPublish.table(
   "postPublishReceipts",
   {
+    id: bigint("id", { mode: "number" })
+      .generatedAlwaysAsIdentity()
+      .primaryKey(),
     actorId: integer("actorId")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),

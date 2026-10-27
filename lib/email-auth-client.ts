@@ -30,7 +30,8 @@ export type EmailAuthClientErrorCode =
   | "email_auth_failed"
   | "email_auth_link_required"
   | "email_auth_session_unavailable"
-  | "email_auth_sign_up_failed";
+  | "email_auth_sign_up_failed"
+  | "email_auth_invalid_address";
 
 /**
  * This error deliberately contains only a bounded, user-safe category. The API
@@ -54,6 +55,8 @@ export function emailAuthErrorMessage(code: EmailAuthClientErrorCode): string {
       return "We couldn't complete sign-in. Please try again.";
     case "email_auth_sign_up_failed":
       return "We couldn't create that account. Please try again.";
+    case "email_auth_invalid_address":
+      return "Enter a valid email address.";
     case "email_auth_link_required":
       return "This verified email must be connected to your existing Circles account. While signed in to that account, open Profile → Connect email sign-in.";
     case "email_auth_failed":
@@ -288,7 +291,13 @@ export async function signUpWithEmailPassword(
         body: JSON.stringify({ email, password }),
         signal: request.signal,
       });
-    } catch {
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message === "Enter a valid email address."
+      ) {
+        throw new EmailAuthClientError("email_auth_invalid_address");
+      }
       throw new EmailAuthClientError("email_auth_sign_up_failed");
     }
 
