@@ -677,10 +677,8 @@ export default function ProfileScreen({
                     await logout();
                     notify("You’re signed out. See you soon.", "success");
                   } catch {
-                    notify(
-                      "Signed out locally, but remote session revocation could not be confirmed.",
-                      "error",
-                    );
+                    // CirclesProvider keeps the outcome-specific recovery UI
+                    // visible, including the only explicit retry action.
                   }
                 }}
                 label="Sign out"

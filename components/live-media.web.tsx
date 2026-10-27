@@ -27,6 +27,7 @@ import {
   type LiveHostLease,
 } from "./design31-live-ui";
 import { terminateLiveTransportForError } from "./live-media-terminal";
+import { createSec27CaptureLifecycle } from "./sec27-capture-lifecycle";
 
 export type LiveMediaProps = {
   streamId: number;
@@ -206,7 +207,6 @@ export default function LiveMedia({
     let viewerMediaReady = false;
     let hostMediaReady = false;
     let terminal = false;
-    let pageHideHandler: (() => void) | null = null;
 
     const emitMediaPhase = (phase: A26LiveMediaPhase, message?: string) => {
       if (!active) return;
@@ -768,6 +768,51 @@ export default function LiveMedia({
       return ending;
     };
 
+    const captureLifecycle = createSec27CaptureLifecycle({
+      stopLocalCapture: () => {
+        terminal = true;
+        active = false;
+        teardownController.abort();
+        stopTransport();
+      },
+      notifyTerminal: () => {
+        const message =
+          "Live video was disconnected while the app was not active. Rejoin live video to continue.";
+        setStatus(message);
+        callbackRef.current.onMediaPhaseChange?.({
+          phase: "error",
+          generation,
+          message,
+        });
+        callbackRef.current.onError?.(message);
+      },
+      sendGenerationTerminal: (ownedGeneration) =>
+        host
+          ? endHostedStream(ownedGeneration)
+          : api.live.leave.mutate({
+              streamId,
+              generation: ownedGeneration,
+            }),
+    });
+    const pageHideHandler = () => {
+      captureLifecycle.terminate("web-pagehide", generation);
+    };
+    const visibilityChangeHandler = () => {
+      if (
+        typeof document !== "undefined" &&
+        document.visibilityState === "hidden"
+      ) {
+        captureLifecycle.terminate("web-hidden", generation);
+      }
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("pagehide", pageHideHandler);
+    }
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", visibilityChangeHandler);
+      visibilityChangeHandler();
+    }
+
     const initialise = async (): Promise<number | null> => {
       let ownedHostGeneration: number | null = null;
       try {
@@ -778,7 +823,10 @@ export default function LiveMedia({
         cursor = session.signalCursor;
         joined = true;
         ownedHostGeneration = host ? session.generation : null;
-        if (!active) return ownedHostGeneration;
+        if (!active) {
+          captureLifecycle.bindGenerationAfterTerminal(session.generation);
+          return ownedHostGeneration;
+        }
         emitMediaPhase("admitted");
         const hostLease = liveHostLeaseFromJoin({
           host,
@@ -794,12 +842,6 @@ export default function LiveMedia({
           const hostCleanupGeneration = ownedHostGeneration;
           if (hostCleanupGeneration === null) {
             throw new Error("Host live media generation is unavailable.");
-          }
-          pageHideHandler = () => {
-            if (!terminal) void endHostedStream(hostCleanupGeneration);
-          };
-          if (typeof window !== "undefined") {
-            window.addEventListener("pagehide", pageHideHandler);
           }
           const renewHostHeartbeat = () => {
             if (!active) return;
@@ -891,8 +933,14 @@ export default function LiveMedia({
     const initialisePromise = initialise();
     return () => {
       active = false;
-      if (typeof window !== "undefined" && pageHideHandler) {
+      if (typeof window !== "undefined") {
         window.removeEventListener("pagehide", pageHideHandler);
+      }
+      if (typeof document !== "undefined") {
+        document.removeEventListener(
+          "visibilitychange",
+          visibilityChangeHandler,
+        );
       }
       stopTransport();
 

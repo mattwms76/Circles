@@ -47,6 +47,7 @@ vi.mock("react", async (importOriginal) => {
   return {
     ...actual,
     useCallback: <T>(callback: T) => callback,
+    useMemo: <T>(factory: () => T) => factory(),
     useEffect: (effect: HookEffect) => {
       hookStore.effects.push(effect);
     },

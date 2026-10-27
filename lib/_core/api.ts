@@ -1,11 +1,14 @@
 import { Platform } from "react-native";
 import { getApiRequestUrl } from "@/constants/oauth";
 import * as Auth from "./auth";
+import { credentialAdmission } from "../sec27-credential-admission";
 
-export async function apiCall<T>(
+async function dispatchApiCall<T>(
   endpoint: string,
   options: RequestInit = {},
+  logoutRecovery = false,
 ): Promise<T> {
+  if (!logoutRecovery) await Auth.initializeCredentialAdmission();
   const headers = new Headers(options.headers);
   if (!headers.has("Content-Type"))
     headers.set("Content-Type", "application/json");
@@ -31,11 +34,21 @@ export async function apiCall<T>(
   const url = getApiRequestUrl(cleanEndpoint);
   try {
     console.log("[API] Making request...");
-    const response = await fetch(url, {
+    const request: RequestInit = {
       ...options,
       headers,
       credentials: "include",
-    });
+    };
+    const isExactLogoutRecovery =
+      logoutRecovery &&
+      cleanEndpoint === "/api/auth/logout" &&
+      options.method === "POST";
+    const response = await fetch(
+      url,
+      isExactLogoutRecovery
+        ? request
+        : credentialAdmission.prepareRequest(request),
+    );
 
     console.log("[API] Response received");
     if (!response.ok) {
@@ -72,6 +85,13 @@ export async function apiCall<T>(
   }
 }
 
+export async function apiCall<T>(
+  endpoint: string,
+  options: RequestInit = {},
+): Promise<T> {
+  return dispatchApiCall<T>(endpoint, options);
+}
+
 // OAuth callback handler - exchange code for session token
 // Calls /api/oauth/mobile endpoint which returns JSON with app_session_id and user
 export async function exchangeOAuthCode(
@@ -97,12 +117,25 @@ export async function exchangeOAuthCode(
 
 // Logout
 export async function logout(nativeBearer?: string | null): Promise<void> {
-  await apiCall<void>("/api/auth/logout", {
-    method: "POST",
-    headers: nativeBearer
-      ? { Authorization: `Bearer ${nativeBearer}` }
-      : undefined,
-  });
+  if (
+    Platform.OS !== "web" &&
+    nativeBearer === null &&
+    !credentialAdmission.getSnapshot().admitted
+  ) {
+    throw new Error(
+      "Native session revocation cannot be confirmed without its recovery credential.",
+    );
+  }
+  await dispatchApiCall<void>(
+    "/api/auth/logout",
+    {
+      method: "POST",
+      headers: nativeBearer
+        ? { Authorization: `Bearer ${nativeBearer}` }
+        : undefined,
+    },
+    true,
+  );
 }
 
 // Get current authenticated user (web uses cookie-based auth)
@@ -128,16 +161,22 @@ export async function getMe(): Promise<{
 export async function establishSession(token: string): Promise<boolean> {
   try {
     console.log("[API] establishSession: setting cookie on backend...");
+    await Auth.initializeCredentialAdmission();
+    const generation = credentialAdmission.getSnapshot().generation;
+    if (!credentialAdmission.isGenerationAdmitted(generation)) return false;
     const url = getApiRequestUrl("/api/auth/session");
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      credentials: "include", // Important: allows Set-Cookie to be stored
-    });
+    const response = await fetch(
+      url,
+      credentialAdmission.prepareRequest({
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        credentials: "include", // Admission is required before session establishment.
+      }),
+    );
 
     if (!response.ok) {
       console.error("[API] establishSession failed");

@@ -3,6 +3,7 @@ import React, {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useState,
 } from "react";
 import {
@@ -15,13 +16,19 @@ import {
 import * as ReactNative from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { trpc } from "@/lib/trpc";
-import { C, IconButton, Logo, T } from "@/components/circles-ui";
+import { credentialAdmission } from "../lib/sec27-credential-admission";
+import { Button, C, IconButton, Logo, T } from "@/components/circles-ui";
 import { EmailAuthForm } from "@/components/email-auth-form";
 import { StatusMessage } from "@/components/status-message";
 import { usePathname, useRouter } from "expo-router";
 import * as Api from "@/lib/_core/api";
 import * as Auth from "@/lib/_core/auth";
-import { logoutAndPurgeClientSession } from "@/lib/client-session";
+import {
+  clientLogoutOutcomeFromError,
+  describeClientLogoutOutcome,
+  logoutAndPurgeClientSession,
+  type ClientLogoutRecovery,
+} from "@/lib/client-session";
 import { cancelAndDrainEmailAuthRequests } from "@/lib/email-auth-client";
 import { clearPrivateImageCaches } from "@/lib/media-cache";
 import {
@@ -79,6 +86,11 @@ export function CirclesProvider({
   const utils = trpc.useUtils();
   const [login, setLogin] = useState(false);
   const [notice, setNotice] = useState<GlobalNotice | null>(null);
+  const [logoutPending, setLogoutPending] = useState(false);
+  const [storedLogoutRecovery, setLogoutRecovery] =
+    useState<ClientLogoutRecovery | null>(null);
+  const [credentialAdmissionSnapshot, setCredentialAdmissionSnapshot] =
+    useState(() => credentialAdmission.getSnapshot());
   const [windowWidth, setWindowWidth] = useState(currentWindowWidth);
   useEffect(() => {
     if (!("Dimensions" in ReactNative)) return;
@@ -88,12 +100,60 @@ export function CirclesProvider({
     );
     return () => subscription.remove();
   }, []);
-  const authState = resolveAuthGateState({
+  useEffect(() => {
+    const unsubscribe = credentialAdmission.subscribe(() => {
+      setCredentialAdmissionSnapshot(credentialAdmission.getSnapshot());
+    });
+    return unsubscribe;
+  }, []);
+  const credentialAdmissionBlocks =
+    credentialAdmissionSnapshot.hydrated &&
+    !credentialAdmissionSnapshot.admitted;
+  const logoutRecovery = useMemo<ClientLogoutRecovery | null>(
+    () =>
+      storedLogoutRecovery ??
+      (credentialAdmissionBlocks
+        ? {
+            complete: false,
+            blocksAuthenticatedContinuation: true,
+            message:
+              "Secure sign-out recovery is still required. Retry secure sign-out before continuing.",
+            remoteStatus:
+              "Remote session revocation must be retried before it can be confirmed.",
+            localCredentialStatus:
+              "Local credential cleanup must be rechecked during secure sign-out retry.",
+            privateImageCacheStatus:
+              "Private image cache cleanup must be rechecked during secure sign-out retry.",
+            protectedNavigationStatus:
+              "Protected navigation reset must be rechecked during secure sign-out retry.",
+            credentialAdmissionStatus:
+              credentialAdmissionSnapshot.persistence === "failed"
+                ? "The incomplete sign-out recovery marker could not be checked or persisted."
+                : "An incomplete secure sign-out recovery marker was found on this device.",
+          }
+        : null),
+    [
+      storedLogoutRecovery,
+      credentialAdmissionBlocks,
+      credentialAdmissionSnapshot.persistence,
+    ],
+  );
+  const resolvedAuthState = resolveAuthGateState({
     isLoading: auth.isLoading,
     isError: auth.isError,
     hasUser: !!auth.data,
   });
-  const observedActor = observedActorForAuth(authState, auth.data ?? null);
+  const logoutBlocksAuthenticatedContinuation =
+    logoutPending ||
+    credentialAdmissionBlocks ||
+    logoutRecovery?.blocksAuthenticatedContinuation === true;
+  const authState = logoutBlocksAuthenticatedContinuation
+    ? "guest"
+    : resolvedAuthState;
+  const visibleUser = logoutBlocksAuthenticatedContinuation
+    ? null
+    : (auth.data ?? null);
+  const observedActor = observedActorForAuth(authState, visibleUser);
   const [admittedActor, setAdmittedActor] = useState<ObservedActor>(undefined);
   const actorResetRequired = actorBoundaryResetRequired(
     admittedActor,
@@ -101,7 +161,8 @@ export function CirclesProvider({
   );
   const actorBoundaryActor =
     observedActor === undefined ? admittedActor : observedActor;
-  const loginVisible = login && authState === "guest";
+  const loginVisible =
+    login && authState === "guest" && !logoutBlocksAuthenticatedContinuation;
   const refetchAuth = auth.refetch;
   const showNotice = useCallback(
     (message: string, tone: StatusTone = "info") => {
@@ -159,30 +220,68 @@ export function CirclesProvider({
   }, [refetchAuth]);
 
   const logout = useCallback(async () => {
-    await logoutNativeSessionAfterEmailAuthDrain({
-      drainEmailAuthRequests: cancelAndDrainEmailAuthRequests,
-      getNativeBearer: Auth.getSessionToken,
-      logoutAndPurge: async (nativeBearer) => {
-        // Api.logout receives this post-drain captured value rather than reading
-        // local storage after purge has begun.
-        setLogin(false);
-        await logoutAndPurgeClientSession(
-          () => Api.logout(nativeBearer),
-          queryClient,
-          {
-            clearLocalCredentials: async () => {
-              await Promise.allSettled([
-                Auth.removeSessionToken(),
-                Auth.clearUserInfo(),
-              ]);
+    // This is intentionally the first logout operation. It synchronously
+    // closes headers, browser cookies, and protected-media bearer admission
+    // before React pending state or email/OAuth draining can yield.
+    const credentialAdmissionAttempt =
+      Auth.beginIncompleteLogoutCredentialAdmission();
+    setLogin(false);
+    setLogoutPending(true);
+    try {
+      await logoutNativeSessionAfterEmailAuthDrain({
+        drainEmailAuthRequests: cancelAndDrainEmailAuthRequests,
+        // The helper runs only after the serialized drain and is recovery-only:
+        // normal Auth.getSessionToken remains denied by the global barrier.
+        getNativeBearer: Auth.getSessionTokenForIncompleteLogoutRecovery,
+        logoutAndPurge: async (nativeBearer) => {
+          // Api.logout receives this post-drain captured value rather than
+          // rereading local storage after purge has begun. Its cookie request
+          // remains the deliberate web revocation operation.
+          await logoutAndPurgeClientSession(
+            () => Api.logout(nativeBearer),
+            queryClient,
+            {
+              clearLocalCredentials: Auth.clearLocalSessionCredentials,
+              clearPrivateImageCaches,
+              resetProtectedNavigation,
             },
-            clearPrivateImageCaches,
-            resetProtectedNavigation,
-          },
-        );
-      },
-    });
-  }, [queryClient, resetProtectedNavigation]);
+            {
+              confirmPersisted: credentialAdmissionAttempt.confirmPersisted,
+              clearAfterConfirmedLogout: () =>
+                Auth.clearCredentialAdmissionAfterConfirmedLogout(
+                  credentialAdmissionAttempt,
+                ),
+            },
+          );
+          setLogoutRecovery(null);
+        },
+      });
+    } catch (error) {
+      const outcome = clientLogoutOutcomeFromError(error);
+      const recovery: ClientLogoutRecovery = outcome
+        ? describeClientLogoutOutcome(outcome)
+        : {
+            complete: false,
+            blocksAuthenticatedContinuation: true,
+            message:
+              "Secure sign-out stopped before cleanup could be confirmed. Retry secure sign-out before continuing.",
+            remoteStatus: "Remote session revocation could not be confirmed.",
+            localCredentialStatus:
+              "Local credential cleanup could not be confirmed.",
+            privateImageCacheStatus:
+              "Private image cache cleanup could not be confirmed.",
+            protectedNavigationStatus:
+              "Protected navigation reset could not be confirmed.",
+            credentialAdmissionStatus:
+              "Credential admission remains closed until secure sign-out recovery succeeds.",
+          };
+      setLogoutRecovery(recovery);
+      showNotice(recovery.message, "error");
+      throw error;
+    } finally {
+      setLogoutPending(false);
+    }
+  }, [queryClient, resetProtectedNavigation, showNotice]);
 
   const completeNativeLoginWithResult = useCallback(async () => {
     const result = await confirmNativeLoginAfterEmailAuthDrain({
@@ -245,6 +344,13 @@ export function CirclesProvider({
 
   const requireAuth = useCallback(
     (action?: () => void) => {
+      if (logoutBlocksAuthenticatedContinuation) {
+        showNotice(
+          logoutRecovery?.message ?? "Secure sign-out is still in progress.",
+          "error",
+        );
+        return false;
+      }
       const resolution = resolveProtectedActionRequest(authState);
       if (resolution.kind === "run") {
         action?.();
@@ -260,18 +366,33 @@ export function CirclesProvider({
       setLogin(true);
       return false;
     },
-    [authState, showNotice],
+    [
+      authState,
+      logoutBlocksAuthenticatedContinuation,
+      logoutRecovery,
+      showNotice,
+    ],
   );
   return (
     <Context.Provider
       value={{
-        user: auth.data || null,
-        authLoading: auth.isLoading,
+        user: visibleUser,
+        authLoading: logoutBlocksAuthenticatedContinuation
+          ? false
+          : auth.isLoading,
         authState,
         requireAuth,
         notify: showNotice,
         refresh,
         showLogin: () => {
+          if (logoutBlocksAuthenticatedContinuation) {
+            showNotice(
+              logoutRecovery?.message ??
+                "Secure sign-out is still in progress.",
+              "error",
+            );
+            return;
+          }
           if (authState === "error") {
             showNotice(
               "We couldn’t confirm your sign-in. Check your connection and try again.",
@@ -321,6 +442,72 @@ export function CirclesProvider({
             />
           </View>
         </View>
+      )}
+      {!!logoutRecovery && (
+        <Modal
+          transparent
+          visible
+          animationType="fade"
+          onRequestClose={() => undefined}
+        >
+          <View
+            style={{
+              alignItems: "center",
+              backgroundColor: "#19201B88",
+              flex: 1,
+              justifyContent: "center",
+              paddingHorizontal: 20,
+              paddingVertical: Math.max(20, insets.top + 12),
+            }}
+          >
+            <View
+              style={{
+                backgroundColor: C.paper,
+                borderColor: C.border,
+                borderRadius: 20,
+                borderWidth: 1,
+                gap: 14,
+                maxWidth: 440,
+                padding: 20,
+                width: "100%",
+              }}
+            >
+              <T style={{ fontSize: 22, fontWeight: "800" }}>
+                Sign-out needs your attention
+              </T>
+              <StatusMessage message={logoutRecovery.message} tone="error" />
+              <View style={{ gap: 5 }}>
+                <T style={{ color: C.secondary, fontSize: 13 }}>
+                  {logoutRecovery.remoteStatus}
+                </T>
+                <T style={{ color: C.secondary, fontSize: 13 }}>
+                  {logoutRecovery.localCredentialStatus}
+                </T>
+                <T style={{ color: C.secondary, fontSize: 13 }}>
+                  {logoutRecovery.privateImageCacheStatus}
+                </T>
+                <T style={{ color: C.secondary, fontSize: 13 }}>
+                  {logoutRecovery.protectedNavigationStatus}
+                </T>
+                <T style={{ color: C.secondary, fontSize: 13 }}>
+                  {logoutRecovery.credentialAdmissionStatus}
+                </T>
+              </View>
+              <Button
+                title={
+                  logoutPending
+                    ? "Retrying secure sign-out…"
+                    : "Retry secure sign-out"
+                }
+                loading={logoutPending}
+                disabled={logoutPending}
+                onPress={() => {
+                  void logout().catch(() => undefined);
+                }}
+              />
+            </View>
+          </View>
+        </Modal>
       )}
       <Modal
         transparent

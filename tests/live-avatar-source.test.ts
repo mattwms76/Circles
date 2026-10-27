@@ -16,6 +16,13 @@ vi.mock("../server/db", () => ({ getDb: avatarMocks.getDb }));
 vi.mock("../server/social-service", () => ({
   canAccessCircle: avatarMocks.canAccessCircle,
   getDisplayProfile: avatarMocks.getDisplayProfile,
+  getDisplayProfileWithDb: (_db: unknown, id: number) =>
+    avatarMocks.getDisplayProfile(id),
+  getCircleContentAccessForProtectedRead: (
+    _db: unknown,
+    viewerId: number | null,
+    circleId: number,
+  ) => avatarMocks.canAccessCircle(viewerId, circleId),
   getProfile: avatarMocks.getProfile,
 }));
 
@@ -101,8 +108,14 @@ function listFixture(input: {
     },
   }));
 
+  const db = {
+    select,
+    transaction: async <T>(
+      callback: (tx: { select: typeof select }) => Promise<T>,
+    ) => callback({ select }),
+  };
   return {
-    db: { select },
+    db,
     hostMembershipReads: () => hostMembershipReads,
     listLimit: () => listLimit,
     listPredicate: () => listPredicate,

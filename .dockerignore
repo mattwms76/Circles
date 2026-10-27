@@ -9,3 +9,37 @@ artifacts
 coverage
 *.log
 .DS_Store
+
+# Owner-held recovery material, ciphertext, and local archive inputs are never
+# sent to a Docker builder. The runtime image has no dependency on these paths.
+operations/recovery/private/
+recovery/
+private/
+backups/
+*.age
+*.agekey
+*.tar
+*.tar.*
+*.dump
+
+# Keys and certificates may be present locally for recovery or native work.
+# Keep only the reviewed public CA explicitly copied by the Dockerfile.
+*.key
+*.pem
+*.p8
+*.p12
+*.jks
+*.mobileprovision
+*.crt
+*.cer
+!server/certificates/supabase-root-2021.crt
+
+# Test-only inputs and untracked evidence do not belong in a remote/shared
+# builder context, even though the current Dockerfile uses explicit COPY paths.
+tests/fixtures/
+fixtures/
+evidence/
+operations/evidence/
+design-audit/before/
+design-audit/after/
+design-audit/verification/

@@ -14,6 +14,9 @@ on:
       - ".dockerignore"
       - ".npmrc"
       - ".github/workflows/container-validation.yml"
+      - "operations/recovery/**"
+      - "operations/proposals/**"
+      - "tests/sec27-operations-remediation.test.ts"
   pull_request:
     paths:
       - "server/**"
@@ -26,6 +29,9 @@ on:
       - ".dockerignore"
       - ".npmrc"
       - ".github/workflows/container-validation.yml"
+      - "operations/recovery/**"
+      - "operations/proposals/**"
+      - "tests/sec27-operations-remediation.test.ts"
   workflow_dispatch:
 
 permissions:
@@ -44,6 +50,33 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+      - name: Assert private Docker build-context exclusions
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          ignore = set(Path(".dockerignore").read_text(encoding="utf-8").splitlines())
+          required = {
+              "operations/recovery/private/",
+              "recovery/",
+              "private/",
+              "*.age",
+              "*.agekey",
+              "*.key",
+              "*.pem",
+              "*.p8",
+              "*.p12",
+              "*.jks",
+              "*.crt",
+              "tests/fixtures/",
+              "fixtures/",
+              "evidence/",
+              "operations/evidence/",
+          }
+          missing = sorted(required - ignore)
+          if missing or "!server/certificates/supabase-root-2021.crt" not in ignore:
+              raise SystemExit(f"private Docker context exclusions missing: {missing}")
+          PY
       - name: Build the locked credential-free API image
         run: docker build --tag circles-api-validation:local .
       - name: Validate nonroot TLS certificate access
@@ -84,5 +117,5 @@ jobs:
           python3 -c 'import json; assert json.load(open("/tmp/circles-container-health.json"))["ok"] is True'
           status=$(curl --silent --output /tmp/circles-container-ready.json --write-out '%{http_code}' http://127.0.0.1:13000/api/ready)
           test "$status" = 503
-          python3 -c 'import json; r=json.load(open("/tmp/circles-container-ready.json")); assert r["ok"] is False and r["database"] is False and r["oauthState"] is False'
+          python3 -c 'import json; r=json.load(open("/tmp/circles-container-ready.json")); assert r == {"ok": False}'
           printf 'container liveness passed; absent datastore readiness correctly blocked\n'

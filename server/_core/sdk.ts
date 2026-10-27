@@ -15,7 +15,7 @@ import {
   type ApplicationSessionBinding,
   type ApplicationSessionStore,
 } from "./application-sessions";
-import { ENV } from "./env";
+import { assertCanonicalOAuthProviderConfiguration, ENV } from "./env";
 import {
   APPLICATION_SESSION_COOKIE_NAME,
   currentSessionCookie,
@@ -46,15 +46,135 @@ const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{32,128}$/;
 const EXCHANGE_TOKEN_PATH = `/webdev.v1.WebDevAuthPublicService/ExchangeToken`;
 const GET_USER_INFO_PATH = `/webdev.v1.WebDevAuthPublicService/GetUserInfo`;
 const GET_USER_INFO_WITH_JWT_PATH = `/webdev.v1.WebDevAuthPublicService/GetUserInfoWithJwt`;
+const MAX_OAUTH_RESPONSE_BYTES = 64 * 1024;
+const MAX_OAUTH_ACCESS_TOKEN_LENGTH = 8_192;
+const MAX_OAUTH_OPEN_ID_LENGTH = 512;
+const MAX_OAUTH_NAME_LENGTH = 512;
+const MAX_OAUTH_EMAIL_LENGTH = 320;
+const MAX_OAUTH_PLATFORM_LENGTH = 64;
+const MAX_OAUTH_PLATFORMS = 12;
+
+type OAuthAccessTokenResponse = Pick<ExchangeTokenResponse, "accessToken">;
+type ProviderRecord = Record<string, unknown>;
+type ParsedUserInfo = GetUserInfoResponse & { platforms?: string[] };
+type ParsedUserInfoWithJwt = GetUserInfoWithJwtResponse & {
+  platforms?: string[];
+};
+
+class OAuthProviderResponseError extends Error {
+  constructor() {
+    super("OAuth provider response was not accepted");
+    this.name = "OAuthProviderResponseError";
+  }
+}
+
+function asProviderRecord(value: unknown): ProviderRecord {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new OAuthProviderResponseError();
+  }
+  return value as ProviderRecord;
+}
+
+function boundedProviderString(
+  value: unknown,
+  maximum: number,
+  allowEmpty = false,
+): string {
+  if (
+    typeof value !== "string" ||
+    value.length > maximum ||
+    (!allowEmpty && value.length === 0) ||
+    /[\u0000-\u001F\u007F]/.test(value)
+  ) {
+    throw new OAuthProviderResponseError();
+  }
+  return value;
+}
+
+function boundedOptionalProviderString(
+  value: unknown,
+  maximum: number,
+): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  return boundedProviderString(value, maximum, true);
+}
+
+function boundedProviderPlatforms(value: unknown): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > MAX_OAUTH_PLATFORMS) {
+    throw new OAuthProviderResponseError();
+  }
+  return value.map((platform) =>
+    boundedProviderString(platform, MAX_OAUTH_PLATFORM_LENGTH),
+  );
+}
+
+function parseExchangeTokenResponse(value: unknown): OAuthAccessTokenResponse {
+  const record = asProviderRecord(value);
+  // `idToken` is intentionally not parsed or treated as a signed OIDC token:
+  // this platform response is opaque, and the back-channel user-info endpoint
+  // remains the authority for the provider identity used by Circles.
+  return {
+    accessToken: boundedProviderString(
+      record.accessToken,
+      MAX_OAUTH_ACCESS_TOKEN_LENGTH,
+    ),
+  };
+}
+
+function parseProviderUserInfo(value: unknown): ParsedUserInfo {
+  const record = asProviderRecord(value);
+  const projectId = boundedOptionalProviderString(
+    record.projectId,
+    MAX_OAUTH_OPEN_ID_LENGTH,
+  );
+  if (projectId && projectId !== ENV.appId) {
+    throw new OAuthProviderResponseError();
+  }
+  const email = boundedOptionalProviderString(
+    record.email,
+    MAX_OAUTH_EMAIL_LENGTH,
+  );
+  const platform = boundedOptionalProviderString(
+    record.platform,
+    MAX_OAUTH_PLATFORM_LENGTH,
+  );
+  const loginMethod = boundedOptionalProviderString(
+    record.loginMethod,
+    MAX_OAUTH_PLATFORM_LENGTH,
+  );
+  const platforms = boundedProviderPlatforms(record.platforms);
+  return {
+    openId: boundedProviderString(record.openId, MAX_OAUTH_OPEN_ID_LENGTH),
+    projectId: projectId ?? ENV.appId,
+    name:
+      boundedOptionalProviderString(record.name, MAX_OAUTH_NAME_LENGTH) ?? "",
+    ...(email !== undefined ? { email } : {}),
+    ...(platform !== undefined ? { platform } : {}),
+    ...(loginMethod !== undefined ? { loginMethod } : {}),
+    ...(platforms !== undefined ? { platforms } : {}),
+  };
+}
+
+function parseProviderUserInfoWithJwt(value: unknown): ParsedUserInfoWithJwt {
+  const parsed = parseProviderUserInfo(value);
+  const record = asProviderRecord(value);
+  const taskUid = boundedOptionalProviderString(
+    record.taskUid,
+    MAX_OAUTH_OPEN_ID_LENGTH,
+  );
+  return {
+    ...parsed,
+    ...(taskUid !== undefined ? { taskUid } : {}),
+  };
+}
 
 class OAuthService {
   constructor(private client: AxiosInstance) {
-    console.log("[OAuth] Client initialized");
-    if (!ENV.oAuthServerUrl) {
-      console.error(
-        "[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable.",
-      );
-    }
+    // Configuration is checked lazily at the request boundary so disabled or
+    // synthetic test startup never performs a provider request. Invalid runtime
+    // configuration still cannot create an HTTP request or local session.
   }
 
   private decodeState(state: string): string {
@@ -82,7 +202,8 @@ class OAuthService {
   async getTokenByCode(
     code: string,
     state: string,
-  ): Promise<ExchangeTokenResponse> {
+  ): Promise<OAuthAccessTokenResponse> {
+    assertCanonicalOAuthProviderConfiguration();
     const payload: ExchangeTokenRequest = {
       clientId: ENV.appId,
       grantType: "authorization_code",
@@ -90,32 +211,35 @@ class OAuthService {
       redirectUri: this.decodeState(state),
     };
 
-    const { data } = await this.client.post<ExchangeTokenResponse>(
+    const { data } = await this.client.post<unknown>(
       EXCHANGE_TOKEN_PATH,
       payload,
     );
 
-    return data;
+    return parseExchangeTokenResponse(data);
   }
 
   async getUserInfoByToken(
-    token: ExchangeTokenResponse,
-  ): Promise<GetUserInfoResponse> {
-    const { data } = await this.client.post<GetUserInfoResponse>(
-      GET_USER_INFO_PATH,
-      {
-        accessToken: token.accessToken,
-      },
-    );
+    token: OAuthAccessTokenResponse,
+  ): Promise<ParsedUserInfo> {
+    assertCanonicalOAuthProviderConfiguration();
+    const { data } = await this.client.post<unknown>(GET_USER_INFO_PATH, {
+      accessToken: token.accessToken,
+    });
 
-    return data;
+    return parseProviderUserInfo(data);
   }
 }
 
-const createOAuthHttpClient = (): AxiosInstance =>
+export const createOAuthHttpClient = (): AxiosInstance =>
   createAxios({
-    baseURL: ENV.oAuthServerUrl,
+    baseURL: ENV.oAuthServerUrl || undefined,
     timeout: AXIOS_TIMEOUT_MS,
+    maxRedirects: 0,
+    maxContentLength: MAX_OAUTH_RESPONSE_BYTES,
+    maxBodyLength: MAX_OAUTH_RESPONSE_BYTES,
+    responseType: "json",
+    validateStatus: (status) => status >= 200 && status < 300,
   });
 
 export class SDKServer {
@@ -160,7 +284,7 @@ export class SDKServer {
   async exchangeCodeForToken(
     code: string,
     state: string,
-  ): Promise<ExchangeTokenResponse> {
+  ): Promise<OAuthAccessTokenResponse> {
     return this.oauthService.getTokenByCode(code, state);
   }
 
@@ -172,7 +296,7 @@ export class SDKServer {
   async getUserInfo(accessToken: string): Promise<GetUserInfoResponse> {
     const data = await this.oauthService.getUserInfoByToken({
       accessToken,
-    } as ExchangeTokenResponse);
+    });
     const loginMethod = this.deriveLoginMethod(
       (data as any)?.platforms,
       (data as any)?.platform ?? data.platform ?? null,
@@ -366,25 +490,29 @@ export class SDKServer {
   async getUserInfoWithJwt(
     jwtToken: string,
   ): Promise<GetUserInfoWithJwtResponse> {
+    assertCanonicalOAuthProviderConfiguration();
+    boundedProviderString(jwtToken, MAX_OAUTH_ACCESS_TOKEN_LENGTH);
     const payload: GetUserInfoWithJwtRequest = {
       jwtToken,
       projectId: ENV.appId,
     };
 
-    const { data } = await this.client.post<GetUserInfoWithJwtResponse>(
+    const { data } = await this.client.post<unknown>(
       GET_USER_INFO_WITH_JWT_PATH,
       payload,
     );
 
+    const parsed = parseProviderUserInfoWithJwt(data);
+
     const loginMethod = this.deriveLoginMethod(
-      (data as any)?.platforms,
-      (data as any)?.platform ?? data.platform ?? null,
+      parsed.platforms,
+      parsed.platform ?? null,
     );
     return {
-      ...(data as any),
+      ...parsed,
       platform: loginMethod,
       loginMethod,
-    } as GetUserInfoWithJwtResponse;
+    };
   }
 
   async authenticateRequest(req: Request): Promise<AuthenticatedUser> {

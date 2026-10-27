@@ -122,6 +122,7 @@ function LiveSessionScreen({
   const [isLiveReactionSubmitting, setIsLiveReactionSubmitting] =
     useState(false);
   const [mediaState, setMediaState] = useState(createA26LiveMediaState);
+  const [mediaAttempt, setMediaAttempt] = useState(0);
   const [hostMediaSession, setHostMediaSession] =
     useState<LiveHostLease | null>(null);
   const [endConfirm, setEndConfirm] = useState(false);
@@ -369,6 +370,15 @@ function LiveSessionScreen({
     },
     [captureLiveOperationScope, isCurrentLiveScope],
   );
+  const rejoinLiveMedia = useCallback(() => {
+    const operationScope = captureLiveOperationScope();
+    if (!isCurrentLiveScope(operationScope)) return;
+    // A backgrounded adapter is intentionally terminal. A new keyed attempt is
+    // created only from this user action, retaining the account/route fence.
+    setHostMediaSession(null);
+    setMediaState(createA26LiveMediaState());
+    setMediaAttempt((attempt) => attempt + 1);
+  }, [captureLiveOperationScope, isCurrentLiveScope]);
   const handleLiveHostLease = useCallback(
     (lease: LiveHostLease) => {
       const operationScope = captureLiveOperationScope();
@@ -447,6 +457,7 @@ function LiveSessionScreen({
                 }}
               >
                 <LiveMedia
+                  key={mediaAttempt}
                   streamId={streamId}
                   host={host}
                   currentUserId={user?.id ?? null}
@@ -493,6 +504,13 @@ function LiveSessionScreen({
                   />
                 </View>
               )}
+              {mediaState.phase === "error" ? (
+                <Button
+                  title="Rejoin live video"
+                  secondary
+                  onPress={rejoinLiveMedia}
+                />
+              ) : null}
               <View style={[s.row, { gap: 13, marginVertical: 20 }]}>
                 <UserAvatar
                   uri={live.host.avatar}

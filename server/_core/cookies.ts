@@ -4,14 +4,24 @@ import {
   LEGACY_COOKIE_NAME,
   SESSION_COOKIE_SUFFIX,
 } from "../../shared/const.js";
-import { isTrustedPreviewProxyRequest } from "./runtimeSecurity";
+import {
+  isTrustedPreviewProxyRequest,
+  isTrustedExternalProxyRequest,
+} from "./runtimeSecurity";
 
 /** The application cookie accepted before the context-specific SDK session cookie. */
 export const APPLICATION_SESSION_COOKIE_NAME = "webdev_app_session";
 
 export function isSecureRequest(req: Request) {
-  if (req.protocol === "https") return true;
-  return isTrustedPreviewProxyRequest(req, "https");
+  // A direct TLS server reports https without a forwarding header. Once a forwarding header is
+  // present, require one of the explicit trusted-hop contracts below instead of trusting it by
+  // virtue of Express's derived req.protocol.
+  if (req.protocol === "https" && !req.headers["x-forwarded-proto"])
+    return true;
+  return (
+    isTrustedPreviewProxyRequest(req, "https") ||
+    isTrustedExternalProxyRequest(req, "https")
+  );
 }
 
 export function getSessionCookieOptions(

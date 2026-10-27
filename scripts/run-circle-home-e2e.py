@@ -49,7 +49,8 @@ MODERATION_MIGRATIONS = (
     "operations/migrations/0012_circles_moderation.sql",
     "operations/migrations/0013_circles_ops_moderation_health.sql",
 )
-SUITES = ("circle-home", "activity", "moderation", "a26-authority")
+# Fixed test names only: this runner never accepts a caller-supplied config, DSN, port, or URL.
+SUITES = ("circle-home", "activity", "moderation", "a26-authority", "sec27-security")
 
 
 def fail(message: str) -> NoReturn:
@@ -102,6 +103,8 @@ def fixture_migrations(suite: str) -> tuple[str, ...]:
 def suite_config(suite: str) -> str:
     if suite == "a26-authority":
         return "e2e/a26-authority.e2e.config.ts"
+    if suite == "sec27-security":
+        return "e2e/sec27-security.e2e.config.ts"
     if suite == "activity":
         return "e2e/activity.e2e.config.ts"
     if suite == "moderation":

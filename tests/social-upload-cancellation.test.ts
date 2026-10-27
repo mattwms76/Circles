@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import sharp from "sharp";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { socialRouter } from "../server/social-router";
@@ -52,7 +53,16 @@ describe("social upload request cancellation", () => {
       req: request as never,
       res: response as never,
     });
-    const bytes = Buffer.from([0xff, 0xd8, 0xff, 0x00]);
+    const bytes = await sharp({
+      create: {
+        width: 2,
+        height: 2,
+        channels: 3,
+        background: "#123456",
+      },
+    })
+      .jpeg()
+      .toBuffer();
     await expect(
       caller.upload({
         base64: bytes.toString("base64"),

@@ -4,84 +4,109 @@
     "node": "22.23.4",
     "pnpm": "9.12.0",
     "environment": "sanitized",
-    "raw_output": "not persisted; only the seven requested GHSA identifiers were streamed and retained"
+    "raw_output": "not persisted; normalized assigned-advisory fields only"
   },
   "exit_code": 1,
   "scope": {
-    "original_records": 7,
-    "original_families": 7,
-    "records": 4,
-    "families": 4,
-    "by_severity": {
-      "high": 3,
-      "moderate": 1
-    }
+    "assigned_records": [
+      "SEC-001",
+      "SEC-003",
+      "SEC-004",
+      "SEC-005",
+      "SEC-028",
+      "SEC-029",
+      "SEC-030",
+      "SEC-031"
+    ],
+    "audit_ids_checked": [
+      "GHSA-mrhx-c7xc-m3w5",
+      "GHSA-86w9-cpqp-85rv",
+      "GHSA-ch52-4w7c-c8xp",
+      "GHSA-vcc3-ghjq-m6fr"
+    ],
+    "note": "This is a scoped dependency-owner evidence summary, not a claim that the entire graph is audit-clean."
   },
-  "resolved": [
+  "applied": [
     {
-      "record_id": "1102341",
-      "package": "esbuild",
-      "ghsa_id": "GHSA-67mh-4wv8-2f99",
-      "resolution": "@esbuild-kit/core-utils>esbuild = 0.25.12",
-      "consumer_test": "core-utils transform and transformSync"
+      "issue": "SEC-001",
+      "package": "zod",
+      "declared_range": "^4.6.6",
+      "resolved_version": "4.6.7",
+      "consumer_test": "direct Zod array-schema construction in tests/sec27-dependency-consumers.test.ts"
     },
     {
-      "record_id": "1119441",
-      "package": "uuid",
-      "ghsa_id": "GHSA-w5hq-g745-h8pq",
-      "resolution": "@expo/ngrok>uuid and xcode>uuid = 13.0.1",
-      "consumer_test": "Node 22 CommonJS require plus Expo ngrok and xcode load"
+      "issue": "SEC-029",
+      "package": "@ungap/structured-clone",
+      "resolution": "expo>@ungap/structured-clone = 1.4.0",
+      "consumer_test": "Expo-scoped require plus nested clone in tests/sec27-dependency-consumers.test.ts"
     },
     {
-      "record_id": "1241232",
-      "package": "postcss-selector-parser",
-      "ghsa_id": "GHSA-rj75-hqrm-r3gf",
-      "resolution": "postcss-nested>postcss-selector-parser and tailwindcss>postcss-selector-parser = 7.1.6",
-      "consumer_test": "postcss-nested conversion and NativeWind Tailwind utilities build"
+      "issue": "SEC-030",
+      "package": "eslint",
+      "declared_range": "^9.39.5",
+      "resolved_version": "9.39.5",
+      "consumer_test": "synthetic ESLint execution of eslint.config.mjs in tests/sec27-dependency-consumers.test.ts",
+      "support_status": "ESLint 9 patch hygiene only; supported-major migration remains blocked"
+    },
+    {
+      "issue": "media dependency seam",
+      "package": "sharp",
+      "declared_version": "0.35.5",
+      "lifecycle_permission": "pnpm.onlyBuiltDependencies includes sharp",
+      "consumer_test": "Node import plus bounded 1x1 PNG metadata decode in tests/sec27-dependency-consumers.test.ts"
     }
   ],
-  "residual": [
+  "audit_residual": [
     {
-      "record_id": "1147955",
-      "package": "decode-uri-component",
-      "version": "0.2.2",
-      "ghsa_id": "GHSA-vcc3-ghjq-m6fr",
-      "severity": "moderate",
-      "primary_path": "expo@57.0.24 > expo-router@57.0.22 > query-string@7.1.3 > decode-uri-component@0.2.2",
-      "status": "unpatched: the 0.5.0 maintainer fix is ESM default-export-only while query-string 7.1.3 CommonJS requires a callable; no unsafe override or wrapper was applied"
+      "issue": "SEC-001",
+      "ghsa_id": "GHSA-mrhx-c7xc-m3w5",
+      "package": "zod",
+      "version": "3.25.76",
+      "primary_path": "expo@57.0.24 > @expo/cli@57.0.26 > zod@3.25.76",
+      "status": "direct application Zod is fixed at 4.6.7; this separate Expo CLI transitive occurrence remains"
     },
     {
-      "record_id": "1240912",
+      "issue": "SEC-003",
+      "ghsa_id": "GHSA-86w9-cpqp-85rv",
       "package": "node-forge",
       "version": "1.4.0",
-      "ghsa_id": "GHSA-86w9-cpqp-85rv",
-      "severity": "high",
       "primary_path": "expo@57.0.24 > @expo/cli@57.0.26 > node-forge@1.4.0",
-      "status": "unpatched: no maintainer-published fix; no custom RSA or ASN.1 verification patch was applied"
+      "status": "unpatched upstream; no custom RSA/ASN.1 implementation applied"
     },
     {
-      "record_id": "1240991",
+      "issue": "SEC-004",
+      "ghsa_id": "GHSA-ch52-4w7c-c8xp",
       "package": "http-cache-semantics",
       "version": "4.2.0",
-      "ghsa_id": "GHSA-ch52-4w7c-c8xp",
-      "severity": "high",
       "primary_path": "dev @expo/ngrok@4.1.3 > got@11.8.6 > cacheable-request@7.0.4 > http-cache-semantics@4.2.0",
-      "status": "unpatched: no maintainer-published fix; no third-party tunnel cache behavior patch was applied"
+      "status": "unpatched upstream development-only parent path; no tunnel-cache patch applied"
     },
     {
-      "record_id": "1240992",
-      "package": "braces",
-      "version": "3.0.3",
-      "ghsa_id": "GHSA-vfj7-8cjw-p6xm",
-      "severity": "high",
-      "primary_path": "expo@57.0.24 > @expo/cli@57.0.26 > @expo/metro-file-map@57.0.3 > micromatch@4.0.8 > braces@3.0.3",
-      "status": "unpatched: no maintainer-published fix; no vendor recursion rewrite was applied"
+      "issue": "SEC-005",
+      "ghsa_id": "GHSA-vcc3-ghjq-m6fr",
+      "package": "decode-uri-component",
+      "version": "0.2.2",
+      "primary_path": "expo@57.0.24 > expo-router@57.0.22 > query-string@7.1.3 > decode-uri-component@0.2.2",
+      "status": "maintainer fix is incompatible with the current CommonJS consumer under the required hoisted linker; prior physically unapplied bridge remains removed"
     }
   ],
-  "patches_review_needed": [
-    "braces upstream depth-safe release or framework-compatible parent migration",
-    "http-cache-semantics upstream cache-validation release or Expo ngrok/got parent migration",
-    "node-forge upstream strict DigestAlgorithm ASN.1 validation release; do not hand-roll RSA verification",
-    "decode-uri-component parent migration that is compatible with query-string CommonJS consumption"
-  ]
+  "maintenance_gates": [
+    {
+      "issue": "SEC-028",
+      "status": "latest drizzle-kit@0.31.11 still declares @esbuild-kit/esm-loader; wait for a maintained parent migration"
+    },
+    {
+      "issue": "SEC-030",
+      "status": "latest eslint-plugin-react@7.37.5 peer range ends at ESLint 9; retain ESLint 9.39.5 patch until Expo-compatible consumer support exists"
+    },
+    {
+      "issue": "SEC-031",
+      "status": "current review: 73 direct declarations, 59 newer latest releases, 8 currently within declared range, 51 outside range; no bulk update performed"
+    }
+  ],
+  "tests": {
+    "command": "pnpm exec vitest run tests/sec27-dependency-consumers.test.ts tests/dependency-security.test.ts --maxWorkers=1",
+    "result": "2 files passed; 12 tests passed"
+  },
+  "remaining_required_gate": "final pnpm install --frozen-lockfile and parent-owned integrated validation before promotion"
 }

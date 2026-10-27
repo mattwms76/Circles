@@ -396,6 +396,25 @@ async function lockCircleAccessForProtectedRead(
   return { circle, role };
 }
 
+/**
+ * Reads current circle-content authority under the same parent SHARE lock used by every private
+ * DTO projection. A removal that already holds the parent UPDATE lock wins and is rechecked as a
+ * denial; a read that acquired SHARE first completes its DTO before the remover can commit.
+ */
+export async function getCircleContentAccessForProtectedRead(
+  tx: SocialTransaction,
+  userId: number | null,
+  circleId: number,
+): Promise<{ privacy: "public" | "private"; role: CircleRole | null } | null> {
+  const { circle, role } = await lockCircleAccessForProtectedRead(
+    tx,
+    userId,
+    circleId,
+  );
+  if (!canReadCircleContent(circle.privacy, role)) return null;
+  return { privacy: circle.privacy, role };
+}
+
 async function postRowOrThrow(
   db: Database | SocialTransaction,
   postId: number,
@@ -524,6 +543,17 @@ async function displayProfileWithDb(
  */
 export async function getDisplayProfile(userId: number): Promise<Profile> {
   const db = await requireDb();
+  return displayProfileWithDb(db, userId);
+}
+
+/**
+ * Read-only formatters that already own a protected transaction use this instead of reopening an
+ * unlocked database read. It deliberately never materializes a profile row.
+ */
+export async function getDisplayProfileWithDb(
+  db: Database | SocialTransaction,
+  userId: number,
+): Promise<Profile> {
   return displayProfileWithDb(db, userId);
 }
 
@@ -1299,6 +1329,89 @@ export async function collectEligibleFeedPage(
   };
 }
 
+type AuthorizedFeedItem<Item> = {
+  item: Item;
+  cursor: FeedScanCursor;
+};
+
+/**
+ * Maps only candidates that remain authorized under their protected parent read lock. Scan
+ * cursors may cross a candidate that loses access while mapping, but that transient cursor stays
+ * internal: callers receive a continuation only from the final serialized item. This continues
+ * through removals rather than returning a false empty/end page.
+ */
+export async function collectAuthorizedFeedPage<Item>(
+  readPage: (cursor: FeedScanCursor | null) => Promise<FeedScanCandidate[]>,
+  mapAuthorizedCandidate: (
+    candidate: FeedScanCandidate,
+  ) => Promise<Item | null>,
+  options: FeedPageOptions = {},
+): Promise<CursorPage<Item, FeedScanCursor>> {
+  const pageSize = Math.min(
+    Math.max(Math.floor(options.limit ?? FEED_PAGE_SIZE), 1),
+    FEED_PAGE_SIZE,
+  );
+  const authorized: AuthorizedFeedItem<Item>[] = [];
+  let scanCursor: FeedScanCursor | null = options.cursor ?? null;
+
+  // SQL visibility filtering limits ordinary scans to public/currently-authorized rows. Keep
+  // scanning only when a concurrent removal invalidates one between that selection and its
+  // parent-lock recheck, so an invalidated row never becomes a continuation boundary.
+  while (authorized.length < pageSize + 1) {
+    const candidates = await readPage(scanCursor);
+    if (!candidates.length) break;
+
+    for (const candidate of candidates) {
+      scanCursor = feedScanCursorFromCandidate(candidate);
+      const item = await mapAuthorizedCandidate(candidate);
+      if (item !== null) {
+        authorized.push({
+          item,
+          cursor: feedScanCursorFromCandidate(candidate),
+        });
+        if (authorized.length === pageSize + 1) break;
+      }
+    }
+
+    if (authorized.length === pageSize + 1) break;
+    if (candidates.length < FEED_SCAN_BATCH_SIZE) break;
+  }
+
+  const page = authorized.slice(0, pageSize);
+  const hasMore = authorized.length > pageSize;
+  const last = page[page.length - 1];
+  return {
+    items: page.map(({ item }) => item),
+    nextCursor: hasMore && last ? last.cursor : null,
+    hasMore,
+  };
+}
+
+/**
+ * The feed query itself excludes private-circle posts unless the request actor is currently an
+ * approved member. The post mapper repeats that decision under the parent SHARE lock because a
+ * membership may be removed after SQL selection and before serialization.
+ */
+function visibleFeedPostCondition(viewerId: number | null): SQL {
+  const approvedMembership =
+    viewerId === null
+      ? sql`false`
+      : sql`exists (
+          select 1 from ${memberships}
+          where ${memberships.circleId} = ${posts.circleId}
+            and ${memberships.userId} = ${viewerId}
+            and ${memberships.role} in ('owner', 'moderator', 'member')
+        )`;
+  return or(
+    isNull(posts.circleId),
+    sql`exists (
+      select 1 from ${circles}
+      where ${circles.id} = ${posts.circleId}
+        and (${circles.privacy} = 'public' or ${approvedMembership})
+    )`,
+  )!;
+}
+
 export async function feed(
   viewerId: number | null,
   filter: FeedFilter,
@@ -1429,6 +1542,7 @@ export async function feedPage(
   if (search) {
     clauses.push(ilike(posts.text, `%${escapePostSearchLikePattern(search)}%`));
   }
+  clauses.push(visibleFeedPostCondition(viewerId));
 
   if (filter === "following") {
     if (!viewerId) return { items: [], nextCursor: null, hasMore: false };
@@ -1481,7 +1595,9 @@ export async function feedPage(
     );
   }
 
-  const page = await collectEligibleFeedPage(
+  // Unlike the legacy collectEligibleFeedPage array helper, this paged route selects only
+  // visible candidates in SQL and keeps any cursor from a removal-raced candidate internal.
+  const page = await collectAuthorizedFeedPage(
     async (cursor) => {
       const cursorClause = cursor
         ? cursor.createdAtExact
@@ -1515,33 +1631,10 @@ export async function feedPage(
         ...(preciseCreatedAt ? { createdAtExact: preciseCreatedAt } : {}),
       }));
     },
-    async (post) => {
-      if (!post.circleId) return true;
-      const circleRows = await db
-        .select({ id: circles.id, privacy: circles.privacy })
-        .from(circles)
-        .where(eq(circles.id, post.circleId))
-        .limit(1);
-      const circle = circleRows[0];
-      if (!circle) return false;
-      if (circle.privacy === "public") return true;
-      return isApprovedCircleRole(
-        await membershipRoleWithDb(db, viewerId, post.circleId),
-      );
-    },
+    async (post) => postOutputForProtectedRead(db, viewerId, post.id),
     { ...options, limit: socialPageLimit(options.limit) },
   );
-  return {
-    items: (
-      await Promise.all(
-        page.items.map((postId) =>
-          postOutputForProtectedRead(db, viewerId, postId),
-        ),
-      )
-    ).filter((post): post is Post => post !== null),
-    nextCursor: page.nextCursor,
-    hasMore: page.hasMore,
-  };
+  return page;
 }
 
 async function assertMediaOwnership(

@@ -1,5 +1,5 @@
 import type { Express, Request, Response } from "express";
-import { and, eq, inArray, or } from "drizzle-orm";
+import { and, asc, eq, inArray, or } from "drizzle-orm";
 import {
   circles,
   conversationParticipants,
@@ -11,8 +11,12 @@ import {
   socialUploads,
 } from "../../drizzle/schema";
 import { streams } from "../../drizzle/live-schema";
-import { getDb } from "../db";
-import { storageGetSignedUrl } from "../storage";
+import { getDb, type CirclesDatabase, type CirclesTransaction } from "../db";
+import {
+  storageFetchSignedObject,
+  storageGetSignedUrl,
+  StorageOperationTimeoutError,
+} from "../storage";
 import {
   decryptSocialMedia,
   SOCIAL_MEDIA_FRAME_OVERHEAD,
@@ -32,8 +36,15 @@ const MAX_CONCURRENT_MEDIA_DOWNLOADS_PER_CLIENT = 2;
 const MEDIA_BUDGET_WINDOW_MS = 60_000;
 const MEDIA_BUDGET_BYTES_PER_WINDOW = 40 * 1024 * 1024;
 const MAX_TRACKED_MEDIA_CLIENTS = 512;
+const SAFE_MEDIA_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "video/mp4",
+]);
 
-type Database = NonNullable<Awaited<ReturnType<typeof getDb>>>;
+type Database = CirclesDatabase;
+type MediaQueryDatabase = CirclesDatabase | CirclesTransaction;
 type ByteRange = { start: number; end: number };
 type MediaWorkBudgetEntry = {
   windowStartedAt: number;
@@ -241,7 +252,7 @@ export async function fetchBoundedEncryptedMedia(
   signal?.addEventListener("abort", abort, { once: true });
   const timeout = setTimeout(() => controller.abort(), MEDIA_FETCH_TIMEOUT_MS);
   try {
-    const storageResponse = await fetch(signedUrl, {
+    const storageResponse = await storageFetchSignedObject(signedUrl, {
       signal: controller.signal,
     });
     if (!storageResponse.ok) {
@@ -264,7 +275,12 @@ export async function fetchBoundedEncryptedMedia(
     );
   } catch (error) {
     if (signal?.aborted) throw new RequestAbortedError();
-    if (controller.signal.aborted) throw new MediaFetchTimeoutError();
+    if (
+      controller.signal.aborted ||
+      error instanceof StorageOperationTimeoutError
+    ) {
+      throw new MediaFetchTimeoutError();
+    }
     throw error;
   } finally {
     clearTimeout(timeout);
@@ -287,6 +303,9 @@ function setMediaResponseHeaders(res: Response, mimeType: string) {
     "Content-Type": mimeType,
     "Cache-Control": "private, no-store",
     "Accept-Ranges": "bytes",
+    "X-Content-Type-Options": "nosniff",
+    // This fixed filename prevents a caller-controlled upload name from affecting any renderer.
+    "Content-Disposition": 'inline; filename="circles-media"',
   });
 }
 
@@ -299,8 +318,42 @@ async function requester(req: Request): Promise<number | null> {
   }
 }
 
+export type MediaAuthorization = {
+  mimeType: string;
+  bytes: number;
+  /** A final parent-lock recheck is required immediately before any bytes are enqueued. */
+  requiresFinalMembershipRecheck: boolean;
+};
+
+type MediaReferenceState = {
+  upload: { userId: number; mimeType: string; bytes: number } | null;
+  publicReference: boolean;
+  directConversationIds: number[];
+  circleMembershipIds: number[];
+};
+
+function sortedUniqueIds(ids: number[]): number[] {
+  return [...new Set(ids)].sort((left, right) => left - right);
+}
+
+function safeUploadMetadata(
+  state: MediaReferenceState,
+): Pick<MediaAuthorization, "mimeType" | "bytes"> | null {
+  const upload = state.upload;
+  if (
+    !upload ||
+    !SAFE_MEDIA_MIME_TYPES.has(upload.mimeType) ||
+    !Number.isSafeInteger(upload.bytes) ||
+    upload.bytes < 1 ||
+    upload.bytes > MAX_UPLOAD_BYTES
+  ) {
+    return null;
+  }
+  return { mimeType: upload.mimeType, bytes: upload.bytes };
+}
+
 async function isApprovedMember(
-  db: Database,
+  db: MediaQueryDatabase,
   userId: number,
   circleIds: number[],
 ): Promise<boolean> {
@@ -319,13 +372,11 @@ async function isApprovedMember(
   return match.length > 0;
 }
 
-async function isAuthorizedSocialMedia(
-  db: Database,
+/** Reads only exact media references; it never accepts a caller-selected object URL or key. */
+async function loadMediaReferenceState(
+  db: MediaQueryDatabase,
   key: string,
-  userId: number | null,
-): Promise<{ mimeType: string; bytes: number } | null> {
-  // The route only ever looks up this exact validated socialUploads storage key. It cannot sign
-  // arbitrary caller-provided object keys.
+): Promise<MediaReferenceState> {
   const uploadRows = await db
     .select({
       userId: socialUploads.userId,
@@ -336,12 +387,23 @@ async function isAuthorizedSocialMedia(
     .where(eq(socialUploads.storageKey, key))
     .limit(1);
   const upload = uploadRows[0];
-  if (!upload) return null;
-  if (userId === upload.userId)
-    return { mimeType: upload.mimeType, bytes: upload.bytes };
+  if (!upload) {
+    return {
+      upload: null,
+      publicReference: false,
+      directConversationIds: [],
+      circleMembershipIds: [],
+    };
+  }
 
   const mediaUrl = `/manus-storage/${key}`;
-  const [profileReference, circleCoverReference] = await Promise.all([
+  const [
+    profileReference,
+    circleCoverReference,
+    postRows,
+    messageRows,
+    rawStreams,
+  ] = await Promise.all([
     db
       .select({ id: profiles.id })
       .from(profiles)
@@ -352,123 +414,239 @@ async function isAuthorizedSocialMedia(
       .from(circles)
       .where(eq(circles.image, mediaUrl))
       .limit(1),
-  ]);
-  // Avatars and circle covers are intentional public discovery references.
-  if (profileReference.length || circleCoverReference.length) {
-    return { mimeType: upload.mimeType, bytes: upload.bytes };
-  }
-
-  const postRows = await db
-    .select({ circleId: posts.circleId })
-    .from(posts)
-    .where(eq(posts.media, mediaUrl));
-  // A post is deleted by removing its row, so only extant post references can authorize.
-  if (postRows.some((post) => post.circleId === null)) {
-    return { mimeType: upload.mimeType, bytes: upload.bytes };
-  }
-  const postCircleIds = [
-    ...new Set(
-      postRows.flatMap((post) => (post.circleId ? [post.circleId] : [])),
-    ),
-  ];
-  if (postCircleIds.length) {
-    const postCircles = await db
-      .select({ id: circles.id, privacy: circles.privacy })
-      .from(circles)
-      .where(inArray(circles.id, postCircleIds));
-    if (postCircles.some((circle) => circle.privacy === "public")) {
-      return { mimeType: upload.mimeType, bytes: upload.bytes };
-    }
-    if (userId && (await isApprovedMember(db, userId, postCircleIds))) {
-      return { mimeType: upload.mimeType, bytes: upload.bytes };
-    }
-  }
-
-  const messageRows = await db
-    .select({ conversationId: messages.conversationId })
-    .from(messages)
-    .where(eq(messages.media, mediaUrl));
-  if (userId && messageRows.length) {
-    const conversationIds = [
-      ...new Set(messageRows.map((message) => message.conversationId)),
-    ];
-    const relatedConversations = await db
+    db
+      .select({ circleId: posts.circleId })
+      .from(posts)
+      .where(eq(posts.media, mediaUrl)),
+    db
+      .select({ conversationId: messages.conversationId })
+      .from(messages)
+      .where(eq(messages.media, mediaUrl)),
+    db
       .select({
-        id: conversations.id,
-        kind: conversations.kind,
-        circleId: conversations.circleId,
+        circleId: streams.circleId,
+        status: streams.status,
+        readyAt: streams.readyAt,
+        lastHeartbeatAt: streams.lastHeartbeatAt,
       })
-      .from(conversations)
-      .where(inArray(conversations.id, conversationIds));
-    const directIds = relatedConversations
-      .filter((conversation) => conversation.kind === "direct")
-      .map((conversation) => conversation.id);
-    if (directIds.length) {
-      const directParticipant = await db
-        .select({ id: conversationParticipants.id })
-        .from(conversationParticipants)
-        .where(
-          and(
-            eq(conversationParticipants.userId, userId),
-            inArray(conversationParticipants.conversationId, directIds),
-          ),
-        )
-        .limit(1);
-      if (directParticipant.length)
-        return { mimeType: upload.mimeType, bytes: upload.bytes };
-    }
-    const messageCircleIds = relatedConversations.flatMap((conversation) =>
-      conversation.kind === "circle" && conversation.circleId
-        ? [conversation.circleId]
-        : [],
-    );
-    if (await isApprovedMember(db, userId, [...new Set(messageCircleIds)])) {
-      return { mimeType: upload.mimeType, bytes: upload.bytes };
-    }
-  }
+      .from(streams)
+      .where(eq(streams.thumbnail, mediaUrl)),
+  ]);
 
-  // A thumbnail becomes public only for a ready, fresh global/public-circle live stream. Private
-  // circle stream thumbnails require an approved current membership; an uploader matched above.
-  const thumbnailStreams = await db
-    .select({
-      circleId: streams.circleId,
-      status: streams.status,
-      readyAt: streams.readyAt,
-      lastHeartbeatAt: streams.lastHeartbeatAt,
-    })
-    .from(streams)
-    .where(eq(streams.thumbnail, mediaUrl));
-  const freshReadyStreams = thumbnailStreams.filter(
+  const freshReadyStreams = rawStreams.filter(
     (stream) =>
       stream.status === "live" &&
       stream.readyAt !== null &&
       stream.lastHeartbeatAt !== null &&
       stream.lastHeartbeatAt.getTime() > Date.now() - HOST_LEASE_MS,
   );
-  if (freshReadyStreams.some((stream) => stream.circleId === null)) {
-    return { mimeType: upload.mimeType, bytes: upload.bytes };
-  }
-  const streamCircleIds = [
-    ...new Set(
-      freshReadyStreams.flatMap((stream) =>
-        stream.circleId ? [stream.circleId] : [],
-      ),
+  const postCircleIds = sortedUniqueIds(
+    postRows.flatMap((post) => (post.circleId ? [post.circleId] : [])),
+  );
+  const streamCircleIds = sortedUniqueIds(
+    freshReadyStreams.flatMap((stream) =>
+      stream.circleId ? [stream.circleId] : [],
     ),
-  ];
-  if (streamCircleIds.length) {
-    const streamCircles = await db
-      .select({ id: circles.id, privacy: circles.privacy })
-      .from(circles)
-      .where(inArray(circles.id, streamCircleIds));
-    if (streamCircles.some((circle) => circle.privacy === "public")) {
-      return { mimeType: upload.mimeType, bytes: upload.bytes };
-    }
-    if (userId && (await isApprovedMember(db, userId, streamCircleIds))) {
-      return { mimeType: upload.mimeType, bytes: upload.bytes };
-    }
-  }
+  );
+  const conversationIds = sortedUniqueIds(
+    messageRows.map((message) => message.conversationId),
+  );
+  const [referencedCircles, relatedConversations] = await Promise.all([
+    postCircleIds.length || streamCircleIds.length
+      ? db
+          .select({ id: circles.id, privacy: circles.privacy })
+          .from(circles)
+          .where(
+            inArray(
+              circles.id,
+              sortedUniqueIds([...postCircleIds, ...streamCircleIds]),
+            ),
+          )
+      : Promise.resolve([]),
+    conversationIds.length
+      ? db
+          .select({
+            id: conversations.id,
+            kind: conversations.kind,
+            circleId: conversations.circleId,
+          })
+          .from(conversations)
+          .where(inArray(conversations.id, conversationIds))
+      : Promise.resolve([]),
+  ]);
+  const circlePrivacy = new Map(
+    referencedCircles.map((circle) => [circle.id, circle.privacy]),
+  );
+  const privatePostCircleIds = postCircleIds.filter(
+    (circleId) => circlePrivacy.get(circleId) === "private",
+  );
+  const privateStreamCircleIds = streamCircleIds.filter(
+    (circleId) => circlePrivacy.get(circleId) === "private",
+  );
+  const directConversationIds = relatedConversations
+    .filter((conversation) => conversation.kind === "direct")
+    .map((conversation) => conversation.id);
+  const messageCircleIds = relatedConversations.flatMap((conversation) =>
+    conversation.kind === "circle" && conversation.circleId
+      ? [conversation.circleId]
+      : [],
+  );
 
-  return null;
+  return {
+    upload,
+    // Profile/circle covers, global posts, public-circle posts, and fresh global/public streams
+    // remain intentional discovery references. A deleted reference drops out of this exact read.
+    publicReference:
+      profileReference.length > 0 ||
+      circleCoverReference.length > 0 ||
+      postRows.some((post) => post.circleId === null) ||
+      postCircleIds.some(
+        (circleId) => circlePrivacy.get(circleId) === "public",
+      ) ||
+      freshReadyStreams.some((stream) => stream.circleId === null) ||
+      streamCircleIds.some(
+        (circleId) => circlePrivacy.get(circleId) === "public",
+      ),
+    directConversationIds: sortedUniqueIds(directConversationIds),
+    // Circle conversations require membership even when their parent circle is public. Every
+    // member-gated path participates in the same parent lock as removeMember.
+    circleMembershipIds: sortedUniqueIds([
+      ...privatePostCircleIds,
+      ...messageCircleIds,
+      ...privateStreamCircleIds,
+    ]),
+  };
+}
+
+async function unrestrictedMediaAuthorization(
+  db: MediaQueryDatabase,
+  state: MediaReferenceState,
+  userId: number | null,
+): Promise<MediaAuthorization | null> {
+  const metadata = safeUploadMetadata(state);
+  if (!metadata || !state.upload) return null;
+  if (userId === state.upload.userId || state.publicReference) {
+    return { ...metadata, requiresFinalMembershipRecheck: false };
+  }
+  if (!userId || !state.directConversationIds.length) return null;
+
+  const participant = await db
+    .select({ id: conversationParticipants.id })
+    .from(conversationParticipants)
+    .where(
+      and(
+        eq(conversationParticipants.userId, userId),
+        inArray(
+          conversationParticipants.conversationId,
+          state.directConversationIds,
+        ),
+      ),
+    )
+    .limit(1);
+  return participant.length
+    ? { ...metadata, requiresFinalMembershipRecheck: false }
+    : null;
+}
+
+/**
+ * Membership-based authorization linearizes on the final `FOR SHARE` parent-lock recheck. It is
+ * deliberately released before storage I/O; removal wins if it commits before that final recheck,
+ * while bytes already enqueued after a successful recheck cannot be recalled by a later removal.
+ */
+async function withAuthorizedSocialMedia<T>(
+  db: Database,
+  key: string,
+  userId: number | null,
+  project: (authorization: MediaAuthorization) => T,
+): Promise<T | null> {
+  const initial = await loadMediaReferenceState(db, key);
+  const initialUnrestricted = await unrestrictedMediaAuthorization(
+    db,
+    initial,
+    userId,
+  );
+  if (initialUnrestricted) return project(initialUnrestricted);
+  if (!userId || !initial.circleMembershipIds.length) return null;
+
+  return db.transaction(async (tx) => {
+    const beforeLock = await loadMediaReferenceState(tx, key);
+    const beforeLockUnrestricted = await unrestrictedMediaAuthorization(
+      tx,
+      beforeLock,
+      userId,
+    );
+    if (beforeLockUnrestricted) return project(beforeLockUnrestricted);
+    if (!beforeLock.circleMembershipIds.length) return null;
+
+    const lockedRows = await tx
+      .select({ id: circles.id })
+      .from(circles)
+      .where(inArray(circles.id, beforeLock.circleMembershipIds))
+      .orderBy(asc(circles.id))
+      .for("share");
+    const lockedCircleIds = new Set(lockedRows.map((circle) => circle.id));
+    if (!lockedCircleIds.size) return null;
+
+    // Re-read exact upload references only after every compatible parent SHARE lock is held. A
+    // new unheld parent cannot authorize this request; a deleted or revoked old reference fails.
+    const current = await loadMediaReferenceState(tx, key);
+    const currentUnrestricted = await unrestrictedMediaAuthorization(
+      tx,
+      current,
+      userId,
+    );
+    if (currentUnrestricted) return project(currentUnrestricted);
+    const lockedCurrentCircleIds = current.circleMembershipIds.filter(
+      (circleId) => lockedCircleIds.has(circleId),
+    );
+    if (
+      !lockedCurrentCircleIds.length ||
+      !(await isApprovedMember(tx, userId, lockedCurrentCircleIds))
+    ) {
+      return null;
+    }
+
+    const metadata = safeUploadMetadata(current);
+    return metadata
+      ? project({ ...metadata, requiresFinalMembershipRecheck: true })
+      : null;
+  });
+}
+
+async function isAuthorizedSocialMedia(
+  db: Database,
+  key: string,
+  userId: number | null,
+): Promise<MediaAuthorization | null> {
+  return withAuthorizedSocialMedia(
+    db,
+    key,
+    userId,
+    (authorization) => authorization,
+  );
+}
+
+export async function enqueueAuthorizedSocialMedia<T>(
+  db: Database,
+  key: string,
+  userId: number | null,
+  enqueue: (authorization: MediaAuthorization) => T,
+): Promise<T | null> {
+  // Callback is synchronous: res.send only queues already-buffered verified bytes. Parent SHARE
+  // locks remain held through enqueue; neither fetch/decryption nor response drain occurs here.
+  return withAuthorizedSocialMedia(db, key, userId, enqueue);
+}
+
+/**
+ * Keeps final authorization and the synchronous response enqueue adjacent. A removal fixture can
+ * make `finalCheck` fail deterministically; in that case `enqueue` is never called.
+ */
+export async function enqueueAfterFinalMediaAuthorization<T>(
+  finalCheck: () => Promise<MediaAuthorization | null>,
+  enqueue: (authorization: MediaAuthorization) => T,
+): Promise<T | null> {
+  const authorization = await finalCheck();
+  return authorization ? enqueue(authorization) : null;
 }
 
 async function sendDecryptedSocialMedia(req: Request, res: Response) {
@@ -508,9 +686,22 @@ async function sendDecryptedSocialMedia(req: Request, res: Response) {
       upload.bytes,
     );
     if (range === false) {
-      setMediaResponseHeaders(res, upload.mimeType);
-      res.set("Content-Range", `bytes */${upload.bytes}`);
-      res.status(416).end();
+      const enqueued = await enqueueAuthorizedSocialMedia(
+        db,
+        key,
+        userId,
+        (finalUpload) => {
+          if (finalUpload.bytes !== upload.bytes) return false;
+          setMediaResponseHeaders(res, finalUpload.mimeType);
+          res.set("Content-Range", `bytes */${finalUpload.bytes}`);
+          res.status(416).end();
+          return true;
+        },
+      );
+      if (!enqueued) {
+        res.status(404).send("Media not found");
+        return;
+      }
       return;
     }
 
@@ -547,19 +738,35 @@ async function sendDecryptedSocialMedia(req: Request, res: Response) {
         return;
       }
 
-      setMediaResponseHeaders(res, upload.mimeType);
-      if (range) {
-        const body = plaintext.subarray(range.start, range.end + 1);
-        res
-          .status(206)
-          .set({
-            "Content-Range": `bytes ${range.start}-${range.end}/${plaintext.length}`,
-            "Content-Length": String(body.length),
-          })
-          .send(body);
+      // This is the response linearization point for private-circle media. The recheck locks every
+      // relevant parent SHARE row and confirms the exact current reference/member state, then
+      // holds the parent lock through this synchronous enqueue. No lock spans storage I/O or response drain.
+      const enqueued = await enqueueAuthorizedSocialMedia(
+        db,
+        key,
+        userId,
+        (finalUpload) => {
+          if (finalUpload.bytes !== plaintext.length) return false;
+          setMediaResponseHeaders(res, finalUpload.mimeType);
+          if (range) {
+            const body = plaintext.subarray(range.start, range.end + 1);
+            res
+              .status(206)
+              .set({
+                "Content-Range": `bytes ${range.start}-${range.end}/${plaintext.length}`,
+                "Content-Length": String(body.length),
+              })
+              .send(body);
+            return true;
+          }
+          res.set("Content-Length", String(plaintext.length)).send(plaintext);
+          return true;
+        },
+      );
+      if (!enqueued) {
+        res.status(404).send("Media not found");
         return;
       }
-      res.set("Content-Length", String(plaintext.length)).send(plaintext);
     } finally {
       admission.release();
     }

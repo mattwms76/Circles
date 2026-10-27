@@ -1,0 +1,445 @@
+{
+  "schema_version": "circles-security-remediation-v1",
+  "generated_at": "2026-10-27T12:23:18.717483+00:00",
+  "register_total": 33,
+  "owner_request_count": 31,
+  "count_note": "Latest audited register has 33 unique IDs. All 33 retained; no findings silently omitted.",
+  "counts": {
+    "partially_remediated": 3,
+    "source_resolved": 17,
+    "upstream_blocked": 4,
+    "owner_deployment_gate": 8,
+    "compatibility_backlog": 1
+  },
+  "all_issues_fixed": false,
+  "live_sql_or_provider_activation": false,
+  "issues": [
+    {
+      "id": "SEC-001",
+      "title": "Direct Zod 4.2.1 is affected by constrained-collection memory exhaustion",
+      "original_severity": "high",
+      "original_classification": "confirmed_vulnerability",
+      "remediation_status": "partially_remediated",
+      "implemented_or_prepared": "Direct application Zod 4.2.1 replaced with 4.6.7; collection/request limits retained.",
+      "remaining_gate_or_limit": "Expo CLI transitive Zod 3.25.76 still appears in the advisory inventory; maintained compatible parent required.",
+      "source_paths": [
+        "package.json",
+        "tests/sec27-dependency-consumers.test.ts",
+        "docs/dependency-security.md"
+      ]
+    },
+    {
+      "id": "SEC-002",
+      "title": "OAuth back-channel trust is not constrained to a secure exact provider origin at server startup",
+      "original_severity": "high",
+      "original_classification": "conditional_risk",
+      "remediation_status": "source_resolved",
+      "implemented_or_prepared": "Production startup rejects noncanonical, insecure or credential-bearing OAuth back-channel origins before listening.",
+      "remaining_gate_or_limit": "Deployment/provider configuration and real login are not validated by this source proof.",
+      "source_paths": [
+        "server/_core/env.ts",
+        "server/_core/index.ts",
+        "tests/sec27-auth-security.test.ts",
+        "tests/sec27-integration-security.test.ts"
+      ]
+    },
+    {
+      "id": "SEC-003",
+      "title": "Installed node-forge 1.4.0 matches a high-severity RSA signature-verification advisory",
+      "original_severity": "high",
+      "original_classification": "confirmed_vulnerability",
+      "remediation_status": "upstream_blocked",
+      "implemented_or_prepared": "Actual installed node-forge consumer retains compatibility checks; warning is not suppressed.",
+      "remaining_gate_or_limit": "No patched upstream compatible release established; no custom RSA/ASN.1 substitute introduced.",
+      "source_paths": [
+        "docs/dependency-security.md",
+        "tests/dependency-security.test.ts"
+      ]
+    },
+    {
+      "id": "SEC-004",
+      "title": "Installed http-cache-semantics 4.2.0 matches a high-severity cross-user cache disclosure advisory",
+      "original_severity": "high",
+      "original_classification": "confirmed_vulnerability",
+      "remediation_status": "upstream_blocked",
+      "implemented_or_prepared": "Actual Expo tunnel cache path documented and advisory retained.",
+      "remaining_gate_or_limit": "No patched supported parent established; development-only path is not described as harmless or fixed.",
+      "source_paths": ["docs/dependency-security.md"]
+    },
+    {
+      "id": "SEC-005",
+      "title": "Installed decode-uri-component 0.2.2 matches a moderate vendor DoS advisory",
+      "original_severity": "medium",
+      "original_classification": "confirmed_vulnerability",
+      "remediation_status": "upstream_blocked",
+      "implemented_or_prepared": "Unsupported ESM/CommonJS bridge removed; actual Expo Router consumer remains under test.",
+      "remaining_gate_or_limit": "Requires maintained compatible Router/query-string parent; vulnerable decoder remains explicit.",
+      "source_paths": [
+        "docs/dependency-security.md",
+        "tests/dependency-security.test.ts"
+      ]
+    },
+    {
+      "id": "SEC-006",
+      "title": "Private-media authorization is not serialized with private-circle membership revocation",
+      "original_severity": "medium",
+      "original_classification": "conditional_risk",
+      "remediation_status": "source_resolved",
+      "implemented_or_prepared": "Current media reference and role rechecked under parent SHARE; synchronous verified-byte enqueue occurs before lock release; fetch/decryption/drain outside locks.",
+      "remaining_gate_or_limit": "Already-enqueued bytes cannot be retroactively revoked; no real provider/device claim.",
+      "source_paths": [
+        "server/_core/storageProxy.ts",
+        "e2e/sec27-security.e2e.ts"
+      ]
+    },
+    {
+      "id": "SEC-007",
+      "title": "Upload type validation accepts non-media and ambiguous bytes as allowed media",
+      "original_severity": "medium",
+      "original_classification": "source_confirmed_issue",
+      "remediation_status": "source_resolved",
+      "implemented_or_prepared": "Raster uploads structurally decoded/normalized under byte/pixel bounds; MP4 parsed with maintained MP4Box in bounded worker; verified MIME and bytes preserved.",
+      "remaining_gate_or_limit": "Admission is not transcoding, sample decoding or native codec/playback proof; fragmented MP4 explicitly denied.",
+      "source_paths": [
+        "server/social-router.ts",
+        "server/sec27-video-validation.ts",
+        "tests/sec27-media-security.test.ts"
+      ]
+    },
+    {
+      "id": "SEC-008",
+      "title": "Failed logout can leave an authenticated credential usable after the UI claims local sign-out",
+      "original_severity": "medium",
+      "original_classification": "conditional_risk",
+      "remediation_status": "source_resolved",
+      "implemented_or_prepared": "Synchronous/persisted incomplete-logout barrier, token generations, final tRPC/direct-HTTP/media credential admission and truthful multi-step outcomes; exact logout recovery exception.",
+      "remaining_gate_or_limit": "Native storage/browser cookie behavior remains physical/provider gated. Missing recovery bearer cannot be labelled confirmed remote revocation.",
+      "source_paths": [
+        "lib/sec27-credential-admission.ts",
+        "lib/_core/api.ts",
+        "lib/_core/auth.ts",
+        "lib/client-session.ts",
+        "tests/sec27-direct-api-admission.test.ts"
+      ]
+    },
+    {
+      "id": "SEC-009",
+      "title": "tRPC batching and GET input have no application-configured count or URI bound",
+      "original_severity": "medium",
+      "original_classification": "conditional_risk",
+      "remediation_status": "source_resolved",
+      "implemented_or_prepared": "Server URI and batch bounds plus cooperative client bounds reject oversized work.",
+      "remaining_gate_or_limit": "External proxy deployment limits are not activated.",
+      "source_paths": [
+        "server/_core/runtimeSecurity.ts",
+        "lib/trpc.ts",
+        "tests/sec27-transport.test.ts"
+      ]
+    },
+    {
+      "id": "SEC-010",
+      "title": "Large JSON is parsed before authentication without a general request rate, concurrency, or timeout policy",
+      "original_severity": "medium",
+      "original_classification": "conditional_risk",
+      "remediation_status": "source_resolved",
+      "implemented_or_prepared": "Cheap pre-parser request rate/concurrency/size/deadline admission with bounded tracking; oversized JSON/URI/batch requests fail closed.",
+      "remaining_gate_or_limit": "Process-local enforcement is not a distributed edge/WAF policy.",
+      "source_paths": [
+        "server/_core/runtimeSecurity.ts",
+        "server/_core/index.ts",
+        "tests/sec27-transport.test.ts"
+      ]
+    },
+    {
+      "id": "SEC-011",
+      "title": "OAuth-issued application sessions omit the numeric Circles actor binding",
+      "original_severity": "medium",
+      "original_classification": "conditional_risk",
+      "remediation_status": "source_resolved",
+      "implemented_or_prepared": "New OAuth sessions require successful source allocation/reload and positive signed numeric actor binding; no unbound session issuance fallback.",
+      "remaining_gate_or_limit": "Existing sessions/provider account journeys were not reissued or tested live.",
+      "source_paths": [
+        "server/_core/oauth.ts",
+        "tests/sec27-auth-security.test.ts"
+      ]
+    },
+    {
+      "id": "SEC-012",
+      "title": "Feed continuation exposes an inaccessible private post\u2019s cursor metadata",
+      "original_severity": "low",
+      "original_classification": "source_confirmed_issue",
+      "remediation_status": "source_resolved",
+      "implemented_or_prepared": "SQL source visibility and protected DTO mapping; continuation comes only from serialized authorized lookahead rows; exact timestamp precision retained.",
+      "remaining_gate_or_limit": "Historical E2E fixture auth is synthetic, not provider authentication.",
+      "source_paths": ["server/social-service.ts", "e2e/a26-authority.e2e.ts"]
+    },
+    {
+      "id": "SEC-013",
+      "title": "Private live discovery maps stream metadata after an unlocked membership decision",
+      "original_severity": "low",
+      "original_classification": "conditional_risk",
+      "remediation_status": "source_resolved",
+      "implemented_or_prepared": "Circle live-card membership and projection use one parent SHARE transaction and same-client profile reads; removal-wins/read-first ordering proven locally.",
+      "remaining_gate_or_limit": "No exhaustive real WebRTC/TURN/provider session matrix.",
+      "source_paths": ["server/live-router.ts", "e2e/a26-authority.e2e.ts"]
+    },
+    {
+      "id": "SEC-014",
+      "title": "Live camera/microphone capture lacks explicit background-transition teardown",
+      "original_severity": "medium",
+      "original_classification": "conditional_risk",
+      "remediation_status": "source_resolved",
+      "implemented_or_prepared": "Native inactive/background and web hidden/pagehide synchronously tear down capture; late joins released; intentional generation-keyed foreground rejoin.",
+      "remaining_gate_or_limit": "Actual device, BFCache, permission and media-provider proof remains open.",
+      "source_paths": [
+        "components/sec27-capture-lifecycle.ts",
+        "components/live-media.native.tsx",
+        "components/live-media.web.tsx",
+        "tests/sec27-capture-lifecycle.test.ts"
+      ]
+    },
+    {
+      "id": "SEC-015",
+      "title": "Generic signed-object transfers do not pin origin/DNS or reject redirects",
+      "original_severity": "low",
+      "original_classification": "conditional_risk",
+      "remediation_status": "source_resolved",
+      "implemented_or_prepared": "Exact configured HTTPS object origins, public-only DNS answers, pinned connection/SNI/TLS, no redirects, bounded DNS/header/body lifecycle and cancellation disposal.",
+      "remaining_gate_or_limit": "Approved real object origins must be configured before deploying this fail-closed source; no real provider/CDN/TLS validation.",
+      "source_paths": [
+        "server/storage.ts",
+        "server/_core/sec27-security-configuration.mjs",
+        "tests/sec27-storage-transfer-lifecycle.test.ts"
+      ]
+    },
+    {
+      "id": "SEC-016",
+      "title": "Generic TLS reverse-proxy deployments have no source-configured trusted proxy boundary",
+      "original_severity": "medium",
+      "original_classification": "conditional_risk",
+      "remediation_status": "owner_deployment_gate",
+      "implemented_or_prepared": "Optional strict trusted proxy CIDR policy and environment validation prepared; default remains untrusted.",
+      "remaining_gate_or_limit": "Exact owner-approved deployment proxy CIDRs and forwarded-header behavior must be configured/verified; not inferred from arbitrary headers.",
+      "source_paths": [
+        "server/_core/runtimeSecurity.ts",
+        ".env.example",
+        "scripts/check-env.mjs"
+      ]
+    },
+    {
+      "id": "SEC-017",
+      "title": "Public readiness endpoint reveals component-level availability",
+      "original_severity": "low",
+      "original_classification": "hardening",
+      "remediation_status": "source_resolved",
+      "implemented_or_prepared": "Unauthenticated readiness emits only aggregate availability; container smoke assertion updated accordingly.",
+      "remaining_gate_or_limit": "Authenticated operational checks remain distinct from aggregate health.",
+      "source_paths": [
+        "server/_core/index.ts",
+        ".github/workflows/container-validation.yml",
+        "tests/sec27-transport.test.ts"
+      ]
+    },
+    {
+      "id": "SEC-018",
+      "title": "PGDG repository key is trusted without an in-workflow immutable fingerprint check",
+      "original_severity": "medium",
+      "original_classification": "conditional_risk",
+      "remediation_status": "source_resolved",
+      "implemented_or_prepared": "CI pins and checks the downloaded PGDG primary signing fingerprint before repository key installation.",
+      "remaining_gate_or_limit": "Fresh hosted CI receipt is still required for changed workflow execution.",
+      "source_paths": [
+        ".github/workflows/ci.yml",
+        "tests/sec27-operations-remediation.test.ts"
+      ]
+    },
+    {
+      "id": "SEC-019",
+      "title": "Trusted-server RLS policies do not independently enforce user or circle authorization",
+      "original_severity": "medium",
+      "original_classification": "conditional_risk",
+      "remediation_status": "owner_deployment_gate",
+      "implemented_or_prepared": "Current trusted-server RLS model explicitly documented, isolated authority coverage strengthened and role-readiness evaluator prepared.",
+      "remaining_gate_or_limit": "No new user/circle-aware live RLS policy installed; current RLS still depends on server authorization.",
+      "source_paths": [
+        "operations/security-proposals/sec27-runtime-bootstrap-principal.sql",
+        "tests/sec27-database-hardening.test.ts"
+      ]
+    },
+    {
+      "id": "SEC-020",
+      "title": "Connection principal remains a privileged server-side trust boundary",
+      "original_severity": "medium",
+      "original_classification": "conditional_risk",
+      "remediation_status": "owner_deployment_gate",
+      "implemented_or_prepared": "Reviewed nonprivileged bootstrap proposal and exact principal evaluator prepared without changing the active DSN.",
+      "remaining_gate_or_limit": "Role provisioning, pooler capability, reviewed DSN parser/secret transition and actual startup attestation require owner authorization; active postgres bootstrap not removed.",
+      "source_paths": [
+        "operations/security-proposals/sec27-runtime-bootstrap-principal.sql",
+        "server/runtime-role-pool.ts"
+      ]
+    },
+    {
+      "id": "SEC-021",
+      "title": "Docker ignore policy is narrower than repository private-material policy",
+      "original_severity": "low",
+      "original_classification": "conditional_risk",
+      "remediation_status": "source_resolved",
+      "implemented_or_prepared": "Docker ignore matches private-material hygiene; synthetic sentinel checks cover exclusion patterns without using real keys.",
+      "remaining_gate_or_limit": "Managed hosting may own its effective build context; no publication/image deployment claim.",
+      "source_paths": [
+        ".dockerignore",
+        "tests/sec27-operations-remediation.test.ts"
+      ]
+    },
+    {
+      "id": "SEC-022",
+      "title": "Initial operations migration can be non-atomic if its parent runner does not supply a transaction",
+      "original_severity": "low",
+      "original_classification": "conditional_risk",
+      "remediation_status": "owner_deployment_gate",
+      "implemented_or_prepared": "Future-only ordered SHA manifest transport validates all bytes before BEGIN, rolls back failures and forbids blind retries on ambiguous COMMIT; actual local PG rollback proof.",
+      "remaining_gate_or_limit": "No applied 0001 bytes/history rewritten and no active production runner migrated/SQL submitted; reviewed parent activation remains separate.",
+      "source_paths": [
+        "operations/security-tools/sec27-future-migration-transport.mjs",
+        "e2e/sec27-security.e2e.ts"
+      ]
+    },
+    {
+      "id": "SEC-023",
+      "title": "Optional email-password throttle is process-local and capacity-evictable",
+      "original_severity": "low",
+      "original_classification": "hardening",
+      "remediation_status": "partially_remediated",
+      "implemented_or_prepared": "Email throttle no longer capacity-evicts active keys; bounded fail-closed account/source/global admission and finite upstream work.",
+      "remaining_gate_or_limit": "Admission remains process-local; separately authorized shared edge/provider admission required for distributed protection.",
+      "source_paths": [
+        "server/_core/email-auth.ts",
+        "tests/sec27-auth-security.test.ts"
+      ]
+    },
+    {
+      "id": "SEC-024",
+      "title": "Application lacks a uniform response-security-header and private-response cache policy",
+      "original_severity": "low",
+      "original_classification": "hardening",
+      "remediation_status": "source_resolved",
+      "implemented_or_prepared": "Uniform response security headers and private/no-store application API/media policy; frame/cookie Preview compatibility preserved.",
+      "remaining_gate_or_limit": "Real proxy/CDN behavior not activated or verified.",
+      "source_paths": [
+        "server/_core/runtimeSecurity.ts",
+        "tests/sec27-transport.test.ts"
+      ]
+    },
+    {
+      "id": "SEC-025",
+      "title": "Complete media recovery is not source-proven without a recovery principal or provider export/retention process",
+      "original_severity": "medium",
+      "original_classification": "verification_gap",
+      "remediation_status": "owner_deployment_gate",
+      "implemented_or_prepared": "Executable synthetic private-temp encrypted package/decrypt/restore/SHA rehearsal rejects corruption, wrong material and missing media; cleanup verified.",
+      "remaining_gate_or_limit": "This is not existing encrypted-backup format compatibility or provider full-media recovery. Real principal/export/retention/key custody/recovery rehearsal remains owner gated.",
+      "source_paths": [
+        "operations/security-tools/sec27-local-recovery-drill.mjs",
+        "operations/recovery/sec27-local-drill.md",
+        "tests/sec27-operations-drills.test.ts"
+      ]
+    },
+    {
+      "id": "SEC-026",
+      "title": "End-to-end health-job execution and alert delivery remain unverified",
+      "original_severity": "medium",
+      "original_classification": "verification_gap",
+      "remediation_status": "owner_deployment_gate",
+      "implemented_or_prepared": "Pure health freshness/watchdog evaluator and synthetic failure/recovery transition drill prepared; external delivery explicitly mocked.",
+      "remaining_gate_or_limit": "Existing active daily health job preserved. Actual end-to-end execution, independent watchdog activation and external delivery unverified; no scheduler changed.",
+      "source_paths": [
+        "operations/security-tools/sec27-health-watchdog-evaluator.mjs",
+        "operations/recovery/sec27-health-evidence.md"
+      ]
+    },
+    {
+      "id": "SEC-027",
+      "title": "Security-auditor documentation states an obsolete 22-table scope",
+      "original_severity": "low",
+      "original_classification": "maintenance",
+      "remediation_status": "source_resolved",
+      "implemented_or_prepared": "Database auditor documentation corrected to current 27-table scope, no stale 22-table coverage claim.",
+      "remaining_gate_or_limit": "Current table RLS is not automatically actor-scoped authorization.",
+      "source_paths": [
+        "docs/supabase-security-audit.md",
+        "tests/sec27-database-hardening.test.ts"
+      ]
+    },
+    {
+      "id": "SEC-028",
+      "title": "Deprecated esbuild-kit loader components remain in the dependency graph",
+      "original_severity": "low",
+      "original_classification": "maintenance",
+      "remediation_status": "upstream_blocked",
+      "implemented_or_prepared": "Deprecated loader chain inventoried with actual parent and consumer compatibility tests.",
+      "remaining_gate_or_limit": "Compatible drizzle-kit parent still declares esbuild-kit; installing tsx elsewhere does not remove the loader.",
+      "source_paths": [
+        "docs/dependency-security.md",
+        "tests/dependency-security.test.ts"
+      ]
+    },
+    {
+      "id": "SEC-029",
+      "title": "Deprecated @ungap/structured-clone 1.3.0 carries a Potential CWE-502 metadata warning",
+      "original_severity": "low",
+      "original_classification": "maintenance",
+      "remediation_status": "source_resolved",
+      "implemented_or_prepared": "Expo-scoped structured-clone narrowly resolved to 1.4.0 and actual consumer cloning tested.",
+      "remaining_gate_or_limit": "Maintenance warning remediation, not an invented confirmed CVE fix.",
+      "source_paths": [
+        "package.json",
+        "pnpm-lock.yaml",
+        "tests/sec27-dependency-consumers.test.ts"
+      ]
+    },
+    {
+      "id": "SEC-030",
+      "title": "ESLint 9.39.2 is beyond the vendor-supported major line",
+      "original_severity": "low",
+      "original_classification": "maintenance",
+      "remediation_status": "partially_remediated",
+      "implemented_or_prepared": "ESLint patch updated to 9.39.5 with actual Expo configuration consumer proof and full zero-warning lint gate.",
+      "remaining_gate_or_limit": "ESLint 9 remains EOL; ESLint 10 requires compatible Expo/react lint peer chain, not a forced upgrade.",
+      "source_paths": [
+        "docs/dependency-security.md",
+        "tests/sec27-dependency-consumers.test.ts"
+      ]
+    },
+    {
+      "id": "SEC-031",
+      "title": "Direct dependency freshness backlog: 60 latest-version updates, including 23 within declared ranges",
+      "original_severity": "low",
+      "original_classification": "maintenance",
+      "remediation_status": "compatibility_backlog",
+      "implemented_or_prepared": "Freshness inventory and compatible-range candidates recorded; security-targeted compatible patches applied, no blind framework/native bulk update.",
+      "remaining_gate_or_limit": "Remaining newer packages are a reviewed maintenance backlog, not all security vulnerabilities; native/framework changes need separate compatibility scope.",
+      "source_paths": ["docs/dependency-security.md"]
+    },
+    {
+      "id": "SEC-032",
+      "title": "Legacy public signed-in reads include private-circle Home fields and profile preference metadata",
+      "original_severity": "medium",
+      "original_classification": "conditional_risk",
+      "remediation_status": "owner_deployment_gate",
+      "implemented_or_prepared": "Legacy public-schema privacy risks and scoped decision/review guidance retained separately from private app source.",
+      "remaining_gate_or_limit": "Legacy public-table row/field exposure policy not altered; requires explicit owner data/privacy decision and exact reviewed SQL.",
+      "source_paths": ["docs/security-proposals/sec27-database-hardening.md"]
+    },
+    {
+      "id": "SEC-033",
+      "title": "Previously shared database and GitHub credentials lack a verified rotation/revocation attestation in this audit",
+      "original_severity": "high",
+      "original_classification": "verification_gap",
+      "remediation_status": "owner_deployment_gate",
+      "implemented_or_prepared": "Coordinated credential rotation/revocation attestation checklist prepared; previously exposed material never reused or repeated.",
+      "remaining_gate_or_limit": "Actual database/token/key rotation/revocation cannot be claimed without owner-authorized provider actions and secure attestation.",
+      "source_paths": ["docs/security-proposals/sec27-database-hardening.md"]
+    }
+  ]
+}

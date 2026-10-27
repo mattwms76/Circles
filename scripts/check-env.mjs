@@ -4,6 +4,10 @@ import { Buffer } from "node:buffer";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config as configureDotenv } from "dotenv";
+import {
+  parseStorageObjectOrigins,
+  isValidTrustedProxyConfiguration,
+} from "../server/_core/sec27-security-configuration.mjs";
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectDirectory = path.resolve(moduleDirectory, "..");
@@ -61,6 +65,8 @@ export const ENVIRONMENT_CONTRACT = Object.freeze({
     "BUILT_IN_FORGE_API_URL",
     "CIRCLES_EMAIL_AUTH_ENABLED",
     "CIRCLES_PLATFORM_SETTINGS_ENABLED",
+    "CIRCLES_STORAGE_OBJECT_ORIGINS",
+    "CIRCLES_TRUSTED_PROXY_CIDRS",
     "DATABASE_URL",
     "SUPABASE_AUTH_URL",
     "SUPABASE_AUTH_PUBLISHABLE_KEY",
@@ -99,6 +105,8 @@ export const ENVIRONMENT_CONTRACT = Object.freeze({
     "BUILT_IN_FORGE_API_URL",
     "CIRCLES_EMAIL_AUTH_ENABLED",
     "CIRCLES_PLATFORM_SETTINGS_ENABLED",
+    "CIRCLES_STORAGE_OBJECT_ORIGINS",
+    "CIRCLES_TRUSTED_PROXY_CIDRS",
     "DATABASE_URL",
     "SUPABASE_AUTH_URL",
     "SUPABASE_AUTH_PUBLISHABLE_KEY",
@@ -154,6 +162,7 @@ export const ENV_REFERENCE_SOURCE_FILES = Object.freeze([
   "server/_core/index.ts",
   "server/_core/oauth.ts",
   "server/_core/postgres-config.mjs",
+  "server/_core/runtimeSecurity.ts",
 ]);
 
 const PUBLIC_URL_KEYS = new Set([
@@ -214,6 +223,36 @@ function validatePublicUrls(env) {
   for (const name of PUBLIC_URL_KEYS) {
     const value = env[name];
     if (!hasValue(value)) continue;
+    if (name === "MANUS_OAUTH_API_URL" || name === "OAUTH_SERVER_URL") {
+      try {
+        const url = new URL(value);
+        if (
+          value.trim() !== value ||
+          value.length > 2048 ||
+          url.protocol !== "https:" ||
+          url.username ||
+          url.password ||
+          url.pathname !== "/" ||
+          url.search ||
+          url.hash
+        ) {
+          errors.push(
+            issue(
+              name,
+              "must be a canonical credential-free HTTPS provider origin",
+            ),
+          );
+        }
+      } catch {
+        errors.push(
+          issue(
+            name,
+            "must be a canonical credential-free HTTPS provider origin",
+          ),
+        );
+      }
+      continue;
+    }
     if (!isSafeHttpUrl(value.trim(), ORIGIN_ONLY_KEYS.has(name))) {
       errors.push(issue(name, "must be an HTTP(S) URL without credentials"));
     }
@@ -235,6 +274,55 @@ export function validateEnvironment(env = process.env, mode = "runtime") {
 
   const errors = validatePublicUrls(env);
   const warnings = [];
+
+  if (
+    hasValue(env.CIRCLES_STORAGE_OBJECT_ORIGINS) &&
+    !parseStorageObjectOrigins(env.CIRCLES_STORAGE_OBJECT_ORIGINS)
+  ) {
+    errors.push(
+      issue(
+        "CIRCLES_STORAGE_OBJECT_ORIGINS",
+        "must contain one to four distinct public HTTPS root origins",
+      ),
+    );
+  }
+  if (!isValidTrustedProxyConfiguration(env.CIRCLES_TRUSTED_PROXY_CIDRS)) {
+    errors.push(
+      issue(
+        "CIRCLES_TRUSTED_PROXY_CIDRS",
+        "must contain one to four canonical narrow non-loopback CIDRs",
+      ),
+    );
+  }
+  if (hasValue(env.MANUS_OAUTH_API_URL) && hasValue(env.OAUTH_SERVER_URL)) {
+    try {
+      if (
+        new URL(env.MANUS_OAUTH_API_URL).origin !==
+        new URL(env.OAUTH_SERVER_URL).origin
+      ) {
+        errors.push(
+          issue(
+            "OAUTH_SERVER_URL",
+            "must not select a different provider from the canonical platform configuration",
+          ),
+        );
+      }
+    } catch {
+      // Malformed URLs already have value-free errors above.
+    }
+  }
+  if (
+    env.NODE_ENV === "production" &&
+    !hasValue(env.MANUS_OAUTH_API_URL) &&
+    hasValue(env.OAUTH_SERVER_URL)
+  ) {
+    errors.push(
+      issue(
+        "MANUS_OAUTH_API_URL",
+        "is required for production provider trust; a legacy-only alias is insufficient",
+      ),
+    );
+  }
 
   if (mode === "runtime") {
     for (const name of ENVIRONMENT_CONTRACT.runtime.required) {

@@ -1,6 +1,6 @@
 # Circles application-schema security auditor
 
-`pnpm audit:database` is a **read-only, metadata-only** PostgreSQL 17 security auditor for the 22-table `circles_app` boundary: 21 application tables plus `_dataMigrations`. It is separate from the OAuth pending-state auditor, the daily migration-health job, backups, and runtime recovery.
+`pnpm audit:database` is a **read-only, metadata-only** PostgreSQL 17 security auditor for the 27-table `circles_app` boundary: 26 application tables plus `_dataMigrations`. Its source inventory spans `drizzle/schema.ts`, `drizzle/live-schema.ts`, `drizzle/session-schema.ts`, `drizzle/activity-schema.ts`, and `drizzle/moderation-schema.ts`. It is separate from the OAuth pending-state auditor, the daily migration-health job, backups, and runtime recovery.
 
 ## Safe invocation
 
@@ -17,7 +17,7 @@ Both report paths are required, must be distinct and new, and are validated befo
 
 ## What it evaluates
 
-- exact **22-table** inventory, ownership, RLS enablement, and server-only policy shapes;
+- exact **27-table** inventory, ownership, RLS enablement, and server-only policy shapes;
 - runtime-role identity/flags and both directions of any membership edge involving the role;
 - complete effective privilege matrices for all cataloged non-owner roles, including schema `USAGE`/`CREATE`; table CRUD, `TRUNCATE`, `REFERENCES`, `TRIGGER`, and PostgreSQL 17 `MAINTAIN`; column privileges; sequence `USAGE`/`SELECT`/`UPDATE`; and routine `EXECUTE`;
 - direct ACL attribution, including `PUBLIC` and grant-option rows, in addition to effective privileges (so inherited membership effects are not hidden);

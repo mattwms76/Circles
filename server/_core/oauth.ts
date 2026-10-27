@@ -438,15 +438,18 @@ async function syncUser(userInfo: {
     lastSignedIn,
   });
   const saved = await getUserByOpenId(userInfo.openId);
-  return (
-    saved ?? {
-      openId: userInfo.openId,
-      name: userInfo.name,
-      email: userInfo.email,
-      loginMethod: userInfo.loginMethod ?? null,
-      lastSignedIn,
-    }
-  );
+  // OAuth issuer identity alone is not enough for a Circles session. The
+  // numeric user row is the source of authorization and must be observed after
+  // the upsert; otherwise a new token could later attach to a replacement row.
+  if (
+    !saved ||
+    saved.openId !== userInfo.openId ||
+    !Number.isSafeInteger(saved.id) ||
+    saved.id <= 0
+  ) {
+    throw new Error("OAuth identity did not map to a Circles actor");
+  }
+  return saved;
 }
 
 function buildUserResponse(
@@ -470,14 +473,44 @@ function buildUserResponse(
   };
 }
 
+type OAuthSessionIssuer = {
+  createSessionToken(
+    openId: string,
+    options: { expiresInMs: number; name: string; userId: number },
+  ): Promise<string>;
+};
+
+type OAuthSessionActor = {
+  id: number;
+  openId: string;
+};
+
+/** Issues new OAuth sessions only for the just-observed numeric Circles actor. */
+export async function issueOAuthSessionForActor(
+  issuer: OAuthSessionIssuer,
+  userInfo: { openId?: string | null; name?: string | null },
+  actor: OAuthSessionActor,
+): Promise<string> {
+  if (
+    !userInfo.openId ||
+    actor.openId !== userInfo.openId ||
+    !Number.isSafeInteger(actor.id) ||
+    actor.id <= 0
+  ) {
+    throw new Error("OAuth identity did not map to a Circles actor");
+  }
+  return issuer.createSessionToken(actor.openId, {
+    name: userInfo.name || "",
+    userId: actor.id,
+    expiresInMs: APPLICATION_SESSION_TTL_MS,
+  });
+}
+
 async function completeOAuthLogin(code: string, state: string) {
   const tokenResponse = await sdk.exchangeCodeForToken(code, state);
   const userInfo = await sdk.getUserInfo(tokenResponse.accessToken);
   const user = await syncUser(userInfo);
-  const sessionToken = await sdk.createSessionToken(userInfo.openId!, {
-    name: userInfo.name || "",
-    expiresInMs: APPLICATION_SESSION_TTL_MS,
-  });
+  const sessionToken = await issueOAuthSessionForActor(sdk, userInfo, user);
   return { sessionToken, user };
 }
 

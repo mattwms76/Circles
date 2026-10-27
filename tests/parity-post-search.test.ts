@@ -142,8 +142,10 @@ function privateCandidateFixture() {
     mediaType: "text",
     createdAt: matchedAt,
   };
+  const lockModes: string[] = [];
+  let profileProjectionAttempted = false;
 
-  return {
+  const db = {
     select: () => ({
       from: (table: unknown) => {
         if (table === posts) {
@@ -157,7 +159,12 @@ function privateCandidateFixture() {
         if (table === circles) {
           return {
             where: () => ({
-              limit: () => thenableRows([{ id: 9, privacy: "private" }]),
+              limit: () => ({
+                for: (mode: string) => {
+                  lockModes.push(mode);
+                  return thenableRows([{ id: 9, privacy: "private" }]);
+                },
+              }),
             }),
           };
         }
@@ -166,9 +173,31 @@ function privateCandidateFixture() {
             where: () => ({ limit: () => thenableRows([]) }),
           };
         }
+        if (table === profiles || table === users) {
+          profileProjectionAttempted = true;
+          throw new Error(
+            "Denied private candidate must not project a profile",
+          );
+        }
         throw new Error("Unexpected synthetic private-search query");
       },
     }),
+  };
+
+  return {
+    db: {
+      ...db,
+      // The mapper rechecks a candidate in the same protected transaction used by the real
+      // Drizzle path. This candidate models the narrow removal race after SQL visibility has
+      // selected it, not a replacement for the SQL visibility predicate below.
+      transaction: vi.fn(async (work: (tx: typeof db) => Promise<unknown>) =>
+        work(db),
+      ),
+    },
+    lockModes,
+    get profileProjectionAttempted() {
+      return profileProjectionAttempted;
+    },
   };
 }
 
@@ -191,19 +220,27 @@ describe("admin parity post search", () => {
     expect(
       pagedFeed.indexOf("escapePostSearchLikePattern(search)"),
     ).toBeLessThan(pagedFeed.indexOf("collectEligibleFeedPage"));
+    expect(pagedFeed).toContain(
+      "clauses.push(visibleFeedPostCondition(viewerId))",
+    );
   });
 
   it("returns server-matched posts beyond the first discover page with a stable compound cursor", async () => {
     const fixture = searchableFeedFixture();
     dbMocks.getDb.mockResolvedValue(fixture.db);
 
-    fixture.beginPageOutput(fixture.matchingPosts.slice(0, 20));
+    // The first response returns 20 entries but the protected mapper intentionally reads a 21st
+    // authorized row as lookahead to determine that the public continuation exists.
+    fixture.beginPageOutput(fixture.matchingPosts);
     const first = await feedPage(null, "for-you", undefined, undefined, {
       search: "  needle  ",
       limit: 20,
     });
 
-    expect(fixture.db.transaction).toHaveBeenCalledTimes(20);
+    // collectAuthorizedFeedPage reads one authorized lookahead so the first response can prove a
+    // continuation without leaking an internal candidate cursor. The fixture returns 21 SQL
+    // matches; all 21 are mapped under the protected transaction boundary.
+    expect(fixture.db.transaction).toHaveBeenCalledTimes(21);
     expect(first.items.map((post) => post.id)).toEqual(
       fixture.matchingPosts.slice(0, 20).map((post) => post.id),
     );
@@ -227,7 +264,8 @@ describe("admin parity post search", () => {
   });
 
   it("does not expose a matching private-circle post to a non-member", async () => {
-    dbMocks.getDb.mockResolvedValue(privateCandidateFixture());
+    const fixture = privateCandidateFixture();
+    dbMocks.getDb.mockResolvedValue(fixture.db);
 
     await expect(
       feedPage(null, "for-you", undefined, undefined, {
@@ -235,6 +273,9 @@ describe("admin parity post search", () => {
         limit: 20,
       }),
     ).resolves.toEqual({ items: [], nextCursor: null, hasMore: false });
+    expect(fixture.db.transaction).toHaveBeenCalledTimes(1);
+    expect(fixture.lockModes).toEqual(["share"]);
+    expect(fixture.profileProjectionAttempted).toBe(false);
   });
 
   it("uses search as the Discover feed query input rather than filtering already-loaded cards", () => {

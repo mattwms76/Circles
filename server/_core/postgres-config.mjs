@@ -5,6 +5,14 @@ import { checkServerIdentity } from "node:tls";
 
 export const PRIVATE_SCHEMA = "circles_app";
 export const RUNTIME_ROLE = "circles_app_runtime";
+/**
+ * Current source accepts only this privileged Supabase connection principal.
+ * It is deliberately explicit so it is not mistaken for the proposed
+ * least-privilege bootstrap principal below.
+ */
+export const CURRENT_CONNECTION_PRINCIPAL = "postgres";
+/** Prepared only: activation requires owner-provisioned provider access and a reviewed DSN change. */
+export const PROPOSED_RUNTIME_BOOTSTRAP_PRINCIPAL = "circles_app_bootstrap";
 export const POSTGRES_CONNECTION_TIMEOUT_MS = 5_000;
 export const POSTGRES_QUERY_TIMEOUT_MS = 8_000;
 export const POSTGRES_STATEMENT_TIMEOUT_MS = 8_000;
@@ -14,7 +22,7 @@ const PROJECT_REF = "vvclcsqletcxzoaayqzq";
 const DATABASE_NAME = "postgres";
 const DIRECT_HOST = `db.${PROJECT_REF}.supabase.co`;
 const SESSION_POOLER_HOST = "aws-0-eu-west-1.pooler.supabase.com";
-const SESSION_POOLER_USER = `postgres.${PROJECT_REF}`;
+const SESSION_POOLER_USER = `${CURRENT_CONNECTION_PRINCIPAL}.${PROJECT_REF}`;
 const SUPABASE_ROOT_CA_SHA256 =
   "807025ad50d4ed219d2c9c7d299c004f824eb00cf7f65afef607d07b72e6cafa";
 const SUPABASE_CA_RELATIVE_PATH = "server/certificates/supabase-root-2021.crt";
@@ -82,7 +90,7 @@ export function getPostgresConnectionOptions(
     );
   }
   if (
-    (isKnownDirectHost && sourceUser !== "postgres") ||
+    (isKnownDirectHost && sourceUser !== CURRENT_CONNECTION_PRINCIPAL) ||
     (isKnownSessionPooler && sourceUser !== SESSION_POOLER_USER)
   ) {
     throw configurationError(

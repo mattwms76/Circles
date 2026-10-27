@@ -92,6 +92,7 @@ type FeedPostWire = {
   id: number;
   author: { id: number };
   saved: boolean;
+  text: string;
 };
 type FeedPageWire = {
   items: FeedPostWire[];
@@ -124,6 +125,11 @@ const A26_MEMBER_SYNTHETIC_COUNT = 7;
 const A26_PRIVATE_COMMENT_TEXT = "A26 private reader-first comment";
 const A26_ACTIVITY_SOURCE_ID = 926_001;
 const A26_REMOVED_HOST_TITLE = "A26 removed host must not acquire a lease";
+const SEC012_PRIVATE_CANDIDATE_COUNT = 2_001;
+const SEC012_SEARCH = "SEC012 high-volume cursor";
+const SEC012_PRIVATE_TEXT = `${SEC012_SEARCH} private candidate`;
+const SEC012_PUBLIC_TEXT = `${SEC012_SEARCH} public older continuation`;
+const SEC013_LIVE_TITLE = "SEC013 protected live card";
 
 let runtimePool: RuntimeRolePool | null = null;
 let adminPool: Pool | null = null;
@@ -213,6 +219,7 @@ function isQueryProcedure(procedure: string): boolean {
     "social.members",
     "social.membersPage",
     "social.messages",
+    "live.list",
   ].includes(procedure);
 }
 
@@ -280,7 +287,7 @@ function expectPrivateTextAbsent(result: TrpcWireResult): void {
 async function waitForBlockedLockingQuery(
   queryNeedle: string,
   description: string,
-  options: { forUpdate?: boolean } = {},
+  options: { forUpdate?: boolean; forShare?: boolean } = {},
 ): Promise<void> {
   const deadline = Date.now() + HTTP_TIMEOUT_MS;
   while (Date.now() < deadline) {
@@ -292,6 +299,7 @@ async function waitForBlockedLockingQuery(
             AND wait_event_type = 'Lock'
             AND query ILIKE '%' || $1 || '%'
             ${options.forUpdate ? "AND query ILIKE '%for update%'" : ""}
+            ${options.forShare ? "AND query ILIKE '%for share%'" : ""}
        ) AS waiting`,
       [queryNeedle],
     );
@@ -315,6 +323,14 @@ async function waitForBlockedParentRemoval(): Promise<void> {
     '"circles_app"."circles"',
     "real HTTP removeMember at the parent FOR UPDATE lock",
     { forUpdate: true },
+  );
+}
+
+async function waitForBlockedParentShare(): Promise<void> {
+  await waitForBlockedLockingQuery(
+    '"circles_app"."circles"',
+    "real HTTP live-card reader at the parent FOR SHARE lock",
+    { forShare: true },
   );
 }
 
@@ -375,6 +391,83 @@ async function disposeA26FeedContinuation(postIds: number[]): Promise<void> {
       [postIds],
     );
   }
+}
+
+type Sec012CursorFixture = {
+  privatePostIds: number[];
+  publicPostIdsNewestFirst: number[];
+};
+
+/** Inserts fixture-only rows: 2,001 newer private matches and three older public matches. */
+async function seedSec012CursorFixture(): Promise<Sec012CursorFixture> {
+  const privateRows = await adminPool!.query<{ id: number }>(
+    `INSERT INTO circles_app.posts(
+       "authorId", "circleId", text, "createdAt", "updatedAt"
+     )
+     SELECT 1,
+            $1,
+            $2 || ' ' || series::text,
+            TIMESTAMPTZ '2026-10-27 11:22:33.120000+00'
+              + series * INTERVAL '1 microsecond',
+            TIMESTAMPTZ '2026-10-27 11:22:33.120000+00'
+              + series * INTERVAL '1 microsecond'
+       FROM generate_series(1, $3) AS series
+     RETURNING id`,
+    [CIRCLE_ID, SEC012_PRIVATE_TEXT, SEC012_PRIVATE_CANDIDATE_COUNT],
+  );
+  const publicRows = await adminPool!.query<{ id: number; createdAt: Date }>(
+    `INSERT INTO circles_app.posts("authorId", text, "createdAt", "updatedAt")
+     SELECT 1,
+            $1 || ' ' || series::text,
+            TIMESTAMPTZ '2026-10-27 10:22:33.120000+00'
+              + series * INTERVAL '1 microsecond',
+            TIMESTAMPTZ '2026-10-27 10:22:33.120000+00'
+              + series * INTERVAL '1 microsecond'
+       FROM generate_series(1, 3) AS series
+     RETURNING id, "createdAt"`,
+    [SEC012_PUBLIC_TEXT],
+  );
+  expect(privateRows.rows).toHaveLength(SEC012_PRIVATE_CANDIDATE_COUNT);
+  expect(publicRows.rows).toHaveLength(3);
+  return {
+    privatePostIds: privateRows.rows.map((row) => row.id),
+    publicPostIdsNewestFirst: publicRows.rows
+      .sort(
+        (left, right) =>
+          right.createdAt.getTime() - left.createdAt.getTime() ||
+          right.id - left.id,
+      )
+      .map((row) => row.id),
+  };
+}
+
+async function disposeSec012CursorFixture(
+  fixture: Sec012CursorFixture,
+): Promise<void> {
+  await adminPool!.query(
+    "DELETE FROM circles_app.posts WHERE id = ANY($1::integer[])",
+    [[...fixture.privatePostIds, ...fixture.publicPostIdsNewestFirst]],
+  );
+}
+
+async function seedSec013LiveCard(): Promise<number> {
+  const inserted = await adminPool!.query<{ id: number }>(
+    `INSERT INTO circles_app.streams(
+       "hostId", title, "circleId", thumbnail, status, "readyAt", "lastHeartbeatAt", "hostGeneration"
+     )
+     VALUES ($1, $2, $3, '', 'live', clock_timestamp(), clock_timestamp(), 1)
+     RETURNING id`,
+    [1, SEC013_LIVE_TITLE, CIRCLE_ID],
+  );
+  const id = inserted.rows[0]?.id;
+  if (!id) throw new Error("SEC013 live-card fixture stream was not created");
+  return id;
+}
+
+async function disposeSec013LiveCard(streamId: number): Promise<void> {
+  await adminPool!.query("DELETE FROM circles_app.streams WHERE id = $1", [
+    streamId,
+  ]);
 }
 
 async function collectA26FeedContinuation(
@@ -1511,6 +1604,154 @@ describe.sequential("A26 authority isolated HTTP/Drizzle/PostgreSQL 17", () => {
       expect(requests).toBeLessThanOrEqual(8);
     } finally {
       if (postIds.length) await disposeA26FeedContinuation(postIds);
+    }
+  });
+
+  it("SEC27-012 hides more than 2,000 newer private candidates and continues only from returned exact public cursors", async () => {
+    let fixture: Sec012CursorFixture | null = null;
+    try {
+      fixture = await seedSec012CursorFixture();
+      const privateIds = new Set(fixture.privatePostIds);
+
+      const first = resultData<FeedPageWire>(
+        await trpc(
+          "social.feedPage",
+          { filter: "for-you", search: SEC012_SEARCH, limit: 2 },
+          5,
+        ),
+      );
+      expect(first.items.map((item) => item.id)).toEqual(
+        fixture.publicPostIdsNewestFirst.slice(0, 2),
+      );
+      expect(first.items.every((item) => !privateIds.has(item.id))).toBe(true);
+      expect(
+        first.items.every((item) => item.text.startsWith(SEC012_PUBLIC_TEXT)),
+      ).toBe(true);
+      expect(first.hasMore).toBe(true);
+      expect(first.nextCursor).toMatchObject({
+        id: fixture.publicPostIdsNewestFirst[1],
+        createdAtExact: expect.stringMatching(A26_FEED_EXACT_TIMESTAMP),
+      });
+      expect(privateIds.has(first.nextCursor!.id)).toBe(false);
+      expect(JSON.stringify(first)).not.toContain(SEC012_PRIVATE_TEXT);
+
+      const second = resultData<FeedPageWire>(
+        await trpc(
+          "social.feedPage",
+          {
+            filter: "for-you",
+            search: SEC012_SEARCH,
+            limit: 2,
+            cursor: first.nextCursor,
+          },
+          5,
+        ),
+      );
+      expect(second.items.map((item) => item.id)).toEqual([
+        fixture.publicPostIdsNewestFirst[2],
+      ]);
+      expect(second.items[0]?.text).toMatch(
+        new RegExp(`^${SEC012_PUBLIC_TEXT}`),
+      );
+      expect(second).toMatchObject({ hasMore: false, nextCursor: null });
+      expect(JSON.stringify(second)).not.toContain(SEC012_PRIVATE_TEXT);
+    } finally {
+      if (fixture) await disposeSec012CursorFixture(fixture);
+    }
+  });
+
+  it("SEC27-013 serializes a private live card with removeMember and skips profiles when removal wins", async () => {
+    let streamId = 0;
+    const profileBarrier = await adminPool!.connect();
+    const parentLock = await adminPool!.connect();
+    let profileBarrierCommitted = false;
+    let parentLockCommitted = false;
+    let pendingRemoval: Promise<TrpcWireResult> | null = null;
+    let pendingList: Promise<TrpcWireResult> | null = null;
+    try {
+      streamId = await seedSec013LiveCard();
+      // Holding profiles makes a stale formatter observable: removal-wins must return the empty
+      // list while this lock remains held, because it must not project the host profile on denial.
+      await profileBarrier.query("BEGIN");
+      await profileBarrier.query(
+        'LOCK TABLE circles_app."profiles" IN ACCESS EXCLUSIVE MODE',
+      );
+      await parentLock.query("BEGIN");
+      await parentLock.query(
+        "SELECT id FROM circles_app.circles WHERE id = $1 FOR UPDATE",
+        [CIRCLE_ID],
+      );
+      pendingRemoval = trpc(
+        "social.removeMember",
+        { circleId: CIRCLE_ID, userId: 3 },
+        1,
+      );
+      await waitForBlockedParentRemoval();
+      pendingList = trpc(
+        "live.list",
+        { search: SEC013_LIVE_TITLE, readyOnly: true, viewerScope: 3 },
+        3,
+      );
+      await waitForBlockedParentShare();
+      await parentLock.query("COMMIT");
+      parentLockCommitted = true;
+
+      expectSuccess(await pendingRemoval);
+      const denied = resultData<{ id: number; title: string }[]>(
+        await pendingList,
+      );
+      expect(denied).toEqual([]);
+      expect(JSON.stringify(denied)).not.toContain("Fixture owner");
+
+      // Reader-first takes the same parent SHARE lock before its profile query. The remover then
+      // waits, so the in-flight card is coherent and the next list fails closed after removal.
+      await restoreFixtureMember(3);
+      pendingList = trpc(
+        "live.list",
+        { search: SEC013_LIVE_TITLE, readyOnly: true, viewerScope: 3 },
+        3,
+      );
+      await waitForBlockedLockingQuery(
+        '"circles_app"."profiles"',
+        "reader-first live-card profile projection after parent SHARE lock",
+      );
+      pendingRemoval = trpc(
+        "social.removeMember",
+        { circleId: CIRCLE_ID, userId: 3 },
+        1,
+      );
+      await waitForBlockedParentRemoval();
+      await profileBarrier.query("COMMIT");
+      profileBarrierCommitted = true;
+
+      const readerFirst = resultData<{ id: number; title: string }[]>(
+        await pendingList,
+      );
+      expect(readerFirst).toEqual([
+        expect.objectContaining({ id: streamId, title: SEC013_LIVE_TITLE }),
+      ]);
+      expectSuccess(await pendingRemoval);
+      const afterRemoval = resultData<{ id: number }[]>(
+        await trpc(
+          "live.list",
+          { search: SEC013_LIVE_TITLE, readyOnly: true, viewerScope: 3 },
+          3,
+        ),
+      );
+      expect(afterRemoval).toEqual([]);
+    } finally {
+      if (!parentLockCommitted) {
+        await parentLock.query("ROLLBACK").catch(() => undefined);
+      }
+      if (!profileBarrierCommitted) {
+        await profileBarrier.query("ROLLBACK").catch(() => undefined);
+      }
+      if (pendingList) await pendingList.catch(() => undefined);
+      if (pendingRemoval) await pendingRemoval.catch(() => undefined);
+      parentLock.release();
+      profileBarrier.release();
+      await restoreFixtureMember(3);
+      if (streamId) await disposeSec013LiveCard(streamId);
     }
   });
 });

@@ -35,8 +35,8 @@ import {
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import {
   assertCircleCoverImageOwnership,
-  canAccessCircle,
-  getDisplayProfile,
+  getCircleContentAccessForProtectedRead,
+  getDisplayProfileWithDb,
   getProfile,
 } from "./social-service";
 
@@ -84,6 +84,7 @@ type LiveDatabase = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 type LiveTransaction = Parameters<
   Parameters<LiveDatabase["transaction"]>[0]
 >[0];
+type LiveReadDatabase = LiveDatabase | LiveTransaction;
 type ActiveHostLease = typeof activeHostLeases.$inferSelect;
 
 /** Strict boundary keeps an expired lease expired at exactly its cutoff. */
@@ -436,7 +437,7 @@ function liveAvailability(
  * currently be allowed by their respective policies before this is exposed.
  */
 async function hostRetainsCircleMembership(
-  db: LiveDatabase,
+  db: LiveReadDatabase,
   stream: Stream,
 ): Promise<boolean> {
   if (stream.circleId === null) return true;
@@ -708,9 +709,10 @@ async function assertActiveParticipantInTransaction(
   return generation;
 }
 
-async function viewerCount(streamId: number): Promise<number> {
-  const db = await getDb();
-  if (!db) unavailable();
+async function viewerCount(
+  db: LiveReadDatabase,
+  streamId: number,
+): Promise<number> {
   const cutoff = new Date(Date.now() - VIEWER_LEASE_MS);
   const [result] = await db
     .select({ total: count() })
@@ -726,12 +728,13 @@ async function viewerCount(streamId: number): Promise<number> {
 }
 
 async function toLiveStream(
+  db: LiveReadDatabase,
   stream: Stream,
   now = Date.now(),
 ): Promise<LiveStream> {
   const [host, viewers] = await Promise.all([
-    getDisplayProfile(stream.hostId),
-    viewerCount(stream.id),
+    getDisplayProfileWithDb(db, stream.hostId),
+    viewerCount(db, stream.id),
   ]);
   const availability = liveAvailability(stream, now);
   return {
@@ -746,6 +749,45 @@ async function toLiveStream(
     liveReady: availability.liveReady,
     liveExpiresAt: availability.liveExpiresAt,
   };
+}
+
+/**
+ * Circle-scoped discovery serializes its current membership decision and DTO mapping with member
+ * removal. The shared parent SHARE lock yields removal-wins when removal acquired UPDATE first,
+ * while a read that acquired SHARE first completes a single coherent card before removal commits.
+ */
+async function currentLiveStreamOutput(
+  db: LiveDatabase,
+  stream: Stream,
+  viewerId: number | null,
+  readyOnly: boolean,
+  now: number,
+): Promise<LiveStream | null> {
+  const circleId = stream.circleId;
+  if (circleId === null) return toLiveStream(db, stream, now);
+
+  return db.transaction(async (tx) => {
+    let access: Awaited<
+      ReturnType<typeof getCircleContentAccessForProtectedRead>
+    >;
+    try {
+      access = await getCircleContentAccessForProtectedRead(
+        tx,
+        viewerId,
+        circleId,
+      );
+    } catch (error) {
+      // `canAccessCircle` previously omitted a stale/deleted circle from discovery. Preserve that
+      // public read behavior while allowing unavailable database/authorization failures to surface.
+      if (error instanceof TRPCError && error.code === "NOT_FOUND") return null;
+      throw error;
+    }
+    if (!access) return null;
+    if (readyOnly && !(await hostRetainsCircleMembership(tx, stream))) {
+      return null;
+    }
+    return toLiveStream(tx, stream, now);
+  });
 }
 
 async function signalHighWaterMarkInTransaction(
@@ -961,16 +1003,14 @@ export const liveRouter = router({
           if (readyHostIds.has(stream.hostId)) continue;
           readyHostIds.add(stream.hostId);
         }
-        if (
-          stream.circleId !== null &&
-          !(await canAccessCircle(viewerId, stream.circleId))
-        ) {
-          continue;
-        }
-        if (readyOnly && !(await hostRetainsCircleMembership(db, stream))) {
-          continue;
-        }
-        visible.push(await toLiveStream(stream, now));
+        const output = await currentLiveStreamOutput(
+          db,
+          stream,
+          viewerId,
+          readyOnly,
+          now,
+        );
+        if (output) visible.push(output);
       }
       return visible;
     }),
@@ -1046,7 +1086,7 @@ export const liveRouter = router({
       }
       // Profile creation belongs to the authenticated host action, never a public formatter.
       await getProfile(ctx.user.id);
-      return toLiveStream(stream);
+      return toLiveStream(db, stream);
     }),
 
   end: protectedProcedure
