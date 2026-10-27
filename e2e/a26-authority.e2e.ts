@@ -691,6 +691,68 @@ describe.sequential("A26 authority isolated HTTP/Drizzle/PostgreSQL 17", () => {
     }
   });
 
+  it("DB-15 rolls back a failed second participant and converges concurrent HTTP opens on one complete direct conversation", async () => {
+    const directKey = "1:6";
+    await adminPool!.query(
+      'DELETE FROM circles_app.conversations WHERE "directKey" = $1',
+      [directKey],
+    );
+    await adminPool!.query(`
+      CREATE FUNCTION e2e_fixture.reject_second_direct_participant()
+      RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path = pg_catalog
+      AS $fixture$
+      BEGIN
+        IF NEW."userId" = 6 AND EXISTS (
+          SELECT 1 FROM circles_app.conversations c
+          WHERE c.id = NEW."conversationId" AND c."directKey" = '1:6'
+        ) THEN
+          RAISE EXCEPTION 'synthetic second participant fault';
+        END IF;
+        RETURN NEW;
+      END;
+      $fixture$;
+      CREATE TRIGGER db15_synthetic_second_participant_fault
+        BEFORE INSERT ON circles_app."conversationParticipants"
+        FOR EACH ROW EXECUTE FUNCTION e2e_fixture.reject_second_direct_participant();
+    `);
+    try {
+      const failed = await trpc("social.openDirect", { userId: 6 }, 1);
+      expect(failed.status).toBe(500);
+      const remaining = await adminPool!.query<{ count: string }>(
+        'SELECT count(*)::text AS count FROM circles_app.conversations WHERE "directKey" = $1',
+        [directKey],
+      );
+      expect(remaining.rows).toEqual([{ count: "0" }]);
+    } finally {
+      await adminPool!.query(`
+        DROP TRIGGER IF EXISTS db15_synthetic_second_participant_fault
+          ON circles_app."conversationParticipants";
+        DROP FUNCTION IF EXISTS e2e_fixture.reject_second_direct_participant();
+      `);
+    }
+    try {
+      const results = await Promise.all([
+        trpc("social.openDirect", { userId: 6 }, 1),
+        trpc("social.openDirect", { userId: 1 }, 6),
+        trpc("social.openDirect", { userId: 6 }, 1),
+      ]);
+      const ids = results.map(
+        (result) => resultData<{ id: number }>(result).id,
+      );
+      expect(new Set(ids).size).toBe(1);
+      const participants = await adminPool!.query<{ userId: number }>(
+        'SELECT "userId" FROM circles_app."conversationParticipants" WHERE "conversationId" = $1 ORDER BY "userId"',
+        [ids[0]],
+      );
+      expect(participants.rows).toEqual([{ userId: 1 }, { userId: 6 }]);
+    } finally {
+      await adminPool!.query(
+        'DELETE FROM circles_app.conversations WHERE "directKey" = $1',
+        [directKey],
+      );
+    }
+  });
+
   it("keeps direct participants available while pending, nonmember, malformed, and stale-scope circle requests expose no private metadata", async () => {
     const directConversationId = resultData<{ id: number }>(
       await trpc("social.openDirect", { userId: 6 }, 3),

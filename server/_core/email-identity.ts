@@ -7,6 +7,7 @@ import {
   upsertUserInTransaction,
 } from "../db";
 import type { InsertUser } from "../../drizzle/schema";
+import { EMAIL_IDENTITY_READINESS_SQL } from "./database-contracts";
 
 const SUPABASE_OPEN_ID_PREFIX = "supabase:";
 
@@ -218,10 +219,12 @@ export class EmailIdentityStore {
     try {
       const database = await this.getDatabase();
       if (!database) return false;
-      await database.execute(
-        sql`SELECT provider_subject FROM circles_identity.provider_links LIMIT 1`,
+      const result = await database.execute(
+        sql.raw(EMAIL_IDENTITY_READINESS_SQL),
       );
-      return true;
+      return (
+        (result.rows[0] as { ready?: unknown } | undefined)?.ready === true
+      );
     } catch {
       return false;
     }

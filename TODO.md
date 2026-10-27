@@ -359,3 +359,26 @@ Final source evidence:819 unit/regression tests in160 files; strict unused TypeS
 - [ ] Validate and save reviewed source: focused tests/types/zero-warning lint/format/API build/platform JS exports and isolated HTTP/PostgreSQL idempotency/ownership/migration checks; one read-only integration review; normal canonical save without publication. Physical iOS/Android microphone/front/back/interruption/low-storage/format/network journeys, signed builds and real encrypted provider transfers remain open until observed.
 
 Source closure:869 tests/167 files passed; strict unused TypeScript, zero-warning lint, source format/API build/public-CI environment and packaged-skill checks passed; isolated publication HTTP/PG17 suite7/7 and existing feature/authority/email-session suites passed. Independent review found no source/migration defect. Web/iOS/Android JS exports passed with validation-only --no-bytecode because this ARM sandbox has the x86 Hermes compiler; shipping Hermes configuration is unchanged. Owner explicitly approved only0015 at07:56 UTC; exact approved SQL committed08:04 UTC, existing27-table app catalog unchanged, forced RLS verified, restricted publication readiness true. No user-row/provider/publication changes. Physical native/signed/provider proof stays open in the final outcome.
+
+## Implement all 17 database audit issues — 27 October 2026
+
+- [ ] DB-01: restrict unintended legacy public-schema sensitive reads through a reviewed compatibility/privacy contract; preserve records and obtain exact live approval.
+- [ ] DB-02: support a dedicated least-privileged application principal and protect administration/backup separation; activate only after protected credential provisioning and verified rollout.
+- [ ] DB-03: harden and regress the trusted-server/API authorization boundary; do not mislabel broad runtime RLS as end-user row isolation. Record any remaining actor-scoped architecture decision.
+- [ ] DB-04: prepare/rehearse exact validation of the ten CHECK constraints and pinned-post FK; apply only after exact live approval.
+- [x] DB-05: implement fail-closed exact integrated app/admin role, membership, ACL and policy auditing and correct obsolete inventory documentation.
+- [x] DB-06: eliminate or explicitly gate unsafe future-function execution defaults without silently changing managed-role global defaults or unrelated schemas.
+- [x] DB-07: prepare/rehearse the twelve proved missing child-side FK indexes; preserve data and existing indexes.
+- [x] DB-08: prepare/rehearse pinned search paths for the two admin invoker helpers while preserving definitions/owners/grants.
+- [ ] DB-09: consolidate the twelve duplicate policy groups only after exact effective-permission equivalence checks.
+- [x] DB-10: add workload-aware index review; never drop the ninety-eight zero-scan indexes solely from their counters.
+- [x] DB-11: prepare/rehearse publish-receipt primary-key metadata while preserving actor/operation uniqueness, tombstones and retry behavior.
+- [x] DB-12: align an exact active recovery manifest and verification tooling; retain current external backup/media/key/provider/access verification gaps until observed.
+- [x] DB-13: implement protected provider/gateway-exposure verification and preserve UNKNOWN when actual settings are unavailable.
+- [x] DB-14: strengthen complete critical schema/constraint/index/trigger/ACL/policy contracts for enabled readiness and operational drift checks; preserve feature gating and Cron identity/schedule.
+- [x] DB-15: make conversation creation/resolution and both participant upserts atomic; prove rollback in an isolated failure case.
+- [ ] DB-16: define bounded observable session/OAuth retention tools and bounded opportunistic cleanup, without deleting production rows or scheduling unattended cleanup during implementation.
+- [ ] DB-17: enforce reviewed same-parent/live relationship invariants with compatible additive SQL; preserve deletion/tombstone semantics and record any unresolved product decision.
+- [ ] Integrated evidence: isolated PostgreSQL 17 migration and negative-contract tests, affected authorization/regression tests, TypeScript, lint and API build; independent read-only review; normal canonical save. Publication, signed/native testing and real-provider recovery remain separate.
+
+Implementation status: all17items have source candidates, verification tooling or explicit approval gates in `docs/database-remediation/README.md`. Checked items above mean the stated source/tooling outcome, not live issue closure. The dedicated-login cutover, actor-scoped RLS architecture, legacy privacy decision, live constraint/policy rollout, approved retention horizons and live deletion semantics remain open. Production SQL, retention deletion, provider/default changes and complete external recovery are not claimed.

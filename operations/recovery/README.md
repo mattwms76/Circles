@@ -83,3 +83,94 @@ Also obtain separately, through owner-controlled channels: the private age ident
 A disposable local rehearsal now exercises the actual export helper over authenticated loopback HTTP with two explicitly synthetic PNG objects, actual Circles AES-GCM encrypt/decrypt helpers and a generated test-only signing value. Real age encryption to the approved public recipient, CLI-only recovery-identity decryption, exact archive/member checks, inner checksums, synthetic signing roundtrip, fresh-IV re-encryption, wrong-key/tampering rejection and unauthenticated HTTP denial passed. Temporary plaintext/fixture inputs were removed and the loopback listener closed; only a private synthetic ciphertext and sanitized evidence remain outside Git.
 
 The rehearsal used no database, real account, provider object access, production signing value or production restore. It proves this local crypto/package/re-encryption path—not global media authorization, populated production recovery, owner retention of the recovery identity, provider-managed recovery or native/live compatibility. Those prerequisites remain open. The running app's signing key was not read or rotated.
+
+## DB-12: database recovery coverage contract
+
+`database-recovery-manifest.json` is the DB-12 source-derived contract for recovery coverage. It is not a backup artifact, an execution plan, an approval to restore, or evidence that a provider, media store, or backup currently works.
+
+The contract pins the reviewed source base `e0e83778af66494c60dfdd0511b51b50e3d369a5` and sanitized-catalog inventory:
+
+- **Durable application state:** all 27 observed `circles_app` tables, including `applicationSessions` and database-side media references.
+- **Durable administration state:** eight observed `circles_admin` tables (`audit`, `auth_subjects`, `entity_state`, `operators`, `report_reviews`, `sessions`, `settings`, `supabase_sessions`) and their catalog-listed helpers.
+- **Durable publish state:** `circles_publish.postPublishReceipts`.
+- **Operational history:** `circles_ops.health_runs`, retained as history rather than proof that a backup succeeded.
+- **Recreate empty:** `circles_auth.oauth_pending_states`. Its schema/access contract may be applied after recovery, but old pending OAuth flows must not be restored or replayed.
+- **Optional durable state:** `circles_identity.provider_links` only if the email/provider identity feature is actually enabled. The supplied catalog did not observe that table; the contract does not fabricate it.
+
+The manifest contains the Circles-scoped roles, 23 observed helper functions, and 129 observed policies needed to compare a reviewed restore. Legacy `public`/`private` objects outside the current private-schema ownership contract, provider-managed Auth/Storage/platform state, credentials, custom-role passwords, media bytes, and media derivation/signing material are intentionally separate. In particular, a database row in `socialUploads` is not proof that its object bytes or existing derivation material survive.
+
+### Offline contract check
+
+Run only against the checked-out source and sanitized manifest:
+
+```bash
+env -i PATH="$PATH" HOME="$HOME" CI=1 \
+  node scripts/check-database-recovery-manifest.mjs
+```
+
+A successful command reports `SOURCE_CONTRACT_PASS` and intentionally reports `SOURCE_PASS_EXTERNAL_RECOVERY_UNVERIFIED` until a parent-authorized reviewer supplies redacted evidence. The program has no network, database, provider, GitHub, backup-store, media, dotenv, or credential client.
+
+### Authorized external verification prerequisites
+
+Only a parent-authorized owner or connector may perform the following. Do not put asset locations, database URLs, tokens, private age identities, signing material, SQL results, or row data in the evidence file.
+
+1. Read the current successful backup run and expected encrypted asset set. Confirm artifact integrity and retention through the authorized control plane. A watchdog result is not a substitute for a successful backup run.
+2. Use an explicitly approved, isolated, non-production PostgreSQL 17 target. Compare the durable application, admin, publish, and health-history groups, schema metadata, roles/functions/policies, and row counts. Never restore to production.
+3. Apply or recreate `circles_auth.oauth_pending_states` empty. If optional identity is enabled, compare and restore `provider_links`; otherwise record `not_enabled` rather than claiming identity recovery.
+4. Verify media reference inventory, media object bytes, and continuity of the existing derivation/signing material through their separately guarded process. Do not rotate a key as a shortcut.
+5. Verify provider-managed Auth, Storage, platform configuration, and the reviewed custom-role contract separately. This script cannot establish those facts.
+6. Create a `0600`, non-symlinked, redacted attestation outside this repository, then shape-check it locally:
+
+```bash
+env -i PATH="$PATH" HOME="$HOME" CI=1 \
+  node scripts/check-database-recovery-manifest.mjs \
+  --evidence /owner-only/redacted-recovery-attestation.json \
+  --require-evidence
+```
+
+The evidence must have exactly this public-safe shape (use a real current timestamp and opaque run reference; values shown here are illustrative):
+
+```json
+{
+  "format": "circles-database-recovery-evidence-v1",
+  "manifest_version": 1,
+  "observed_at": "2026-10-27T12:00:00.000Z",
+  "provenance": {"method": "authorized_read_only_external_review", "run_reference": "owner-review-id"},
+  "backup_assets": {
+    "current_successful_run_inspected": true,
+    "encrypted_asset_set_inspected": true,
+    "artifact_integrity_verified": true,
+    "retention_verified": true
+  },
+  "isolated_restore": {
+    "target_kind": "isolated_postgresql_17",
+    "production_target": false,
+    "network_isolated": true,
+    "durable_application_state_verified": true,
+    "durable_admin_state_verified": true,
+    "durable_publish_state_verified": true,
+    "operational_history_verified": true,
+    "oauth_recreated_empty": true,
+    "optional_identity_status": "not_enabled",
+    "optional_identity_mapping_verified": false
+  },
+  "media_and_keys": {
+    "media_reference_inventory_verified": true,
+    "media_bytes_continuity_verified": true,
+    "derivation_material_continuity_verified": true,
+    "no_material_embedded": true
+  },
+  "provider": {
+    "managed_auth_verified": true,
+    "storage_verified": true,
+    "platform_configuration_verified": true,
+    "custom_role_contract_verified": true
+  }
+}
+```
+
+A complete redacted attestation is only a fresh reviewer assertion with required fields; it remains **not independently verified** by the checker and is never a claim of live recovery success.
+
+### Private backup source candidate
+
+A separate, unactivated candidate exists at `/home/ubuntu/circles-db-remediation/backup-candidate`, based on authorized backup source `17251ccca208645e94c8fbd905bfc0802e442c68`. It expands the filtered future archive inventory from 28/29 to 37/38 relations by including the eight admin tables and publish receipts, while preserving data-only relation filters and isolated-only restore validation. It also contains a minimal safety-step fix to run the existing PG17 synthetic fixture as the non-root `postgres` user with a sanitized environment. That candidate has not been committed, activated, dispatched, exported, decrypted, or used against a provider.

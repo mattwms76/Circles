@@ -2,8 +2,9 @@ import {
   index,
   integer,
   pgSchema,
+  primaryKey,
   timestamp,
-  uniqueIndex,
+  unique,
   varchar,
 } from "drizzle-orm/pg-core";
 import { posts, users } from "./schema";
@@ -34,7 +35,14 @@ export const postPublishReceipts = circlesPublish.table(
       .notNull(),
   },
   (table) => [
-    uniqueIndex("post_publish_receipts_actor_operation_unique").on(
+    // Kept alongside the established named unique constraint for operational/tooling metadata.
+    // The manual DB-11 migration creates a separate PK-owned index; it must not promote the
+    // index already owned by post_publish_receipts_actor_operation_unique.
+    primaryKey({
+      name: "post_publish_receipts_pkey",
+      columns: [table.actorId, table.operationId],
+    }),
+    unique("post_publish_receipts_actor_operation_unique").on(
       table.actorId,
       table.operationId,
     ),

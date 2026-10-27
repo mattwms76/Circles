@@ -69,6 +69,7 @@ import {
 } from "../shared/circle-home";
 import { getDb, type CirclesDatabase, type CirclesTransaction } from "./db";
 import { assertPlatformFeature } from "./platform-settings";
+import { getPostPublicationStatus as getDatabasePostPublicationStatus } from "./_core/database-contracts";
 import {
   recordCommentActivity,
   recordMembershipApprovalActivity,
@@ -301,53 +302,11 @@ function isMissingPostPublishReceiptSchema(error: unknown): boolean {
 export type PostPublicationStatus = { ready: boolean };
 
 /**
- * A protected composer may make this catalog-only probe before it uploads bytes. It does not
- * reveal schema details or access receipts/content, and a missing/prepared migration is simply
- * not ready. The established /api/ready circles_app inventory intentionally remains unchanged.
+ * A protected composer may make this catalog-only probe before it uploads bytes. The DB-14
+ * helper preserves this API shape and fails closed for a missing/prepared or drifted contract.
  */
 export async function getPostPublicationStatus(): Promise<PostPublicationStatus> {
-  const db = await getDb().catch(() => null);
-  if (!db) return { ready: false };
-  try {
-    const result = await db.$client.query<{ ready: boolean }>(`
-      SELECT EXISTS (
-        SELECT 1
-        FROM pg_catalog.pg_class AS relation_catalog
-        JOIN pg_catalog.pg_namespace AS namespace_catalog
-          ON namespace_catalog.oid = relation_catalog.relnamespace
-        WHERE namespace_catalog.nspname = 'circles_publish'
-          AND relation_catalog.relname = 'postPublishReceipts'
-          AND relation_catalog.relkind = 'r'
-          AND relation_catalog.relrowsecurity
-          AND relation_catalog.relforcerowsecurity
-          AND pg_catalog.has_schema_privilege(current_user, namespace_catalog.oid, 'USAGE')
-          AND pg_catalog.has_table_privilege(current_user, relation_catalog.oid, 'SELECT')
-          AND pg_catalog.has_table_privilege(current_user, relation_catalog.oid, 'INSERT')
-          AND pg_catalog.has_table_privilege(current_user, relation_catalog.oid, 'UPDATE')
-          AND NOT pg_catalog.has_table_privilege(current_user, relation_catalog.oid, 'DELETE')
-          AND (
-            SELECT pg_catalog.count(*)
-            FROM pg_catalog.pg_policy AS policy_catalog
-            WHERE policy_catalog.polrelid = relation_catalog.oid
-              AND policy_catalog.polroles = ARRAY[
-                (SELECT oid FROM pg_catalog.pg_roles WHERE rolname = current_user)
-              ]
-              AND (
-                (policy_catalog.polcmd = 'r' AND policy_catalog.polqual IS NOT NULL)
-                OR (policy_catalog.polcmd = 'a' AND policy_catalog.polwithcheck IS NOT NULL)
-                OR (
-                  policy_catalog.polcmd = 'w'
-                  AND policy_catalog.polqual IS NOT NULL
-                  AND policy_catalog.polwithcheck IS NOT NULL
-                )
-              )
-          ) = 3
-      ) AS ready
-    `);
-    return { ready: result.rows[0]?.ready === true };
-  } catch {
-    return { ready: false };
-  }
+  return getDatabasePostPublicationStatus();
 }
 
 /** Pure role predicate used by every private-circle gate. */
@@ -2857,41 +2816,44 @@ export async function openDirect(
   ]);
 
   const directKey = [userId, targetUserId].sort((a, b) => a - b).join(":");
-  const existing = await db
-    .select({ id: conversations.id })
-    .from(conversations)
-    .where(eq(conversations.directKey, directKey))
-    .limit(1);
-  const id = existing[0]?.id;
-  if (id) {
-    await Promise.all([
-      ensureConversationParticipant(db, id, userId),
-      ensureConversationParticipant(db, id, targetUserId),
-    ]);
-    return { id };
-  }
+  return db.transaction(async (tx) => {
+    const existing = await tx
+      .select({ id: conversations.id })
+      .from(conversations)
+      .where(eq(conversations.directKey, directKey))
+      .limit(1);
+    const id = existing[0]?.id;
+    if (id) {
+      await ensureConversationParticipant(tx, id, userId);
+      await ensureConversationParticipant(tx, id, targetUserId);
+      return { id };
+    }
 
-  const created = await db
-    .insert(conversations)
-    .values({ kind: "direct", directKey })
-    .onConflictDoNothing({ target: conversations.directKey })
-    .returning({ id: conversations.id });
-  const createdId =
-    created[0]?.id ??
-    (
-      await db
-        .select({ id: conversations.id })
-        .from(conversations)
-        .where(eq(conversations.directKey, directKey))
-        .limit(1)
-    )[0]?.id;
-  if (!createdId)
-    socialError("INTERNAL_SERVER_ERROR", "Unable to open direct conversation");
-  await Promise.all([
-    ensureConversationParticipant(db, createdId, userId),
-    ensureConversationParticipant(db, createdId, targetUserId),
-  ]);
-  return { id: createdId };
+    const created = await tx
+      .insert(conversations)
+      .values({ kind: "direct", directKey })
+      .onConflictDoNothing({ target: conversations.directKey })
+      .returning({ id: conversations.id });
+    const createdId =
+      created[0]?.id ??
+      (
+        await tx
+          .select({ id: conversations.id })
+          .from(conversations)
+          .where(eq(conversations.directKey, directKey))
+          .limit(1)
+      )[0]?.id;
+    if (!createdId)
+      socialError(
+        "INTERNAL_SERVER_ERROR",
+        "Unable to open direct conversation",
+      );
+    // Keep the two writes ordered inside this transaction so an exception after the first one
+    // rolls back the conversation and its partial participant set together.
+    await ensureConversationParticipant(tx, createdId, userId);
+    await ensureConversationParticipant(tx, createdId, targetUserId);
+    return { id: createdId };
+  });
 }
 
 export async function openCircleChat(

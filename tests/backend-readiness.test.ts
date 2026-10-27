@@ -16,6 +16,7 @@ describe("private backend readiness", () => {
         runtime_role: "postgres",
         app_table_count: 27,
         oauth_store_ready: true,
+        critical_contract_ready: true,
       }).ok,
     ).toBe(false);
   });
@@ -25,6 +26,7 @@ describe("private backend readiness", () => {
         runtime_role: "circles_app_runtime",
         app_table_count: 27,
         oauth_store_ready: false,
+        critical_contract_ready: true,
       }),
     ).toEqual({ ok: false, database: true, oauthState: false });
   });
@@ -34,6 +36,7 @@ describe("private backend readiness", () => {
         runtime_role: "circles_app_runtime",
         app_table_count: 21,
         oauth_store_ready: true,
+        critical_contract_ready: true,
       }).ok,
     ).toBe(false);
   });
@@ -43,7 +46,18 @@ describe("private backend readiness", () => {
         runtime_role: "circles_app_runtime",
         app_table_count: 27,
         oauth_store_ready: true,
+        critical_contract_ready: true,
       }).ok,
     ).toBe(true);
+  });
+  it("fails closed when a required critical catalog object drifts", () => {
+    expect(
+      readinessFromEvidence({
+        runtime_role: "circles_app_runtime",
+        app_table_count: 27,
+        oauth_store_ready: true,
+        critical_contract_ready: false,
+      }),
+    ).toEqual({ ok: false, database: false, oauthState: false });
   });
 });
