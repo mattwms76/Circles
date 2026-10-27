@@ -114,7 +114,10 @@ test("DB-09 fails closed unless duplicate catalog definitions exactly match revi
     "polqual::text",
     "polwithcheck::text",
   ]) {
-    assert.match(migration, new RegExp(requiredCatalogField.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.match(
+      migration,
+      new RegExp(requiredCatalogField.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+    );
   }
 
   assert.match(

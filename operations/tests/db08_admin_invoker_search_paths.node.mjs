@@ -10,10 +10,7 @@ const migrationPath = path.join(
   root,
   "operations/migrations/0020_circles_admin_invoker_search_paths.sql",
 );
-const documentationPath = path.join(
-  root,
-  "docs/database-remediation/DB-08.md",
-);
+const documentationPath = path.join(root, "docs/database-remediation/DB-08.md");
 
 async function readMigration() {
   return readFile(migrationPath, "utf8");
@@ -33,9 +30,15 @@ test("DB-08 static migration pins only the two audited zero-argument invoker hel
   assert.match(sql, /\bBEGIN;[\s\S]*\bCOMMIT;/);
   assert.match(sql, /pg_catalog\.pg_advisory_xact_lock/);
   assert.match(sql, /pg_catalog\.to_regprocedure\(v_target\)/);
-  assert.match(sql, /pg_catalog\.pg_get_function_identity_arguments\(procedure_catalog\.oid\)/);
+  assert.match(
+    sql,
+    /pg_catalog\.pg_get_function_identity_arguments\(procedure_catalog\.oid\)/,
+  );
   assert.match(sql, /v_function\.prokind <> 'f'::"char"/);
-  assert.match(sql, /v_function\.prorettype <> 'pg_catalog\.trigger'::pg_catalog\.regtype/);
+  assert.match(
+    sql,
+    /v_function\.prorettype <> 'pg_catalog\.trigger'::pg_catalog\.regtype/,
+  );
   assert.match(sql, /v_function\.prosecdef IS DISTINCT FROM false/);
   assert.match(sql, /owner_name <> 'postgres'::pg_catalog\.name/);
   assert.match(sql, /v_function\.proconfig IS NOT NULL/);

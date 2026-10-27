@@ -77,16 +77,31 @@ test("DB-12 manifest is source-derived and intentionally pending without externa
 
 test("fresh redacted owner attestation is shape-checked but never treated as independent proof", () => {
   const now = new Date("2026-10-27T12:00:00.000Z");
-  const validation = validateExternalEvidence(completeEvidence("2026-10-27T11:30:00.000Z"), { now });
+  const validation = validateExternalEvidence(
+    completeEvidence("2026-10-27T11:30:00.000Z"),
+    { now },
+  );
   assert.equal(validation.valid, true, validation.errors.join(","));
 
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "circles-db12-evidence-"));
+  const directory = fs.mkdtempSync(
+    path.join(os.tmpdir(), "circles-db12-evidence-"),
+  );
   try {
     const evidencePath = path.join(directory, "redacted-attestation.json");
-    fs.writeFileSync(evidencePath, JSON.stringify(completeEvidence("2026-10-27T11:30:00.000Z")), { mode: 0o600 });
+    fs.writeFileSync(
+      evidencePath,
+      JSON.stringify(completeEvidence("2026-10-27T11:30:00.000Z")),
+      { mode: 0o600 },
+    );
     const report = inspectRecoveryManifest({ evidencePath, now });
-    assert.equal(report.status, "SOURCE_PASS_WITH_REDACTED_EXTERNAL_ATTESTATION");
-    assert.equal(report.external_evidence_status, "ATTESTATION_COMPLETE_NOT_INDEPENDENTLY_VERIFIED");
+    assert.equal(
+      report.status,
+      "SOURCE_PASS_WITH_REDACTED_EXTERNAL_ATTESTATION",
+    );
+    assert.equal(
+      report.external_evidence_status,
+      "ATTESTATION_COMPLETE_NOT_INDEPENDENTLY_VERIFIED",
+    );
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
@@ -95,7 +110,9 @@ test("fresh redacted owner attestation is shape-checked but never treated as ind
 test("stale, incomplete, or secret-shaped evidence fails closed", () => {
   const now = new Date("2026-10-27T12:00:00.000Z");
   assert.equal(
-    validateExternalEvidence(completeEvidence("2026-10-24T12:00:00.000Z"), { now }).valid,
+    validateExternalEvidence(completeEvidence("2026-10-24T12:00:00.000Z"), {
+      now,
+    }).valid,
     false,
   );
   const incomplete = completeEvidence("2026-10-27T11:30:00.000Z");
@@ -110,6 +127,14 @@ test("CLI only requires external evidence when explicitly requested", () => {
   const output = [];
   assert.equal(runCli([], { output: (value) => output.push(value) }), 0);
   assert.equal(runCli(["--require-evidence"], { output: () => {} }), 1);
-  assert.equal(JSON.parse(output[0]).external_evidence_status, "PENDING_EXTERNAL_EVIDENCE");
-  assert.equal(DEFAULT_MANIFEST.endsWith("operations/recovery/database-recovery-manifest.json"), true);
+  assert.equal(
+    JSON.parse(output[0]).external_evidence_status,
+    "PENDING_EXTERNAL_EVIDENCE",
+  );
+  assert.equal(
+    DEFAULT_MANIFEST.endsWith(
+      "operations/recovery/database-recovery-manifest.json",
+    ),
+    true,
+  );
 });

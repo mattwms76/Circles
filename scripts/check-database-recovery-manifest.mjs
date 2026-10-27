@@ -144,7 +144,10 @@ function sameArray(left, right) {
 }
 
 function exactKeys(value, expected) {
-  return isPlainObject(value) && sameArray(Object.keys(value).sort(), [...expected].sort());
+  return (
+    isPlainObject(value) &&
+    sameArray(Object.keys(value).sort(), [...expected].sort())
+  );
 }
 
 function relativeSourcePath(filename, sourceRoot) {
@@ -207,9 +210,13 @@ function functionsForDigest(manifest) {
 function policiesForDigest(manifest) {
   const policies = manifest.authorization_helpers?.policies;
   return Object.fromEntries(
-    ["circles_app", "circles_admin", "circles_auth", "circles_ops", "circles_publish"].map(
-      (name) => [name, policies?.[name]],
-    ),
+    [
+      "circles_app",
+      "circles_admin",
+      "circles_auth",
+      "circles_ops",
+      "circles_publish",
+    ].map((name) => [name, policies?.[name]]),
   );
 }
 
@@ -222,25 +229,36 @@ export function validateManifest(manifest, { sourceRoot = PROJECT_ROOT } = {}) {
   if (!isPlainObject(manifest)) {
     return { valid: false, errors: ["manifest_not_object"], counts: null };
   }
-  if (manifest.format !== MANIFEST_FORMAT) errors.push("manifest_format_invalid");
+  if (manifest.format !== MANIFEST_FORMAT)
+    errors.push("manifest_format_invalid");
   if (manifest.version !== 1) errors.push("manifest_version_invalid");
   if (manifest.source_evidence?.source_base !== SOURCE_BASE)
     errors.push("source_base_mismatch");
   if (
-    manifest.source_evidence?.sanitized_catalog?.source_commit !== SOURCE_BASE ||
+    manifest.source_evidence?.sanitized_catalog?.source_commit !==
+      SOURCE_BASE ||
     typeof manifest.source_evidence?.sanitized_catalog?.source_tree !== "string"
   ) {
     errors.push("sanitized_catalog_provenance_invalid");
   }
 
   const declaredSourceFiles = manifest.source_evidence?.source_files;
-  if (!sameArray([...declaredSourceFiles ?? []].sort(), [...EXPECTED_SOURCE_FILES].sort()))
+  if (
+    !sameArray(
+      [...(declaredSourceFiles ?? [])].sort(),
+      [...EXPECTED_SOURCE_FILES].sort(),
+    )
+  )
     errors.push("source_file_inventory_mismatch");
   for (const filename of EXPECTED_SOURCE_FILES) {
-    if (!sourceText(filename, sourceRoot)) errors.push("required_source_file_missing");
+    if (!sourceText(filename, sourceRoot))
+      errors.push("required_source_file_missing");
   }
 
-  const appTables = arrayAt(manifest.coverage?.durable_application_state, "tables");
+  const appTables = arrayAt(
+    manifest.coverage?.durable_application_state,
+    "tables",
+  );
   const expectedAppNames = Object.keys(APP_TABLE_SOURCES).sort();
   if (!sameArray(sortedNames(appTables, "name"), expectedAppNames)) {
     errors.push("durable_application_table_inventory_mismatch");
@@ -268,7 +286,10 @@ export function validateManifest(manifest, { sourceRoot = PROJECT_ROOT } = {}) {
   }
   if (
     !sameArray(
-      sortedNames(manifest.coverage?.durable_publish_state?.tables, "table_name"),
+      sortedNames(
+        manifest.coverage?.durable_publish_state?.tables,
+        "table_name",
+      ),
       ["postPublishReceipts"],
     ) ||
     manifest.coverage?.durable_publish_state?.source !==
@@ -286,7 +307,10 @@ export function validateManifest(manifest, { sourceRoot = PROJECT_ROOT } = {}) {
   }
   if (
     !sameArray(
-      sortedNames(manifest.coverage?.recreate_empty_after_restore?.tables, "table_name"),
+      sortedNames(
+        manifest.coverage?.recreate_empty_after_restore?.tables,
+        "table_name",
+      ),
       ["oauth_pending_states"],
     )
   ) {
@@ -294,7 +318,10 @@ export function validateManifest(manifest, { sourceRoot = PROJECT_ROOT } = {}) {
   }
   if (
     !sameArray(
-      sortedNames(manifest.coverage?.optional_durable_when_enabled?.tables, "name"),
+      sortedNames(
+        manifest.coverage?.optional_durable_when_enabled?.tables,
+        "name",
+      ),
       ["provider_links"],
     ) ||
     manifest.coverage?.optional_durable_when_enabled?.activation_condition !==
@@ -305,26 +332,31 @@ export function validateManifest(manifest, { sourceRoot = PROJECT_ROOT } = {}) {
 
   const roles = manifest.authorization_helpers?.roles;
   if (
-    !sameArray(
-      sortedNames(roles, "name"),
-      [
-        "circles_admin_native_executor",
-        "circles_admin_runtime",
-        "circles_app_runtime",
-      ],
-    )
+    !sameArray(sortedNames(roles, "name"), [
+      "circles_admin_native_executor",
+      "circles_admin_runtime",
+      "circles_app_runtime",
+    ])
   ) {
     errors.push("helper_role_inventory_mismatch");
   }
   const functions = manifest.authorization_helpers?.functions;
   if (
-    !sameArray(sortedNames(functions?.circles_admin, "function_name"), [...EXPECTED_ADMIN_FUNCTIONS].sort()) ||
-    !sameArray(sortedNames(functions?.circles_app, "function_name"), ["enforce_message_author_authorized"]) ||
-    !sameArray(sortedNames(functions?.circles_ops, "function_name"), ["run_daily_migration_health"])
+    !sameArray(
+      sortedNames(functions?.circles_admin, "function_name"),
+      [...EXPECTED_ADMIN_FUNCTIONS].sort(),
+    ) ||
+    !sameArray(sortedNames(functions?.circles_app, "function_name"), [
+      "enforce_message_author_authorized",
+    ]) ||
+    !sameArray(sortedNames(functions?.circles_ops, "function_name"), [
+      "run_daily_migration_health",
+    ])
   ) {
     errors.push("helper_function_inventory_mismatch");
   }
-  const optionalPolicies = manifest.authorization_helpers?.policies?.source_only_optional_identity;
+  const optionalPolicies =
+    manifest.authorization_helpers?.policies?.source_only_optional_identity;
   if (
     !sameArray(sortedNames(optionalPolicies, "name"), [
       "circles_identity_provider_links_runtime_insert",
@@ -390,11 +422,16 @@ export function validateManifest(manifest, { sourceRoot = PROJECT_ROOT } = {}) {
 
   const counts = {
     durable_application_tables: appTables?.length ?? 0,
-    durable_admin_tables: manifest.coverage?.durable_admin_state?.tables?.length ?? 0,
-    durable_publish_tables: manifest.coverage?.durable_publish_state?.tables?.length ?? 0,
-    operational_history_tables: manifest.coverage?.operational_history?.tables?.length ?? 0,
-    recreate_empty_tables: manifest.coverage?.recreate_empty_after_restore?.tables?.length ?? 0,
-    optional_identity_tables: manifest.coverage?.optional_durable_when_enabled?.tables?.length ?? 0,
+    durable_admin_tables:
+      manifest.coverage?.durable_admin_state?.tables?.length ?? 0,
+    durable_publish_tables:
+      manifest.coverage?.durable_publish_state?.tables?.length ?? 0,
+    operational_history_tables:
+      manifest.coverage?.operational_history?.tables?.length ?? 0,
+    recreate_empty_tables:
+      manifest.coverage?.recreate_empty_after_restore?.tables?.length ?? 0,
+    optional_identity_tables:
+      manifest.coverage?.optional_durable_when_enabled?.tables?.length ?? 0,
     catalog_helper_functions:
       (functions?.circles_app?.length ?? 0) +
       (functions?.circles_admin?.length ?? 0) +
@@ -406,11 +443,19 @@ export function validateManifest(manifest, { sourceRoot = PROJECT_ROOT } = {}) {
       (manifest.authorization_helpers?.policies?.circles_ops?.length ?? 0) +
       (manifest.authorization_helpers?.policies?.circles_publish?.length ?? 0),
   };
-  return { valid: errors.length === 0, errors: [...new Set(errors)].sort(), counts };
+  return {
+    valid: errors.length === 0,
+    errors: [...new Set(errors)].sort(),
+    counts,
+  };
 }
 
 function readTrustedJson(filename) {
-  if (typeof filename !== "string" || filename.length === 0 || filename.includes("\0"))
+  if (
+    typeof filename !== "string" ||
+    filename.length === 0 ||
+    filename.includes("\0")
+  )
     throw new RecoveryManifestError("input_path_invalid");
   let stat;
   try {
@@ -418,7 +463,12 @@ function readTrustedJson(filename) {
   } catch {
     throw new RecoveryManifestError("input_file_unavailable");
   }
-  if (!stat.isFile() || stat.isSymbolicLink() || stat.size < 2 || stat.size > MAX_INPUT_BYTES)
+  if (
+    !stat.isFile() ||
+    stat.isSymbolicLink() ||
+    stat.size < 2 ||
+    stat.size > MAX_INPUT_BYTES
+  )
     throw new RecoveryManifestError("input_file_not_accepted");
   try {
     return JSON.parse(fs.readFileSync(filename, "utf8"));
@@ -436,13 +486,17 @@ function requireBoolean(value, key, errors) {
 }
 
 function safeOpaqueReference(value) {
-  return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(value);
+  return (
+    typeof value === "string" &&
+    /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(value)
+  );
 }
 
 function isCurrentIsoTimestamp(value, now, maxAgeHours) {
   if (typeof value !== "string" || value.length > 64) return false;
   const parsed = new Date(value);
-  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString() !== value) return false;
+  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString() !== value)
+    return false;
   const ageHours = (now.getTime() - parsed.getTime()) / 3_600_000;
   return ageHours >= -5 / 60 && ageHours <= maxAgeHours;
 }
@@ -460,7 +514,11 @@ export function validateExternalEvidence(
   } = {},
 ) {
   const errors = [];
-  if (!Number.isInteger(maxEvidenceAgeHours) || maxEvidenceAgeHours < 1 || maxEvidenceAgeHours > 720)
+  if (
+    !Number.isInteger(maxEvidenceAgeHours) ||
+    maxEvidenceAgeHours < 1 ||
+    maxEvidenceAgeHours > 720
+  )
     return { valid: false, errors: ["evidence_age_window_invalid"] };
   if (
     !exactKeys(evidence, [
@@ -499,7 +557,11 @@ export function validateExternalEvidence(
     errors.push("backup_attestation_shape_invalid");
   } else {
     for (const key of Object.keys(evidence.backup_assets))
-      requireBoolean(evidence.backup_assets[key], `backup_${key}_not_verified`, errors);
+      requireBoolean(
+        evidence.backup_assets[key],
+        `backup_${key}_not_verified`,
+        errors,
+      );
   }
 
   if (
@@ -530,12 +592,19 @@ export function validateExternalEvidence(
       "operational_history_verified",
       "oauth_recreated_empty",
     ]) {
-      requireBoolean(evidence.isolated_restore[key], `restore_${key}_not_verified`, errors);
+      requireBoolean(
+        evidence.isolated_restore[key],
+        `restore_${key}_not_verified`,
+        errors,
+      );
     }
     if (
-      !["not_enabled", "restored"].includes(evidence.isolated_restore.optional_identity_status) ||
+      !["not_enabled", "restored"].includes(
+        evidence.isolated_restore.optional_identity_status,
+      ) ||
       (evidence.isolated_restore.optional_identity_status === "restored" &&
-        evidence.isolated_restore.optional_identity_mapping_verified !== true) ||
+        evidence.isolated_restore.optional_identity_mapping_verified !==
+          true) ||
       (evidence.isolated_restore.optional_identity_status === "not_enabled" &&
         evidence.isolated_restore.optional_identity_mapping_verified !== false)
     ) {
@@ -554,7 +623,11 @@ export function validateExternalEvidence(
     errors.push("media_attestation_shape_invalid");
   } else {
     for (const key of Object.keys(evidence.media_and_keys))
-      requireBoolean(evidence.media_and_keys[key], `media_${key}_not_verified`, errors);
+      requireBoolean(
+        evidence.media_and_keys[key],
+        `media_${key}_not_verified`,
+        errors,
+      );
   }
 
   if (
@@ -568,7 +641,11 @@ export function validateExternalEvidence(
     errors.push("provider_attestation_shape_invalid");
   } else {
     for (const key of Object.keys(evidence.provider))
-      requireBoolean(evidence.provider[key], `provider_${key}_not_verified`, errors);
+      requireBoolean(
+        evidence.provider[key],
+        `provider_${key}_not_verified`,
+        errors,
+      );
   }
 
   return { valid: errors.length === 0, errors: [...new Set(errors)].sort() };
@@ -590,7 +667,10 @@ export function inspectRecoveryManifest({
   };
   if (evidencePath !== null) {
     const evidence = readTrustedJson(evidencePath);
-    const result = validateExternalEvidence(evidence, { now, maxEvidenceAgeHours });
+    const result = validateExternalEvidence(evidence, {
+      now,
+      maxEvidenceAgeHours,
+    });
     external = {
       supplied: true,
       status: result.valid
@@ -599,16 +679,20 @@ export function inspectRecoveryManifest({
       errors: result.errors,
     };
   }
-  const sourceStatus = source.valid ? "SOURCE_CONTRACT_PASS" : "SOURCE_CONTRACT_FAIL";
+  const sourceStatus = source.valid
+    ? "SOURCE_CONTRACT_PASS"
+    : "SOURCE_CONTRACT_FAIL";
   return {
     format: "circles-database-recovery-check-v1",
     source_status: sourceStatus,
     external_evidence_status: external.status,
-    status: source.valid && external.status === "ATTESTATION_COMPLETE_NOT_INDEPENDENTLY_VERIFIED"
-      ? "SOURCE_PASS_WITH_REDACTED_EXTERNAL_ATTESTATION"
-      : source.valid
-        ? "SOURCE_PASS_EXTERNAL_RECOVERY_UNVERIFIED"
-        : "SOURCE_CONTRACT_INVALID",
+    status:
+      source.valid &&
+      external.status === "ATTESTATION_COMPLETE_NOT_INDEPENDENTLY_VERIFIED"
+        ? "SOURCE_PASS_WITH_REDACTED_EXTERNAL_ATTESTATION"
+        : source.valid
+          ? "SOURCE_PASS_EXTERNAL_RECOVERY_UNVERIFIED"
+          : "SOURCE_CONTRACT_INVALID",
     counts: source.counts,
     source_errors: source.errors,
     external_errors: external.errors,
@@ -637,7 +721,11 @@ export function parseCliArguments(argv = process.argv.slice(2)) {
       options.requireEvidence = true;
       continue;
     }
-    if (["--manifest", "--evidence", "--max-evidence-age-hours"].includes(argument)) {
+    if (
+      ["--manifest", "--evidence", "--max-evidence-age-hours"].includes(
+        argument,
+      )
+    ) {
       const value = argv[index + 1];
       if (typeof value !== "string" || value.length === 0)
         throw new RecoveryManifestError("cli_value_required");
@@ -645,7 +733,8 @@ export function parseCliArguments(argv = process.argv.slice(2)) {
       if (argument === "--manifest") options.manifestPath = value;
       if (argument === "--evidence") options.evidencePath = value;
       if (argument === "--max-evidence-age-hours") {
-        if (!/^\d+$/.test(value)) throw new RecoveryManifestError("cli_age_invalid");
+        if (!/^\d+$/.test(value))
+          throw new RecoveryManifestError("cli_age_invalid");
         options.maxEvidenceAgeHours = Number(value);
       }
       continue;
@@ -663,14 +752,17 @@ export function parseCliArguments(argv = process.argv.slice(2)) {
 }
 
 export function helpText() {
-  return `Circles database recovery manifest checker\n\n` +
+  return (
+    `Circles database recovery manifest checker\n\n` +
     `Usage: node scripts/check-database-recovery-manifest.mjs [--manifest FILE] [--evidence REDACTED_FILE] [--require-evidence] [--max-evidence-age-hours 1..720]\n\n` +
-    `The checker validates local source and sanitized-catalog coverage only. It never opens a database, network, provider, GitHub, backup, media, dotenv, or credential source.\n`;
+    `The checker validates local source and sanitized-catalog coverage only. It never opens a database, network, provider, GitHub, backup, media, dotenv, or credential source.\n`
+  );
 }
 
 export function runCli(argv = process.argv.slice(2), dependencies = {}) {
   const options = parseCliArguments(argv);
-  const output = dependencies.output ?? ((value) => process.stdout.write(`${value}\n`));
+  const output =
+    dependencies.output ?? ((value) => process.stdout.write(`${value}\n`));
   if (options.help) {
     output(helpText());
     return 0;
@@ -679,17 +771,28 @@ export function runCli(argv = process.argv.slice(2), dependencies = {}) {
   output(JSON.stringify(report));
   if (report.source_status !== "SOURCE_CONTRACT_PASS") return 1;
   const externalAttestationComplete =
-    report.external_evidence_status === "ATTESTATION_COMPLETE_NOT_INDEPENDENTLY_VERIFIED";
-  if ((options.requireEvidence || options.evidencePath) && !externalAttestationComplete) return 1;
+    report.external_evidence_status ===
+    "ATTESTATION_COMPLETE_NOT_INDEPENDENTLY_VERIFIED";
+  if (
+    (options.requireEvidence || options.evidencePath) &&
+    !externalAttestationComplete
+  )
+    return 1;
   return 0;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
   try {
     process.exitCode = runCli();
   } catch (error) {
-    const code = error instanceof RecoveryManifestError ? error.code : "checker_failed";
-    process.stdout.write(JSON.stringify({ status: "CHECKER_FAILED", code }) + "\n");
+    const code =
+      error instanceof RecoveryManifestError ? error.code : "checker_failed";
+    process.stdout.write(
+      JSON.stringify({ status: "CHECKER_FAILED", code }) + "\n",
+    );
     process.exitCode = 1;
   }
 }
