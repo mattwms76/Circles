@@ -48,7 +48,6 @@
     "@trpc/react-query": "11.19.0",
     "@trpc/server": "11.19.0",
     "axios": "^1.20.0",
-    "clsx": "^2.1.1",
     "cookie": "^1.1.1",
     "dotenv": "^16.6.1",
     "drizzle-orm": "^0.45.4",
@@ -94,7 +93,6 @@
     "react-native-worklets": "0.10.1",
     "sharp": "0.35.5",
     "superjson": "^1.13.3",
-    "tailwind-merge": "^2.6.0",
     "zod": "^4.6.6"
   },
   "devDependencies": {

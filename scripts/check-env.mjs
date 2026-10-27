@@ -145,8 +145,6 @@ export const ENVIRONMENT_CONTRACT = Object.freeze({
 /** Files that own the application environment contract; tests are intentionally excluded. */
 export const ENV_REFERENCE_SOURCE_FILES = Object.freeze([
   "app.config.ts",
-  "components/external-link.tsx",
-  "components/haptic-tab.tsx",
   "constants/oauth.ts",
   "drizzle.config.ts",
   "scripts/load-env.js",
