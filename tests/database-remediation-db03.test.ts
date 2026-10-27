@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 import type { PoolClient } from "pg";
 import { RUNTIME_ROLE } from "../server/_core/postgres-config.mjs";
@@ -22,7 +23,10 @@ function syntheticClient(query = vi.fn()): {
 } {
   const release = vi.fn();
   return {
-    client: { query, release } as unknown as PoolClient,
+    client: Object.assign(new EventEmitter(), {
+      query,
+      release,
+    }) as unknown as PoolClient,
     query,
     release,
   };
@@ -185,6 +189,23 @@ describe("DB-03 trusted-server runtime role boundary", () => {
 
     await vi.waitFor(() => expect(release).toHaveBeenCalledWith(true));
     expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it("retires a disconnected checked-out socket without an unhandled error or reusable proxy", async () => {
+    const { client, query, release } = syntheticClient(
+      vi.fn().mockResolvedValue({ rows: [] }),
+    );
+    const guarded = guardRuntimeRoleClient(client);
+    const cause = new Error("synthetic administrator disconnect");
+    expect(() => client.emit("error", cause)).not.toThrow();
+    expect(release).toHaveBeenCalledExactlyOnceWith(cause);
+    await expect(guarded.query("SELECT 1")).rejects.toBeInstanceOf(
+      RuntimeRoleClientReleasedError,
+    );
+    guarded.release();
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(query).not.toHaveBeenCalled();
+    expect(client.listenerCount("error")).toBe(0);
   });
 
   it("destroys instead of returning a raw client when bounded cleanup times out", async () => {

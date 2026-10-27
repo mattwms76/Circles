@@ -365,9 +365,17 @@ export function guardRuntimeRoleClient(client: PoolClient): PoolClient {
   let checkoutReleased = false;
   let rawClientReleased = false;
 
+  const onCheckedOutError = (error: Error): void => {
+    checkoutReleased = true;
+    releaseRawClient(error);
+  };
+
   const releaseRawClient = (releaseError?: Error | boolean): void => {
     if (rawClientReleased) return;
     rawClientReleased = true;
+    if (typeof client.removeListener === "function") {
+      client.removeListener("error", onCheckedOutError);
+    }
     try {
       if (releaseError === undefined) rawRelease();
       else rawRelease(releaseError);
@@ -430,6 +438,10 @@ export function guardRuntimeRoleClient(client: PoolClient): PoolClient {
 
     return rawQuery(...args);
   }) as PoolClient["query"];
+
+  // pg-pool handles errors on idle clients, not checked-out ones. Own that
+  // interval (including the asynchronous cleanup barrier) and retire failures.
+  if (typeof client.on === "function") client.on("error", onCheckedOutError);
 
   return new Proxy(client, {
     get(target, property, receiver) {
