@@ -42,6 +42,7 @@ import {
   socialUploads,
   users,
 } from "../drizzle/schema";
+import { postPublishReceipts } from "../drizzle/post-publish-receipt-schema";
 import { streams } from "../drizzle/live-schema";
 import type {
   Circle,
@@ -248,6 +249,106 @@ function isPostgresUniqueViolation(error: unknown): boolean {
     "code" in error &&
     (error as { code?: unknown }).code === "23505"
   );
+}
+
+const POST_PUBLISH_OPERATION_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{15,95}$/;
+
+export type PostPublishInput = {
+  text: string;
+  media?: string;
+  mediaType: "text" | "photo" | "video";
+  circleId?: number;
+  /** Optional during rollout; supplied IDs make a publication attempt durable and exact. */
+  clientPublishId?: string;
+};
+
+/** The exact canonical payload stored only as a one-way receipt hash, never post content itself. */
+export function postPublicationPayloadHash(
+  input: Pick<PostPublishInput, "text" | "media" | "mediaType" | "circleId">,
+): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        text: input.text.trim(),
+        media: input.media?.trim() || null,
+        mediaType: input.mediaType,
+        circleId: input.circleId ?? null,
+      }),
+    )
+    .digest("hex");
+}
+
+/** Direct service callers receive the same bounded nonce contract as the public router. */
+function assertPostPublishOperationId(value: string | undefined): void {
+  if (value === undefined) return;
+  if (!POST_PUBLISH_OPERATION_ID.test(value)) {
+    socialError("BAD_REQUEST", "Invalid publication operation identifier");
+  }
+}
+
+/** A prepared-but-not-applied private receipt migration must never degrade retries to new posts. */
+function isMissingPostPublishReceiptSchema(error: unknown): boolean {
+  let current: unknown = error;
+  // Drizzle preserves PostgreSQL's SQLSTATE on a driver error nested in `cause`.
+  for (let depth = 0; depth < 3; depth += 1) {
+    if (typeof current !== "object" || current === null) return false;
+    const value = current as { code?: unknown; cause?: unknown };
+    if (value.code === "42P01" || value.code === "3F000") return true;
+    current = value.cause;
+  }
+  return false;
+}
+
+export type PostPublicationStatus = { ready: boolean };
+
+/**
+ * A protected composer may make this catalog-only probe before it uploads bytes. It does not
+ * reveal schema details or access receipts/content, and a missing/prepared migration is simply
+ * not ready. The established /api/ready circles_app inventory intentionally remains unchanged.
+ */
+export async function getPostPublicationStatus(): Promise<PostPublicationStatus> {
+  const db = await getDb().catch(() => null);
+  if (!db) return { ready: false };
+  try {
+    const result = await db.$client.query<{ ready: boolean }>(`
+      SELECT EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_class AS relation_catalog
+        JOIN pg_catalog.pg_namespace AS namespace_catalog
+          ON namespace_catalog.oid = relation_catalog.relnamespace
+        WHERE namespace_catalog.nspname = 'circles_publish'
+          AND relation_catalog.relname = 'postPublishReceipts'
+          AND relation_catalog.relkind = 'r'
+          AND relation_catalog.relrowsecurity
+          AND relation_catalog.relforcerowsecurity
+          AND pg_catalog.has_schema_privilege(current_user, namespace_catalog.oid, 'USAGE')
+          AND pg_catalog.has_table_privilege(current_user, relation_catalog.oid, 'SELECT')
+          AND pg_catalog.has_table_privilege(current_user, relation_catalog.oid, 'INSERT')
+          AND pg_catalog.has_table_privilege(current_user, relation_catalog.oid, 'UPDATE')
+          AND NOT pg_catalog.has_table_privilege(current_user, relation_catalog.oid, 'DELETE')
+          AND (
+            SELECT pg_catalog.count(*)
+            FROM pg_catalog.pg_policy AS policy_catalog
+            WHERE policy_catalog.polrelid = relation_catalog.oid
+              AND policy_catalog.polroles = ARRAY[
+                (SELECT oid FROM pg_catalog.pg_roles WHERE rolname = current_user)
+              ]
+              AND (
+                (policy_catalog.polcmd = 'r' AND policy_catalog.polqual IS NOT NULL)
+                OR (policy_catalog.polcmd = 'a' AND policy_catalog.polwithcheck IS NOT NULL)
+                OR (
+                  policy_catalog.polcmd = 'w'
+                  AND policy_catalog.polqual IS NOT NULL
+                  AND policy_catalog.polwithcheck IS NOT NULL
+                )
+              )
+          ) = 3
+      ) AS ready
+    `);
+    return { ready: result.rows[0]?.ready === true };
+  } catch {
+    return { ready: false };
+  }
 }
 
 /** Pure role predicate used by every private-circle gate. */
@@ -1692,6 +1793,95 @@ async function claimMediaOwnership(
     );
 }
 
+const POST_PHOTO_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+
+/**
+ * A post cannot relabel an owned file. The authoritative MIME came from social.upload after
+ * byte validation, so a caller's mediaType is checked only against that persisted metadata.
+ */
+async function assertPostMediaTypeOwnership(
+  db: Database | SocialTransaction,
+  userId: number,
+  media: string | undefined,
+  mediaType: PostPublishInput["mediaType"],
+): Promise<void> {
+  if (!media) {
+    if (mediaType !== "text") {
+      socialError("BAD_REQUEST", "Photo and video posts need media");
+    }
+    return;
+  }
+  if (mediaType === "text") {
+    socialError("BAD_REQUEST", "Text posts cannot include media");
+  }
+  const key = managedSocialMediaKeyFromUrl(media);
+  if (!key) {
+    if (!isTrustedStarterMediaUrl(media)) {
+      socialError(
+        "BAD_REQUEST",
+        "Media must be a canonical managed upload or an approved starter asset",
+      );
+    }
+    if (mediaType !== "photo") {
+      socialError(
+        "BAD_REQUEST",
+        "Starter media can only be attached as a photo",
+      );
+    }
+    return;
+  }
+  const rows = await db
+    .select({
+      storageKey: socialUploads.storageKey,
+      url: socialUploads.url,
+      mimeType: socialUploads.mimeType,
+    })
+    .from(socialUploads)
+    .where(
+      and(eq(socialUploads.userId, userId), eq(socialUploads.storageKey, key)),
+    )
+    .limit(1);
+  const upload = rows[0];
+  if (!upload || upload.storageKey !== key || upload.url !== media) {
+    socialError("FORBIDDEN", "You can only attach your own uploaded media");
+  }
+  const expectedMime =
+    mediaType === "video"
+      ? upload.mimeType === "video/mp4"
+      : POST_PHOTO_MIME_TYPES.has(upload.mimeType);
+  if (!expectedMime) {
+    socialError(
+      "BAD_REQUEST",
+      mediaType === "video"
+        ? "Video posts require an MP4 upload"
+        : "Photo posts require a JPEG, PNG, or WEBP upload",
+    );
+  }
+}
+
+/** Marks a type-verified managed post attachment as claimed inside the publication transaction. */
+async function claimPostMediaOwnership(
+  db: Database | SocialTransaction,
+  userId: number,
+  media: string | undefined,
+  mediaType: PostPublishInput["mediaType"],
+): Promise<void> {
+  await assertPostMediaTypeOwnership(db, userId, media, mediaType);
+  if (!media) return;
+  const key = managedSocialMediaKeyFromUrl(media);
+  if (!key) return;
+  await db
+    .update(socialUploads)
+    .set({ claimedAt: new Date() })
+    .where(
+      and(eq(socialUploads.userId, userId), eq(socialUploads.storageKey, key)),
+    );
+}
+
 const CIRCLE_COVER_IMAGE_MIME_TYPES = new Set([
   "image/jpeg",
   "image/png",
@@ -2260,45 +2450,145 @@ export async function approveMember(
 
 export async function createPost(
   userId: number,
-  input: {
-    text: string;
-    media?: string;
-    mediaType: "text" | "photo" | "video";
-    circleId?: number;
-  },
+  input: PostPublishInput,
 ): Promise<Post> {
   const db = await requireDb();
+  assertPostPublishOperationId(input.clientPublishId);
+  const normalized = {
+    text: input.text.trim(),
+    media: input.media?.trim() || undefined,
+    mediaType: input.mediaType,
+    circleId: input.circleId,
+    clientPublishId: input.clientPublishId,
+  };
+  const payloadHash = normalized.clientPublishId
+    ? postPublicationPayloadHash(normalized)
+    : null;
   await ensureProfileWithDb(db, userId);
-  await assertMediaOwnership(db, userId, input.media);
-  const postId = await db.transaction(async (tx) => {
-    if (input.circleId) {
-      const { role } = await lockCircleAccessForProtectedMutation(
+  let postId: number;
+  try {
+    postId = await db.transaction(async (tx) => {
+      // Preserve the established circle-parent lock before all membership and publication writes.
+      if (normalized.circleId) {
+        const { role } = await lockCircleAccessForProtectedMutation(
+          tx,
+          userId,
+          normalized.circleId,
+        );
+        if (!isApprovedCircleRole(role)) {
+          socialError(
+            "FORBIDDEN",
+            "Only approved members may post to this circle",
+          );
+        }
+      }
+
+      if (normalized.clientPublishId && payloadHash) {
+        // The unique insert is the transaction-scoped operation claim. A competing request waits
+        // for this transaction, then resolves the one durable receipt instead of creating a post.
+        const claimedReceipt = await tx
+          .insert(postPublishReceipts)
+          .values({
+            actorId: userId,
+            operationId: normalized.clientPublishId,
+            payloadHash,
+          })
+          .onConflictDoNothing({
+            target: [
+              postPublishReceipts.actorId,
+              postPublishReceipts.operationId,
+            ],
+          })
+          .returning({ postId: postPublishReceipts.postId });
+
+        if (!claimedReceipt[0]) {
+          const existingReceipts = await tx
+            .select({
+              payloadHash: postPublishReceipts.payloadHash,
+              postId: postPublishReceipts.postId,
+            })
+            .from(postPublishReceipts)
+            .where(
+              and(
+                eq(postPublishReceipts.actorId, userId),
+                eq(postPublishReceipts.operationId, normalized.clientPublishId),
+              ),
+            )
+            .limit(1)
+            .for("update");
+          const existing = existingReceipts[0];
+          if (!existing) {
+            socialError(
+              "INTERNAL_SERVER_ERROR",
+              "Publication receipt could not be resolved",
+            );
+          }
+          if (existing.payloadHash !== payloadHash) {
+            socialError(
+              "CONFLICT",
+              "Publication operation identifier was already used with different content",
+            );
+          }
+          // Exact retries still revalidate caller ownership and stored MIME inside the boundary.
+          await assertPostMediaTypeOwnership(
+            tx,
+            userId,
+            normalized.media,
+            normalized.mediaType,
+          );
+          if (existing.postId === null) {
+            socialError(
+              "CONFLICT",
+              "The original publication was deleted and cannot be recreated",
+            );
+          }
+          return existing.postId;
+        }
+      }
+
+      const created = await tx
+        .insert(posts)
+        .values({
+          authorId: userId,
+          circleId: normalized.circleId ?? null,
+          text: normalized.text,
+          media: normalized.media ?? null,
+          mediaType: normalized.mediaType,
+        })
+        .returning({ id: posts.id });
+      const id = created[0]?.id;
+      if (!id) socialError("INTERNAL_SERVER_ERROR", "Unable to create post");
+      await claimPostMediaOwnership(
         tx,
         userId,
-        input.circleId,
+        normalized.media,
+        normalized.mediaType,
       );
-      if (!isApprovedCircleRole(role)) {
-        socialError(
-          "FORBIDDEN",
-          "Only approved members may post to this circle",
-        );
+      if (normalized.clientPublishId) {
+        await tx
+          .update(postPublishReceipts)
+          .set({ postId: id })
+          .where(
+            and(
+              eq(postPublishReceipts.actorId, userId),
+              eq(postPublishReceipts.operationId, normalized.clientPublishId),
+            ),
+          );
       }
+      return id;
+    });
+  } catch (error) {
+    if (
+      normalized.clientPublishId &&
+      isMissingPostPublishReceiptSchema(error)
+    ) {
+      socialError(
+        "PRECONDITION_FAILED",
+        "Retry-safe publishing is temporarily unavailable",
+      );
     }
-    const created = await tx
-      .insert(posts)
-      .values({
-        authorId: userId,
-        circleId: input.circleId ?? null,
-        text: input.text.trim(),
-        media: input.media?.trim() || null,
-        mediaType: input.mediaType,
-      })
-      .returning({ id: posts.id });
-    const id = created[0]?.id;
-    if (!id) socialError("INTERNAL_SERVER_ERROR", "Unable to create post");
-    await claimMediaOwnership(tx, userId, input.media);
-    return id;
-  });
+    throw error;
+  }
   if (!postId) socialError("INTERNAL_SERVER_ERROR", "Unable to create post");
   return postOutputWithDb(db, postId, userId);
 }

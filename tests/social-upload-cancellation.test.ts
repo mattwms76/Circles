@@ -1,8 +1,8 @@
 import { EventEmitter } from "node:events";
-import sharp from "sharp";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { socialRouter } from "../server/social-router";
+import { syntheticRecordedMp4 } from "./fixtures/recorded-mp4";
 
 const socialUploadMocks = vi.hoisted(() => ({
   storagePut: vi.fn(),
@@ -26,7 +26,7 @@ vi.mock("../server/social-service", async (importOriginal) => {
 afterEach(() => vi.clearAllMocks());
 
 describe("social upload request cancellation", () => {
-  it("passes the request-scoped signal to storage and disposes listeners after completion", async () => {
+  it("passes an actual recorded MP4 through hardened validation with a request-scoped storage signal and settled listeners", async () => {
     const request = Object.assign(new EventEmitter(), { aborted: false });
     const response = Object.assign(new EventEmitter(), { writableEnded: true });
     let receivedSignal: AbortSignal | undefined;
@@ -39,13 +39,13 @@ describe("social upload request cancellation", () => {
       ) => {
         receivedSignal = options.signal;
         return {
-          key: "social-encrypted/7/synthetic.jpg.enc",
-          url: "/manus-storage/social-encrypted/7/synthetic.jpg.enc",
+          key: "social-encrypted/7/synthetic.mp4.enc",
+          url: "/manus-storage/social-encrypted/7/synthetic.mp4.enc",
         };
       },
     );
     socialUploadMocks.recordUpload.mockResolvedValue({
-      url: "/manus-storage/social-encrypted/7/synthetic.jpg.enc",
+      url: "/manus-storage/social-encrypted/7/synthetic.mp4.enc",
     });
 
     const caller = socialRouter.createCaller({
@@ -53,23 +53,15 @@ describe("social upload request cancellation", () => {
       req: request as never,
       res: response as never,
     });
-    const bytes = await sharp({
-      create: {
-        width: 2,
-        height: 2,
-        channels: 3,
-        background: "#123456",
-      },
-    })
-      .jpeg()
-      .toBuffer();
+    const bytes = Buffer.from(syntheticRecordedMp4());
     await expect(
       caller.upload({
         base64: bytes.toString("base64"),
-        mimeType: "image/jpeg",
+        mimeType: "video/mp4",
+        recording: { maxDurationSeconds: 30 },
       }),
     ).resolves.toEqual({
-      url: "/manus-storage/social-encrypted/7/synthetic.jpg.enc",
+      url: "/manus-storage/social-encrypted/7/synthetic.mp4.enc",
     });
 
     expect(receivedSignal).toBeInstanceOf(AbortSignal);

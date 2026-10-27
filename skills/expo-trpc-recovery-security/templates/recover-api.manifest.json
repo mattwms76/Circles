@@ -12,6 +12,9 @@
     "social.profiles": {
       "input": {}
     },
+    "social.publicationStatus": {
+      "input": {}
+    },
     "live.list": {
       "input": {}
     },

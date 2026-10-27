@@ -6,6 +6,7 @@ import * as liveSchema from "../drizzle/live-schema";
 import * as sessionSchema from "../drizzle/session-schema";
 import * as activitySchema from "../drizzle/activity-schema";
 import * as moderationSchema from "../drizzle/moderation-schema";
+import * as postPublishReceiptSchema from "../drizzle/post-publish-receipt-schema";
 import { type InsertUser, users } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 import { getPostgresConnectionOptions } from "./_core/postgres-config.mjs";
@@ -21,6 +22,7 @@ const databaseSchema = {
   ...sessionSchema,
   ...activitySchema,
   ...moderationSchema,
+  ...postPublishReceiptSchema,
 };
 
 export type CirclesDatabase = NodePgDatabase<typeof databaseSchema> & {

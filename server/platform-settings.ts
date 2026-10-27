@@ -190,10 +190,10 @@ export async function assertPlatformFeature(
  * Retains the pre-existing 20 MiB ceiling in every mode, then applies the
  * enabled platform maximum before callers perform an external storage write.
  */
-export async function assertPlatformUploadSize(
+export async function assertPlatformUploadSizeWithLimit(
   executor: PlatformSettingsExecutor,
   bytes: number,
-): Promise<void> {
+): Promise<number> {
   if (!Number.isSafeInteger(bytes) || bytes < 1) {
     throw new TRPCError({
       code: "BAD_REQUEST",
@@ -201,8 +201,25 @@ export async function assertPlatformUploadSize(
     });
   }
   if (bytes > PLATFORM_UPLOAD_HARD_CAP_BYTES) uploadTooLarge();
-  if (!platformSettingsIntegrationEnabled()) return;
+  if (!platformSettingsIntegrationEnabled())
+    return PLATFORM_UPLOAD_HARD_CAP_BYTES;
 
   const settings = await readMobileFeatureSettings(executor);
-  if (bytes > settings.maxUploadMb * 1024 * 1024) uploadTooLarge();
+  const maxBytes = Math.min(
+    PLATFORM_UPLOAD_HARD_CAP_BYTES,
+    settings.maxUploadMb * 1024 * 1024,
+  );
+  if (bytes > maxBytes) uploadTooLarge();
+  return maxBytes;
+}
+
+/**
+ * Existing callers need only an admission decision. Keep their void contract while recording
+ * flows may use assertPlatformUploadSizeWithLimit() to inspect against the exact same cap.
+ */
+export async function assertPlatformUploadSize(
+  executor: PlatformSettingsExecutor,
+  bytes: number,
+): Promise<void> {
+  await assertPlatformUploadSizeWithLimit(executor, bytes);
 }
