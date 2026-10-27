@@ -41,6 +41,8 @@ describe("tracked source formatting", () => {
       "scripts/recover-api.mjs",
       "operations/tests/security-audit.node.mjs",
       ".github/workflows/ci.yml",
+      "eslint.config.js",
+      "eslint.config.mjs",
       "package.json",
     ])
       expect(formatter.isSourceFormattingPath(filename)).toBe(true);
