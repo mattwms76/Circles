@@ -9,8 +9,10 @@ Run only from the repository root with an explicit opt-in:
 The drill accepts no DSN, reads no .env, binds a fresh cluster only to loopback, and never
 contacts a provider. It materializes the exact reviewed ``circles_app`` policy states from
 ``scripts/circles-database-security-contract.mjs`` and first verifies the 96-row current
-variant against the read-only 2026-10-27 captured policy catalog. The ``cron.job`` row is a
-test-owned sentinel, not pg_cron or provider metadata.
+variant against the read-only 2026-10-27 captured policy catalog. The post-DB09 fixture is
+derived by executing the actual DB09 ``expected_pairs`` VALUES CTE and removing only its ten
+circles_app duplicate names; it is then matched to the legacy-name canonical variant. The
+``cron.job`` row is a test-owned sentinel, not pg_cron or provider metadata.
 """
 from __future__ import annotations
 
@@ -19,6 +21,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import shutil
 import socket
@@ -36,9 +39,12 @@ PG_BIN = Path("/usr/lib/postgresql/17/bin")
 NODE_BIN = Path(shutil.which("node") or "")
 CRITICAL_HELPER = "operations/remediation/db14_integrity_health.sql"
 EXTENSION = "operations/remediation/db14_daily_health_extension.sql"
+POLICY_NAME_PATCH = "operations/remediation/db14_daily_health_policy_names.sql"
 CAPTURED_CURRENT_POLICY_SHA256 = "1dc3333f36739e281f2a0587d11e509aedb5ba804c588c6ca09c9e58f9aaa449"
 GOLDEN_DAILY_DEFINITION_MD5 = "a4421c8c4e64f1700f2a2771624ecfa0"
 GOLDEN_DAILY_BODY_MD5 = "e508c15fe21081e43c41810df71b5677"
+EXTENDED_DAILY_DEFINITION_MD5 = "232d11447e666955f89eff147c1aee29"
+EXTENDED_DAILY_BODY_MD5 = "e43b8272264d14e1db96506bbac74d9a"
 CURRENT_POLICY_STATE = "current_pre_db09"
 POST_CONSOLIDATION_POLICY_STATE = "post_db09_12_group_consolidation"
 EXPECTED_POLICY_COUNTS = {
@@ -92,6 +98,10 @@ def reserve_loopback_port() -> int:
 
 def extension_sql() -> str:
     return (PROJECT_ROOT / EXTENSION).read_text(encoding="utf-8")
+
+
+def policy_name_patch_sql() -> str:
+    return (PROJECT_ROOT / POLICY_NAME_PATCH).read_text(encoding="utf-8")
 
 
 def apply(connection: psycopg.Connection[dict[str, object]], relative_path: str) -> None:
@@ -156,7 +166,7 @@ def canonical_app_policy_variants() -> dict[str, list[dict[str, object]]]:
 import { POLICY_CONTRACT_VARIANTS as variants } from './scripts/circles-database-security-contract.mjs';
 const selected = {
   current_pre_db09: 'pre_db09_duplicate_consolidation',
-  post_db09_12_group_consolidation: 'post_db09_keep_parity_names',
+  post_db09_12_group_consolidation: 'post_db09_keep_legacy_names',
 };
 const result = {};
 for (const [state, key] of Object.entries(selected)) {
@@ -291,6 +301,94 @@ def expected_policy_rows(rows: list[dict[str, object]]) -> set[tuple[object, ...
     return {policy_tuple_from_contract(row) for row in rows}
 
 
+def db09_app_expected_pairs(
+    connection: psycopg.Connection[dict[str, object]],
+) -> list[tuple[str, str, str, str]]:
+    """Execute the first, source-owned DB09 expected_pairs VALUES CTE unchanged.
+
+    DB09 has twelve exact pairs; this health fixture intentionally consumes only the ten
+    circles_app pairs because the daily function's closed policy comparison does not inspect
+    circles_admin.audit. This avoids a hand-maintained post-state table list.
+    """
+    source = (
+        PROJECT_ROOT / "operations/migrations/0021_circles_duplicate_policy_consolidation.sql"
+    ).read_text(encoding="utf-8")
+    pattern = (
+        r"WITH expected_pairs\(([^)]+)\) AS \(\s*(VALUES[\s\S]*?)\), role_oids AS"
+    )
+    match = re.search(pattern, source)
+    if match is None:
+        fail("DB09 source no longer exposes its reviewed expected_pairs VALUES CTE")
+    columns, values = match.groups()
+    rows = connection.execute(
+        "SELECT schema_name::text, table_name::text, survivor_name::text, duplicate_name::text "
+        "FROM ("
+        + values
+        + ") AS fixed("
+        + columns
+        + ") ORDER BY schema_name, table_name, survivor_name, duplicate_name"
+    ).fetchall()
+    if len(rows) != 12:
+        fail("DB09 source expected_pairs CTE does not retain exactly twelve reviewed groups")
+    app_pairs = [
+        (
+            str(row["schema_name"]),
+            str(row["table_name"]),
+            str(row["survivor_name"]),
+            str(row["duplicate_name"]),
+        )
+        for row in rows
+        if row["schema_name"] == "circles_app"
+    ]
+    if (
+        len(app_pairs) != 10
+        or len({pair[1] for pair in app_pairs}) != 10
+        or len({pair[2] for pair in app_pairs}) != 10
+        or len({pair[3] for pair in app_pairs}) != 10
+        or any(pair[0] != "circles_app" for pair in app_pairs)
+    ):
+        fail("DB09 source expected_pairs CTE does not retain the fixed ten app policy pairs")
+    return app_pairs
+
+
+def derive_post_consolidation_policy_rows(
+    connection: psycopg.Connection[dict[str, object]],
+    variants: dict[str, list[dict[str, object]]],
+) -> list[dict[str, object]]:
+    """Remove only DB09's app duplicates, then prove the result is the legacy canonical set."""
+    current_rows = variants[CURRENT_POLICY_STATE]
+    current_by_name = {
+        (str(row["table_name"]), str(row["policy_name"])): policy_tuple_from_contract(row)
+        for row in current_rows
+    }
+    if len(current_by_name) != len(current_rows):
+        fail("canonical current policy fixture has duplicate table/name keys")
+    app_pairs = db09_app_expected_pairs(connection)
+    duplicate_keys: set[tuple[str, str]] = set()
+    for _, table_name, survivor_name, duplicate_name in app_pairs:
+        survivor = current_by_name.get((table_name, survivor_name))
+        duplicate = current_by_name.get((table_name, duplicate_name))
+        if survivor is None or duplicate is None:
+            fail("DB09 source pair is absent from the canonical current policy fixture")
+        if survivor[0] != duplicate[0] or survivor[2:] != duplicate[2:]:
+            fail("DB09 source pair is not an exact duplicate in the canonical current fixture")
+        duplicate_keys.add((table_name, duplicate_name))
+    if len(duplicate_keys) != 10:
+        fail("DB09 source pairs did not identify exactly ten distinct app duplicate rows")
+    derived_rows = [
+        row
+        for row in current_rows
+        if (str(row["table_name"]), str(row["policy_name"])) not in duplicate_keys
+    ]
+    if len(derived_rows) != EXPECTED_POLICY_COUNTS[POST_CONSOLIDATION_POLICY_STATE]:
+        fail("DB09 app duplicate removal did not derive the expected 86-row post-state")
+    if expected_policy_rows(derived_rows) != expected_policy_rows(
+        variants[POST_CONSOLIDATION_POLICY_STATE]
+    ):
+        fail("DB09-derived 86-row post-state differs from canonical post_db09_keep_legacy_names")
+    return derived_rows
+
+
 def create_policy_from_contract(
     connection: psycopg.Connection[dict[str, object]], row: dict[str, object]
 ) -> None:
@@ -397,10 +495,12 @@ def bootstrap_database(
     variants: dict[str, list[dict[str, object]]],
     *,
     policy_state: str = CURRENT_POLICY_STATE,
+    policy_rows: list[dict[str, object]] | None = None,
     with_critical_helper: bool = True,
 ) -> psycopg.Connection[dict[str, object]]:
-    if policy_state not in variants:
+    if policy_rows is None and policy_state not in variants:
         fail("unknown requested exact policy fixture state")
+    selected_policy_rows = variants[policy_state] if policy_rows is None else policy_rows
     with psycopg.connect(
         host="127.0.0.1",
         port=port,
@@ -441,7 +541,7 @@ def bootstrap_database(
         $db14_fixture_roles$;
         """
     )
-    install_exact_policy_state(connection, variants[policy_state])
+    install_exact_policy_state(connection, selected_policy_rows)
     connection.execute("CREATE SCHEMA cron")
     connection.execute(
         """
@@ -490,6 +590,27 @@ def assert_no_scheduler_statement(sql_text: str) -> None:
         fail("extension must not carry a hand-copied daily health definition")
 
 
+def assert_policy_name_patch_shape(sql_text: str) -> None:
+    forbidden = ("cron.", "pg_cron", "schedule(", "unschedule(")
+    if any(token in sql_text.lower() for token in forbidden):
+        fail("policy-name patch contains a scheduler mutation/reference")
+    if "current_pre_db09" in sql_text:
+        fail("policy-name patch must not reach current 96-row policy literals")
+    if sql_text.count("post_db09_12_group_consolidation") < 2:
+        fail("policy-name patch lacks state-scoped post-DB09 replacements")
+    if len(
+        re.findall(
+            r"WITH\s+expected_pairs\(\s*schema_name,\s*table_name,\s*survivor_name,\s*duplicate_name\s*\)",
+            sql_text,
+        )
+    ) != 1:
+        fail("policy-name patch must contain exactly one fixed DB09 app-pairs CTE")
+    if sql_text.count("'circles_app'::pg_catalog.name") < 10:
+        fail("policy-name patch must contain exactly ten fixed circles_app pairs")
+    if "CREATE OR REPLACE FUNCTION circles_ops.run_daily_migration_health" in sql_text:
+        fail("policy-name patch must not carry a hand-copied daily health definition")
+
+
 def assert_baseline_golden(connection: psycopg.Connection[dict[str, object]]) -> dict[str, object]:
     catalog = daily_catalog(connection)
     if catalog["definition_md5"] != GOLDEN_DAILY_DEFINITION_MD5:
@@ -505,6 +626,24 @@ def assert_baseline_golden(connection: psycopg.Connection[dict[str, object]]) ->
     for name, expected in expected_metadata.items():
         if catalog[name] != expected:
             fail(f"source replay daily metadata drifted at {name}")
+    return catalog
+
+
+def assert_extended_golden(connection: psycopg.Connection[dict[str, object]]) -> dict[str, object]:
+    catalog = daily_catalog(connection)
+    if catalog["definition_md5"] != EXTENDED_DAILY_DEFINITION_MD5:
+        fail("old extension does not normalize to the captured post-extension daily definition MD5")
+    if catalog["body_md5"] != EXTENDED_DAILY_BODY_MD5:
+        fail("old extension does not normalize to the captured post-extension daily body MD5")
+    expected_metadata = {
+        "owner": "postgres",
+        "security_definer": True,
+        "config": ["search_path=pg_catalog"],
+        "acl": "{postgres=X/postgres}",
+    }
+    for name, expected in expected_metadata.items():
+        if catalog[name] != expected:
+            fail(f"captured post-extension daily metadata drifted at {name}")
     return catalog
 
 
@@ -610,8 +749,10 @@ def main() -> int:
         variants = canonical_app_policy_variants()
         assert_current_contract_matches_captured_catalog(variants)
         sql_text = extension_sql()
+        name_patch_sql = policy_name_patch_sql()
         assert_no_scheduler_statement(sql_text)
-        record(checks, "extension has two guarded anchors, no scheduler operation, and canonical current data matches capture")
+        assert_policy_name_patch_shape(name_patch_sql)
+        record(checks, "old extension and additive name patch have no scheduler operation, and canonical current data matches capture")
 
         directory = Path(tempfile.mkdtemp(prefix="circles-db14-daily-health-pg17-"))
         directory.chmod(0o700)
@@ -674,21 +815,35 @@ def main() -> int:
         ).fetchone()
         if helper_baseline != {"healthy": True, "error_code": None}:
             fail(f"prepared critical helper baseline is not healthy: {helper_baseline!r}")
+        post_policy_rows = derive_post_consolidation_policy_rows(current, variants)
         apply(current, EXTENSION)
-        after = daily_catalog(current)
-        if after["oid"] != before["oid"]:
+        after_extension = assert_extended_golden(current)
+        if after_extension["oid"] != before["oid"]:
             fail("CREATE OR REPLACE did not preserve the daily function OID")
         for name in ("owner", "security_definer", "config", "acl"):
-            if after[name] != before[name]:
+            if after_extension[name] != before[name]:
                 fail(f"daily function metadata changed at {name}")
-        if after["definition_md5"] == before["definition_md5"]:
+        if after_extension["definition_md5"] == before["definition_md5"]:
             fail("daily definition did not receive the reviewed DB-14 extension")
         if cron_job_7(current) != before_cron:
             fail("synthetic job-7 schedule or username changed during extension")
+        expect_error(lambda: apply(current, EXTENSION), "golden definition")
+        current.rollback()
+        if daily_catalog(current) != after_extension:
+            fail("old extension double apply changed the exact post-extension state after refusal")
+        apply(current, POLICY_NAME_PATCH)
+        after_patch = daily_catalog(current)
+        if after_patch["oid"] != after_extension["oid"]:
+            fail("policy-name patch changed the daily function OID")
+        for name in ("owner", "security_definer", "config", "acl"):
+            if after_patch[name] != after_extension[name]:
+                fail(f"policy-name patch changed daily function metadata at {name}")
+        if after_patch["definition_md5"] == after_extension["definition_md5"]:
+            fail("policy-name patch did not change the captured post-extension definition")
         invoke_and_require(current, healthy=True, critical=True, policies=True)
         if cron_job_7(current) != before_cron:
             fail("synthetic job-7 tuple changed after current-state healthy invocation")
-        record(checks, "complete captured current policy state is healthy after extension with history, OID, metadata, and Cron sentinel preserved")
+        record(checks, "complete captured current policy state is healthy after old extension then name patch with history, OID, metadata, and Cron sentinel preserved")
 
         phase = "browser-and-runtime-execution-denial"
         for role in ("circles_app_runtime", "anon", "authenticated"):
@@ -746,33 +901,41 @@ def main() -> int:
             port,
             "db14_post_db09_" + secrets.token_hex(8),
             variants,
-            policy_state=POST_CONSOLIDATION_POLICY_STATE,
+            policy_rows=post_policy_rows,
         )
         guard_connections.append(post)
         post_before = assert_baseline_golden(post)
         post_cron = cron_job_7(post)
-        if observed_app_policies(post) != expected_policy_rows(variants[POST_CONSOLIDATION_POLICY_STATE]):
-            fail("post-consolidation fixture is not the complete 86-policy state")
+        if observed_app_policies(post) != expected_policy_rows(post_policy_rows):
+            fail("DB09-derived post-consolidation fixture is not the complete 86-policy legacy-name state")
         helper_post = post.execute(
             "SELECT healthy, error_code FROM circles_ops.run_daily_critical_feature_health()"
         ).fetchone()
         if helper_post != {"healthy": True, "error_code": None}:
             fail("critical helper is not healthy in the complete post-consolidation state")
         apply(post, EXTENSION)
-        if daily_catalog(post)["oid"] != post_before["oid"]:
+        post_after_extension = assert_extended_golden(post)
+        if post_after_extension["oid"] != post_before["oid"]:
             fail("post-consolidation extension changed the daily function OID")
+        apply(post, POLICY_NAME_PATCH)
+        post_after_patch = daily_catalog(post)
+        if post_after_patch["oid"] != post_after_extension["oid"]:
+            fail("post-consolidation policy-name patch changed the daily function OID")
+        for name in ("owner", "security_definer", "config", "acl"):
+            if post_after_patch[name] != post_after_extension[name]:
+                fail(f"post-consolidation policy-name patch changed daily metadata at {name}")
         invoke_and_require(post, healthy=True, critical=True, policies=True)
         if cron_job_7(post) != post_cron:
             fail("synthetic job-7 tuple changed for the post-consolidation state")
-        record(checks, "complete post-DB-09 twelve-group consolidation state is also healthy and preserves the Cron sentinel")
+        record(checks, "DB09-derived 86-row legacy-name post-state is healthy after old extension then name patch and preserves the Cron sentinel")
 
-        phase = "double-apply-refusal"
+        phase = "policy-name-patch-double-apply-refusal"
         applied_snapshot = daily_catalog(current)
-        expect_error(lambda: apply(current, EXTENSION), "golden definition")
+        expect_error(lambda: apply(current, POLICY_NAME_PATCH), "golden definition")
         current.rollback()
         if daily_catalog(current) != applied_snapshot:
-            fail("double apply changed the exact post-state after its refusal")
-        record(checks, "double application refuses the non-golden post-state without mutation")
+            fail("policy-name patch double apply changed the exact post-state after its refusal")
+        record(checks, "policy-name patch double application refuses the non-golden post-state without mutation")
 
         phase = "changed-old-definition-refusal"
         changed = bootstrap_database(port, "db14_changed_" + secrets.token_hex(8), variants)
@@ -794,6 +957,32 @@ def main() -> int:
         if daily_catalog(changed) != changed_drift:
             fail("changed-old refusal modified the drifted definition")
         record(checks, "changed old daily definition is refused before either anchor replacement")
+
+        phase = "changed-policy-name-baseline-refusal"
+        changed_name_baseline = bootstrap_database(
+            port, "db14_name_changed_" + secrets.token_hex(8), variants
+        )
+        guard_connections.append(changed_name_baseline)
+        apply(changed_name_baseline, EXTENSION)
+        changed_name_before = assert_extended_golden(changed_name_baseline)
+        changed_name_baseline.execute(
+            """
+            CREATE OR REPLACE FUNCTION circles_ops.run_daily_migration_health()
+            RETURNS TABLE(run_id bigint, ran_at timestamptz, healthy boolean, error_code text)
+            LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog
+            AS $changed_name$ BEGIN RETURN; END; $changed_name$
+            """
+        )
+        changed_name_drift = daily_catalog(changed_name_baseline)
+        if changed_name_drift["oid"] != changed_name_before["oid"]:
+            fail("changed policy-name baseline fixture failed to preserve its OID before refusal")
+        expect_error(
+            lambda: apply(changed_name_baseline, POLICY_NAME_PATCH), "golden definition"
+        )
+        changed_name_baseline.rollback()
+        if daily_catalog(changed_name_baseline) != changed_name_drift:
+            fail("changed policy-name baseline refusal modified the drifted definition")
+        record(checks, "changed captured post-extension definition is refused before name replacement")
 
         phase = "missing-helper-refusal"
         missing = bootstrap_database(
@@ -844,7 +1033,7 @@ def main() -> int:
                 "source_migrations_replayed": len(_fixture.MIGRATIONS),
                 "policy_variants": {
                     CURRENT_POLICY_STATE: len(variants[CURRENT_POLICY_STATE]),
-                    POST_CONSOLIDATION_POLICY_STATE: len(variants[POST_CONSOLIDATION_POLICY_STATE]),
+                    POST_CONSOLIDATION_POLICY_STATE: len(post_policy_rows),
                 },
                 "checks": checks,
                 "negative_guards": [
@@ -854,6 +1043,8 @@ def main() -> int:
                     "browser_denial",
                     "double_apply",
                     "changed_old_definition",
+                    "policy_name_patch_double_apply",
+                    "policy_name_patch_changed_baseline",
                     "missing_helper",
                     "extra_daily_overload",
                     "unreviewed_installer_role",

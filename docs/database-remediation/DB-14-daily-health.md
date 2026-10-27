@@ -2,9 +2,9 @@
 
 ## Status and scope
 
-`operations/remediation/db14_daily_health_extension.sql` is a **prepared, unapplied** extension. It does not contact a provider, read credentials, create data fixtures, alter a scheduler, or run automatically. Parent approval remains required after the recovery gate before any private PostgreSQL execution.
+`operations/remediation/db14_daily_health_extension.sql` is the reviewed extension already applied through the approved private workflow. `operations/remediation/db14_daily_health_policy_names.sql` is the separate, **prepared and unapplied** additive correction for the now-observed post-DB09 legacy survivor names. It does not contact a provider, read credentials, create data fixtures, alter a scheduler, or run automatically. Parent approval remains required before any further private PostgreSQL execution.
 
-The extension changes the existing `circles_ops.run_daily_migration_health()` in place. It retains the previously reviewed `critical_feature_contract` addition and reconciles the obsolete one-policy-per-table health predicate with the approved application/admin policy contract. It does **not** create or change RLS policies, product authorization, schemas, roles, tables, jobs, history rows, retention behavior, or a wrapper function.
+The extension changes the existing `circles_ops.run_daily_migration_health()` in place. It retains the previously reviewed `critical_feature_contract` addition and reconciles the obsolete one-policy-per-table health predicate with the approved application/admin policy contract. The new additive correction changes only ten post-DB09 expected policy-name literals in that function body. Neither file creates or changes RLS policies, product authorization, schemas, roles, tables, jobs, history rows, retention behavior, or a wrapper function.
 
 ## Exact guarded baseline
 
@@ -31,11 +31,23 @@ The first anchor replaces only the stale daily **health check**, not any policy 
 | Accepted state                                     | Rows | Tables | Normalized SHA-256                                                 |
 | -------------------------------------------------- | ---: | -----: | ------------------------------------------------------------------ |
 | Current pre-DB-09 policy set                       |   96 |     27 | `88a7aef25382ea3734a30d6c3333e4b993bd95bf3befd5f312f5abce40593ae3` |
-| Complete post-DB-09 twelve-group-consolidation set |   86 |     27 | `0475525cb06cf85917d7e4f5551102ab336bf765029c889ee9eeae18a4d2bb8e` |
+| Complete post-DB-09 legacy-survivor set (`post_db09_keep_legacy_names`) |   86 |     27 | source-derived from DB09 expected pairs |
 
 The normalized 96-row current set exactly matches the captured catalog on table, policy name, sorted role names, command, permissiveness, normalized `USING` qualification, and normalized `WITH CHECK` qualification. The post state removes exactly ten approved app-policy records from that current state; it is not a permission-count threshold or an open-ended allowance.
 
 At runtime the replacement normalizes and compares **every** `pg_policy` row on all expected app tables against either complete set using both directional `EXCEPT ALL` comparisons and cardinality equality. It therefore rejects added policies, changed policy fields, arbitrary extras, and incomplete/partial consolidation. Both accepted states retain the restrictive `circles_app_deny_anon_authenticated` policy for `anon, authenticated` on every one of the 27 app tables; the related direct API/browser privilege checks elsewhere in the daily routine remain unchanged.
+
+## Additive post-DB09 policy-name correction
+
+The new `db14_daily_health_policy_names.sql` accepts only the exact 2026-10-27 captured state after the original extension, recorded at `/home/ubuntu/circles-all-phases/evidence/daily-before-name-correction.json`:
+
+- `pg_get_functiondef()` MD5 `232d11447e666955f89eff147c1aee29`;
+- `prosrc` MD5 `e43b8272264d14e1db96506bbac74d9a`;
+- owner `postgres`, `SECURITY DEFINER`, `search_path=pg_catalog`, and ACL `{postgres=X/postgres}`.
+
+It requires exactly one zero-argument daily-health signature and a reviewed `postgres` session/current role. It takes a distinct transaction advisory lock and applies no policy DDL. Its fixed ten `circles_app` pairs are the app-only subset of DB09 migration `0021`'s `expected_pairs` VALUES constant: the `circles_admin_read_*` survivor replaces the corresponding `circles_admin_parity_read_*` literal for `circles`, `comments`, `liveViewers`, `memberships`, `posts`, `profiles`, `reactions`, `reports`, `streams`, and `users`.
+
+Each replacement is scoped to the literal beginning with `post_db09_12_group_consolidation`, so the 96-row current-state literals are unreachable. Before replacement, every old literal must occur exactly once and every legacy literal zero times; the fixed pair set must contain exactly ten distinct app tables, survivors, and duplicates. The generated candidate must then contain zero old and exactly one new literal for every pair. Postflight requires the original function OID, exact generated definition, owner, definer setting, path, and ACL. Any altered baseline, overload, metadata drift, absent/non-unique literal, or reapplication refuses before mutation.
 
 ## Isolated PostgreSQL 17 rehearsal
 
@@ -51,12 +63,12 @@ The verified run uses a fresh loopback-only PostgreSQL 17 cluster, a stripped ch
 
 The 2026-10-27 bounded run passed:
 
-- healthy current (96-row) and exact post-consolidation (86-row) policy states;
+- healthy current (96-row) and DB09-derived exact legacy-name post-consolidation (86-row) policy states after the old extension then new additive correction;
 - preserved daily-function OID, owner/definer/path/ACL metadata, history append behavior, and synthetic job-7 tuple;
 - direct execution denial for `circles_app_runtime`, `anon`, and `authenticated` for both protected health functions;
 - fail-closed added, changed, partial, and browser-denial-policy drift cases, followed by healthy exact-state recovery;
 - negative critical-feature drift with continued history and unchanged synthetic job 7;
-- double-apply, altered-old-definition, missing-helper, extra-overload, and unreviewed-installer-role refusals.
+- original-extension double-apply, additive-correction double-apply, altered-old-definition, altered post-extension baseline, missing-helper, extra-overload, and unreviewed-installer-role refusals.
 
 The test removes its disposable cluster directory in `finally`. It is local functional evidence only; it is not a provider connection, a production write, or a live scheduler operation.
 
@@ -74,5 +86,5 @@ This prepared candidate does not prove that the live function, helper, ownership
 2. Read current private metadata and compare it to the exact guarded baseline. Treat any mismatch as stop-and-review; do not edit the SQL to force a match.
 3. Independently verify the current complete app-policy catalog is exactly one of the two closed reviewed states, together with the unchanged supporting ACL checks. Do not infer validity from a policy count.
 4. Apply the prepared companion `db14_integrity_health.sql` only through its separately approved path if it is not already present and verified. The extension refuses a missing or changed helper.
-5. Submit `db14_daily_health_extension.sql` once as a whole transaction through the approved private PostgreSQL workflow, as `postgres`. Do not use an application migration replay, `db:push`, a browser, or a scheduler command.
+5. The original extension is already applied. Submit `db14_daily_health_policy_names.sql` once as a whole transaction through the approved private PostgreSQL workflow, as `postgres`, only if the exact captured post-extension fingerprint still matches. Do not use an application migration replay, `db:push`, a browser, or a scheduler command.
 6. After an authorized response, inspect bounded function metadata. Invoke the existing daily operation only if separately authorized, and compare job-7 identity/schedule/username through the approved read-only operations process. Do not recreate or alter the job.
