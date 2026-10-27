@@ -390,12 +390,14 @@ test("DB-05 fails closed on changed reviewed admin roles, app ACLs, or native he
   );
 });
 
-test("DB-05 accepts only baseline, NOLOGIN-provisioned, and protected LOGIN-cutover application-login variants", () => {
+test("DB-05 accepts only baseline, local-only, and exact provider-owned incoming-edge application-login variants", () => {
   const adminEvidence = adminContractAdminEvidence();
   for (const variantName of [
     "baseline_pre_db02",
     "no_login_provisioned",
+    "no_login_provisioned_provider_owned_incoming_edge",
     "login_cutover",
+    "login_cutover_provider_owned_incoming_edge",
   ]) {
     const appEvidence = appLoginEvidence(variantName);
     const result = evaluateAppLoginAuthorizationContract(appEvidence);
@@ -414,8 +416,47 @@ test("DB-05 accepts only baseline, NOLOGIN-provisioned, and protected LOGIN-cuto
   }
 });
 
-test("DB-05 rejects extra application-login edges, ADMIN OPTION, direct authority, and partial DB-09 policy states", () => {
-  const provisioned = appLoginEvidence("no_login_provisioned");
+test("DB-05 rejects retained provider-owned incoming-edge field changes or a duplicate edge", () => {
+  const provisioned = appLoginEvidence(
+    "no_login_provisioned_provider_owned_incoming_edge",
+  );
+  const providerIncomingEdge = provisioned.role_memberships.find(
+    (row) => row.parent_role === "circles_app_login",
+  );
+  assert.ok(providerIncomingEdge);
+
+  for (const [field, value] of [
+    ["member_role", "supabase_admin"],
+    ["grantor_role", "postgres"],
+    ["inherit_option", true],
+    ["set_option", true],
+    ["admin_option", false],
+  ]) {
+    const changedField = structuredClone(provisioned);
+    changedField.role_memberships.find(
+      (row) => row.parent_role === "circles_app_login",
+    )[field] = value;
+    assert.equal(
+      evaluateAppLoginAuthorizationContract(changedField).status,
+      "fail",
+      `provider incoming edge must reject changed ${field}`,
+    );
+  }
+
+  const duplicateProviderEdge = structuredClone(provisioned);
+  duplicateProviderEdge.role_memberships.push(
+    structuredClone(providerIncomingEdge),
+  );
+  assert.equal(
+    evaluateAppLoginAuthorizationContract(duplicateProviderEdge).status,
+    "fail",
+  );
+});
+
+test("DB-05 rejects extra application-login edges and direct object ACLs in every finite state", () => {
+  const provisioned = appLoginEvidence(
+    "no_login_provisioned_provider_owned_incoming_edge",
+  );
 
   const extraEdge = structuredClone(provisioned);
   extraEdge.role_memberships.push({
@@ -428,22 +469,21 @@ test("DB-05 rejects extra application-login edges, ADMIN OPTION, direct authorit
   });
   assert.equal(evaluateAppLoginAuthorizationContract(extraEdge).status, "fail");
 
-  const adminOption = structuredClone(provisioned);
-  adminOption.role_memberships[0].admin_option = true;
-  assert.equal(
-    evaluateAppLoginAuthorizationContract(adminOption).status,
-    "fail",
-  );
-
-  const directAcl = structuredClone(provisioned);
-  directAcl.table_acl_privileges.push({
-    table_name: "users",
-    owner: "postgres",
-    grantee: "circles_app_login",
-    privilege_type: "SELECT",
-    is_grantable: false,
-  });
-  assert.equal(evaluateAppLoginAuthorizationContract(directAcl).status, "fail");
+  for (const variantName of Object.keys(APP_LOGIN_CONTRACT_VARIANTS)) {
+    const directAcl = appLoginEvidence(variantName);
+    directAcl.table_acl_privileges.push({
+      table_name: "users",
+      owner: "postgres",
+      grantee: "circles_app_login",
+      privilege_type: "SELECT",
+      is_grantable: false,
+    });
+    assert.equal(
+      evaluateAppLoginAuthorizationContract(directAcl).status,
+      "fail",
+      `direct ACL must fail for ${variantName}`,
+    );
+  }
 
   const partialDb09State = structuredClone(
     POLICY_CONTRACT_VARIANTS.pre_db09_duplicate_consolidation,
