@@ -179,4 +179,24 @@ describe("email authentication client protocol", () => {
         "Email or password is incorrect, or sign-in is unavailable. Please try again.",
     });
   });
+
+  it("asks for a password reset without sending a password or expecting a session", async () => {
+    mocks.platform.OS = "web";
+    mocks.apiCall.mockResolvedValueOnce({ success: true });
+    await expect(
+      client.requestPasswordReset("member@example.test"),
+    ).resolves.toBeUndefined();
+    expect(mocks.apiCall).toHaveBeenCalledWith(
+      "/api/auth/email/password-reset",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          email: "member@example.test",
+          client: "web",
+        }),
+        signal: expect.any(AbortSignal),
+      }),
+    );
+    expect(mocks.setSessionToken).not.toHaveBeenCalled();
+  });
 });

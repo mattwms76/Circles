@@ -74,6 +74,16 @@ import {
   recordCommentActivity,
   recordMembershipApprovalActivity,
 } from "./activity-events";
+import {
+  attachCirclePromptResponse,
+  normalizeCirclePrompt,
+  readCirclePrompt,
+  writeCirclePrompt,
+} from "./circle-prompt";
+import {
+  deliverDevicePush,
+  notifyConversationParticipants,
+} from "./device-push";
 import { recordModerationReport } from "./moderation-events";
 
 export type CircleRole = "owner" | "moderator" | "member" | "pending";
@@ -1279,6 +1289,47 @@ export async function updateCircleHome(
   return { success: true };
 }
 
+/** One active prompt per circle. An empty body clears it. Responses keep the prompt text they answered. */
+export async function getCirclePrompt(
+  viewerId: number | null,
+  circleId: number,
+) {
+  const normalizedCircleId = normalizeCircleHomeId(circleId);
+  await getCircleHome(viewerId, normalizedCircleId);
+  const db = await requireDb();
+  return readCirclePrompt(db, normalizedCircleId);
+}
+
+export async function setCirclePrompt(
+  userId: number,
+  circleId: number,
+  rawBody: string,
+): Promise<{ success: true }> {
+  let body: string;
+  try {
+    body = normalizeCirclePrompt(rawBody);
+  } catch {
+    socialError("BAD_REQUEST", "Circle prompt is too long");
+  }
+  const normalizedCircleId = normalizeCircleHomeId(circleId);
+  const db = await requireDb();
+  await db.transaction(async (tx) => {
+    const { role } = await lockCircleAccessForProtectedMutation(
+      tx,
+      userId,
+      normalizedCircleId,
+    );
+    if (!canModerateCircle(role)) {
+      socialError(
+        "FORBIDDEN",
+        "Only a circle owner or moderator may manage the circle prompt",
+      );
+    }
+    await writeCirclePrompt(tx, normalizedCircleId, userId, body);
+  });
+  return { success: true };
+}
+
 /** Managers set a concrete existing circle post or explicitly clear the pin; there is no toggle. */
 export async function setCirclePinnedPost(
   userId: number,
@@ -2407,7 +2458,7 @@ export async function approveMember(
   targetUserId: number,
 ): Promise<{ success: true }> {
   const db = await requireDb();
-  await db.transaction(async (tx) => {
+  const notify = await db.transaction(async (tx) => {
     await lockCircleForProtectedMutation(tx, circleId);
     const { actorRole, targetRole } = await getActorAndTargetRoles(
       tx,
@@ -2438,13 +2489,22 @@ export async function approveMember(
         "Unable to approve the pending member",
       );
     }
-    await recordMembershipApprovalActivity(tx, {
-      recipientId: targetUserId,
-      actorId,
-      sourceId: membershipId,
-      circleId,
-    });
+    return (
+      (await recordMembershipApprovalActivity(tx, {
+        recipientId: targetUserId,
+        actorId,
+        sourceId: membershipId,
+        circleId,
+      })) === true
+    );
   });
+  if (notify) {
+    await deliverDevicePush([targetUserId], {
+      title: "Request approved",
+      body: "Your request to join a circle was approved.",
+      data: { kind: "approval" },
+    });
+  }
   return { success: true };
 }
 
@@ -2575,6 +2635,9 @@ export async function createPost(
             ),
           );
       }
+      if (normalized.circleId != null) {
+        await attachCirclePromptResponse(tx, normalized.circleId, id);
+      }
       return id;
     });
   } catch (error) {
@@ -2695,16 +2758,24 @@ export async function createComment(
       });
     const row = created[0];
     if (!row) socialError("INTERNAL_SERVER_ERROR", "Unable to create comment");
-    await recordCommentActivity(tx, {
-      recipientId: access.post.authorId,
-      actorId: userId,
-      sourceId: row.id,
-      postId,
-      circleId: access.post.circleId,
-    });
-    return row;
+    const notify =
+      (await recordCommentActivity(tx, {
+        recipientId: access.post.authorId,
+        actorId: userId,
+        sourceId: row.id,
+        postId,
+        circleId: access.post.circleId,
+      })) === true;
+    return { ...row, notifyRecipientId: notify ? access.post.authorId : null };
   });
   if (!row) socialError("INTERNAL_SERVER_ERROR", "Unable to create comment");
+  if (row.notifyRecipientId) {
+    await deliverDevicePush([row.notifyRecipientId], {
+      title: "New comment",
+      body: "Someone commented on your post.",
+      data: { kind: "comment" },
+    });
+  }
   return {
     id: row.id,
     author: await ensureProfileWithDb(db, userId),
@@ -3370,7 +3441,7 @@ export async function sendMessage(
     socialError("BAD_REQUEST", "Invalid client message ID");
   }
   const db = await requireDb();
-  const { row } = await db.transaction(async (tx) => {
+  const { row, created } = await db.transaction(async (tx) => {
     await lockConversationForMessageMutation(tx, conversationId);
     await assertConversationAccess(tx, userId, conversationId, {
       ensureCircleParticipant: true,
@@ -3398,7 +3469,7 @@ export async function sendMessage(
             "A client message ID cannot be reused with different content",
           );
         }
-        return { row: existing[0] };
+        return { row: existing[0], created: false };
       }
     }
     // The attachment check and ownership claim live with message insertion. A failed insert
@@ -3423,8 +3494,11 @@ export async function sendMessage(
       .update(conversations)
       .set({ updatedAt: new Date() })
       .where(eq(conversations.id, conversationId));
-    return { row: message };
+    return { row: message, created: true };
   });
+  if (created) {
+    await notifyConversationParticipants(conversationId, userId);
+  }
   return {
     id: row.id,
     conversationId,

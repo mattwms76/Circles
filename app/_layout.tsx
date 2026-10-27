@@ -22,6 +22,7 @@ import {
   subscribeSafeAreaInsets,
 } from "@/lib/_core/manus-runtime";
 import { CirclesProvider } from "@/hooks/circles-context";
+import { PushRegistration } from "@/components/push-registration";
 import { LiveAvatarProvider } from "@/hooks/live-avatar-context";
 import { OnboardingNavigation } from "@/components/onboarding-navigation";
 import { SourceRevalidation } from "@/components/source-revalidation";
@@ -108,6 +109,7 @@ export default function RootLayout() {
             resetProtectedNavigation={resetProtectedNavigation}
           >
             <LiveAvatarProvider>
+              <PushRegistration />
               <SourceRevalidation />
               <OnboardingNavigation />
               <PlatformMaintenanceNotice />

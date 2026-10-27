@@ -12,7 +12,9 @@ import {
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import {
   getCircleHome,
+  getCirclePrompt,
   setCirclePinnedPost,
+  setCirclePrompt,
   updateCircleHome,
 } from "./social-service";
 
@@ -106,5 +108,28 @@ export const circleHomeRouter = router({
     .mutation(({ ctx, input }) => {
       assertCircleHomeViewerScope(input.viewerScope, ctx.user?.id ?? null);
       return setCirclePinnedPost(ctx.user.id, input);
+    }),
+
+  prompt: publicProcedure
+    .input(circleHomeGetInput)
+    .query(({ ctx, input }) => {
+      const viewerId = ctx.user?.id ?? null;
+      assertCircleHomeViewerScope(input.viewerScope, viewerId);
+      return getCirclePrompt(viewerId, input.circleId);
+    }),
+
+  setPrompt: protectedProcedure
+    .input(
+      z
+        .object({
+          circleId: circleHomeId,
+          viewerScope: circleHomeViewerScope,
+          body: z.string().max(400),
+        })
+        .strict(),
+    )
+    .mutation(({ ctx, input }) => {
+      assertCircleHomeViewerScope(input.viewerScope, ctx.user?.id ?? null);
+      return setCirclePrompt(ctx.user.id, input.circleId, input.body);
     }),
 });
