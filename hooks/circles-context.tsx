@@ -1,5 +1,10 @@
 import type { QueryClient } from "@tanstack/react-query";
-import React, { useCallback, useEffect, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useState,
+} from "react";
 import {
   KeyboardAvoidingView,
   Modal,
@@ -28,6 +33,13 @@ import {
 import { rootFeedbackNoticeBottom } from "../lib/a26-auth-layout";
 import { resolveProtectedActionRequest } from "../lib/a26-auth-protected-action";
 import { resolveAuthGateState } from "@/lib/feed-ui-helpers";
+import {
+  actorBoundaryKey,
+  actorBoundaryResetRequired,
+  observedActorForAuth,
+  resetActorScopedClientState,
+  type ObservedActor,
+} from "../lib/parity27-actor-boundary";
 import type { StatusTone } from "@/lib/status-announcement";
 import {
   CirclesContext as Context,
@@ -81,6 +93,14 @@ export function CirclesProvider({
     isError: auth.isError,
     hasUser: !!auth.data,
   });
+  const observedActor = observedActorForAuth(authState, auth.data ?? null);
+  const [admittedActor, setAdmittedActor] = useState<ObservedActor>(undefined);
+  const actorResetRequired = actorBoundaryResetRequired(
+    admittedActor,
+    observedActor,
+  );
+  const actorBoundaryActor =
+    observedActor === undefined ? admittedActor : observedActor;
   const loginVisible = login && authState === "guest";
   const refetchAuth = auth.refetch;
   const showNotice = useCallback(
@@ -100,6 +120,39 @@ export function CirclesProvider({
     const timer = setTimeout(() => setNotice(null), 4000);
     return () => clearTimeout(timer);
   }, [notice]);
+
+  useLayoutEffect(() => {
+    if (observedActor === undefined) return;
+    let disposed = false;
+    const admitObservedActor = () => {
+      if (disposed) return;
+      if (actorResetRequired) {
+        setLogin(false);
+        setNotice(null);
+      }
+      setAdmittedActor(observedActor);
+    };
+
+    if (admittedActor === undefined) {
+      // Deferring admission avoids a cascading render from the effect while
+      // preserving the initial auth gate's existing render behavior.
+      void Promise.resolve().then(admitObservedActor);
+      return () => {
+        disposed = true;
+      };
+    }
+    if (!actorResetRequired) return;
+
+    // Do not clear auth.me: it is the confirmed authority that detected this
+    // replacement. All other query/mutation state is detached before a keyed
+    // descendant subtree can observe the next actor.
+    void resetActorScopedClientState(queryClient);
+    void clearPrivateImageCaches().catch(() => undefined);
+    void Promise.resolve().then(admitObservedActor);
+    return () => {
+      disposed = true;
+    };
+  }, [actorResetRequired, admittedActor, observedActor, queryClient]);
 
   const refresh = useCallback(() => {
     void refetchAuth();
@@ -233,7 +286,11 @@ export function CirclesProvider({
         completeNativeLoginWithResult,
       }}
     >
-      {children}
+      {actorResetRequired ? null : (
+        <React.Fragment key={actorBoundaryKey(actorBoundaryActor)}>
+          {children}
+        </React.Fragment>
+      )}
       {!!notice && !callbackOwnsRecovery && (
         <View
           pointerEvents="none"

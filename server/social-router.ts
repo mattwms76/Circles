@@ -483,7 +483,8 @@ export const socialRouter = router({
     .input(
       z.object({
         circleId: id,
-        cursor: dateIdCursor.optional(),
+        // JS Date truncates PostgreSQL microseconds; accept the exact companion when supplied.
+        cursor: feedPageCursor.optional(),
         limit: pageLimit,
       }),
     )
@@ -494,6 +495,7 @@ export const socialRouter = router({
               cursor: {
                 createdAt: new Date(input.cursor.createdAt),
                 id: input.cursor.id,
+                createdAtExact: input.cursor.createdAtExact,
               },
             }
           : {}),
@@ -505,6 +507,7 @@ export const socialRouter = router({
           ? {
               createdAt: page.nextCursor.createdAt.toISOString(),
               id: page.nextCursor.id,
+              createdAtExact: page.nextCursor.createdAtExact,
             }
           : null,
       };

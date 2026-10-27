@@ -31,7 +31,7 @@ function createCommentViewerDb() {
     ) => Promise.resolve(rows).then(resolve, reject),
   });
 
-  return {
+  const db = {
     select: (fields?: Record<string, unknown>) => ({
       from: (table: unknown) => ({
         where: (condition: unknown) => {
@@ -69,6 +69,12 @@ function createCommentViewerDb() {
         },
       }),
     }),
+  };
+  return {
+    ...db,
+    transaction: vi.fn(async (work: (tx: typeof db) => Promise<unknown>) =>
+      work(db),
+    ),
   };
 }
 

@@ -50,6 +50,9 @@ vi.mock("react", async (importOriginal) => {
     useEffect: (effect: HookEffect) => {
       hookStore.effects.push(effect);
     },
+    useLayoutEffect: (effect: HookEffect) => {
+      hookStore.effects.push(effect);
+    },
     useRef: <T>(initialValue: T) => {
       const index = hookStore.refCursor++;
       if (!(index in hookStore.refValues)) {

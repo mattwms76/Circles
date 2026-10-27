@@ -13,7 +13,7 @@ import {
 } from "../shared/onboarding";
 import type { Circle } from "../shared/social";
 import { circles, memberships, profiles } from "../drizzle/schema";
-import { getDb, type CirclesDatabase } from "./db";
+import { getDb, type CirclesDatabase, type CirclesTransaction } from "./db";
 import { getProfile } from "./social-service";
 
 const APPROVED_MEMBER_ROLES = ["owner", "moderator", "member"] as const;
@@ -91,16 +91,60 @@ async function findOwnOnboardingProfile(
   return rows[0] ?? null;
 }
 
-/** Save and finish are the only onboarding paths allowed to create the caller's social profile. */
-async function ownMutableOnboardingProfile(
-  db: Database,
+/** Reads the caller's mutable row only after the transaction owns its row-level write lock. */
+async function lockOwnMutableOnboardingProfile(
+  tx: CirclesTransaction,
   userId: number,
 ): Promise<OnboardingProfileRow> {
-  await getProfile(userId);
-  const row = await findOwnOnboardingProfile(db, userId);
+  const rows = await tx
+    .select({
+      userId: profiles.userId,
+      interests: profiles.interests,
+      onboardingStep: profiles.onboardingStep,
+      onboardingCompletedAt: profiles.onboardingCompletedAt,
+    })
+    .from(profiles)
+    .where(eq(profiles.userId, userId))
+    .limit(1)
+    .for("update");
+  const row = rows[0];
   if (!row)
     onboardingError("INTERNAL_SERVER_ERROR", "Unable to initialize onboarding");
   return row;
+}
+
+/**
+ * Profile materialization is an independent first-use write. Once it completes, save and finish
+ * derive their state from the locked current row so an older save cannot overwrite a finish that
+ * committed while it was waiting. The fallback only supports existing in-memory unit adapters;
+ * the production CirclesDatabase contract always provides `transaction`.
+ */
+async function withLockedOwnOnboardingProfile<Result>(
+  db: Database,
+  userId: number,
+  apply: (
+    tx: CirclesTransaction,
+    current: OnboardingProfileRow,
+  ) => Promise<Result>,
+): Promise<Result> {
+  await getProfile(userId);
+  const transactionalDb = db as unknown as {
+    transaction?: <Value>(
+      callback: (tx: CirclesTransaction) => Promise<Value>,
+    ) => Promise<Value>;
+  };
+  if (typeof transactionalDb.transaction !== "function") {
+    const current = await findOwnOnboardingProfile(db, userId);
+    if (!current)
+      onboardingError(
+        "INTERNAL_SERVER_ERROR",
+        "Unable to initialize onboarding",
+      );
+    return apply(db as unknown as CirclesTransaction, current);
+  }
+  return transactionalDb.transaction(async (tx) =>
+    apply(tx, await lockOwnMutableOnboardingProfile(tx, userId)),
+  );
 }
 
 /** Returns the caller's private onboarding state; no public profile response is extended. */
@@ -124,31 +168,31 @@ export async function saveOnboarding(
   input: SaveOnboardingInput,
 ): Promise<OnboardingStatus> {
   const db = await requireDb();
-  const current = await ownMutableOnboardingProfile(db, userId);
-  const step =
-    input.step ?? (current.onboardingCompletedAt ? "complete" : "circles");
-  const completedAt =
-    step === "complete" ? current.onboardingCompletedAt : null;
-
-  const rows = await db
-    .update(profiles)
-    .set({
-      interests: input.interests,
-      onboardingStep: step,
-      onboardingCompletedAt: completedAt,
-      updatedAt: new Date(),
-    })
-    .where(eq(profiles.userId, userId))
-    .returning({
-      userId: profiles.userId,
-      interests: profiles.interests,
-      onboardingStep: profiles.onboardingStep,
-      onboardingCompletedAt: profiles.onboardingCompletedAt,
-    });
-  const row = rows[0];
-  if (!row)
-    onboardingError("INTERNAL_SERVER_ERROR", "Unable to save onboarding");
-  return asOnboardingStatus(row);
+  return withLockedOwnOnboardingProfile(db, userId, async (tx, current) => {
+    const step =
+      input.step ?? (current.onboardingCompletedAt ? "complete" : "circles");
+    const completedAt =
+      step === "complete" ? current.onboardingCompletedAt : null;
+    const rows = await tx
+      .update(profiles)
+      .set({
+        interests: input.interests,
+        onboardingStep: step,
+        onboardingCompletedAt: completedAt,
+        updatedAt: new Date(),
+      })
+      .where(eq(profiles.userId, userId))
+      .returning({
+        userId: profiles.userId,
+        interests: profiles.interests,
+        onboardingStep: profiles.onboardingStep,
+        onboardingCompletedAt: profiles.onboardingCompletedAt,
+      });
+    const row = rows[0];
+    if (!row)
+      onboardingError("INTERNAL_SERVER_ERROR", "Unable to save onboarding");
+    return asOnboardingStatus(row);
+  });
 }
 
 /** Marks onboarding complete without changing choices and preserves the timestamp on retries. */
@@ -156,26 +200,26 @@ export async function finishOnboarding(
   userId: number,
 ): Promise<OnboardingStatus> {
   const db = await requireDb();
-  await ownMutableOnboardingProfile(db, userId);
-
-  const rows = await db
-    .update(profiles)
-    .set({
-      onboardingStep: "complete",
-      onboardingCompletedAt: sql<Date>`coalesce(${profiles.onboardingCompletedAt}, now())`,
-      updatedAt: new Date(),
-    })
-    .where(eq(profiles.userId, userId))
-    .returning({
-      userId: profiles.userId,
-      interests: profiles.interests,
-      onboardingStep: profiles.onboardingStep,
-      onboardingCompletedAt: profiles.onboardingCompletedAt,
-    });
-  const row = rows[0];
-  if (!row)
-    onboardingError("INTERNAL_SERVER_ERROR", "Unable to finish onboarding");
-  return asOnboardingStatus(row);
+  return withLockedOwnOnboardingProfile(db, userId, async (tx) => {
+    const rows = await tx
+      .update(profiles)
+      .set({
+        onboardingStep: "complete",
+        onboardingCompletedAt: sql<Date>`coalesce(${profiles.onboardingCompletedAt}, now())`,
+        updatedAt: new Date(),
+      })
+      .where(eq(profiles.userId, userId))
+      .returning({
+        userId: profiles.userId,
+        interests: profiles.interests,
+        onboardingStep: profiles.onboardingStep,
+        onboardingCompletedAt: profiles.onboardingCompletedAt,
+      });
+    const row = rows[0];
+    if (!row)
+      onboardingError("INTERNAL_SERVER_ERROR", "Unable to finish onboarding");
+    return asOnboardingStatus(row);
+  });
 }
 
 function isApprovedRole(

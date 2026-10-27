@@ -115,25 +115,36 @@ async function globalPreferenceRow(db: Database, recipientId: number) {
   return rows[0] ?? { commentsEnabled: true, membershipApprovalsEnabled: true };
 }
 
-/** Same-error lookup keeps a missing, private, or nonmember circle from becoming an oracle. */
-async function memberCircleOrNull(
-  db: Database,
+/**
+ * Private Activity DTOs lock the same parent row used by social membership removal before they
+ * re-read the recipient role. Pending requesters retain their existing preference policy; callers
+ * that project activity content still apply the approved-role predicate below.
+ */
+async function lockMemberCircleForReadOrNull(
+  tx: CirclesTransaction,
   recipientId: number,
   circleId: number,
 ) {
-  const rows = await db
-    .select({ name: circles.name, role: memberships.role })
+  const circleRows = await tx
+    .select({ name: circles.name })
     .from(circles)
-    .innerJoin(
-      memberships,
+    .where(eq(circles.id, circleId))
+    .limit(1)
+    .for("share");
+  const circle = circleRows[0];
+  if (!circle) return null;
+  const membershipRows = await tx
+    .select({ role: memberships.role })
+    .from(memberships)
+    .where(
       and(
-        eq(memberships.circleId, circles.id),
+        eq(memberships.circleId, circleId),
         eq(memberships.userId, recipientId),
       ),
     )
-    .where(eq(circles.id, circleId))
     .limit(1);
-  return rows[0] ?? null;
+  const membership = membershipRows[0];
+  return membership ? { name: circle.name, role: membership.role } : null;
 }
 
 /** Mutations lock the circle before the recipient row to match social's established lock order. */
@@ -164,12 +175,12 @@ async function lockMemberCircleOrNull(
 }
 
 async function circlePreferenceOutput(
-  db: Database,
+  db: CirclesTransaction,
   viewerId: number,
   circleId: number,
   global: { commentsEnabled: boolean; membershipApprovalsEnabled: boolean },
 ): Promise<ActivityPreferences> {
-  const circle = await memberCircleOrNull(db, viewerId, circleId);
+  const circle = await lockMemberCircleForReadOrNull(db, viewerId, circleId);
   if (!circle) activityError("NOT_FOUND", "Circle preference target not found");
   const preference = await db
     .select({ muted: activityCirclePreferences.muted })
@@ -194,11 +205,11 @@ async function circlePreferenceOutput(
 }
 
 async function activeCircleName(
-  db: Database,
+  db: CirclesTransaction,
   recipientId: number,
   circleId: number,
 ): Promise<string | null> {
-  const circle = await memberCircleOrNull(db, recipientId, circleId);
+  const circle = await lockMemberCircleForReadOrNull(db, recipientId, circleId);
   if (
     !circle ||
     !APPROVED_ROLES.includes(circle.role as (typeof APPROVED_ROLES)[number])
@@ -214,12 +225,18 @@ async function activeCircleName(
  * Deletion clears/cascades targets, so no former-circle item can be reinterpreted globally.
  */
 async function itemAvailability(
-  db: Database,
+  db: CirclesTransaction,
   recipientId: number,
   item: ActivityRow,
 ): Promise<{ available: boolean; circleName: string | null }> {
   if (item.kind === "comment_on_your_post") {
     if (item.postId === null) return { available: false, circleName: null };
+    let circleName: string | null = null;
+    if (item.circleId !== null) {
+      // Lock/check the parent before selecting the protected post target or its author metadata.
+      circleName = await activeCircleName(db, recipientId, item.circleId);
+      if (circleName === null) return { available: false, circleName: null };
+    }
     const postRows = await db
       .select({ circleId: posts.circleId })
       .from(posts)
@@ -230,10 +247,7 @@ async function itemAvailability(
       return { available: false, circleName: null };
     }
     if (item.circleId === null) return { available: true, circleName: null };
-    const circleName = await activeCircleName(db, recipientId, item.circleId);
-    return circleName === null
-      ? { available: false, circleName: null }
-      : { available: true, circleName };
+    return { available: true, circleName };
   }
   if (item.kind === "membership_approved" && item.circleId !== null) {
     const circleName = await activeCircleName(db, recipientId, item.circleId);
@@ -245,7 +259,7 @@ async function itemAvailability(
 }
 
 async function mapItem(
-  db: Database,
+  db: CirclesTransaction,
   recipientId: number,
   row: ActivityRow,
 ): Promise<ActivityItem> {
@@ -305,7 +319,9 @@ export async function listActivity(
   const last = pageRows[pageRows.length - 1];
   return {
     viewerId,
-    items: await Promise.all(pageRows.map((row) => mapItem(db, viewerId, row))),
+    items: await Promise.all(
+      pageRows.map((row) => db.transaction((tx) => mapItem(tx, viewerId, row))),
+    ),
     nextCursor: rows.length > limit && last ? { beforeId: last.id } : null,
   };
 }
@@ -344,7 +360,9 @@ export async function getActivityPreferences(
   if (circleId === undefined) {
     return { viewerId, ...global, circle: null };
   }
-  return circlePreferenceOutput(db, viewerId, circleId, global);
+  return db.transaction((tx) =>
+    circlePreferenceOutput(tx, viewerId, circleId, global),
+  );
 }
 
 export async function resolveActivityTarget(
@@ -369,14 +387,14 @@ export async function resolveActivityTarget(
     };
   }
   if (item.kind === "membership_approved" && item.circleId !== null) {
-    const circleName = await activeCircleName(db, viewerId, item.circleId);
+    const circleId = item.circleId;
+    const circleName = await db.transaction((tx) =>
+      activeCircleName(tx, viewerId, circleId),
+    );
     return {
       viewerId,
       activityId: id,
-      target:
-        circleName === null
-          ? null
-          : { type: "circle", circleId: item.circleId },
+      target: circleName === null ? null : { type: "circle", circleId },
     };
   }
   return { viewerId, activityId: id, target: null };

@@ -426,14 +426,23 @@ export class SDKServer {
     if (!user) {
       try {
         const userInfo = await this.getUserInfoWithJwt(sessionCookie ?? "");
+        // A legacy signed session has no numeric actor claim, so its verified
+        // openId remains the authority for fallback rehydration. Do not let an
+        // inconsistent provider response select a different local identity.
+        if (
+          !isNonEmptyString(userInfo.openId) ||
+          userInfo.openId !== session.openId
+        ) {
+          throw new Error("Provider identity does not match signed session");
+        }
         await db.upsertUser({
-          openId: userInfo.openId,
+          openId: session.openId,
           name: userInfo.name || null,
           email: userInfo.email ?? null,
           loginMethod: userInfo.loginMethod ?? userInfo.platform ?? null,
           lastSignedIn: signedInAt,
         });
-        user = await db.getUserByOpenId(userInfo.openId);
+        user = await db.getUserByOpenId(session.openId);
       } catch {
         console.error("[Auth] Failed to sync user from OAuth");
         throw ForbiddenError("Failed to sync user info");
