@@ -124,7 +124,9 @@ describe("PostgresOAuthPendingStateStore", () => {
     });
 
     const insert = executor.calls[0]!;
-    expect(insert.text).toContain("WITH expired AS");
+    expect(insert.text).toContain("WITH expired_candidates AS MATERIALIZED");
+    expect(insert.text).toContain("LIMIT $9");
+    expect(insert.text).toContain("FOR UPDATE SKIP LOCKED");
     expect(insert.text).toContain(
       "DELETE FROM circles_auth.oauth_pending_states",
     );

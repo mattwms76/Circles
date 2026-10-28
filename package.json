@@ -16,6 +16,7 @@
     "audit:database": "node scripts/circles-supabase-security-audit.mjs --project-dir .",
     "audit:oauth": "node scripts/circles-oauth-security-audit.mjs --project-dir .",
     "test:database-audit": "node --test operations/tests/security-audit.node.mjs",
+    "test:database-remediation": "node --test operations/tests/*.node.mjs scripts/test-check-database-recovery-manifest.mjs",
     "verify:authenticated": "node scripts/verify-authenticated-e2e.mjs",
     "verify:native": "node scripts/verify-native-readiness.mjs",
     "check:release": "node scripts/check-release-readiness.mjs",

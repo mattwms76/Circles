@@ -411,3 +411,58 @@ Closure: reconciled implementation11669596d79b13a29c99f350fc57228389adaa80 norma
 
 - [x] Prepare and validate helper-source Metro cache namespacing without removing `isPendingAccountResourceScope`, changing its null-safe account/resource comparison, or weakening Circle join/membership/chat generation and single-flight fences. Focused checks passed: 33 tests/5 files, strict unused TypeScript, scoped lint and formatting. Source changes preserve the NativeWind disk stylesheet and same-origin API proxy; dependencies, SQL and native identifiers are unchanged.
 - [ ] Complete runtime recovery separately: restart only Metro on8081 with its trusted environment and `--clear`, preserve healthy API3000, and verify the served helper module export plus settled Circles and public Circle details routes. Saving the source does not repair the already-stale running module or prove native/authenticated operation. Do not activate providers, apply migrations or publish under the commit request.
+
+## Implement all 17 database audit issues — 27 October 2026
+
+- [ ] DB-01: restrict unintended legacy public-schema sensitive reads through a reviewed compatibility/privacy contract; preserve records and obtain exact live approval.
+- [ ] DB-02: support a dedicated least-privileged application principal and protect administration/backup separation; activate only after protected credential provisioning and verified rollout.
+- [ ] DB-03: harden and regress the trusted-server/API authorization boundary; do not mislabel broad runtime RLS as end-user row isolation. Record any remaining actor-scoped architecture decision.
+- [x] DB-04: prepare/rehearse exact validation of the ten CHECK constraints and pinned-post FK; apply only after exact live approval.
+- [x] DB-05: implement fail-closed exact integrated app/admin role, membership, ACL and policy auditing and correct obsolete inventory documentation.
+- [x] DB-06: eliminate or explicitly gate unsafe future-function execution defaults without silently changing managed-role global defaults or unrelated schemas.
+- [x] DB-07: prepare/rehearse the twelve proved missing child-side FK indexes; preserve data and existing indexes.
+- [x] DB-08: prepare/rehearse pinned search paths for the two admin invoker helpers while preserving definitions/owners/grants.
+- [x] DB-09: consolidate the twelve duplicate policy groups only after exact effective-permission equivalence checks.
+- [x] DB-10: add workload-aware index review; never drop the ninety-eight zero-scan indexes solely from their counters.
+- [x] DB-11: prepare/rehearse publish-receipt primary-key metadata while preserving actor/operation uniqueness, tombstones and retry behavior.
+- [x] DB-12: align an exact active recovery manifest and verification tooling; retain current external backup/media/key/provider/access verification gaps until observed.
+- [x] DB-13: implement protected provider/gateway-exposure verification and preserve UNKNOWN when actual settings are unavailable.
+- [x] DB-14: strengthen complete critical schema/constraint/index/trigger/ACL/policy contracts for enabled readiness and operational drift checks; preserve feature gating and Cron identity/schedule.
+- [x] DB-15: make conversation creation/resolution and both participant upserts atomic; prove rollback in an isolated failure case.
+- [ ] DB-16: define bounded observable session/OAuth retention tools and bounded opportunistic cleanup, without deleting production rows or scheduling unattended cleanup during implementation.
+- [ ] DB-17: enforce reviewed same-parent/live relationship invariants with compatible additive SQL; preserve deletion/tombstone semantics and record any unresolved product decision.
+- [ ] Integrated evidence: isolated PostgreSQL 17 migration and negative-contract tests, affected authorization/regression tests, TypeScript, lint and API build; independent read-only review; normal canonical save. Publication, signed/native testing and real-provider recovery remain separate.
+
+Implementation status updated28October: all17items have source candidates, tooling or explicit gates in `docs/database-remediation/README.md`. Checked source outcomes are not blanket live closure. The exact seven Phase1 operations, pin completion and guarded daily-monitor extensions were applied and verified27October after the successful encrypted checkpoint. Subsequent shared-schema work added six tables, a receipt identity/surrogate PK and new admin contracts; three new FK index gaps and the exact five-versus-six-column receipt health mismatch now fail closed. Current source/health/backup contracts need coordinated reconciliation, not blind rollback or relaxed assertions. No application-row cleanup, restore, seed, provider activation or publication was performed.
+
+## All-phase database activation — owner request27 October2026,12:38 UTC
+
+- [x] Establish a current encrypted backup and isolated recovery checkpoint for the exact changed scope; complete the current42/optional43 durable-table export/restore contract without weakening source/ACL/TOC or secret/media boundaries. The prior37/38 checkpoint remains historical evidence.
+- [x] Apply the approved seven Phase1 files once, only after current preflight/recovery gates; verify11 prior constraints,12 FK indexes,2 invoker search paths,12 policy consolidations,receipt PK,health-helper ACL and same-Circle pin behavior by metadata/aggregate checks.
+- [ ] Complete the protected dedicated-login provisioning/cutover with all consumers inventoried and admin/backup credentials kept separate; do not rotate shared postgres or JWT/media keys as a shortcut.
+- [ ] Resolve actual gateway/provider-default authority where available; keep provider-only operations and missing dashboard/protected access explicitly blocked rather than guessed.
+- [ ] Settle and implement exact legacy privacy,session retention and live-history relationship policies; no live deletion or irreversible cascade is inferred from generic approval.
+- [ ] Integrate and verify operational health coverage while preserving Cron identity/schedule,history and provider enablement state; source/runtime publication remains separate.
+- [ ] Save activation evidence and tested source normally,await exact-source CI for further changes,and report each original issue as verified,partially applied or specifically blocked.
+
+Resume28October: protected replacement synchronized at config8/secret3; fresh verified TLS, restricted runtime initialization and private-app read probe pass. All904 regression tests pass. Real scheduled health correctly detected current receipt-schema drift; Cron transport/identity/schedule are intact. The backup's redacted connection-stage failure is separate from its untested downstream manifest. Existing GitHub access refuses repository-secret operations with403; synchronization was not successful and no duplicate write/dispatch was attempted. The37/optional38-table checkpoint is valid historical evidence, not complete coverage for the later new tables. Keep dedicated-login, current-scope recovery, exact shared-contract reconciliation, provider controls and material privacy/retention/history decisions open.
+
+## Preserve and reconcile the approved current schema — 28 October2026,12:00UTC
+
+- [x] Preserve the six new tables and generated bigint receipt identity/PK; align current source and exact health checks without accepting arbitrary extra columns, weak key/identity shapes or reverting feature work.
+- [x] Add finite exact current admin/policy/helper and disabled-detached-login audit states; retain unexpected-grant, membership, policy, ACL, partial-state and UNKNOWN refusals. Do not imply the staged login is cutover-ready.
+- [x] Include every current durable table and optional identity branch in exact encrypted backup/restore scope with current object/role/dependency/TOC contracts; prove native isolated restore and maintain all existing target/marker/encrypt-before-delivery safeguards.
+- [x] Prepare and natively rehearse three exact child-FK covering indexes for review_handoffs.assignee_operator_id,circlePrompts.updatedBy,promptPosts.circleId without changing records or existing indexes; apply only after current recovery readiness and reviewed hash gates.
+- [ ] Integrate exclusive candidates, independent review and credential-free tests/build; save normally and await tree-equivalent hosted CI while preserving newer unrelated GitHub main.
+- [ ] Verify authorized data-preserving live compatibility changes by metadata only. Keep repository-secret403, current owner-key/provider/media recovery, legacy privacy, retention deletion, live-history cascades and publication explicitly separate and unresolved where not observed or approved.
+
+Preactivation source snapshot28October13:03UTC: current43-table backup40691666964 passed real isolated restore/encryption/private delivery on producer e18ccfe and independent tag/asset/contract verification. All905 unit/regression tests pass,69 source contracts pass with the separate native opt-in skip documented, allthree new native SQL drills pass, and publication HTTP covers both legacy/current receipt shapes (8/8). Reviewed four-file live compatibility activation and hosted tree-equivalent CI remain separately gated below the saved-source boundary. Provider-only defaults/exposure, staged-login activation, fresh owner-key/media/provider recovery and material privacy/retention/history policies remain open.
+
+## Video E2E and managed Git recovery — 28 October 2026
+
+- [x] Verify the complete available automated Record→Preview→Use→Publish and retry/interruption/account-scope flow using actual client source with explicitly mocked device seams and real isolated HTTP/PostgreSQL backend tests; retain native camera/microphone/provider limitations, run credential-free regression/types/lint/build, and never create production fixture content.
+- [ ] Resolve managed Git negotiation failure using a scoped compatibility invocation; preserve and reconcile all nine current canonical database/security commits with the latest GitHub recording/security/UI source, verify combined source privately, save via normal canonical main push, and confirm the returned version receipt without publication, credential changes, live SQL, history rewriting, or repository-ownership changes.
+
+- [ ] Complete physical iOS/Android camera/microphone/encoder/player, signed-build, real account-switch rendering and real storage-provider journeys; mocked native seams and disposable databases do not prove those outcomes.
+
+Source closure: 1,044/1,044 regressions in198 files, types, zero-warning lint, formatting and API build passed. Final disposable HTTP suites passed11 publication (real720p MP4 upload/encrypt/idempotent retry),2 SEC27 and14 A26 tests; native-seam rendered flow2/2 and49 existing focused client tests passed. The independent SQL-guard finding is corrected with12/12 focused cases and a native PG17 drill. Shared database metadata-only readiness passes; no provider/live SQL/test-post/publication changes. Canonical push/returned checkpoint confirmation follows separately.

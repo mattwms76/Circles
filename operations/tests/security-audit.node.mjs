@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  evaluateAdminAuthorizationContract,
+  evaluateAppLoginAuthorizationContract,
+  evaluateAppAdminPolicies,
   evaluateDefaultPrivileges,
   evaluateExternalPrivileges,
   evaluateInventory,
@@ -12,8 +15,18 @@ import {
   evaluateRuntimeSchemaPrivileges,
   evaluateRuntimeSequencePrivileges,
   normalizeExpression,
+  overallStatusFromChecks,
   parseArgs,
 } from "../../scripts/circles-supabase-security-audit.mjs";
+import {
+  ADMIN_FUNCTION_CONTRACT_VARIANTS,
+  ADMIN_TABLE_EXPECTATIONS,
+  APP_LOGIN_CONTRACT_VARIANTS,
+  APPLICATION_ADMIN_ACL,
+  POLICY_CONTRACT_VARIANTS,
+  REVIEWED_ROLE_EXPECTATIONS,
+  REVIEWED_ROLE_MEMBERSHIPS,
+} from "../../scripts/circles-database-security-contract.mjs";
 
 const RUNTIME = "circles_app_runtime";
 const APP_TABLES = ["users", "posts"];
@@ -185,6 +198,47 @@ function defaultContexts() {
   }));
 }
 
+function appLoginEvidence(variantName) {
+  const variant = structuredClone(APP_LOGIN_CONTRACT_VARIANTS[variantName]);
+  return {
+    roles: variant.roles,
+    role_memberships: variant.memberships,
+    schema_acl_privileges: [],
+    table_acl_privileges: [],
+    column_acl_privileges: [],
+    sequence_acl_privileges: [],
+    routine_acl_privileges: [],
+  };
+}
+
+function adminContractEvidence(appLoginVariant = "baseline_pre_db02") {
+  const login = appLoginEvidence(appLoginVariant);
+  return {
+    roles: [
+      ...structuredClone(REVIEWED_ROLE_EXPECTATIONS),
+      ...structuredClone(login.roles),
+    ],
+    role_memberships: [
+      ...structuredClone(REVIEWED_ROLE_MEMBERSHIPS),
+      ...structuredClone(login.role_memberships),
+    ],
+    schema_acl_privileges: structuredClone(APPLICATION_ADMIN_ACL.schema),
+    table_acl_privileges: structuredClone(APPLICATION_ADMIN_ACL.tables),
+    column_acl_privileges: structuredClone(APPLICATION_ADMIN_ACL.columns),
+    sequence_acl_privileges: structuredClone(APPLICATION_ADMIN_ACL.sequences),
+    routine_acl_privileges: structuredClone(APPLICATION_ADMIN_ACL.routines),
+  };
+}
+
+function adminContractAdminEvidence() {
+  return {
+    raw_tables: structuredClone(ADMIN_TABLE_EXPECTATIONS),
+    functions: structuredClone(
+      ADMIN_FUNCTION_CONTRACT_VARIANTS.pre_db08_invoker_search_path_pin,
+    ),
+  };
+}
+
 test("expression normalization accepts harmless parentheses and whitespace", () => {
   assert.equal(normalizeExpression(" (( true )) "), "true");
   assert.equal(normalizeExpression(null), null);
@@ -240,6 +294,201 @@ test("policy evaluator requires exact runtime role, command, and marker read-onl
     evaluatePolicies(APP_TABLES, "_dataMigrations", failing, RUNTIME).status,
     "fail",
   );
+});
+
+test("DB-05 accepts only complete reviewed app/admin policy variants", () => {
+  const pre = structuredClone(
+    POLICY_CONTRACT_VARIANTS.pre_db09_duplicate_consolidation,
+  );
+  assert.equal(evaluateAppAdminPolicies(pre).status, "pass");
+  assert.equal(
+    evaluateAppAdminPolicies(
+      structuredClone(POLICY_CONTRACT_VARIANTS.post_db09_keep_parity_names),
+    ).status,
+    "pass",
+  );
+  assert.equal(
+    evaluateAppAdminPolicies(
+      structuredClone(POLICY_CONTRACT_VARIANTS.post_db09_keep_legacy_names),
+    ).status,
+    "pass",
+  );
+
+  const partiallyConsolidated = pre.filter(
+    (policy) => policy.policy_name !== "circles_admin_read_users",
+  );
+  assert.equal(evaluateAppAdminPolicies(partiallyConsolidated).status, "fail");
+
+  const browserGrant = structuredClone(pre);
+  browserGrant.find(
+    (policy) => policy.policy_name === "circles_app_deny_anon_authenticated",
+  ).roles = ["authenticated"];
+  assert.equal(evaluateAppAdminPolicies(browserGrant).status, "fail");
+});
+
+test("DB-05 fails closed on changed reviewed admin roles, app ACLs, or native helper paths", () => {
+  const appEvidence = {
+    roles: structuredClone(REVIEWED_ROLE_EXPECTATIONS).map((role) => ({
+      ...role,
+      is_catalog_builtin: false,
+    })),
+    role_memberships: structuredClone(REVIEWED_ROLE_MEMBERSHIPS),
+    schema_acl_privileges: structuredClone(APPLICATION_ADMIN_ACL.schema),
+    table_acl_privileges: structuredClone(APPLICATION_ADMIN_ACL.tables),
+    column_acl_privileges: structuredClone(APPLICATION_ADMIN_ACL.columns),
+    sequence_acl_privileges: structuredClone(APPLICATION_ADMIN_ACL.sequences),
+    routine_acl_privileges: structuredClone(APPLICATION_ADMIN_ACL.routines),
+  };
+  const adminEvidence = {
+    raw_tables: structuredClone(ADMIN_TABLE_EXPECTATIONS),
+    functions: structuredClone(
+      ADMIN_FUNCTION_CONTRACT_VARIANTS.pre_db08_invoker_search_path_pin,
+    ),
+  };
+  assert.equal(
+    evaluateAdminAuthorizationContract(appEvidence, adminEvidence).status,
+    "pass",
+  );
+
+  const unexpectedColumnAcl = structuredClone(appEvidence);
+  unexpectedColumnAcl.column_acl_privileges.push({
+    table_name: "users",
+    column_name: "email",
+    column_key: JSON.stringify(["users", "email"]),
+    owner: "postgres",
+    grantee: "circles_admin_native_executor",
+    privilege_type: "UPDATE",
+    is_grantable: false,
+  });
+  assert.equal(
+    evaluateAdminAuthorizationContract(unexpectedColumnAcl, adminEvidence)
+      .status,
+    "fail",
+  );
+
+  const elevatedMembership = structuredClone(appEvidence);
+  elevatedMembership.role_memberships.push({
+    parent_role: "pg_read_all_data",
+    member_role: "circles_admin_runtime",
+    grantor_role: "postgres",
+    inherit_option: false,
+    set_option: false,
+    admin_option: false,
+  });
+  assert.equal(
+    evaluateAdminAuthorizationContract(elevatedMembership, adminEvidence)
+      .status,
+    "fail",
+  );
+
+  const browserExecutableHelper = structuredClone(adminEvidence);
+  browserExecutableHelper.functions[0].anon_execute = true;
+  assert.equal(
+    evaluateAdminAuthorizationContract(appEvidence, browserExecutableHelper)
+      .status,
+    "fail",
+  );
+});
+
+test("DB-05 accepts only baseline, local-only, and exact provider-owned incoming-edge application-login variants", () => {
+  const adminEvidence = adminContractAdminEvidence();
+  for (const variantName of [
+    "baseline_pre_db02",
+    "no_login_provisioned",
+    "no_login_provisioned_provider_owned_incoming_edge",
+    "login_cutover",
+    "login_cutover_provider_owned_incoming_edge",
+  ]) {
+    const appEvidence = appLoginEvidence(variantName);
+    const result = evaluateAppLoginAuthorizationContract(appEvidence);
+    assert.equal(result.status, "pass");
+    assert.equal(result.matched_variant, variantName);
+
+    // The DB-02 edge is evaluated by its own finite contract. It must not make
+    // the unchanged reviewed admin role/ACL baseline appear to have drifted.
+    assert.equal(
+      evaluateAdminAuthorizationContract(
+        adminContractEvidence(variantName),
+        adminEvidence,
+      ).status,
+      "pass",
+    );
+  }
+});
+
+test("DB-05 rejects retained provider-owned incoming-edge field changes or a duplicate edge", () => {
+  const provisioned = appLoginEvidence(
+    "no_login_provisioned_provider_owned_incoming_edge",
+  );
+  const providerIncomingEdge = provisioned.role_memberships.find(
+    (row) => row.parent_role === "circles_app_login",
+  );
+  assert.ok(providerIncomingEdge);
+
+  for (const [field, value] of [
+    ["member_role", "supabase_admin"],
+    ["grantor_role", "postgres"],
+    ["inherit_option", true],
+    ["set_option", true],
+    ["admin_option", false],
+  ]) {
+    const changedField = structuredClone(provisioned);
+    changedField.role_memberships.find(
+      (row) => row.parent_role === "circles_app_login",
+    )[field] = value;
+    assert.equal(
+      evaluateAppLoginAuthorizationContract(changedField).status,
+      "fail",
+      `provider incoming edge must reject changed ${field}`,
+    );
+  }
+
+  const duplicateProviderEdge = structuredClone(provisioned);
+  duplicateProviderEdge.role_memberships.push(
+    structuredClone(providerIncomingEdge),
+  );
+  assert.equal(
+    evaluateAppLoginAuthorizationContract(duplicateProviderEdge).status,
+    "fail",
+  );
+});
+
+test("DB-05 rejects extra application-login edges and direct object ACLs in every finite state", () => {
+  const provisioned = appLoginEvidence(
+    "no_login_provisioned_provider_owned_incoming_edge",
+  );
+
+  const extraEdge = structuredClone(provisioned);
+  extraEdge.role_memberships.push({
+    parent_role: "unreviewed_parent",
+    member_role: "circles_app_login",
+    grantor_role: "postgres",
+    inherit_option: false,
+    set_option: true,
+    admin_option: false,
+  });
+  assert.equal(evaluateAppLoginAuthorizationContract(extraEdge).status, "fail");
+
+  for (const variantName of Object.keys(APP_LOGIN_CONTRACT_VARIANTS)) {
+    const directAcl = appLoginEvidence(variantName);
+    directAcl.table_acl_privileges.push({
+      table_name: "users",
+      owner: "postgres",
+      grantee: "circles_app_login",
+      privilege_type: "SELECT",
+      is_grantable: false,
+    });
+    assert.equal(
+      evaluateAppLoginAuthorizationContract(directAcl).status,
+      "fail",
+      `direct ACL must fail for ${variantName}`,
+    );
+  }
+
+  const partialDb09State = structuredClone(
+    POLICY_CONTRACT_VARIANTS.pre_db09_duplicate_consolidation,
+  ).filter((policy) => policy.policy_name !== "circles_admin_read_users");
+  assert.equal(evaluateAppAdminPolicies(partialDb09State).status, "fail");
 });
 
 test("runtime role permits only reviewed SET ROLE actors and rejects outbound or untrusted membership", () => {
@@ -664,5 +913,14 @@ test("argument parsing requires output values and supports project override", ()
   assert.throws(
     () => parseArgs(["--markdown-output"]),
     /Invalid audit command arguments/,
+  );
+});
+
+test("DB-13 unknown evidence produces a non-passing overall audit status", () => {
+  assert.equal(overallStatusFromChecks([{ status: "pass" }]), "pass");
+  assert.equal(overallStatusFromChecks([{ status: "unknown" }]), "unknown");
+  assert.equal(
+    overallStatusFromChecks([{ status: "unknown" }, { status: "fail" }]),
+    "fail",
   );
 });

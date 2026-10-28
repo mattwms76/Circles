@@ -2,11 +2,25 @@ import { createHash } from "node:crypto";
 import { getDb } from "../db";
 
 const NONCE_PATTERN = /^[A-Za-z0-9_-]{32,128}$/;
+/**
+ * Public OAuth-start requests may opportunistically clean expired rows, but
+ * never a whole stale backlog. Dedicated retention remains admin-operated.
+ */
+export const OAUTH_OPPORTUNISTIC_EXPIRY_CLEANUP_LIMIT = 32;
 
 const INSERT_PENDING_STATE_SQL = `
-  WITH expired AS (
-    DELETE FROM circles_auth.oauth_pending_states
+  WITH expired_candidates AS MATERIALIZED (
+    SELECT state_fingerprint
+    FROM circles_auth.oauth_pending_states
     WHERE expires_at <= pg_catalog.clock_timestamp()
+    ORDER BY expires_at ASC, state_fingerprint ASC
+    LIMIT $9
+    FOR UPDATE SKIP LOCKED
+  ),
+  deleted_expired AS (
+    DELETE FROM circles_auth.oauth_pending_states AS pending
+    USING expired_candidates AS candidate
+    WHERE pending.state_fingerprint = candidate.state_fingerprint
   )
   INSERT INTO circles_auth.oauth_pending_states (
     state_fingerprint,
@@ -181,6 +195,7 @@ export class PostgresOAuthPendingStateStore implements OAuthPendingStateStore {
       input.nonce,
       input.frontendOrigin,
       input.expiresAt,
+      OAUTH_OPPORTUNISTIC_EXPIRY_CLEANUP_LIMIT,
     ]);
   }
 
@@ -214,6 +229,7 @@ export class PostgresOAuthPendingStateStore implements OAuthPendingStateStore {
       input.nonce,
       null,
       input.expiresAt,
+      OAUTH_OPPORTUNISTIC_EXPIRY_CLEANUP_LIMIT,
     ]);
   }
 

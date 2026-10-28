@@ -1,0 +1,31 @@
+{
+  "source_schema_sha256": "35cc5c0d8d01777d13b6b2bc08cae906e26c82c628fecdc49d18676c7d04320f",
+  "queries": {
+    "constraints": [
+      {
+        "schema_name": "circles_admin",
+        "table_name": "review_handoffs",
+        "conname": "review_handoffs_assignee_operator_id_fkey",
+        "contype": "f",
+        "convalidated": true,
+        "definition": "FOREIGN KEY (assignee_operator_id) REFERENCES circles_admin.operators(id) ON DELETE CASCADE"
+      },
+      {
+        "schema_name": "circles_publish",
+        "table_name": "circlePrompts",
+        "conname": "circlePrompts_updatedBy_fkey",
+        "contype": "f",
+        "convalidated": true,
+        "definition": "FOREIGN KEY (\"updatedBy\") REFERENCES circles_app.users(id) ON DELETE RESTRICT"
+      },
+      {
+        "schema_name": "circles_publish",
+        "table_name": "promptPosts",
+        "conname": "promptPosts_circleId_fkey",
+        "contype": "f",
+        "convalidated": true,
+        "definition": "FOREIGN KEY (\"circleId\") REFERENCES circles_app.circles(id) ON DELETE CASCADE"
+      }
+    ]
+  }
+}

@@ -6,9 +6,9 @@ import { checkServerIdentity } from "node:tls";
 export const PRIVATE_SCHEMA = "circles_app";
 export const RUNTIME_ROLE = "circles_app_runtime";
 /**
- * Current source accepts only this privileged Supabase connection principal.
- * It is deliberately explicit so it is not mistaken for the proposed
- * least-privilege bootstrap principal below.
+ * Current source retains this privileged Supabase connection principal during
+ * the protected cutover. It is deliberately explicit so it is not mistaken
+ * for the prepared bootstrap principal below.
  */
 export const CURRENT_CONNECTION_PRINCIPAL = "postgres";
 /** Prepared only: activation requires owner-provisioned provider access and a reviewed DSN change. */
@@ -22,7 +22,12 @@ const PROJECT_REF = "vvclcsqletcxzoaayqzq";
 const DATABASE_NAME = "postgres";
 const DIRECT_HOST = `db.${PROJECT_REF}.supabase.co`;
 const SESSION_POOLER_HOST = "aws-0-eu-west-1.pooler.supabase.com";
-const SESSION_POOLER_USER = `${CURRENT_CONNECTION_PRINCIPAL}.${PROJECT_REF}`;
+const LEGACY_LOGIN_ROLE = CURRENT_CONNECTION_PRINCIPAL;
+const DEDICATED_APP_LOGIN_ROLE = "circles_app_login";
+const SESSION_POOLER_USERS = new Map([
+  [LEGACY_LOGIN_ROLE, `${LEGACY_LOGIN_ROLE}.${PROJECT_REF}`],
+  [DEDICATED_APP_LOGIN_ROLE, `${DEDICATED_APP_LOGIN_ROLE}.${PROJECT_REF}`],
+]);
 const SUPABASE_ROOT_CA_SHA256 =
   "807025ad50d4ed219d2c9c7d299c004f824eb00cf7f65afef607d07b72e6cafa";
 const SUPABASE_CA_RELATIVE_PATH = "server/certificates/supabase-root-2021.crt";
@@ -89,10 +94,16 @@ export function getPostgresConnectionOptions(
       "SUPABASE_DATABASE_URL targets an unexpected host",
     );
   }
-  if (
-    (isKnownDirectHost && sourceUser !== CURRENT_CONNECTION_PRINCIPAL) ||
-    (isKnownSessionPooler && sourceUser !== SESSION_POOLER_USER)
-  ) {
+
+  // Retain only the exact legacy principal during credential cutover and the
+  // separately provisioned dedicated app principal. Query options are ignored:
+  // the returned config pins host, port, database, CA, and TLS server name.
+  const sessionPoolerUser = isKnownDirectHost
+    ? SESSION_POOLER_USERS.get(sourceUser)
+    : [...SESSION_POOLER_USERS.values()].find(
+        (poolerUser) => poolerUser === sourceUser,
+      );
+  if (!sessionPoolerUser) {
     throw configurationError(
       "SUPABASE_DATABASE_URL targets an unexpected database user",
     );
@@ -128,7 +139,7 @@ export function getPostgresConnectionOptions(
     host: SESSION_POOLER_HOST,
     port: 5432,
     database: DATABASE_NAME,
-    user: SESSION_POOLER_USER,
+    user: sessionPoolerUser,
     password,
     // These limits apply before application code sees a client, including
     // readiness and the role-initialization query. They are intentionally

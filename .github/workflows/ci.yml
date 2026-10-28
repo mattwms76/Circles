@@ -76,6 +76,9 @@ jobs:
           mkdir -p artifacts/test-results
           pnpm test:ci
 
+      - name: Run database remediation source contracts
+        run: pnpm test:database-remediation
+
       - name: Install isolated Circle Home PostgreSQL 17 test tools
         run: |
           if ! test -x /usr/lib/postgresql/17/bin/initdb; then
@@ -110,6 +113,19 @@ jobs:
           sudo apt-get install --yes --no-install-recommends postgresql-17 python3-psycopg
           /usr/lib/postgresql/17/bin/initdb --version
           /usr/bin/python3 -c 'import psycopg'
+
+      - name: Rehearse guarded database remediations on disposable PostgreSQL 17
+        run: |
+          export PATH="/usr/lib/postgresql/17/bin:$PATH"
+          CIRCLES_DB03_LOCAL_PG17=1 pnpm exec tsx operations/tests/db03-runtime-pool.pg17.mjs
+          CIRCLES_DB04_LOCAL_PG17=1 node operations/tests/database-remediation-db04.pg17.mjs
+          DB07_RUN_SYNTHETIC_PG17=1 node --test operations/tests/db07-foreign-key-indexes.node.mjs
+          /usr/bin/python3 -B operations/tests/database-remediation-integration.pg17.py
+          CIRCLES_DB14_LOCAL_PG17=1 /usr/bin/python3 -B operations/tests/db14-critical-contracts.pg17.py
+          CIRCLES_DB14_DAILY_HEALTH_EXTENSION_LOCAL_PG17=1 /usr/bin/python3 -B operations/tests/db14-daily-health-extension.pg17.py
+          /usr/bin/python3 -B operations/tests/db14-current-receipt.pg17.py --local-pg17
+          /usr/bin/python3 -B operations/tests/current-feature-fk-indexes.pg17.py
+          /usr/bin/python3 -B operations/tests/media-objects-key-regex.pg17.py
 
       - name: Run isolated Circle Home HTTP and PostgreSQL E2E
         run: pnpm test:e2e:circle-home

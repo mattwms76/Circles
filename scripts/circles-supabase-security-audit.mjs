@@ -28,6 +28,21 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { constants as fsConstants } from "node:fs";
 import { lstat, open, realpath, unlink } from "node:fs/promises";
+import {
+  ADMIN_FUNCTION_CONTRACT_VARIANTS,
+  ADMIN_SCHEMA,
+  ADMIN_TABLE_EXPECTATIONS,
+  APP_LOGIN_CONTRACT_VARIANTS,
+  APP_LOGIN_ROLE,
+  APPLICATION_ADMIN_ACL,
+  CURRENT_ADMIN_DIRECT_ACL,
+  CURRENT_ADMIN_FUNCTION_EXPECTATIONS,
+  CURRENT_ADMIN_TABLE_EXPECTATIONS,
+  POLICY_CONTRACT_VARIANTS,
+  REVIEWED_ADMIN_ROLE_NAMES,
+  REVIEWED_ROLE_EXPECTATIONS,
+  REVIEWED_ROLE_MEMBERSHIPS,
+} from "./circles-database-security-contract.mjs";
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_PROJECT_DIR = "/home/ubuntu/circles";
@@ -69,6 +84,7 @@ const DEFAULT_OBJECT_TYPES = Object.freeze([
 const TRUSTED_RUNTIME_SET_ROLE_ACTORS = Object.freeze([
   "postgres",
   "supabase_admin",
+  APP_LOGIN_ROLE,
 ]);
 // These exact names are a narrowly reviewed provider/admin exception for
 // effective-capability reporting only. They are not API roles and do not make
@@ -340,6 +356,22 @@ export function evaluateInventory(expectedNames, tableRows) {
   };
 }
 
+export function evaluateSchemaIdentity(schema, expectedSchema) {
+  if (
+    !schema ||
+    typeof schema.schema_name !== "string" ||
+    typeof schema.owner !== "string" ||
+    typeof expectedSchema !== "string"
+  ) {
+    return { status: "fail", reason: "schema_identity_evidence_unavailable" };
+  }
+  return {
+    status: schema.schema_name === expectedSchema ? "pass" : "fail",
+    expected_schema: expectedSchema,
+    actual_schema: schema.schema_name,
+  };
+}
+
 export function evaluateRls(expectedNames, tableRows) {
   const byName = new Map(tableRows.map((row) => [row.table_name, row]));
   const missing_or_disabled = expectedNames.filter(
@@ -395,6 +427,633 @@ export function evaluatePolicies(
   return {
     status: violations.length === 0 ? "pass" : "fail",
     policy_violations: [...new Set(violations)].sort(),
+  };
+}
+
+function stableFingerprint(value) {
+  if (Array.isArray(value))
+    return `[${value.map((entry) => stableFingerprint(entry)).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableFingerprint(value[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function exactRows(actualRows, expectedRows, project = (row) => row) {
+  if (!Array.isArray(actualRows) || !Array.isArray(expectedRows))
+    return { status: "fail", reason: "evidence_unavailable" };
+  const actual = actualRows.map(project);
+  if (actual.some((row) => row === null))
+    return { status: "fail", reason: "evidence_malformed" };
+  const expected = expectedRows.map(project);
+  const actualKeys = actual.map(stableFingerprint).sort();
+  const expectedKeys = expected.map(stableFingerprint).sort();
+  const duplicateActual = actualKeys.some(
+    (key, index) => index > 0 && key === actualKeys[index - 1],
+  );
+  const missing = expectedKeys.filter((key) => !actualKeys.includes(key));
+  const unexpected = actualKeys.filter((key) => !expectedKeys.includes(key));
+  return {
+    status:
+      !duplicateActual && missing.length === 0 && unexpected.length === 0
+        ? "pass"
+        : "fail",
+    expected_count: expectedKeys.length,
+    actual_count: actualKeys.length,
+    duplicate_actual_rows: duplicateActual,
+    missing_count: missing.length,
+    unexpected_count: unexpected.length,
+  };
+}
+
+function normalizePolicyForContract(policy) {
+  if (
+    !policy ||
+    typeof policy.schema_name !== "string" ||
+    typeof policy.table_name !== "string" ||
+    typeof policy.policy_name !== "string" ||
+    !["PERMISSIVE", "RESTRICTIVE"].includes(policy.permissive) ||
+    typeof policy.command !== "string"
+  ) {
+    return null;
+  }
+  const roles = normalizedRoles(policy.roles);
+  if (roles.length === 0) return null;
+  const usingQualification = normalizeExpression(policy.using_qualification);
+  const withCheckQualification = normalizeExpression(
+    policy.with_check_qualification,
+  );
+  if (
+    (policy.using_qualification !== null && usingQualification === null) ||
+    (policy.with_check_qualification !== null &&
+      withCheckQualification === null)
+  ) {
+    return null;
+  }
+  return {
+    schema_name: policy.schema_name,
+    table_name: policy.table_name,
+    policy_name: policy.policy_name,
+    permissive: policy.permissive,
+    roles,
+    command: policy.command,
+    using_qualification: usingQualification,
+    with_check_qualification: withCheckQualification,
+  };
+}
+
+function evaluateNamedVariants(actualRows, variants, project = (row) => row) {
+  if (!actualRows || typeof actualRows[Symbol.iterator] !== "function")
+    return { status: "fail", reason: "evidence_unavailable" };
+  const normalized = [...actualRows].map(project);
+  if (normalized.some((row) => row === null))
+    return { status: "fail", reason: "evidence_malformed" };
+  const actualKeys = normalized.map(stableFingerprint).sort();
+  if (
+    actualKeys.some((key, index) => index > 0 && key === actualKeys[index - 1])
+  ) {
+    return { status: "fail", reason: "duplicate_actual_evidence" };
+  }
+  const validVariants = [];
+  for (const [variant, expectedRows] of Object.entries(variants ?? {})) {
+    if (!Array.isArray(expectedRows)) continue;
+    const expected = expectedRows.map(project);
+    if (expected.some((row) => row === null)) continue;
+    const expectedKeys = expected.map(stableFingerprint).sort();
+    if (
+      expectedKeys.length === actualKeys.length &&
+      expectedKeys.every((key, index) => key === actualKeys[index])
+    ) {
+      validVariants.push(variant);
+    }
+  }
+  return {
+    status: validVariants.length === 1 ? "pass" : "fail",
+    matched_variant: validVariants.length === 1 ? validVariants[0] : null,
+    actual_count: actualKeys.length,
+    accepted_variants: Object.keys(variants ?? {}).sort(),
+  };
+}
+
+/**
+ * Accept only a complete named policy state. This intentionally does not allow
+ * a caller to remove an arbitrary subset of the DB-09 duplicate policy pairs.
+ */
+export function evaluateAppAdminPolicies(policies) {
+  return evaluateNamedVariants(
+    policies,
+    POLICY_CONTRACT_VARIANTS,
+    normalizePolicyForContract,
+  );
+}
+
+function projectedLegacyAdminFunction(row) {
+  if (
+    !row ||
+    typeof row.function_name !== "string" ||
+    typeof row.owner !== "string" ||
+    typeof row.security_definer !== "boolean" ||
+    typeof row.has_explicit_search_path !== "boolean" ||
+    typeof row.search_path_pg_catalog_first !== "boolean" ||
+    typeof row.anon_execute !== "boolean" ||
+    typeof row.authenticated_execute !== "boolean" ||
+    typeof row.runtime_execute !== "boolean"
+  ) {
+    return null;
+  }
+  return {
+    function_name: row.function_name,
+    owner: row.owner,
+    security_definer: row.security_definer,
+    has_explicit_search_path: row.has_explicit_search_path,
+    search_path_pg_catalog_first: row.search_path_pg_catalog_first,
+    anon_execute: row.anon_execute,
+    authenticated_execute: row.authenticated_execute,
+    runtime_execute: row.runtime_execute,
+  };
+}
+
+function projectedCurrentAdminFunction(row) {
+  if (
+    !row ||
+    typeof row.function_name !== "string" ||
+    typeof row.owner !== "string" ||
+    typeof row.security_definer !== "boolean" ||
+    !Array.isArray(row.search_path) ||
+    !row.search_path.every((setting) => typeof setting === "string") ||
+    !/^[0-9a-f]{32}$/.test(row.body_definition_md5 ?? "") ||
+    typeof row.anon_execute !== "boolean" ||
+    typeof row.authenticated_execute !== "boolean" ||
+    typeof row.runtime_execute !== "boolean" ||
+    typeof row.admin_runtime_execute !== "boolean" ||
+    typeof row.native_executor_execute !== "boolean" ||
+    typeof row.app_runtime_execute !== "boolean" ||
+    !Array.isArray(row.direct_acl)
+  ) {
+    return null;
+  }
+  const directAcl = row.direct_acl.map((entry) => {
+    if (
+      !entry ||
+      typeof entry.grantee !== "string" ||
+      entry.grantee.length === 0 ||
+      entry.privilege_type !== "EXECUTE" ||
+      typeof entry.is_grantable !== "boolean"
+    ) {
+      return null;
+    }
+    return {
+      grantee: entry.grantee,
+      privilege_type: entry.privilege_type,
+      is_grantable: entry.is_grantable,
+    };
+  });
+  if (directAcl.some((entry) => entry === null)) return null;
+  return {
+    function_name: row.function_name,
+    owner: row.owner,
+    security_definer: row.security_definer,
+    search_path: [...row.search_path],
+    body_definition_md5: row.body_definition_md5,
+    anon_execute: row.anon_execute,
+    authenticated_execute: row.authenticated_execute,
+    runtime_execute: row.runtime_execute,
+    admin_runtime_execute: row.admin_runtime_execute,
+    native_executor_execute: row.native_executor_execute,
+    app_runtime_execute: row.app_runtime_execute,
+    direct_acl: directAcl.sort((left, right) =>
+      stableFingerprint(left).localeCompare(stableFingerprint(right)),
+    ),
+  };
+}
+
+function projectNonOwnerAclRows(rows, identityKeys) {
+  if (!Array.isArray(rows)) return null;
+  const projected = rows.map((row) => {
+    if (
+      !row ||
+      typeof row.owner !== "string" ||
+      row.owner.length === 0 ||
+      typeof row.grantee !== "string" ||
+      row.grantee.length === 0 ||
+      typeof row.privilege_type !== "string" ||
+      row.privilege_type.length === 0 ||
+      typeof row.is_grantable !== "boolean" ||
+      !identityKeys.every(
+        (key) => typeof row[key] === "string" && row[key].length > 0,
+      )
+    ) {
+      return null;
+    }
+    const identity = Object.fromEntries(
+      identityKeys.map((key) => [key, row[key]]),
+    );
+    return {
+      owner: row.owner,
+      ...identity,
+      grantee: row.grantee,
+      privilege_type: row.privilege_type,
+      is_grantable: row.is_grantable,
+    };
+  });
+  if (projected.some((row) => row === null)) return null;
+  return projected
+    .filter((row) => row.grantee !== row.owner)
+    .map(({ owner: _owner, ...row }) => row);
+}
+
+function evaluateCurrentAdminFunctionContract(functions) {
+  return exactRows(
+    functions,
+    CURRENT_ADMIN_FUNCTION_EXPECTATIONS,
+    projectedCurrentAdminFunction,
+  );
+}
+
+function evaluateAdminFunctionVariants(functions) {
+  const legacy = evaluateNamedVariants(
+    functions,
+    ADMIN_FUNCTION_CONTRACT_VARIANTS,
+    projectedLegacyAdminFunction,
+  );
+  const current = evaluateCurrentAdminFunctionContract(functions);
+  const matchedVariants = [
+    ...(legacy.status === "pass" ? [`legacy:${legacy.matched_variant}`] : []),
+    ...(current.status === "pass" ? ["current_complete_20261028"] : []),
+  ];
+  return {
+    status: matchedVariants.length === 1 ? "pass" : "fail",
+    matched_variant: matchedVariants.length === 1 ? matchedVariants[0] : null,
+    legacy,
+    current,
+  };
+}
+
+function reviewedRoleRows(rows) {
+  if (!Array.isArray(rows)) return null;
+  return rows.filter((row) =>
+    REVIEWED_ROLE_EXPECTATIONS.some(
+      (expected) => expected.role_name === row?.role_name,
+    ),
+  );
+}
+
+function projectedReviewedRole(row) {
+  if (
+    !row ||
+    typeof row.role_name !== "string" ||
+    typeof row.can_login !== "boolean" ||
+    typeof row.inherits !== "boolean" ||
+    typeof row.is_superuser !== "boolean" ||
+    typeof row.bypasses_rls !== "boolean"
+  ) {
+    return null;
+  }
+  return {
+    role_name: row.role_name,
+    can_login: row.can_login,
+    inherits: row.inherits,
+    is_superuser: row.is_superuser,
+    bypasses_rls: row.bypasses_rls,
+  };
+}
+
+function reviewedMembershipRows(rows) {
+  if (!Array.isArray(rows)) return null;
+  const roleNames = new Set(
+    REVIEWED_ROLE_EXPECTATIONS.map((row) => row.role_name),
+  );
+  return rows.filter(
+    (row) =>
+      (roleNames.has(row?.parent_role) || roleNames.has(row?.member_role)) &&
+      row?.parent_role !== APP_LOGIN_ROLE &&
+      row?.member_role !== APP_LOGIN_ROLE,
+  );
+}
+
+function reviewedAdminAclRows(rows) {
+  if (!Array.isArray(rows)) return null;
+  return rows.filter((row) => REVIEWED_ADMIN_ROLE_NAMES.includes(row?.grantee));
+}
+
+function appLoginRoleRows(rows) {
+  if (!Array.isArray(rows)) return null;
+  return rows.filter((row) => row?.role_name === APP_LOGIN_ROLE);
+}
+
+function projectedAppLoginRole(row) {
+  if (
+    !row ||
+    row.role_name !== APP_LOGIN_ROLE ||
+    typeof row.can_login !== "boolean" ||
+    typeof row.inherits !== "boolean" ||
+    typeof row.is_superuser !== "boolean" ||
+    typeof row.can_create_db !== "boolean" ||
+    typeof row.can_create_role !== "boolean" ||
+    typeof row.bypasses_rls !== "boolean" ||
+    typeof row.can_replicate !== "boolean"
+  ) {
+    return null;
+  }
+  return {
+    role_name: row.role_name,
+    can_login: row.can_login,
+    inherits: row.inherits,
+    is_superuser: row.is_superuser,
+    can_create_db: row.can_create_db,
+    can_create_role: row.can_create_role,
+    bypasses_rls: row.bypasses_rls,
+    can_replicate: row.can_replicate,
+  };
+}
+
+function appLoginMembershipRows(rows) {
+  if (!Array.isArray(rows)) return null;
+  return rows.filter(
+    (row) =>
+      row?.parent_role === APP_LOGIN_ROLE ||
+      row?.member_role === APP_LOGIN_ROLE,
+  );
+}
+
+function projectedAppLoginMembership(row) {
+  if (
+    !row ||
+    typeof row.parent_role !== "string" ||
+    typeof row.member_role !== "string" ||
+    typeof row.grantor_role !== "string" ||
+    typeof row.inherit_option !== "boolean" ||
+    typeof row.set_option !== "boolean" ||
+    typeof row.admin_option !== "boolean"
+  ) {
+    return null;
+  }
+  return {
+    parent_role: row.parent_role,
+    member_role: row.member_role,
+    grantor_role: row.grantor_role,
+    inherit_option: row.inherit_option,
+    set_option: row.set_option,
+    admin_option: row.admin_option,
+  };
+}
+
+function appLoginDirectObjectAclRows(evidence) {
+  const objectSources = [
+    ["schema", evidence?.schema_acl_privileges, "schema_name"],
+    ["table", evidence?.table_acl_privileges, "table_name"],
+    ["column", evidence?.column_acl_privileges, "column_key"],
+    ["sequence", evidence?.sequence_acl_privileges, "sequence_name"],
+    ["routine", evidence?.routine_acl_privileges, "routine_name"],
+  ];
+  if (!objectSources.every(([, rows]) => Array.isArray(rows))) return null;
+  return objectSources.flatMap(([object_type, rows, object_key]) =>
+    rows
+      .filter((row) => row?.grantee === APP_LOGIN_ROLE)
+      .map((row) => ({ object_type, object_key, ...row })),
+  );
+}
+
+function projectedAppLoginDirectObjectAcl(row) {
+  if (
+    !row ||
+    !["schema", "table", "column", "sequence", "routine"].includes(
+      row.object_type,
+    ) ||
+    typeof row.object_key !== "string" ||
+    typeof row[row.object_key] !== "string" ||
+    typeof row.owner !== "string" ||
+    row.grantee !== APP_LOGIN_ROLE ||
+    typeof row.privilege_type !== "string" ||
+    typeof row.is_grantable !== "boolean"
+  ) {
+    return null;
+  }
+  return {
+    object_type: row.object_type,
+    object_name: row[row.object_key],
+    owner: row.owner,
+    grantee: row.grantee,
+    privilege_type: row.privilege_type,
+    is_grantable: row.is_grantable,
+  };
+}
+
+function appLoginAuthorizationState(evidence) {
+  const roles = appLoginRoleRows(evidence?.roles);
+  const memberships = appLoginMembershipRows(evidence?.role_memberships);
+  const directObjectAcl = appLoginDirectObjectAclRows(evidence);
+  if (!roles || !memberships || !directObjectAcl) return null;
+  const projectedRoles = roles.map(projectedAppLoginRole);
+  const projectedMemberships = memberships.map(projectedAppLoginMembership);
+  const projectedDirectObjectAcl = directObjectAcl.map(
+    projectedAppLoginDirectObjectAcl,
+  );
+  if (
+    projectedRoles.some((row) => row === null) ||
+    projectedMemberships.some((row) => row === null) ||
+    projectedDirectObjectAcl.some((row) => row === null)
+  ) {
+    return null;
+  }
+  return {
+    roles: projectedRoles,
+    memberships: projectedMemberships,
+    direct_object_acl: projectedDirectObjectAcl,
+  };
+}
+
+/**
+ * DB-02 accepts only the historical baseline or one whole named provisioning
+ * state. PUBLIC is cataloged independently; it is never attributed as a direct
+ * grant to circles_app_login.
+ */
+export function evaluateAppLoginAuthorizationContract(appEvidence) {
+  const state = appLoginAuthorizationState(appEvidence);
+  return evaluateNamedVariants(
+    state === null ? null : [state],
+    Object.fromEntries(
+      Object.entries(APP_LOGIN_CONTRACT_VARIANTS).map(([name, variant]) => [
+        name,
+        [variant],
+      ]),
+    ),
+  );
+}
+
+function projectedAdminTable(row) {
+  if (
+    !row ||
+    typeof row.table_name !== "string" ||
+    typeof row.owner !== "string" ||
+    typeof row.rls_enabled !== "boolean" ||
+    typeof row.rls_forced !== "boolean"
+  ) {
+    return null;
+  }
+  return {
+    table_name: row.table_name,
+    owner: row.owner,
+    rls_enabled: row.rls_enabled,
+    rls_forced: row.rls_forced,
+  };
+}
+
+/**
+ * Verify the separately reviewed admin surface exactly. All other roles remain
+ * subject to the existing generic non-owner privilege failure path.
+ */
+export function evaluateAdminAuthorizationContract(appEvidence, adminEvidence) {
+  if (!appEvidence || !adminEvidence)
+    return { status: "fail", reason: "admin_contract_evidence_unavailable" };
+  const legacyTables = exactRows(
+    adminEvidence.raw_tables,
+    ADMIN_TABLE_EXPECTATIONS,
+    projectedAdminTable,
+  );
+  const currentTables = exactRows(
+    adminEvidence.raw_tables,
+    CURRENT_ADMIN_TABLE_EXPECTATIONS,
+    projectedAdminTable,
+  );
+  const functionVariants = evaluateAdminFunctionVariants(
+    adminEvidence.functions,
+  );
+  const currentDirectAcl = {
+    schema: exactRows(
+      projectNonOwnerAclRows(adminEvidence.schema_acl_privileges, [
+        "schema_name",
+      ]),
+      CURRENT_ADMIN_DIRECT_ACL.schema,
+    ),
+    tables: exactRows(
+      projectNonOwnerAclRows(adminEvidence.table_acl_privileges, [
+        "table_name",
+      ]),
+      CURRENT_ADMIN_DIRECT_ACL.tables,
+    ),
+    columns: exactRows(
+      projectNonOwnerAclRows(adminEvidence.column_acl_privileges, [
+        "table_name",
+        "column_name",
+        "column_key",
+      ]),
+      CURRENT_ADMIN_DIRECT_ACL.columns,
+    ),
+  };
+  const legacyState =
+    legacyTables.status === "pass" && functionVariants.legacy.status === "pass";
+  const currentState =
+    currentTables.status === "pass" &&
+    functionVariants.current.status === "pass" &&
+    Object.values(currentDirectAcl).every((result) => result.status === "pass");
+  const matchedStates = [
+    ...(legacyState
+      ? [`legacy:${functionVariants.legacy.matched_variant}`]
+      : []),
+    ...(currentState ? ["current_complete_20261028"] : []),
+  ];
+  const checks = {
+    role_flags: exactRows(
+      reviewedRoleRows(appEvidence.roles),
+      REVIEWED_ROLE_EXPECTATIONS,
+      projectedReviewedRole,
+    ),
+    role_memberships: exactRows(
+      reviewedMembershipRows(appEvidence.role_memberships),
+      REVIEWED_ROLE_MEMBERSHIPS,
+    ),
+    application_schema_acl: exactRows(
+      reviewedAdminAclRows(appEvidence.schema_acl_privileges),
+      APPLICATION_ADMIN_ACL.schema,
+    ),
+    application_table_acl: exactRows(
+      reviewedAdminAclRows(appEvidence.table_acl_privileges),
+      APPLICATION_ADMIN_ACL.tables,
+    ),
+    application_column_acl: exactRows(
+      reviewedAdminAclRows(appEvidence.column_acl_privileges),
+      APPLICATION_ADMIN_ACL.columns,
+    ),
+    application_sequence_acl: exactRows(
+      reviewedAdminAclRows(appEvidence.sequence_acl_privileges),
+      APPLICATION_ADMIN_ACL.sequences,
+    ),
+    application_routine_acl: exactRows(
+      reviewedAdminAclRows(appEvidence.routine_acl_privileges),
+      APPLICATION_ADMIN_ACL.routines,
+    ),
+    admin_table_inventory: {
+      status:
+        legacyTables.status === "pass" || currentTables.status === "pass"
+          ? "pass"
+          : "fail",
+      legacy: legacyTables,
+      current: currentTables,
+    },
+    admin_functions: functionVariants,
+    admin_complete_state: {
+      status: matchedStates.length === 1 ? "pass" : "fail",
+      matched_variant: matchedStates.length === 1 ? matchedStates[0] : null,
+      current_direct_acl: currentDirectAcl,
+    },
+  };
+  const failed_checks = Object.entries(checks)
+    .filter(([, result]) => result.status !== "pass")
+    .map(([name]) => name);
+  return {
+    status: failed_checks.length === 0 ? "pass" : "fail",
+    failed_checks,
+    checks,
+  };
+}
+
+function withoutReviewedContractRoleEvidence(evidence) {
+  const isReviewedContractRole = (roleName) =>
+    REVIEWED_ADMIN_ROLE_NAMES.includes(roleName) || roleName === APP_LOGIN_ROLE;
+  return {
+    ...evidence,
+    roles: evidence.roles?.filter(
+      (row) => !isReviewedContractRole(row.role_name),
+    ),
+    role_memberships: evidence.role_memberships?.filter(
+      (row) =>
+        !isReviewedContractRole(row.parent_role) &&
+        !isReviewedContractRole(row.member_role),
+    ),
+    schema_privileges: evidence.schema_privileges?.filter(
+      (row) => !isReviewedContractRole(row.role_name),
+    ),
+    table_privileges: evidence.table_privileges?.filter(
+      (row) => !isReviewedContractRole(row.role_name),
+    ),
+    column_privileges: evidence.column_privileges?.filter(
+      (row) => !isReviewedContractRole(row.role_name),
+    ),
+    sequence_privileges: evidence.sequence_privileges?.filter(
+      (row) => !isReviewedContractRole(row.role_name),
+    ),
+    routine_privileges: evidence.routine_privileges?.filter(
+      (row) => !isReviewedContractRole(row.role_name),
+    ),
+    schema_acl_privileges: evidence.schema_acl_privileges?.filter(
+      (row) => !isReviewedContractRole(row.grantee),
+    ),
+    table_acl_privileges: evidence.table_acl_privileges?.filter(
+      (row) => !isReviewedContractRole(row.grantee),
+    ),
+    column_acl_privileges: evidence.column_acl_privileges?.filter(
+      (row) => !isReviewedContractRole(row.grantee),
+    ),
+    sequence_acl_privileges: evidence.sequence_acl_privileges?.filter(
+      (row) => !isReviewedContractRole(row.grantee),
+    ),
+    routine_acl_privileges: evidence.routine_acl_privileges?.filter(
+      (row) => !isReviewedContractRole(row.grantee),
+    ),
   };
 }
 
@@ -1398,6 +2057,23 @@ function statusWord(status) {
         : "ERROR";
 }
 
+/**
+ * Unknown is deliberately non-passing. In particular, catalog-only DB-13
+ * evidence cannot certify provider gateway exposure when provider settings are
+ * unavailable; callers receive an UNKNOWN report and a nonzero process exit.
+ */
+export function overallStatusFromChecks(checks) {
+  if (!Array.isArray(checks)) return "fail";
+  if (
+    checks.some(
+      (check) => check?.status === "fail" || check?.status === "error",
+    )
+  )
+    return "fail";
+  if (checks.some((check) => check?.status === "unknown")) return "unknown";
+  return "pass";
+}
+
 function markdownTable(headers, rows) {
   return [
     `| ${headers.map(toMarkdownCell).join(" | ")} |`,
@@ -1410,6 +2086,8 @@ export function renderMarkdown(report) {
   const checks = report.checks ?? [];
   const inventory = report.evidence.tables ?? [];
   const policies = report.evidence.policies ?? [];
+  const adminInventory = report.evidence.admin_tables ?? [];
+  const adminFunctions = report.evidence.admin_functions ?? [];
   const tablePrivileges = groupedPrivileges(
     report.evidence.table_acl_privileges ?? [],
     "table_name",
@@ -1444,6 +2122,13 @@ export function renderMarkdown(report) {
   const externalPrivilegeEvaluation = checks.find(
     (check) => check.name === "all_non_owner_schema_object_privileges",
   )?.evidence;
+  const adminAuthorizationEvaluation = checks.find(
+    (check) => check.name === "reviewed_admin_authorization_contract",
+  )?.evidence;
+  const appLoginAuthorizationEvaluation = checks.find(
+    (check) =>
+      check.name === "dedicated_application_login_authorization_contract",
+  )?.evidence;
   const reviewedManagedCapabilities =
     externalPrivilegeEvaluation?.reviewed_managed_capabilities ?? {};
   const reviewedCapabilityEvidenceAvailable = Boolean(
@@ -1468,7 +2153,7 @@ export function renderMarkdown(report) {
     "",
     "## Scope and guardrails",
     "",
-    `- **Target:** Supabase project \`${PROJECT_REF}\`, database \`postgres\`, private schema \`${SCHEMA}\`.`,
+    `- **Target:** Supabase project \`${PROJECT_REF}\`, database \`postgres\`, private schemas \`${SCHEMA}\` and \`${ADMIN_SCHEMA}\`.`,
     `- **Executed (UTC):** ${report.executed_at_utc}`,
     `- **Source tree:** ${report.source_tree}`,
     "- **Method:** bounded read-only PostgreSQL catalog queries and `SELECT 1 ... LIMIT 1` role probes; no application row values, credentials, token material, fingerprints, raw driver errors, DDL, DML, or data changes are included.",
@@ -1493,6 +2178,7 @@ export function renderMarkdown(report) {
     "## Table inventory, RLS, and ownership",
     "",
     `Expected inventory: **26 application tables + \`${MARKER_TABLE}\` = 27 tables**.`,
+    `Reviewed admin inventory: **${toMarkdownCell(adminInventory.length)} exact tables**.`,
     "",
     markdownTable(
       ["Table", "Owner", "RLS enabled", "RLS forced", "Policy count"],
@@ -1505,20 +2191,24 @@ export function renderMarkdown(report) {
       ]),
     ),
     "",
-    "## Exact RLS policies",
+    "## Exact application/admin RLS policies",
     "",
     markdownTable(
       [
+        "Schema",
         "Table",
         "Policy",
+        "Mode",
         "Roles",
         "Command",
         "USING qualification",
         "WITH CHECK qualification",
       ],
       policies.map((policy) => [
+        policy.schema_name,
         policy.table_name,
         policy.policy_name,
+        policy.permissive,
         normalizedRoles(policy.roles).join(", "),
         policy.command,
         policy.using_qualification,
@@ -1526,11 +2216,13 @@ export function renderMarkdown(report) {
       ]),
     ),
     "",
-    "> All expected backend policies with `USING true` are intentionally **server-only**. They permit the restricted backend role after the application has selected it; they do **not** enforce per-user or per-circle authorization. Application resource authorization therefore remains a server-side responsibility.",
+    "> Policy acceptance requires one whole named pre/post DB-09 contract state; arbitrary subsets are not accepted. All expected backend policies with `USING true` are intentionally **server-only**. They do **not** enforce per-user or per-circle authorization.",
     "",
     "## Roles, effective permissions, and probes",
     "",
     `- Restricted role inspected: \`${report.runtime_role}\` (required: NOLOGIN, NOINHERIT, NOSUPERUSER, NOBYPASSRLS).`,
+    `- Reviewed admin authorization contract: **${statusWord(adminAuthorizationEvaluation?.status)}**; failed subchecks: **${toMarkdownCell(adminAuthorizationEvaluation?.failed_checks?.length ?? 0)}**.`,
+    `- Dedicated application-login contract: **${statusWord(appLoginAuthorizationEvaluation?.status)}**; matched state: **${toMarkdownCell(appLoginAuthorizationEvaluation?.matched_variant)}**.`,
     `- Ordinary/API/runtime effective or direct privilege findings: ${report.summary.external_catalog_grants === 0 ? "**none detected**" : `**${report.summary.external_catalog_grants ?? "unknown"} detected or incomplete**`}.`,
     `- Reviewed provider-managed effective capabilities retained as separate evidence: **${toMarkdownCell(reviewedCapabilityCount)}** (${toMarkdownCell(externalPrivilegeEvaluation?.reviewed_effective_privilege_counts?.schema)} schema, ${toMarkdownCell(externalPrivilegeEvaluation?.reviewed_effective_privilege_counts?.tables)} table, ${toMarkdownCell(externalPrivilegeEvaluation?.reviewed_effective_privilege_counts?.columns)} column, ${toMarkdownCell(externalPrivilegeEvaluation?.reviewed_effective_privilege_counts?.sequences)} sequence, ${toMarkdownCell(externalPrivilegeEvaluation?.reviewed_effective_privilege_counts?.routines)} routine rows).`,
     `- Unsafe transfer path from a reviewed privileged role to an untrusted role: **${toMarkdownCell(externalPrivilegeEvaluation?.unsafe_privileged_membership_paths?.length)}** (required: 0).`,
@@ -1539,8 +2231,28 @@ export function renderMarkdown(report) {
     `- Marker catalog DML privilege result: **${report.summary.marker_dml_denied ? "denied as required" : "not denied"}**. No DML statement was issued.`,
     "",
     markdownTable(
-      ["External role", "Probe table", "Read-only SELECT 1 result", "Bounded"],
+      [
+        "External role",
+        "App probe table",
+        "Read-only SELECT 1 result",
+        "Bounded",
+      ],
       (report.evidence.external_probes ?? []).map((probe) => [
+        probe.role_name,
+        probe.table_name,
+        probe.outcome,
+        probe.returned_at_most_one_row,
+      ]),
+    ),
+    "",
+    markdownTable(
+      [
+        "External role",
+        "Admin probe table",
+        "Read-only SELECT 1 result",
+        "Bounded",
+      ],
+      (report.evidence.external_admin_probes ?? []).map((probe) => [
         probe.role_name,
         probe.table_name,
         probe.outcome,
@@ -1708,7 +2420,34 @@ export function renderMarkdown(report) {
             row.search_path_pg_catalog_first,
           ]),
         )
-      : "No functions were returned from the private schema.",
+      : "No functions were returned from the application schema.",
+    "",
+    "### Reviewed admin helper contract",
+    "",
+    adminFunctions.length
+      ? markdownTable(
+          [
+            "Function",
+            "Owner",
+            "SECURITY DEFINER",
+            "Explicit search_path",
+            "pg_catalog first",
+            "anon EXECUTE",
+            "authenticated EXECUTE",
+            "app runtime EXECUTE",
+          ],
+          adminFunctions.map((row) => [
+            row.function_name,
+            row.owner,
+            row.security_definer,
+            row.has_explicit_search_path,
+            row.search_path_pg_catalog_first,
+            row.anon_execute,
+            row.authenticated_execute,
+            row.runtime_execute,
+          ]),
+        )
+      : "No admin helper metadata was returned.",
     "",
     `- **Function risk result:** ${toMarkdownCell(report.summary.function_risk_status)}. Function bodies and settings values were not exported.`,
     `- **Schema exposure indicator:** **${toMarkdownCell(report.evidence.schema_exposure?.status)}** — ${toMarkdownCell(report.evidence.schema_exposure?.explanation)}. Missing/unsupported PostgREST settings are explicitly recorded as **unknown**, not as proof that no API gateway can expose the schema.`,
@@ -1723,7 +2462,7 @@ export function renderMarkdown(report) {
     "",
     "## Recommended follow-up",
     "",
-    "1. Rotate the privileged PostgreSQL connection credential through Supabase protected controls and update the server-only deployment secret. The privileged `postgres` connection remains a trust boundary because it can `SET ROLE` to the backend role.",
+    "1. Complete the separately approved dedicated application-login cutover with protected credential provisioning, consumer inventory, and verified runtime authority. Keep operational/backup credentials separate and server-only; do not repeat a completed credential rotation merely to satisfy audit boilerplate.",
     "2. Keep `circles_app` absent from externally exposed PostgREST/API schema configuration; verify this in Supabase/API-gateway configuration because database catalog evidence alone can be incomplete.",
     "3. Maintain server-side user/circle authorization before any backend-role query. `USING true` backend policies are not row authorization controls.",
     "4. Re-run this checker after role, RLS, grants, functions, default privileges, Supabase exposure configuration, or schema changes.",
@@ -1776,7 +2515,10 @@ async function collectEvidence(client, schemaName, runtimeRole) {
            r.rolcanlogin AS can_login,
            r.rolinherit AS inherits,
            r.rolsuper AS is_superuser,
+           r.rolcreatedb AS can_create_db,
+           r.rolcreaterole AS can_create_role,
            r.rolbypassrls AS bypasses_rls,
+           r.rolreplication AS can_replicate,
            (r.oid < 16384) AS is_catalog_builtin
     FROM pg_roles AS r
     ORDER BY r.rolname`,
@@ -1814,8 +2556,10 @@ async function collectEvidence(client, schemaName, runtimeRole) {
   const policyResult = await queryCatalog(
     client,
     `
-    SELECT p.tablename AS table_name,
+    SELECT p.schemaname AS schema_name,
+           p.tablename AS table_name,
            p.policyname AS policy_name,
+           p.permissive AS permissive,
            p.roles AS roles,
            p.cmd AS command,
            p.qual AS using_qualification,
@@ -2039,6 +2783,14 @@ async function collectEvidence(client, schemaName, runtimeRole) {
     SELECT p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' AS function_name,
            pg_get_userbyid(p.proowner) AS owner,
            p.prosecdef AS security_definer,
+           COALESCE(p.proconfig, ARRAY[]::text[]) AS search_path,
+           md5(pg_get_functiondef(p.oid)) AS body_definition_md5,
+           has_function_privilege('anon', p.oid, 'EXECUTE') AS anon_execute,
+           has_function_privilege('authenticated', p.oid, 'EXECUTE') AS authenticated_execute,
+           has_function_privilege($2, p.oid, 'EXECUTE') AS runtime_execute,
+           has_function_privilege($3, p.oid, 'EXECUTE') AS admin_runtime_execute,
+           has_function_privilege($4, p.oid, 'EXECUTE') AS native_executor_execute,
+           has_function_privilege($5, p.oid, 'EXECUTE') AS app_runtime_execute,
            EXISTS (
              SELECT 1
              FROM unnest(COALESCE(p.proconfig, ARRAY[]::text[])) AS cfg(setting)
@@ -2054,7 +2806,13 @@ async function collectEvidence(client, schemaName, runtimeRole) {
     JOIN pg_namespace AS n ON n.oid = p.pronamespace
     WHERE n.nspname = $1
     ORDER BY function_name`,
-    [schemaName],
+    [
+      schemaName,
+      runtimeRole,
+      "circles_admin_runtime",
+      "circles_admin_native_executor",
+      "circles_app_runtime",
+    ],
   );
 
   const routineAclResult = await queryCatalog(
@@ -2249,9 +3007,32 @@ async function collectEvidence(client, schemaName, runtimeRole) {
   const externalColumnPrivileges = withColumnKeys(
     rowsOrNull(externalColumnResult),
   );
+  const routineAclPrivileges = rowsOrNull(routineAclResult);
+  const routineAclByName = new Map();
+  if (Array.isArray(routineAclPrivileges)) {
+    for (const row of routineAclPrivileges) {
+      const existing = routineAclByName.get(row?.routine_name) ?? [];
+      existing.push(row);
+      routineAclByName.set(row?.routine_name, existing);
+    }
+  }
   const functions = rowsOrNull(functionResult)?.map((row) => ({
     ...row,
     routine_name: row.function_name,
+    // Retain only independently granted execute authority. The owner's default
+    // ACL is not a separate grant and is checked by the function owner field.
+    direct_acl: Array.isArray(routineAclPrivileges)
+      ? (routineAclByName.get(row.function_name) ?? [])
+          .filter((acl) => acl?.grantee !== acl?.owner)
+          .map((acl) => ({
+            grantee: acl?.grantee,
+            privilege_type: acl?.privilege_type,
+            is_grantable: acl?.is_grantable,
+          }))
+          .sort((left, right) =>
+            stableFingerprint(left).localeCompare(stableFingerprint(right)),
+          )
+      : null,
   }));
 
   const data = {
@@ -2271,7 +3052,7 @@ async function collectEvidence(client, schemaName, runtimeRole) {
     default_privilege_contexts: rowsOrNull(defaultContextsResult),
     default_privileges: rowsOrNull(defaultPrivilegesResult),
     functions,
-    routine_acl_privileges: rowsOrNull(routineAclResult),
+    routine_acl_privileges: routineAclPrivileges,
     schema_exposure_raw: rowsOrNull(exposureResult)?.[0] ?? null,
     external_schema_privileges: rowsOrNull(externalSchemaResult),
     external_table_privileges: rowsOrNull(externalTableResult),
@@ -2399,7 +3180,7 @@ function buildFindings(report) {
     );
   }
   findings.push(
-    "The privileged PostgreSQL connection principal is a trust boundary: it can select the restricted backend role. Rotate the database credential and keep it server-only.",
+    "The connection principal remains a trust boundary until the protected dedicated-login cutover is verified. Preserve operational separation, server-only credentials, and the exact login/membership contract; no rotation or activation is implied by this report.",
   );
   findings.push(
     "The `USING true` backend RLS policies intentionally gate only the server runtime role; they do not impose per-user or per-circle authorization.",
@@ -2440,7 +3221,7 @@ export async function runAudit(options) {
   const context = {
     sourceTree: await getSourceTree(projectDir),
     executedAt: new Date().toISOString(),
-    target: `Supabase project ${PROJECT_REF}; database postgres; schema ${SCHEMA}`,
+    target: `Supabase project ${PROJECT_REF}; database postgres; schemas ${SCHEMA}, ${ADMIN_SCHEMA}`,
   };
   let report = baseReport(context);
   let client;
@@ -2470,11 +3251,13 @@ export async function runAudit(options) {
     );
 
     let evidence;
+    let adminEvidence;
     let catalogTransactionBegan = false;
     try {
       await client.query("BEGIN READ ONLY");
       catalogTransactionBegan = true;
       evidence = await collectEvidence(client, SCHEMA, runtimeRole);
+      adminEvidence = await collectEvidence(client, ADMIN_SCHEMA, runtimeRole);
     } finally {
       if (catalogTransactionBegan) {
         try {
@@ -2487,7 +3270,15 @@ export async function runAudit(options) {
     const expectedAppNames = [...currentAppNames];
     const expectedNames = [...expectedAppNames, manifest.DATA_MIGRATION_TABLE];
     const tables = hydrateTables(evidence.raw_tables, evidence.policy_counts);
+    const adminTables = hydrateTables(
+      adminEvidence.raw_tables,
+      adminEvidence.policy_counts,
+    );
     const policies = (evidence.policies ?? []).map((policy) => ({
+      ...policy,
+      roles: normalizedRoles(policy.roles),
+    }));
+    const adminPolicies = (adminEvidence.policies ?? []).map((policy) => ({
       ...policy,
       roles: normalizedRoles(policy.roles),
     }));
@@ -2495,7 +3286,11 @@ export async function runAudit(options) {
     report.evidence = {
       schema: evidence.schema,
       tables,
-      policies,
+      policies: [...policies, ...adminPolicies],
+      admin_schema: adminEvidence.schema,
+      admin_tables: adminTables,
+      admin_policies: adminPolicies,
+      admin_functions: adminEvidence.functions,
       roles: evidence.roles,
       role_memberships: evidence.role_memberships,
       schema_acl_privileges: evidence.schema_acl_privileges,
@@ -2514,6 +3309,31 @@ export async function runAudit(options) {
       runtime_sequence_privileges: evidence.runtime_sequence_privileges,
       runtime_routine_privileges: evidence.runtime_routine_privileges,
     };
+
+    const schemaIdentity = {
+      application: evaluateSchemaIdentity(evidence.schema, SCHEMA),
+      administration: evaluateSchemaIdentity(
+        adminEvidence.schema,
+        ADMIN_SCHEMA,
+      ),
+    };
+    report.checks.push(
+      makeCheck(
+        context,
+        "private_schema_identity",
+        Object.values(schemaIdentity).every(
+          (result) => result.status === "pass",
+        )
+          ? "pass"
+          : "fail",
+        Object.values(schemaIdentity).every(
+          (result) => result.status === "pass",
+        )
+          ? "The catalog returned the exact circles_app and circles_admin schema identities."
+          : "The catalog did not return the expected private application/admin schema identity.",
+        schemaIdentity,
+      ),
+    );
 
     const inventory = Array.isArray(evidence.raw_tables)
       ? evaluateInventory(expectedNames, evidence.raw_tables)
@@ -2541,16 +3361,17 @@ export async function runAudit(options) {
       ),
     );
 
-    const policyEvaluation = Array.isArray(evidence.policies)
-      ? evaluatePolicies(expectedAppNames, MARKER_TABLE, policies, runtimeRole)
-      : null;
+    const policyEvaluation =
+      Array.isArray(evidence.policies) && Array.isArray(adminEvidence.policies)
+        ? evaluateAppAdminPolicies([...policies, ...adminPolicies])
+        : null;
     report.checks.push(
       checkFromEvaluation(
         context,
         "exact_runtime_rls_policies",
         policyEvaluation,
-        "Each application table has one ALL runtime policy with USING/WITH CHECK true; the marker has one SELECT-only runtime policy.",
-        "RLS policy role, command, qualification, count, or table coverage differs from the expected server-only design.",
+        "Every app/admin policy matches one complete reviewed pre/post DB-09 named variant, including browser-deny, app-runtime, admin-runtime, and native-executor predicates.",
+        "An app/admin RLS policy name, role, command, permissiveness, predicate, count, or reviewed transition variant differs from the finite authorization contract.",
       ),
     );
 
@@ -2565,6 +3386,32 @@ export async function runAudit(options) {
         runtimeRoleEvaluation,
         "circles_app_runtime is NOLOGIN, NOINHERIT, NOSUPERUSER, NOBYPASSRLS, and has no role-membership elevation path.",
         "circles_app_runtime is absent, has an unsafe role attribute, or has a role-membership elevation path.",
+      ),
+    );
+
+    const adminAuthorizationEvaluation = evaluateAdminAuthorizationContract(
+      evidence,
+      adminEvidence,
+    );
+    report.checks.push(
+      checkFromEvaluation(
+        context,
+        "reviewed_admin_authorization_contract",
+        adminAuthorizationEvaluation,
+        "The reviewed admin roles, exact membership edges, app-side ACLs, and one whole legacy or current admin state match the finite contract; the current state additionally pins nine tables, direct admin ACLs, and every helper body/path/executor/ACL record.",
+        "Reviewed admin-role flags, membership, app ACLs, admin inventory, direct admin ACLs, native helpers, helper identity, executor capability, or a complete named state differs from the finite contract.",
+      ),
+    );
+
+    const appLoginAuthorizationEvaluation =
+      evaluateAppLoginAuthorizationContract(evidence);
+    report.checks.push(
+      checkFromEvaluation(
+        context,
+        "dedicated_application_login_authorization_contract",
+        appLoginAuthorizationEvaluation,
+        "Dedicated application-login evidence matches one whole reviewed DB-02 state: historical baseline, NOLOGIN provisioning, explicit detached NOLOGIN state, or protected LOGIN cutover; any direct object ACL or extra membership edge is absent.",
+        "Dedicated application-login role flags, detached/cutover membership boundary, direct object ACL boundary, or named DB-02 transition state differs from the finite contract.",
       ),
     );
 
@@ -2583,7 +3430,7 @@ export async function runAudit(options) {
       ),
     );
 
-    const externalPrivilegeEvaluation = evaluateExternalPrivileges({
+    const externalPrivilegeEvidence = withoutReviewedContractRoleEvidence({
       roles: evidence.roles,
       role_memberships: evidence.role_memberships,
       schema: evidence.schema,
@@ -2602,12 +3449,15 @@ export async function runAudit(options) {
       sequence_acl_privileges: evidence.sequence_acl_privileges,
       routine_acl_privileges: evidence.routine_acl_privileges,
     });
+    const externalPrivilegeEvaluation = evaluateExternalPrivileges(
+      externalPrivilegeEvidence,
+    );
     report.checks.push(
       checkFromEvaluation(
         context,
         "all_non_owner_schema_object_privileges",
         externalPrivilegeEvaluation,
-        "Every current non-owner role remains in the complete effective-privilege matrix; no ordinary/API/runtime role has an unsafe effective privilege or direct ACL, and only exact reviewed provider-managed capabilities were separately classified.",
+        "Every non-admin role remains in the complete effective-privilege matrix; no ordinary/API/runtime role has an unsafe effective privilege or direct ACL, and only exact reviewed provider-managed capabilities were separately classified.",
         "Privilege evidence is incomplete; an ordinary/API/runtime or unreviewed role has an effective privilege; a direct ACL or grant option exists; a reviewed-role identity check failed; or a trusted privileged role reaches an untrusted member.",
       ),
     );
@@ -2731,6 +3581,35 @@ export async function runAudit(options) {
       ),
     );
 
+    const externalAdminProbes = [];
+    for (const roleName of EXTERNAL_ROLES) {
+      externalAdminProbes.push(
+        await runRoleProbe(client, roleName, ADMIN_SCHEMA, "audit"),
+      );
+    }
+    report.evidence.external_admin_probes = externalAdminProbes;
+    const externalAdminProbeOutcomes = externalAdminProbes.map(
+      (probe) => probe.outcome,
+    );
+    const externalAdminProbeStatus = externalAdminProbeOutcomes.every(
+      (outcome) => outcome === "denied",
+    )
+      ? "pass"
+      : externalAdminProbeOutcomes.includes("allowed")
+        ? "fail"
+        : "error";
+    report.checks.push(
+      makeCheck(
+        context,
+        "external_admin_schema_read_only_permission_probes",
+        externalAdminProbeStatus,
+        externalAdminProbeStatus === "pass"
+          ? "Per-role read-only transactions denied bounded SELECT 1 probes on circles_admin.audit and rolled back safely."
+          : "One or more external admin-schema probes were allowed or could not be classified without exposing driver details.",
+        { probes: externalAdminProbes },
+      ),
+    );
+
     const backendProbe = await runBackendProbe(
       client,
       runtimeRole,
@@ -2842,11 +3721,7 @@ export async function runAudit(options) {
       }
     }
   }
-  report.overall_status = report.checks.some(
-    (check) => check.status === "fail" || check.status === "error",
-  )
-    ? "fail"
-    : "pass";
+  report.overall_status = overallStatusFromChecks(report.checks);
   report.findings = buildFindings(report);
   return report;
 }

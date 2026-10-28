@@ -1,0 +1,1788 @@
+{
+  "format": "circles-database-recovery-manifest-v1",
+  "version": 1,
+  "purpose": "Source-derived recovery coverage contract; not evidence of a current backup, asset, provider continuity, or successful restore.",
+  "source_evidence": {
+    "source_base": "e0e83778af66494c60dfdd0511b51b50e3d369a5",
+    "sanitized_catalog": {
+      "identifier": "circles-db-audit-20261027/catalog-metadata.json",
+      "source_commit": "e0e83778af66494c60dfdd0511b51b50e3d369a5",
+      "source_tree": "d92a79683347062571f007d109ef3101c360f8fd",
+      "observed_at_utc": "2026-10-27T11:37:31.460Z"
+    },
+    "source_files": [
+      "drizzle/activity-schema.ts",
+      "drizzle/live-schema.ts",
+      "drizzle/moderation-schema.ts",
+      "drizzle/post-publish-receipt-schema.ts",
+      "drizzle/schema.ts",
+      "drizzle/session-schema.ts",
+      "operations/migrations/0001_circles_ops_daily_migration_health.sql",
+      "operations/migrations/0002_circles_auth_oauth_pending.sql",
+      "operations/migrations/0004_circles_app_integrity.sql",
+      "operations/migrations/0014_circles_email_identity.sql",
+      "operations/migrations/0015_circles_publish_post_receipts.sql",
+      "operations/recovery/README.md",
+      "scripts/recovery-continuity.mjs"
+    ],
+    "catalog_inventory_sha256": {
+      "tables": "c35557b06a15ee4f133425140b7416b5f1a5ad1f3f361e9a06f24abb998aca10",
+      "functions": "cae00b98488bf5a9020b77296a98dd4808cf817374a3da1dab991ed2caa47cfc",
+      "policies": "cbd2d5f1544bcfd76f5c35603c8115b8bcb533991d2fe66829e33dc3cda2ac63"
+    }
+  },
+  "coverage": {
+    "durable_application_state": {
+      "schema": "circles_app",
+      "tables": [
+        {
+          "name": "_dataMigrations",
+          "source": "drizzle/schema.ts"
+        },
+        {
+          "name": "activeHostLeases",
+          "source": "drizzle/live-schema.ts"
+        },
+        {
+          "name": "activityCirclePreferences",
+          "source": "drizzle/activity-schema.ts"
+        },
+        {
+          "name": "activityItems",
+          "source": "drizzle/activity-schema.ts"
+        },
+        {
+          "name": "activityPreferences",
+          "source": "drizzle/activity-schema.ts"
+        },
+        {
+          "name": "applicationSessions",
+          "source": "drizzle/session-schema.ts"
+        },
+        {
+          "name": "bookmarks",
+          "source": "drizzle/schema.ts"
+        },
+        {
+          "name": "circles",
+          "source": "drizzle/schema.ts"
+        },
+        {
+          "name": "comments",
+          "source": "drizzle/schema.ts"
+        },
+        {
+          "name": "conversationParticipants",
+          "source": "drizzle/schema.ts"
+        },
+        {
+          "name": "conversations",
+          "source": "drizzle/schema.ts"
+        },
+        {
+          "name": "follows",
+          "source": "drizzle/schema.ts"
+        },
+        {
+          "name": "liveChat",
+          "source": "drizzle/live-schema.ts"
+        },
+        {
+          "name": "liveSignals",
+          "source": "drizzle/live-schema.ts"
+        },
+        {
+          "name": "liveViewers",
+          "source": "drizzle/live-schema.ts"
+        },
+        {
+          "name": "memberships",
+          "source": "drizzle/schema.ts"
+        },
+        {
+          "name": "messages",
+          "source": "drizzle/schema.ts"
+        },
+        {
+          "name": "moderationActions",
+          "source": "drizzle/moderation-schema.ts"
+        },
+        {
+          "name": "moderationCases",
+          "source": "drizzle/moderation-schema.ts"
+        },
+        {
+          "name": "posts",
+          "source": "drizzle/schema.ts"
+        },
+        {
+          "name": "profiles",
+          "source": "drizzle/schema.ts"
+        },
+        {
+          "name": "reactions",
+          "source": "drizzle/schema.ts"
+        },
+        {
+          "name": "reports",
+          "source": "drizzle/schema.ts"
+        },
+        {
+          "name": "socialSeedMarkers",
+          "source": "drizzle/schema.ts"
+        },
+        {
+          "name": "socialUploads",
+          "source": "drizzle/schema.ts"
+        },
+        {
+          "name": "streams",
+          "source": "drizzle/live-schema.ts"
+        },
+        {
+          "name": "users",
+          "source": "drizzle/schema.ts"
+        }
+      ],
+      "notes": [
+        "All 27 installed current-app tables are durable application state, including session authority and media references.",
+        "socialUploads preserves database references only; object bytes and derivation material have separate continuity requirements."
+      ]
+    },
+    "durable_admin_state": {
+      "schema": "circles_admin",
+      "tables": [
+        {
+          "table_name": "audit",
+          "owner": "postgres",
+          "rls": true,
+          "force_rls": true,
+          "has_primary_key": true
+        },
+        {
+          "table_name": "auth_subjects",
+          "owner": "postgres",
+          "rls": true,
+          "force_rls": true,
+          "has_primary_key": true
+        },
+        {
+          "table_name": "entity_state",
+          "owner": "postgres",
+          "rls": true,
+          "force_rls": true,
+          "has_primary_key": true
+        },
+        {
+          "table_name": "operators",
+          "owner": "postgres",
+          "rls": true,
+          "force_rls": true,
+          "has_primary_key": true
+        },
+        {
+          "table_name": "report_reviews",
+          "owner": "postgres",
+          "rls": true,
+          "force_rls": true,
+          "has_primary_key": true
+        },
+        {
+          "table_name": "sessions",
+          "owner": "postgres",
+          "rls": true,
+          "force_rls": true,
+          "has_primary_key": true
+        },
+        {
+          "table_name": "settings",
+          "owner": "postgres",
+          "rls": true,
+          "force_rls": true,
+          "has_primary_key": true
+        },
+        {
+          "table_name": "supabase_sessions",
+          "owner": "postgres",
+          "rls": true,
+          "force_rls": true,
+          "has_primary_key": true
+        }
+      ],
+      "provenance": "sanitized_catalog_only",
+      "notes": [
+        "The current source does not create these eight observed admin tables. A recovery drill must restore them and the catalog-listed helpers together."
+      ]
+    },
+    "durable_publish_state": {
+      "schema": "circles_publish",
+      "tables": [
+        {
+          "table_name": "postPublishReceipts",
+          "owner": "postgres",
+          "rls": true,
+          "force_rls": true,
+          "has_primary_key": false
+        }
+      ],
+      "source": "operations/migrations/0015_circles_publish_post_receipts.sql",
+      "notes": [
+        "postPublishReceipts contains retry/idempotency state and remains durable when a referenced post is deleted."
+      ]
+    },
+    "operational_history": {
+      "schema": "circles_ops",
+      "tables": [
+        {
+          "table_name": "health_runs",
+          "owner": "postgres",
+          "rls": true,
+          "force_rls": false,
+          "has_primary_key": true
+        }
+      ],
+      "source": "operations/migrations/0001_circles_ops_daily_migration_health.sql",
+      "notes": [
+        "health_runs is retained operational history. Its presence or a healthy row never proves that an external backup or recovery succeeded."
+      ]
+    },
+    "recreate_empty_after_restore": {
+      "schema": "circles_auth",
+      "tables": [
+        {
+          "table_name": "oauth_pending_states",
+          "owner": "postgres",
+          "rls": true,
+          "force_rls": true,
+          "has_primary_key": true
+        }
+      ],
+      "source": "operations/migrations/0002_circles_auth_oauth_pending.sql",
+      "notes": [
+        "oauth_pending_states is transient single-use OAuth state. Apply/retain its schema and access contract, but restore it empty rather than replaying pending flows."
+      ]
+    },
+    "optional_durable_when_enabled": {
+      "schema": "circles_identity",
+      "tables": [
+        {
+          "name": "provider_links",
+          "source": "operations/migrations/0014_circles_email_identity.sql"
+        }
+      ],
+      "activation_condition": "email_identity_feature_enabled",
+      "catalog_status": "not_observed_in_supplied_catalog",
+      "notes": [
+        "If the optional email/provider identity feature is enabled, provider_links is durable identity mapping state and must be restored with the application rows. If disabled, do not fabricate it or claim it was recovered."
+      ]
+    },
+    "excluded_or_separately_verified": [
+      {
+        "scope": "legacy public/private application objects observed outside the current Circles private-schema source",
+        "reason": "No ownership/retention decision is encoded in this manifest; they are not silently included by the current-app recovery claim."
+      },
+      {
+        "scope": "provider-managed authentication, storage objects, platform configuration, Vault/root material, custom-role passwords and provider-managed backups",
+        "reason": "Database schema/table coverage does not recover these provider-controlled assets; verify them through authorized owner/provider controls."
+      },
+      {
+        "scope": "encrypted media object bytes and the existing media derivation/signing material",
+        "reason": "A database dump preserves only socialUploads references. Use the separately guarded continuity process; never place material in this manifest or evidence."
+      }
+    ]
+  },
+  "authorization_helpers": {
+    "roles": [
+      {
+        "name": "circles_app_runtime",
+        "provenance": "source_and_catalog",
+        "source": "drizzle/postgres/0000_circles_app.sql",
+        "contract": "NOLOGIN, NOINHERIT, NOBYPASSRLS application runtime role."
+      },
+      {
+        "name": "circles_admin_runtime",
+        "provenance": "sanitized_catalog",
+        "contract": "Observed admin runtime helper role; restore only through the reviewed role/authorization contract, never by embedding a login credential."
+      },
+      {
+        "name": "circles_admin_native_executor",
+        "provenance": "sanitized_catalog",
+        "contract": "Observed non-login, non-superuser, NOBYPASSRLS native helper role; restore its reviewed grants and membership path without a credential."
+      }
+    ],
+    "functions": {
+      "circles_app": [
+        {
+          "function_name": "enforce_message_author_authorized",
+          "arguments": "",
+          "owner": "postgres",
+          "security_definer": false,
+          "search_path_set": true,
+          "pg_catalog_first": true,
+          "anon_execute": false,
+          "authenticated_execute": false,
+          "runtime_execute": false
+        }
+      ],
+      "circles_admin": [
+        {
+          "function_name": "bind_supabase_session",
+          "arguments": "p_fingerprint text, p_auth_user_id uuid, p_provider_session_id uuid, p_token_expires_at timestamp with time zone",
+          "owner": "postgres",
+          "security_definer": true,
+          "search_path_set": true,
+          "pg_catalog_first": true,
+          "anon_execute": false,
+          "authenticated_execute": false,
+          "runtime_execute": false
+        },
+        {
+          "function_name": "lookup_supabase_operator",
+          "arguments": "p_auth_user_id uuid, p_provider_session_id uuid, p_token_expires_at timestamp with time zone",
+          "owner": "postgres",
+          "security_definer": true,
+          "search_path_set": true,
+          "pg_catalog_first": true,
+          "anon_execute": false,
+          "authenticated_execute": false,
+          "runtime_execute": false
+        },
+        {
+          "function_name": "native_append_audit",
+          "arguments": "p_actor_operator_id uuid, p_actor_name text, p_actor_role text, p_source_user_id integer, p_request_id uuid, p_request_digest text, p_action text, p_target_kind text, p_target_id text, p_note text, p_metadata jsonb",
+          "owner": "circles_admin_native_executor",
+          "security_definer": true,
+          "search_path_set": true,
+          "pg_catalog_first": true,
+          "anon_execute": false,
+          "authenticated_execute": false,
+          "runtime_execute": false
+        },
+        {
+          "function_name": "native_assert_replay",
+          "arguments": "p_operator_id uuid, p_open_id text, p_fingerprint text, p_action text, p_target_id integer, p_circle_id integer",
+          "owner": "circles_admin_native_executor",
+          "security_definer": true,
+          "search_path_set": true,
+          "pg_catalog_first": true,
+          "anon_execute": false,
+          "authenticated_execute": false,
+          "runtime_execute": false
+        },
+        {
+          "function_name": "native_circle_home",
+          "arguments": "p_operator_id uuid, p_open_id text, p_session_fingerprint text, p_request_id uuid, p_request_digest text, p_note text, p_circle_id integer, p_welcome_message text, p_rules jsonb",
+          "owner": "circles_admin_native_executor",
+          "security_definer": true,
+          "search_path_set": true,
+          "pg_catalog_first": true,
+          "anon_execute": false,
+          "authenticated_execute": false,
+          "runtime_execute": false
+        },
+        {
+          "function_name": "native_circle_home_read",
+          "arguments": "p_operator_id uuid, p_open_id text, p_fingerprint text, p_circle_id integer",
+          "owner": "circles_admin_native_executor",
+          "security_definer": true,
+          "search_path_set": true,
+          "pg_catalog_first": true,
+          "anon_execute": false,
+          "authenticated_execute": false,
+          "runtime_execute": false
+        },
+        {
+          "function_name": "native_circle_pin",
+          "arguments": "p_operator_id uuid, p_open_id text, p_session_fingerprint text, p_request_id uuid, p_request_digest text, p_note text, p_circle_id integer, p_post_id integer",
+          "owner": "circles_admin_native_executor",
+          "security_definer": true,
+          "search_path_set": true,
+          "pg_catalog_first": true,
+          "anon_execute": false,
+          "authenticated_execute": false,
+          "runtime_execute": false
+        },
+        {
+          "function_name": "native_membership_approve",
+          "arguments": "p_operator_id uuid, p_open_id text, p_session_fingerprint text, p_request_id uuid, p_request_digest text, p_note text, p_circle_id integer, p_target_user_id integer",
+          "owner": "circles_admin_native_executor",
+          "security_definer": true,
+          "search_path_set": true,
+          "pg_catalog_first": true,
+          "anon_execute": false,
+          "authenticated_execute": false,
+          "runtime_execute": false
+        },
+        {
+          "function_name": "native_membership_remove",
+          "arguments": "p_operator_id uuid, p_open_id text, p_session_fingerprint text, p_request_id uuid, p_request_digest text, p_note text, p_circle_id integer, p_target_user_id integer",
+          "owner": "circles_admin_native_executor",
+          "security_definer": true,
+          "search_path_set": true,
+          "pg_catalog_first": true,
+          "anon_execute": false,
+          "authenticated_execute": false,
+          "runtime_execute": false
+        },
+        {
+          "function_name": "native_membership_role",
+          "arguments": "p_operator_id uuid, p_open_id text, p_session_fingerprint text, p_request_id uuid, p_request_digest text, p_note text, p_circle_id integer, p_target_user_id integer, p_role text",
+          "owner": "circles_admin_native_executor",
+          "security_definer": true,
+          "search_path_set": true,
+          "pg_catalog_first": true,
+          "anon_execute": false,
+          "authenticated_execute": false,
+          "runtime_execute": false
+        },
+        {
+          "function_name": "native_moderation_resolve",
+          "arguments": "p_operator_id uuid, p_open_id text, p_session_fingerprint text, p_request_id uuid, p_request_digest text, p_note text, p_circle_id integer, p_case_id integer, p_decision text",
+          "owner": "circles_admin_native_executor",
+          "security_definer": true,
+          "search_path_set": true,
+          "pg_catalog_first": true,
+          "anon_execute": false,
+          "authenticated_execute": false,
+          "runtime_execute": false
+        },
+        {
+          "function_name": "native_profile_correct",
+          "arguments": "p_operator_id uuid, p_open_id text, p_session_fingerprint text, p_request_id uuid, p_request_digest text, p_note text, p_target_user_id integer, p_name text, p_handle text, p_bio text",
+          "owner": "circles_admin_native_executor",
+          "security_definer": true,
+          "search_path_set": true,
+          "pg_catalog_first": true,
+          "anon_execute": false,
+          "authenticated_execute": false,
+          "runtime_execute": false
+        },
+        {
+          "function_name": "native_require_actor",
+          "arguments": "p_operator_id uuid, p_open_id text, p_session_fingerprint text",
+          "owner": "circles_admin_native_executor",
+          "security_definer": true,
+          "search_path_set": true,
+          "pg_catalog_first": true,
+          "anon_execute": false,
+          "authenticated_execute": false,
+          "runtime_execute": false
+        },
+        {
+          "function_name": "native_stream_force_end",
+          "arguments": "p_operator_id uuid, p_open_id text, p_session_fingerprint text, p_request_id uuid, p_request_digest text, p_note text, p_stream_id integer",
+          "owner": "circles_admin_native_executor",
+          "security_definer": true,
+          "search_path_set": true,
+          "pg_catalog_first": true,
+          "anon_execute": false,
+          "authenticated_execute": false,
+          "runtime_execute": false
+        },
+        {
+          "function_name": "protect_owner_operator",
+          "arguments": "",
+          "owner": "postgres",
+          "security_definer": false,
+          "search_path_set": true,
+          "pg_catalog_first": true,
+          "anon_execute": false,
+          "authenticated_execute": false,
+          "runtime_execute": false
+        },
+        {
+          "function_name": "provision_initial_owner",
+          "arguments": "p_operator_id uuid, p_name text, p_email text, p_open_id text",
+          "owner": "postgres",
+          "security_definer": true,
+          "search_path_set": true,
+          "pg_catalog_first": true,
+          "anon_execute": false,
+          "authenticated_execute": false,
+          "runtime_execute": false
+        },
+        {
+          "function_name": "reject_audit_mutation",
+          "arguments": "",
+          "owner": "postgres",
+          "security_definer": false,
+          "search_path_set": false,
+          "pg_catalog_first": false,
+          "anon_execute": false,
+          "authenticated_execute": false,
+          "runtime_execute": false
+        },
+        {
+          "function_name": "reject_native_control_lock_mutation",
+          "arguments": "",
+          "owner": "postgres",
+          "security_definer": false,
+          "search_path_set": true,
+          "pg_catalog_first": true,
+          "anon_execute": false,
+          "authenticated_execute": false,
+          "runtime_execute": false
+        },
+        {
+          "function_name": "scoped_read_allowed",
+          "arguments": "p_operator_id uuid, p_open_id text, p_fingerprint text, p_app_id text, p_resource text, p_resource_id integer, p_requirement text",
+          "owner": "postgres",
+          "security_definer": true,
+          "search_path_set": true,
+          "pg_catalog_first": true,
+          "anon_execute": false,
+          "authenticated_execute": false,
+          "runtime_execute": false
+        },
+        {
+          "function_name": "supabase_session_allowed",
+          "arguments": "p_fingerprint text",
+          "owner": "postgres",
+          "security_definer": true,
+          "search_path_set": true,
+          "pg_catalog_first": true,
+          "anon_execute": false,
+          "authenticated_execute": false,
+          "runtime_execute": false
+        },
+        {
+          "function_name": "touch_updated_at",
+          "arguments": "",
+          "owner": "postgres",
+          "security_definer": false,
+          "search_path_set": false,
+          "pg_catalog_first": false,
+          "anon_execute": false,
+          "authenticated_execute": false,
+          "runtime_execute": false
+        }
+      ],
+      "circles_ops": [
+        {
+          "function_name": "run_daily_migration_health",
+          "arguments": "",
+          "owner": "postgres",
+          "security_definer": true,
+          "search_path_set": true,
+          "pg_catalog_first": true,
+          "anon_execute": false,
+          "authenticated_execute": false,
+          "runtime_execute": false
+        }
+      ]
+    },
+    "policies": {
+      "circles_app": [
+        {
+          "table": "_dataMigrations",
+          "name": "circles_app_deny_anon_authenticated",
+          "command": "ALL",
+          "permissive": "RESTRICTIVE",
+          "roles": ["anon", "authenticated"],
+          "qualification": "false",
+          "with_check": "false"
+        },
+        {
+          "table": "_dataMigrations",
+          "name": "runtime_data_migrations_read_policy",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_app_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "activeHostLeases",
+          "name": "circles_admin_native_exec_activehostleases",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_native_executor"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "activeHostLeases",
+          "name": "circles_admin_parity_read_activehostleases",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "activeHostLeases",
+          "name": "circles_app_deny_anon_authenticated",
+          "command": "ALL",
+          "permissive": "RESTRICTIVE",
+          "roles": ["anon", "authenticated"],
+          "qualification": "false",
+          "with_check": "false"
+        },
+        {
+          "table": "activeHostLeases",
+          "name": "runtime_active_host_leases_policy",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_app_runtime"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "activityCirclePreferences",
+          "name": "circles_admin_native_exec_activitycirclepreferences",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_native_executor"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "activityCirclePreferences",
+          "name": "circles_app_deny_anon_authenticated",
+          "command": "ALL",
+          "permissive": "RESTRICTIVE",
+          "roles": ["anon", "authenticated"],
+          "qualification": "false",
+          "with_check": "false"
+        },
+        {
+          "table": "activityCirclePreferences",
+          "name": "runtime_activity_circle_preferences_policy",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_app_runtime"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "activityItems",
+          "name": "circles_admin_native_exec_activityitems",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_native_executor"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "activityItems",
+          "name": "circles_admin_parity_read_activityitems",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "activityItems",
+          "name": "circles_app_deny_anon_authenticated",
+          "command": "ALL",
+          "permissive": "RESTRICTIVE",
+          "roles": ["anon", "authenticated"],
+          "qualification": "false",
+          "with_check": "false"
+        },
+        {
+          "table": "activityItems",
+          "name": "runtime_activity_items_policy",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_app_runtime"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "activityPreferences",
+          "name": "circles_admin_native_exec_activitypreferences",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_native_executor"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "activityPreferences",
+          "name": "circles_app_deny_anon_authenticated",
+          "command": "ALL",
+          "permissive": "RESTRICTIVE",
+          "roles": ["anon", "authenticated"],
+          "qualification": "false",
+          "with_check": "false"
+        },
+        {
+          "table": "activityPreferences",
+          "name": "runtime_activity_preferences_policy",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_app_runtime"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "applicationSessions",
+          "name": "circles_app_deny_anon_authenticated",
+          "command": "ALL",
+          "permissive": "RESTRICTIVE",
+          "roles": ["anon", "authenticated"],
+          "qualification": "false",
+          "with_check": "false"
+        },
+        {
+          "table": "applicationSessions",
+          "name": "runtime_application_sessions_policy",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_app_runtime"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "bookmarks",
+          "name": "circles_admin_parity_read_bookmarks",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "bookmarks",
+          "name": "circles_app_deny_anon_authenticated",
+          "command": "ALL",
+          "permissive": "RESTRICTIVE",
+          "roles": ["anon", "authenticated"],
+          "qualification": "false",
+          "with_check": "false"
+        },
+        {
+          "table": "bookmarks",
+          "name": "runtime_bookmarks_policy",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_app_runtime"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "circles",
+          "name": "circles_admin_native_exec_circles",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_native_executor"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "circles",
+          "name": "circles_admin_parity_read_circles",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "circles",
+          "name": "circles_admin_read_circles",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "circles",
+          "name": "circles_app_deny_anon_authenticated",
+          "command": "ALL",
+          "permissive": "RESTRICTIVE",
+          "roles": ["anon", "authenticated"],
+          "qualification": "false",
+          "with_check": "false"
+        },
+        {
+          "table": "circles",
+          "name": "runtime_circles_policy",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_app_runtime"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "comments",
+          "name": "circles_admin_parity_read_comments",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "comments",
+          "name": "circles_admin_read_comments",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "comments",
+          "name": "circles_app_deny_anon_authenticated",
+          "command": "ALL",
+          "permissive": "RESTRICTIVE",
+          "roles": ["anon", "authenticated"],
+          "qualification": "false",
+          "with_check": "false"
+        },
+        {
+          "table": "comments",
+          "name": "runtime_comments_policy",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_app_runtime"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "conversationParticipants",
+          "name": "circles_app_deny_anon_authenticated",
+          "command": "ALL",
+          "permissive": "RESTRICTIVE",
+          "roles": ["anon", "authenticated"],
+          "qualification": "false",
+          "with_check": "false"
+        },
+        {
+          "table": "conversationParticipants",
+          "name": "runtime_conversation_participants_policy",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_app_runtime"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "conversations",
+          "name": "circles_app_deny_anon_authenticated",
+          "command": "ALL",
+          "permissive": "RESTRICTIVE",
+          "roles": ["anon", "authenticated"],
+          "qualification": "false",
+          "with_check": "false"
+        },
+        {
+          "table": "conversations",
+          "name": "runtime_conversations_policy",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_app_runtime"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "follows",
+          "name": "circles_admin_parity_read_follows",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "follows",
+          "name": "circles_app_deny_anon_authenticated",
+          "command": "ALL",
+          "permissive": "RESTRICTIVE",
+          "roles": ["anon", "authenticated"],
+          "qualification": "false",
+          "with_check": "false"
+        },
+        {
+          "table": "follows",
+          "name": "runtime_follows_policy",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_app_runtime"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "liveChat",
+          "name": "circles_admin_parity_read_livechat",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "liveChat",
+          "name": "circles_app_deny_anon_authenticated",
+          "command": "ALL",
+          "permissive": "RESTRICTIVE",
+          "roles": ["anon", "authenticated"],
+          "qualification": "false",
+          "with_check": "false"
+        },
+        {
+          "table": "liveChat",
+          "name": "runtime_live_chat_policy",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_app_runtime"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "liveSignals",
+          "name": "circles_admin_native_exec_livesignals",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_native_executor"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "liveSignals",
+          "name": "circles_app_deny_anon_authenticated",
+          "command": "ALL",
+          "permissive": "RESTRICTIVE",
+          "roles": ["anon", "authenticated"],
+          "qualification": "false",
+          "with_check": "false"
+        },
+        {
+          "table": "liveSignals",
+          "name": "runtime_live_signals_policy",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_app_runtime"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "liveViewers",
+          "name": "circles_admin_parity_read_liveviewers",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "liveViewers",
+          "name": "circles_admin_read_liveviewers",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "liveViewers",
+          "name": "circles_app_deny_anon_authenticated",
+          "command": "ALL",
+          "permissive": "RESTRICTIVE",
+          "roles": ["anon", "authenticated"],
+          "qualification": "false",
+          "with_check": "false"
+        },
+        {
+          "table": "liveViewers",
+          "name": "runtime_live_viewers_policy",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_app_runtime"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "memberships",
+          "name": "circles_admin_native_exec_memberships",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_native_executor"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "memberships",
+          "name": "circles_admin_parity_read_memberships",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "memberships",
+          "name": "circles_admin_read_memberships",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "memberships",
+          "name": "circles_app_deny_anon_authenticated",
+          "command": "ALL",
+          "permissive": "RESTRICTIVE",
+          "roles": ["anon", "authenticated"],
+          "qualification": "false",
+          "with_check": "false"
+        },
+        {
+          "table": "memberships",
+          "name": "runtime_memberships_policy",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_app_runtime"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "messages",
+          "name": "circles_app_deny_anon_authenticated",
+          "command": "ALL",
+          "permissive": "RESTRICTIVE",
+          "roles": ["anon", "authenticated"],
+          "qualification": "false",
+          "with_check": "false"
+        },
+        {
+          "table": "messages",
+          "name": "runtime_messages_policy",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_app_runtime"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "moderationActions",
+          "name": "circles_admin_native_exec_moderationactions",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_native_executor"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "moderationActions",
+          "name": "circles_admin_parity_read_moderationactions",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "moderationActions",
+          "name": "circles_app_deny_anon_authenticated",
+          "command": "ALL",
+          "permissive": "RESTRICTIVE",
+          "roles": ["anon", "authenticated"],
+          "qualification": "false",
+          "with_check": "false"
+        },
+        {
+          "table": "moderationActions",
+          "name": "runtime_moderation_actions_policy",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_app_runtime"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "moderationCases",
+          "name": "circles_admin_native_exec_moderationcases",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_native_executor"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "moderationCases",
+          "name": "circles_admin_parity_read_moderationcases",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "moderationCases",
+          "name": "circles_app_deny_anon_authenticated",
+          "command": "ALL",
+          "permissive": "RESTRICTIVE",
+          "roles": ["anon", "authenticated"],
+          "qualification": "false",
+          "with_check": "false"
+        },
+        {
+          "table": "moderationCases",
+          "name": "runtime_moderation_cases_policy",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_app_runtime"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "posts",
+          "name": "circles_admin_native_exec_posts",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_native_executor"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "posts",
+          "name": "circles_admin_parity_read_posts",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "posts",
+          "name": "circles_admin_read_posts",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "posts",
+          "name": "circles_app_deny_anon_authenticated",
+          "command": "ALL",
+          "permissive": "RESTRICTIVE",
+          "roles": ["anon", "authenticated"],
+          "qualification": "false",
+          "with_check": "false"
+        },
+        {
+          "table": "posts",
+          "name": "runtime_posts_policy",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_app_runtime"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "profiles",
+          "name": "circles_admin_native_exec_profiles",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_native_executor"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "profiles",
+          "name": "circles_admin_parity_read_profiles",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "profiles",
+          "name": "circles_admin_read_profiles",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "profiles",
+          "name": "circles_app_deny_anon_authenticated",
+          "command": "ALL",
+          "permissive": "RESTRICTIVE",
+          "roles": ["anon", "authenticated"],
+          "qualification": "false",
+          "with_check": "false"
+        },
+        {
+          "table": "profiles",
+          "name": "runtime_profiles_policy",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_app_runtime"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "reactions",
+          "name": "circles_admin_parity_read_reactions",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "reactions",
+          "name": "circles_admin_read_reactions",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "reactions",
+          "name": "circles_app_deny_anon_authenticated",
+          "command": "ALL",
+          "permissive": "RESTRICTIVE",
+          "roles": ["anon", "authenticated"],
+          "qualification": "false",
+          "with_check": "false"
+        },
+        {
+          "table": "reactions",
+          "name": "runtime_reactions_policy",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_app_runtime"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "reports",
+          "name": "circles_admin_parity_read_reports",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "reports",
+          "name": "circles_admin_read_reports",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "reports",
+          "name": "circles_app_deny_anon_authenticated",
+          "command": "ALL",
+          "permissive": "RESTRICTIVE",
+          "roles": ["anon", "authenticated"],
+          "qualification": "false",
+          "with_check": "false"
+        },
+        {
+          "table": "reports",
+          "name": "runtime_reports_policy",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_app_runtime"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "socialSeedMarkers",
+          "name": "circles_app_deny_anon_authenticated",
+          "command": "ALL",
+          "permissive": "RESTRICTIVE",
+          "roles": ["anon", "authenticated"],
+          "qualification": "false",
+          "with_check": "false"
+        },
+        {
+          "table": "socialSeedMarkers",
+          "name": "runtime_social_seed_markers_policy",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_app_runtime"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "socialUploads",
+          "name": "circles_admin_parity_read_socialuploads",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "socialUploads",
+          "name": "circles_app_deny_anon_authenticated",
+          "command": "ALL",
+          "permissive": "RESTRICTIVE",
+          "roles": ["anon", "authenticated"],
+          "qualification": "false",
+          "with_check": "false"
+        },
+        {
+          "table": "socialUploads",
+          "name": "runtime_social_uploads_policy",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_app_runtime"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "streams",
+          "name": "circles_admin_native_exec_streams",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_native_executor"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "streams",
+          "name": "circles_admin_parity_read_streams",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "streams",
+          "name": "circles_admin_read_streams",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "streams",
+          "name": "circles_app_deny_anon_authenticated",
+          "command": "ALL",
+          "permissive": "RESTRICTIVE",
+          "roles": ["anon", "authenticated"],
+          "qualification": "false",
+          "with_check": "false"
+        },
+        {
+          "table": "streams",
+          "name": "runtime_streams_policy",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_app_runtime"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "users",
+          "name": "circles_admin_native_exec_users",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_native_executor"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "users",
+          "name": "circles_admin_native_users_lock_only",
+          "command": "UPDATE",
+          "permissive": "RESTRICTIVE",
+          "roles": ["circles_admin_native_executor"],
+          "qualification": "true",
+          "with_check": "false"
+        },
+        {
+          "table": "users",
+          "name": "circles_admin_parity_read_users",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "users",
+          "name": "circles_admin_read_users",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "users",
+          "name": "circles_app_deny_anon_authenticated",
+          "command": "ALL",
+          "permissive": "RESTRICTIVE",
+          "roles": ["anon", "authenticated"],
+          "qualification": "false",
+          "with_check": "false"
+        },
+        {
+          "table": "users",
+          "name": "runtime_users_policy",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_app_runtime"],
+          "qualification": "true",
+          "with_check": "true"
+        }
+      ],
+      "circles_admin": [
+        {
+          "table": "audit",
+          "name": "circles_admin_native_audit_append",
+          "command": "INSERT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_native_executor"],
+          "qualification": null,
+          "with_check": "true"
+        },
+        {
+          "table": "audit",
+          "name": "circles_admin_native_audit_read",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_native_executor"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "audit",
+          "name": "circles_admin_parity_audit_append",
+          "command": "INSERT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": null,
+          "with_check": "(EXISTS ( SELECT 1\n   FROM circles_admin.operators o\n  WHERE ((o.id = audit.actor_operator_id) AND ((o.status)::text = 'active'::text) AND ((o.role)::text = (audit.actor_role)::text))))"
+        },
+        {
+          "table": "audit",
+          "name": "circles_admin_parity_audit_read",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "audit",
+          "name": "circles_admin_runtime_audit_insert",
+          "command": "INSERT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": null,
+          "with_check": "(EXISTS ( SELECT 1\n   FROM circles_admin.operators o\n  WHERE ((o.id = audit.actor_operator_id) AND ((o.status)::text = 'active'::text) AND ((o.role)::text = (audit.actor_role)::text))))"
+        },
+        {
+          "table": "audit",
+          "name": "circles_admin_runtime_audit_select",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "entity_state",
+          "name": "circles_admin_runtime_entity_state_insert",
+          "command": "INSERT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": null,
+          "with_check": "true"
+        },
+        {
+          "table": "entity_state",
+          "name": "circles_admin_runtime_entity_state_select",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "entity_state",
+          "name": "circles_admin_runtime_entity_state_update",
+          "command": "UPDATE",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "operators",
+          "name": "circles_admin_native_operators_lock",
+          "command": "UPDATE",
+          "permissive": "RESTRICTIVE",
+          "roles": ["circles_admin_native_executor"],
+          "qualification": "true",
+          "with_check": "false"
+        },
+        {
+          "table": "operators",
+          "name": "circles_admin_native_operators_lock_permissive",
+          "command": "UPDATE",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_native_executor"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "operators",
+          "name": "circles_admin_native_operators_read",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_native_executor"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "operators",
+          "name": "circles_admin_runtime_operators_insert",
+          "command": "INSERT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": null,
+          "with_check": "((role)::text <> 'owner'::text)"
+        },
+        {
+          "table": "operators",
+          "name": "circles_admin_runtime_operators_select",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "operators",
+          "name": "circles_admin_runtime_operators_update",
+          "command": "UPDATE",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "operators",
+          "name": "circles_admin_runtime_owner_insert_guard",
+          "command": "INSERT",
+          "permissive": "RESTRICTIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": null,
+          "with_check": "((role)::text <> 'owner'::text)"
+        },
+        {
+          "table": "report_reviews",
+          "name": "circles_admin_runtime_report_reviews_insert",
+          "command": "INSERT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": null,
+          "with_check": "true"
+        },
+        {
+          "table": "report_reviews",
+          "name": "circles_admin_runtime_report_reviews_select",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "sessions",
+          "name": "circles_admin_native_sessions_lock",
+          "command": "UPDATE",
+          "permissive": "RESTRICTIVE",
+          "roles": ["circles_admin_native_executor"],
+          "qualification": "true",
+          "with_check": "false"
+        },
+        {
+          "table": "sessions",
+          "name": "circles_admin_native_sessions_lock_permissive",
+          "command": "UPDATE",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_native_executor"],
+          "qualification": "true",
+          "with_check": "true"
+        },
+        {
+          "table": "sessions",
+          "name": "circles_admin_native_sessions_read",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_native_executor"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "sessions",
+          "name": "circles_admin_runtime_sessions_insert",
+          "command": "INSERT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": null,
+          "with_check": "((auth_provider)::text = 'manus'::text)"
+        },
+        {
+          "table": "sessions",
+          "name": "circles_admin_runtime_sessions_select",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "sessions",
+          "name": "circles_admin_runtime_sessions_update",
+          "command": "UPDATE",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": "((auth_provider)::text = ANY ((ARRAY['manus'::character varying, 'supabase'::character varying])::text[]))"
+        },
+        {
+          "table": "sessions",
+          "name": "circles_admin_sessions_provider_allowed",
+          "command": "SELECT",
+          "permissive": "RESTRICTIVE",
+          "roles": ["circles_admin_native_executor", "circles_admin_runtime"],
+          "qualification": "circles_admin.supabase_session_allowed((fingerprint)::text)",
+          "with_check": null
+        },
+        {
+          "table": "settings",
+          "name": "circles_admin_runtime_settings_insert",
+          "command": "INSERT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": null,
+          "with_check": "true"
+        },
+        {
+          "table": "settings",
+          "name": "circles_admin_runtime_settings_select",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "settings",
+          "name": "circles_admin_runtime_settings_update",
+          "command": "UPDATE",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_admin_runtime"],
+          "qualification": "true",
+          "with_check": "true"
+        }
+      ],
+      "circles_auth": [
+        {
+          "table": "oauth_pending_states",
+          "name": "circles_auth_oauth_pending_states_runtime_backend_policy",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_app_runtime"],
+          "qualification": "true",
+          "with_check": "true"
+        }
+      ],
+      "circles_ops": [
+        {
+          "table": "health_runs",
+          "name": "circles_ops_health_runs_postgres_admin_policy",
+          "command": "ALL",
+          "permissive": "PERMISSIVE",
+          "roles": ["postgres"],
+          "qualification": "true",
+          "with_check": "true"
+        }
+      ],
+      "circles_publish": [
+        {
+          "table": "postPublishReceipts",
+          "name": "post_publish_receipts_runtime_insert",
+          "command": "INSERT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_app_runtime"],
+          "qualification": null,
+          "with_check": "true"
+        },
+        {
+          "table": "postPublishReceipts",
+          "name": "post_publish_receipts_runtime_select",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_app_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "postPublishReceipts",
+          "name": "post_publish_receipts_runtime_update",
+          "command": "UPDATE",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_app_runtime"],
+          "qualification": "true",
+          "with_check": "true"
+        }
+      ],
+      "source_only_optional_identity": [
+        {
+          "table": "provider_links",
+          "name": "circles_identity_provider_links_runtime_select",
+          "command": "SELECT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_app_runtime"],
+          "qualification": "true",
+          "with_check": null
+        },
+        {
+          "table": "provider_links",
+          "name": "circles_identity_provider_links_runtime_insert",
+          "command": "INSERT",
+          "permissive": "PERMISSIVE",
+          "roles": ["circles_app_runtime"],
+          "qualification": null,
+          "with_check": "true"
+        }
+      ]
+    },
+    "notes": [
+      "Catalog-listed roles, functions, and policies are schema state that an isolated restore must compare as metadata. The manifest is not an authorization redesign and does not claim per-user RLS.",
+      "The two source-only optional identity policies are requirements only when the identity feature is enabled."
+    ]
+  },
+  "external_verification_requirements": {
+    "evidence_format": "circles-database-recovery-evidence-v1",
+    "default_max_evidence_age_hours": 48,
+    "provenance": "A parent-authorized owner or connector must read current external evidence. This checker never opens a network, database, provider, GitHub, backup, or media connection.",
+    "required_attestations": [
+      "a current successful backup run and its expected encrypted asset set were inspected read-only",
+      "artifact integrity and retention were checked without recording locations, credentials, keys, URLs, or asset contents",
+      "an isolated non-production PostgreSQL 17 restore target was used",
+      "the durable application, admin, publish and health-history groups were compared as schema/data coverage",
+      "OAuth pending state was recreated empty after restore",
+      "media object bytes and existing derivation/signing-material continuity were verified separately",
+      "provider-managed auth/storage/configuration and custom-role continuity were verified through authorized controls",
+      "optional identity mapping was explicitly marked restored only if the feature is enabled"
+    ],
+    "attestation_limit": "A syntactically complete redacted evidence document only records a reviewer assertion. It is not independently verified by this script and is not proof of a live recovery."
+  }
+}
