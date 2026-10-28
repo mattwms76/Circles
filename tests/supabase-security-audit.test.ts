@@ -1,3 +1,5 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -8,7 +10,7 @@ import {
   writePrivateNewFile,
 } from "../scripts/circles-supabase-security-audit.mjs";
 
-const project = path.resolve(import.meta.dirname, "..");
+const execFileAsync = promisify(execFile);
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
@@ -28,9 +30,17 @@ async function privateDirectory() {
   return directory;
 }
 
+async function createGitProject(directory: string) {
+  const project = path.join(directory, "project");
+  await fs.mkdir(project, { mode: 0o700 });
+  await execFileAsync("git", ["init", "--quiet", project]);
+  return project;
+}
+
 describe("Circles application-schema auditor output boundary", () => {
   it("accepts only new private outputs outside the project Git tree and creates 0600 files exclusively", async () => {
     const directory = await privateDirectory();
+    const project = await createGitProject(directory);
     const paths = await validateOutputPaths({
       projectDir: project,
       jsonOutput: path.join(directory, "report.json"),
@@ -48,6 +58,7 @@ describe("Circles application-schema auditor output boundary", () => {
 
   it("rejects a project subdirectory and every symlinked output parent without writing a report", async () => {
     const directory = await privateDirectory();
+    const project = await createGitProject(directory);
     const privateChild = path.join(directory, "private");
     await fs.mkdir(privateChild, { mode: 0o700 });
     const linked = path.join(directory, "linked");

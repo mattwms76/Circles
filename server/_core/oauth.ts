@@ -6,7 +6,11 @@ import {
   isCirclesNativeOAuthRedirectUri,
 } from "../../shared/oauth-redirect-contract.js";
 import type { Express, Request, Response } from "express";
-import { getUserByOpenId, upsertUser } from "../db";
+import {
+  getUserByOpenId,
+  upsertUser,
+  withTrustedSystemDatabaseTransaction,
+} from "../db";
 import {
   APPLICATION_SESSION_COOKIE_NAME,
   clearAcceptedSessionCookies,
@@ -429,23 +433,31 @@ async function syncUser(userInfo: {
     throw new Error("openId missing from user info");
   }
 
-  const lastSignedIn = new Date();
-  await upsertUser({
-    openId: userInfo.openId,
-    name: userInfo.name || null,
-    email: userInfo.email ?? null,
-    loginMethod: userInfo.loginMethod ?? userInfo.platform ?? null,
-    lastSignedIn,
-  });
-  const saved = await getUserByOpenId(userInfo.openId);
-  return (
-    saved ?? {
-      openId: userInfo.openId,
-      name: userInfo.name,
-      email: userInfo.email,
-      loginMethod: userInfo.loginMethod ?? null,
-      lastSignedIn,
-    }
+  // `completeOAuthLogin` reaches here only after the provider code exchange
+  // and user-info retrieval. That verified identity is the narrow authority
+  // for source-user synchronization before any application session is issued.
+  return withTrustedSystemDatabaseTransaction(
+    "verified-oauth-user-sync",
+    async () => {
+      const lastSignedIn = new Date();
+      await upsertUser({
+        openId: userInfo.openId!,
+        name: userInfo.name || null,
+        email: userInfo.email ?? null,
+        loginMethod: userInfo.loginMethod ?? userInfo.platform ?? null,
+        lastSignedIn,
+      });
+      const saved = await getUserByOpenId(userInfo.openId!);
+      return (
+        saved ?? {
+          openId: userInfo.openId!,
+          name: userInfo.name,
+          email: userInfo.email,
+          loginMethod: userInfo.loginMethod ?? null,
+          lastSignedIn,
+        }
+      );
+    },
   );
 }
 

@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { readinessFromEvidence } from "../server/_core/readiness";
-vi.mock("../server/db", () => ({ getDb: vi.fn() }));
+vi.mock("../server/db", () => ({
+  getDb: vi.fn(),
+  withTrustedSystemDatabaseTransaction: async (
+    _operation: string,
+    work: () => Promise<unknown>,
+  ) => work(),
+}));
 
 describe("private backend readiness", () => {
   it("fails closed without database evidence", () => {

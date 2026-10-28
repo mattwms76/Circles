@@ -1,0 +1,1064 @@
+{
+  "contract": "DB03_POST_ACTOR_POLICY_HELPER_MANIFEST_V1",
+  "candidate_sql": {
+    "path": "operations/remediation/remaining_db03_actor_rls.sql",
+    "sha256": "9e259220c5b5f96ee529f1d9b2296624b50b6cb144d558de139110e6aa301920",
+    "approval_guc": "circles.db03_actor_rls_contract=DB03_ACTOR_RLS_APPROVED_V1",
+    "owner": "postgres"
+  },
+  "runtime_actor_contract": {
+    "generic_getDb": "returns null without an AsyncLocalStorage actor scope",
+    "actors": [
+      "guest",
+      "user positive safe integer",
+      "system named trusted operation"
+    ],
+    "transaction_settings": [
+      "SET LOCAL circles.actor_id",
+      "SET LOCAL circles.actor_kind"
+    ],
+    "trpc_failure": "handled next() { ok: false } errors are thrown inside the outer transaction to force rollback"
+  },
+  "trusted_system_direct_callsites": [
+    {
+      "operation": "application-session-persistence",
+      "module": "server/_core/application-sessions.ts",
+      "authority": "signed application-session issue/verify/revoke only",
+      "tables": ["circles_app.applicationSessions"]
+    },
+    {
+      "operation": "email-identity-readiness",
+      "module": "server/_core/email-identity.ts",
+      "authority": "server readiness check only",
+      "tables": ["circles_identity.provider_links"]
+    },
+    {
+      "operation": "verified-email-identity",
+      "module": "server/_core/email-identity.ts",
+      "authority": "Supabase password grant plus confirmed /user identity; existing SDK-authenticated actor for explicit link",
+      "tables": ["circles_identity.provider_links", "circles_app.users"]
+    },
+    {
+      "operation": "oauth-pending-state",
+      "module": "server/_core/oauth-pending-state.ts",
+      "authority": "server-generated state/cookie or native flow token; one-shot consume",
+      "tables": ["circles_auth.oauth_pending_states"]
+    },
+    {
+      "operation": "verified-oauth-user-sync",
+      "module": "server/_core/oauth.ts",
+      "authority": "provider code exchange and user-info result before session issuance",
+      "tables": ["circles_app.users"]
+    },
+    {
+      "operation": "verified-session-user-sync",
+      "module": "server/_core/sdk.ts",
+      "authority": "verified signed durable application session before request context actor construction",
+      "tables": ["circles_app.users"]
+    },
+    {
+      "operation": "media-reference-authorization",
+      "module": "server/_core/storageProxy.ts",
+      "authority": "validated encrypted social object-key followed by exact reference-aware authorization",
+      "tables": [
+        "circles_app.socialUploads",
+        "circles_app.profiles",
+        "circles_app.circles",
+        "circles_app.posts",
+        "circles_app.messages",
+        "circles_app.conversations",
+        "circles_app.conversationParticipants",
+        "circles_app.memberships",
+        "circles_app.streams"
+      ]
+    },
+    {
+      "operation": "readiness-catalog",
+      "module": "server/_core/readiness.ts",
+      "authority": "server-owned aggregate catalog/permission readiness query only",
+      "tables": ["pg_catalog and exact private contract metadata"]
+    }
+  ],
+  "covered_policy_count": 72,
+  "helper_count": 16,
+  "policies": [
+    {
+      "name": "db03_profiles_select",
+      "relation": "circles_app.profiles",
+      "command": "SELECT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_profiles_select ON circles_app.profiles FOR SELECT TO circles_app_runtime USING (true);",
+      "sha256": "c7c5a893c53254d9651fc0c20c8d3d71a0cf5950eedd77dfb57eff2e09fd5850"
+    },
+    {
+      "name": "db03_profiles_insert",
+      "relation": "circles_app.profiles",
+      "command": "INSERT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_profiles_insert ON circles_app.profiles FOR INSERT TO circles_app_runtime WITH CHECK (\n  circles_app.db03_is_system_actor() OR circles_app.db03_is_admin_actor()\n  OR \"userId\" = circles_app.db03_current_actor_id()\n);",
+      "sha256": "b2d59508537f8bb9dbdfc51239dbef86c6324e7a67e29ca826f1eb6aaf61363a"
+    },
+    {
+      "name": "db03_profiles_update",
+      "relation": "circles_app.profiles",
+      "command": "UPDATE",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_profiles_update ON circles_app.profiles FOR UPDATE TO circles_app_runtime USING (\n  circles_app.db03_is_system_actor() OR circles_app.db03_is_admin_actor()\n  OR \"userId\" = circles_app.db03_current_actor_id()\n) WITH CHECK (\n  circles_app.db03_is_system_actor() OR circles_app.db03_is_admin_actor()\n  OR \"userId\" = circles_app.db03_current_actor_id()\n);",
+      "sha256": "71bc5e8efe2f03b74203f2ac2d1a70a4fc590e77aa9ed9a5e1e26905b8bd7b8c"
+    },
+    {
+      "name": "db03_profiles_delete",
+      "relation": "circles_app.profiles",
+      "command": "DELETE",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_profiles_delete ON circles_app.profiles FOR DELETE TO circles_app_runtime USING (\n  circles_app.db03_is_system_actor() OR circles_app.db03_is_admin_actor()\n  OR \"userId\" = circles_app.db03_current_actor_id()\n);",
+      "sha256": "ba267b3be50ef04b583f71e1bcd19e2b05e5554c27282425490735c0fce635c8"
+    },
+    {
+      "name": "db03_circles_select",
+      "relation": "circles_app.circles",
+      "command": "SELECT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_circles_select ON circles_app.circles FOR SELECT TO circles_app_runtime USING (true);",
+      "sha256": "2b55938b7357cc8841e45d6b492078c07f12d3f10f9128019ecdc4eec90c3bd3"
+    },
+    {
+      "name": "db03_circles_insert",
+      "relation": "circles_app.circles",
+      "command": "INSERT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_circles_insert ON circles_app.circles FOR INSERT TO circles_app_runtime WITH CHECK (\n  circles_app.db03_is_system_actor() OR circles_app.db03_is_admin_actor()\n  OR \"ownerId\" = circles_app.db03_current_actor_id()\n);",
+      "sha256": "6be0456e966818a53f99621bc7e18693bab854d07079ed28adda1938643ebfb7"
+    },
+    {
+      "name": "db03_circles_update",
+      "relation": "circles_app.circles",
+      "command": "UPDATE",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_circles_update ON circles_app.circles FOR UPDATE TO circles_app_runtime USING (\n  circles_app.db03_can_manage_circle(id)\n) WITH CHECK (\n  circles_app.db03_is_system_actor() OR circles_app.db03_is_admin_actor()\n  OR \"ownerId\" = circles_app.db03_current_actor_id()\n  OR circles_app.db03_can_manage_circle(id)\n);",
+      "sha256": "c540b99422a879416e7787350795bfaa6bb1363838777bc51de5d573197fd7ee"
+    },
+    {
+      "name": "db03_circles_delete",
+      "relation": "circles_app.circles",
+      "command": "DELETE",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_circles_delete ON circles_app.circles FOR DELETE TO circles_app_runtime USING (\n  circles_app.db03_can_manage_circle(id)\n);",
+      "sha256": "bc525cfe70a5423cda48eb9ecf21909852b00071f3c574f20809667c45f15801"
+    },
+    {
+      "name": "db03_memberships_select",
+      "relation": "circles_app.memberships",
+      "command": "SELECT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_memberships_select ON circles_app.memberships FOR SELECT TO circles_app_runtime USING (\n  circles_app.db03_can_read_membership(\"circleId\", \"userId\", role::text)\n);",
+      "sha256": "29b493dfaee8a7e680989a47c5cf309f4e29024ba15aad6459056ce5f0d1d1af"
+    },
+    {
+      "name": "db03_memberships_insert",
+      "relation": "circles_app.memberships",
+      "command": "INSERT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_memberships_insert ON circles_app.memberships FOR INSERT TO circles_app_runtime WITH CHECK (\n  circles_app.db03_can_manage_circle(\"circleId\")\n  OR (\n    \"userId\" = circles_app.db03_current_actor_id()\n    AND role::text IN ('member', 'pending')\n  )\n);",
+      "sha256": "633217d70a75cf4893c3217ab578e599051da0779bac039da8c855d384299d04"
+    },
+    {
+      "name": "db03_memberships_update",
+      "relation": "circles_app.memberships",
+      "command": "UPDATE",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_memberships_update ON circles_app.memberships FOR UPDATE TO circles_app_runtime USING (\n  circles_app.db03_can_manage_circle(\"circleId\")\n) WITH CHECK (\n  circles_app.db03_can_manage_circle(\"circleId\")\n);",
+      "sha256": "3892895102bd04893c0e84dea4b469332423ad41f5e34cd7de740815a0c0312c"
+    },
+    {
+      "name": "db03_memberships_delete",
+      "relation": "circles_app.memberships",
+      "command": "DELETE",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_memberships_delete ON circles_app.memberships FOR DELETE TO circles_app_runtime USING (\n  circles_app.db03_can_manage_circle(\"circleId\")\n  OR \"userId\" = circles_app.db03_current_actor_id()\n);",
+      "sha256": "91c7552045890c536ff3773723d9328e39d395e854def73f1ee0d10fafe63d09"
+    },
+    {
+      "name": "db03_posts_select",
+      "relation": "circles_app.posts",
+      "command": "SELECT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_posts_select ON circles_app.posts FOR SELECT TO circles_app_runtime USING (\n  \"circleId\" IS NULL OR circles_app.db03_can_read_circle(\"circleId\")\n);",
+      "sha256": "f8457fa70c349438c13543494945a065a536155ec63dbd4d98c779d456aa7759"
+    },
+    {
+      "name": "db03_posts_insert",
+      "relation": "circles_app.posts",
+      "command": "INSERT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_posts_insert ON circles_app.posts FOR INSERT TO circles_app_runtime WITH CHECK (\n  \"authorId\" = circles_app.db03_current_actor_id()\n  AND circles_app.db03_can_publish_to_circle(\"circleId\")\n);",
+      "sha256": "5fe82e3ddec093195c49255e1aa93d2c81f259c380741635d973bfe63e50e64e"
+    },
+    {
+      "name": "db03_posts_update",
+      "relation": "circles_app.posts",
+      "command": "UPDATE",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_posts_update ON circles_app.posts FOR UPDATE TO circles_app_runtime USING (\n  circles_app.db03_can_edit_post_id(id, \"authorId\")\n) WITH CHECK (\n  circles_app.db03_is_system_actor() OR circles_app.db03_is_admin_actor()\n  OR (\n    \"authorId\" = circles_app.db03_current_actor_id()\n    AND circles_app.db03_can_publish_to_circle(\"circleId\")\n  )\n  OR circles_app.db03_can_manage_circle(\"circleId\")\n);",
+      "sha256": "c25a4a0029d9326c86b608dda6656a2fbeb1d40b6ce2d332004036a074aae6c8"
+    },
+    {
+      "name": "db03_posts_delete",
+      "relation": "circles_app.posts",
+      "command": "DELETE",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_posts_delete ON circles_app.posts FOR DELETE TO circles_app_runtime USING (\n  circles_app.db03_can_edit_post_id(id, \"authorId\")\n);",
+      "sha256": "4d323fe9757e06761e3ad0ed1625485e1518e1fa30dfaa73ffcf348c61feae5a"
+    },
+    {
+      "name": "db03_reactions_select",
+      "relation": "circles_app.reactions",
+      "command": "SELECT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_reactions_select ON circles_app.reactions FOR SELECT TO circles_app_runtime USING (\n  circles_app.db03_can_read_post_id(\"postId\")\n);",
+      "sha256": "4dc9efbceab137c524e8f8136d478720f4eb3777d184fa76b56cf5e5108a0381"
+    },
+    {
+      "name": "db03_reactions_insert",
+      "relation": "circles_app.reactions",
+      "command": "INSERT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_reactions_insert ON circles_app.reactions FOR INSERT TO circles_app_runtime WITH CHECK (\n  \"userId\" = circles_app.db03_current_actor_id()\n  AND circles_app.db03_can_read_post_id(\"postId\")\n);",
+      "sha256": "6376b5aa3cd32ae868239bc157791eae0e5893cda267e623b89756640d894392"
+    },
+    {
+      "name": "db03_reactions_delete",
+      "relation": "circles_app.reactions",
+      "command": "DELETE",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_reactions_delete ON circles_app.reactions FOR DELETE TO circles_app_runtime USING (\n  \"userId\" = circles_app.db03_current_actor_id()\n);",
+      "sha256": "b9fabf698d0bc0f5d5da4f14d762544f230323b4018e0b373d75f07da3af0eb7"
+    },
+    {
+      "name": "db03_bookmarks_select",
+      "relation": "circles_app.bookmarks",
+      "command": "SELECT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_bookmarks_select ON circles_app.bookmarks FOR SELECT TO circles_app_runtime USING (\n  \"userId\" = circles_app.db03_current_actor_id()\n  OR circles_app.db03_is_system_actor() OR circles_app.db03_is_admin_actor()\n);",
+      "sha256": "681d54d5b0af8ef164c00ce7a573743c6751d5d93ef621f148e034d5de6c2b8d"
+    },
+    {
+      "name": "db03_bookmarks_insert",
+      "relation": "circles_app.bookmarks",
+      "command": "INSERT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_bookmarks_insert ON circles_app.bookmarks FOR INSERT TO circles_app_runtime WITH CHECK (\n  \"userId\" = circles_app.db03_current_actor_id()\n  AND circles_app.db03_can_read_post_id(\"postId\")\n);",
+      "sha256": "759f6b7a85bd0b71383dfd831054c6b213f61c692ed15c34eb16d5be0bf77aa3"
+    },
+    {
+      "name": "db03_bookmarks_delete",
+      "relation": "circles_app.bookmarks",
+      "command": "DELETE",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_bookmarks_delete ON circles_app.bookmarks FOR DELETE TO circles_app_runtime USING (\n  \"userId\" = circles_app.db03_current_actor_id()\n);",
+      "sha256": "5b1443789c0552022a4fe039cc102d11089a0330b01f539a29ef7a59e121b315"
+    },
+    {
+      "name": "db03_comments_select",
+      "relation": "circles_app.comments",
+      "command": "SELECT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_comments_select ON circles_app.comments FOR SELECT TO circles_app_runtime USING (\n  circles_app.db03_can_read_post_id(\"postId\")\n);",
+      "sha256": "9048e164be165fc06d38e9ed42b8b00b5f22fc61c01557ec91ac64572f42ff41"
+    },
+    {
+      "name": "db03_comments_insert",
+      "relation": "circles_app.comments",
+      "command": "INSERT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_comments_insert ON circles_app.comments FOR INSERT TO circles_app_runtime WITH CHECK (\n  \"authorId\" = circles_app.db03_current_actor_id()\n  AND circles_app.db03_can_read_post_id(\"postId\")\n);",
+      "sha256": "3f6a610228c48251d7d6a912eb8dfdb7ee74ceb346d656cae4ba514790362b25"
+    },
+    {
+      "name": "db03_comments_update",
+      "relation": "circles_app.comments",
+      "command": "UPDATE",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_comments_update ON circles_app.comments FOR UPDATE TO circles_app_runtime USING (\n  circles_app.db03_can_edit_post_id(\"postId\", \"authorId\")\n) WITH CHECK (\n  \"authorId\" = circles_app.db03_current_actor_id()\n  AND circles_app.db03_can_read_post_id(\"postId\")\n);",
+      "sha256": "c56fc1e152d4265bb99228647b2d4bf74c81478c6e505e1b18182b562e5cf0e1"
+    },
+    {
+      "name": "db03_comments_delete",
+      "relation": "circles_app.comments",
+      "command": "DELETE",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_comments_delete ON circles_app.comments FOR DELETE TO circles_app_runtime USING (\n  circles_app.db03_can_edit_post_id(\"postId\", \"authorId\")\n);",
+      "sha256": "42d3aa4d0ddc35ed283d3962832d54283b6106506e64e97b6549678b522e886b"
+    },
+    {
+      "name": "db03_conversations_select",
+      "relation": "circles_app.conversations",
+      "command": "SELECT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_conversations_select ON circles_app.conversations FOR SELECT TO circles_app_runtime USING (\n  circles_app.db03_can_access_conversation(id)\n);",
+      "sha256": "034633e18ece1f0824adf5ea4a7f5097602c490c65f858fe21241e998ddeccf8"
+    },
+    {
+      "name": "db03_conversations_insert",
+      "relation": "circles_app.conversations",
+      "command": "INSERT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_conversations_insert ON circles_app.conversations FOR INSERT TO circles_app_runtime WITH CHECK (\n  circles_app.db03_current_actor_id() IS NOT NULL OR circles_app.db03_is_system_actor()\n);",
+      "sha256": "d5c553a1a5023c6a31cf46c64bf3288a4998fa2a380dda95e06fb04ea0fb3413"
+    },
+    {
+      "name": "db03_conversations_update",
+      "relation": "circles_app.conversations",
+      "command": "UPDATE",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_conversations_update ON circles_app.conversations FOR UPDATE TO circles_app_runtime USING (\n  circles_app.db03_can_access_conversation(id)\n) WITH CHECK (\n  circles_app.db03_can_access_conversation(id)\n);",
+      "sha256": "7400553fb68a71bfa211b1ed1bd2200f51fcbfe07e89918e595f9d8cc40ca946"
+    },
+    {
+      "name": "db03_conversations_delete",
+      "relation": "circles_app.conversations",
+      "command": "DELETE",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_conversations_delete ON circles_app.conversations FOR DELETE TO circles_app_runtime USING (\n  circles_app.db03_is_system_actor() OR circles_app.db03_is_admin_actor()\n);",
+      "sha256": "1b9ea770a6c40b610cc30d881dafe406273e676a5b6e0e47606fa026e48adbbd"
+    },
+    {
+      "name": "db03_conversation_participants_select",
+      "relation": "circles_app.\"conversationParticipants\"",
+      "command": "SELECT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_conversation_participants_select ON circles_app.\"conversationParticipants\" FOR SELECT TO circles_app_runtime USING (\n  circles_app.db03_can_access_conversation(\"conversationId\")\n);",
+      "sha256": "8a770f8a3eca304a400086605bd801bcc3a958f65ea9fbc739288f0ce5a86cef"
+    },
+    {
+      "name": "db03_conversation_participants_insert",
+      "relation": "circles_app.\"conversationParticipants\"",
+      "command": "INSERT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_conversation_participants_insert ON circles_app.\"conversationParticipants\" FOR INSERT TO circles_app_runtime WITH CHECK (\n  circles_app.db03_can_insert_conversation_participant(\"conversationId\", \"userId\")\n);",
+      "sha256": "af5e29e1965bcc189df59dcaff5ee94b25b609a7f0183ed552af0b7e799bca37"
+    },
+    {
+      "name": "db03_conversation_participants_update",
+      "relation": "circles_app.\"conversationParticipants\"",
+      "command": "UPDATE",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_conversation_participants_update ON circles_app.\"conversationParticipants\" FOR UPDATE TO circles_app_runtime USING (\n  \"userId\" = circles_app.db03_current_actor_id()\n) WITH CHECK (\n  \"userId\" = circles_app.db03_current_actor_id()\n);",
+      "sha256": "a963ec66d961a6702967bf1b7070ec023bdc685c6fa05fc6cd8608148bd66a49"
+    },
+    {
+      "name": "db03_conversation_participants_delete",
+      "relation": "circles_app.\"conversationParticipants\"",
+      "command": "DELETE",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_conversation_participants_delete ON circles_app.\"conversationParticipants\" FOR DELETE TO circles_app_runtime USING (\n  \"userId\" = circles_app.db03_current_actor_id()\n  OR circles_app.db03_is_system_actor() OR circles_app.db03_is_admin_actor()\n);",
+      "sha256": "549e42bb195e92d9829712269127f0d4579a02d4ca128ec25bea85aa3476061f"
+    },
+    {
+      "name": "db03_messages_select",
+      "relation": "circles_app.messages",
+      "command": "SELECT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_messages_select ON circles_app.messages FOR SELECT TO circles_app_runtime USING (\n  circles_app.db03_can_access_conversation(\"conversationId\")\n);",
+      "sha256": "74a16b4c0cdce4499a2a418c48c2d0be0df4d78fd6b7d9a45d0840e6d3f155df"
+    },
+    {
+      "name": "db03_messages_insert",
+      "relation": "circles_app.messages",
+      "command": "INSERT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_messages_insert ON circles_app.messages FOR INSERT TO circles_app_runtime WITH CHECK (\n  \"authorId\" = circles_app.db03_current_actor_id()\n  AND circles_app.db03_can_access_conversation(\"conversationId\")\n);",
+      "sha256": "6e5f05f6dc039f488100c54976daa9659059b16144eefe8fc57564176854ecca"
+    },
+    {
+      "name": "db03_messages_update",
+      "relation": "circles_app.messages",
+      "command": "UPDATE",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_messages_update ON circles_app.messages FOR UPDATE TO circles_app_runtime USING (\n  \"authorId\" = circles_app.db03_current_actor_id()\n) WITH CHECK (\n  \"authorId\" = circles_app.db03_current_actor_id()\n);",
+      "sha256": "4e8c99f4652b46ba6c7919e91397d113884c95cf9b59ae5d6ca8d279e5c90852"
+    },
+    {
+      "name": "db03_messages_delete",
+      "relation": "circles_app.messages",
+      "command": "DELETE",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_messages_delete ON circles_app.messages FOR DELETE TO circles_app_runtime USING (\n  \"authorId\" = circles_app.db03_current_actor_id()\n  OR circles_app.db03_is_system_actor() OR circles_app.db03_is_admin_actor()\n);",
+      "sha256": "90600f3bbd04c60979e53608c6c5e38e707a815986ab3faffae062e5277b5a5d"
+    },
+    {
+      "name": "db03_follows_select",
+      "relation": "circles_app.follows",
+      "command": "SELECT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_follows_select ON circles_app.follows FOR SELECT TO circles_app_runtime USING (true);",
+      "sha256": "266480c02c499c8649102eb891c1cfb105eb0d19f5755d1da4e8f4583ca0a763"
+    },
+    {
+      "name": "db03_follows_insert",
+      "relation": "circles_app.follows",
+      "command": "INSERT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_follows_insert ON circles_app.follows FOR INSERT TO circles_app_runtime WITH CHECK (\n  \"followerId\" = circles_app.db03_current_actor_id()\n);",
+      "sha256": "b3ccefbe78b902b087f4318a32d9e5d394566471394782df5527722f6623b9db"
+    },
+    {
+      "name": "db03_follows_delete",
+      "relation": "circles_app.follows",
+      "command": "DELETE",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_follows_delete ON circles_app.follows FOR DELETE TO circles_app_runtime USING (\n  \"followerId\" = circles_app.db03_current_actor_id()\n);",
+      "sha256": "3b51cc7fda49eafe0a7ee18815a4e5af99094a3bb6ddc8aac7efd0bf23d2bb4c"
+    },
+    {
+      "name": "db03_reports_select",
+      "relation": "circles_app.reports",
+      "command": "SELECT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_reports_select ON circles_app.reports FOR SELECT TO circles_app_runtime USING (\n  circles_app.db03_can_read_report(\"postId\", \"reporterId\")\n);",
+      "sha256": "65254342721c2e022cf184d868d8388016ded5f61bae2c8755eb99ee990a7490"
+    },
+    {
+      "name": "db03_reports_insert",
+      "relation": "circles_app.reports",
+      "command": "INSERT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_reports_insert ON circles_app.reports FOR INSERT TO circles_app_runtime WITH CHECK (\n  \"reporterId\" = circles_app.db03_current_actor_id()\n  AND circles_app.db03_can_read_post_id(\"postId\")\n);",
+      "sha256": "2fde5d4b0d5586c43b89c45552d6f796a10ee91e82b88d9b7ce586e0758d6bb2"
+    },
+    {
+      "name": "db03_reports_update",
+      "relation": "circles_app.reports",
+      "command": "UPDATE",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_reports_update ON circles_app.reports FOR UPDATE TO circles_app_runtime USING (\n  circles_app.db03_can_read_report(\"postId\", \"reporterId\")\n) WITH CHECK (\n  circles_app.db03_can_read_report(\"postId\", \"reporterId\")\n);",
+      "sha256": "404f7d19b7e77d538620fb5f210a71308adb83f66f2153899fdffe59144301fa"
+    },
+    {
+      "name": "db03_reports_delete",
+      "relation": "circles_app.reports",
+      "command": "DELETE",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_reports_delete ON circles_app.reports FOR DELETE TO circles_app_runtime USING (\n  circles_app.db03_can_read_report(\"postId\", \"reporterId\")\n);",
+      "sha256": "c2bf5237dc5de347e44cdf8109b9dacadf4690b87df301d61e8216925745ba4a"
+    },
+    {
+      "name": "db03_social_uploads_select",
+      "relation": "circles_app.\"socialUploads\"",
+      "command": "SELECT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_social_uploads_select ON circles_app.\"socialUploads\" FOR SELECT TO circles_app_runtime USING (\n  \"userId\" = circles_app.db03_current_actor_id()\n  OR circles_app.db03_is_system_actor() OR circles_app.db03_is_admin_actor()\n);",
+      "sha256": "3f592bd74fdbade0708071ffd21303b8e2585abcfc4cd815f6e9ae478ad86c80"
+    },
+    {
+      "name": "db03_social_uploads_insert",
+      "relation": "circles_app.\"socialUploads\"",
+      "command": "INSERT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_social_uploads_insert ON circles_app.\"socialUploads\" FOR INSERT TO circles_app_runtime WITH CHECK (\n  \"userId\" = circles_app.db03_current_actor_id()\n);",
+      "sha256": "092f3a1dc559abba18076abaff44a2b85cd249c1aa897d35e798a7f80a5a5330"
+    },
+    {
+      "name": "db03_social_uploads_update",
+      "relation": "circles_app.\"socialUploads\"",
+      "command": "UPDATE",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_social_uploads_update ON circles_app.\"socialUploads\" FOR UPDATE TO circles_app_runtime USING (\n  \"userId\" = circles_app.db03_current_actor_id()\n) WITH CHECK (\n  \"userId\" = circles_app.db03_current_actor_id()\n);",
+      "sha256": "87a8d40548bf660d8e5c99fea53a248682827ce5e5bfd22950094eedcd1ac186"
+    },
+    {
+      "name": "db03_social_uploads_delete",
+      "relation": "circles_app.\"socialUploads\"",
+      "command": "DELETE",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_social_uploads_delete ON circles_app.\"socialUploads\" FOR DELETE TO circles_app_runtime USING (\n  \"userId\" = circles_app.db03_current_actor_id()\n);",
+      "sha256": "be2762b3ec4c43a95b191bc36f5e3ccca3bdcb5cfba8fdcc0867553c0678fee4"
+    },
+    {
+      "name": "db03_activity_items_select",
+      "relation": "circles_app.\"activityItems\"",
+      "command": "SELECT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_activity_items_select ON circles_app.\"activityItems\" FOR SELECT TO circles_app_runtime USING (\n  \"recipientId\" = circles_app.db03_current_actor_id()\n  OR circles_app.db03_is_system_actor() OR circles_app.db03_is_admin_actor()\n);",
+      "sha256": "5ffc361507e7be2a7fce857f40a38c09c954ef92d6fc47c22702185d1c9a4241"
+    },
+    {
+      "name": "db03_activity_items_insert",
+      "relation": "circles_app.\"activityItems\"",
+      "command": "INSERT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_activity_items_insert ON circles_app.\"activityItems\" FOR INSERT TO circles_app_runtime WITH CHECK (\n  \"actorId\" = circles_app.db03_current_actor_id()\n  OR circles_app.db03_is_system_actor() OR circles_app.db03_is_admin_actor()\n);",
+      "sha256": "aeafbda5481b004acf60abb512e0d8cda868abf9cd164d8804b26c153f94479a"
+    },
+    {
+      "name": "db03_activity_items_update",
+      "relation": "circles_app.\"activityItems\"",
+      "command": "UPDATE",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_activity_items_update ON circles_app.\"activityItems\" FOR UPDATE TO circles_app_runtime USING (\n  \"recipientId\" = circles_app.db03_current_actor_id()\n) WITH CHECK (\n  \"recipientId\" = circles_app.db03_current_actor_id()\n);",
+      "sha256": "287d28097958d685c4cbb07d096f05f4d7dde24e4e613e2f90b08a6a1865f6f7"
+    },
+    {
+      "name": "db03_activity_items_delete",
+      "relation": "circles_app.\"activityItems\"",
+      "command": "DELETE",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_activity_items_delete ON circles_app.\"activityItems\" FOR DELETE TO circles_app_runtime USING (\n  \"recipientId\" = circles_app.db03_current_actor_id()\n);",
+      "sha256": "eaa8c2be5101954b579299389893c4a7c470ffdb63c0aff4a5a1feca3eb72a30"
+    },
+    {
+      "name": "db03_activity_preferences_select",
+      "relation": "circles_app.\"activityPreferences\"",
+      "command": "SELECT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_activity_preferences_select ON circles_app.\"activityPreferences\" FOR SELECT TO circles_app_runtime USING (\n  \"recipientId\" = circles_app.db03_current_actor_id()\n  OR circles_app.db03_is_system_actor() OR circles_app.db03_is_admin_actor()\n);",
+      "sha256": "fdf3835f2ba1528e2903030b1f37f13e5ef419d08c20b6895fb1b1a9995c1d9f"
+    },
+    {
+      "name": "db03_activity_preferences_insert",
+      "relation": "circles_app.\"activityPreferences\"",
+      "command": "INSERT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_activity_preferences_insert ON circles_app.\"activityPreferences\" FOR INSERT TO circles_app_runtime WITH CHECK (\n  \"recipientId\" = circles_app.db03_current_actor_id()\n);",
+      "sha256": "031ec5001bc2b489436fef8da63b81d1737de586bea4dd99e5a9156f46cb1f63"
+    },
+    {
+      "name": "db03_activity_preferences_update",
+      "relation": "circles_app.\"activityPreferences\"",
+      "command": "UPDATE",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_activity_preferences_update ON circles_app.\"activityPreferences\" FOR UPDATE TO circles_app_runtime USING (\n  \"recipientId\" = circles_app.db03_current_actor_id()\n) WITH CHECK (\n  \"recipientId\" = circles_app.db03_current_actor_id()\n);",
+      "sha256": "64f6f7370ad4b071c423aa2907d5c14286b45d5be0d90fd26e8e8c6905003669"
+    },
+    {
+      "name": "db03_activity_preferences_delete",
+      "relation": "circles_app.\"activityPreferences\"",
+      "command": "DELETE",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_activity_preferences_delete ON circles_app.\"activityPreferences\" FOR DELETE TO circles_app_runtime USING (\n  \"recipientId\" = circles_app.db03_current_actor_id()\n);",
+      "sha256": "7a60a18723675ee7b5f5c6d3597399f6c86854e258aa9cae72aae4a1237a8e46"
+    },
+    {
+      "name": "db03_activity_circle_preferences_select",
+      "relation": "circles_app.\"activityCirclePreferences\"",
+      "command": "SELECT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_activity_circle_preferences_select ON circles_app.\"activityCirclePreferences\" FOR SELECT TO circles_app_runtime USING (\n  \"recipientId\" = circles_app.db03_current_actor_id()\n  OR circles_app.db03_is_system_actor() OR circles_app.db03_is_admin_actor()\n);",
+      "sha256": "342a8aa18879bc97e0e10e269f8b2e9e71cb11a2ab92f47490ae3af8be9b9cd3"
+    },
+    {
+      "name": "db03_activity_circle_preferences_insert",
+      "relation": "circles_app.\"activityCirclePreferences\"",
+      "command": "INSERT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_activity_circle_preferences_insert ON circles_app.\"activityCirclePreferences\" FOR INSERT TO circles_app_runtime WITH CHECK (\n  \"recipientId\" = circles_app.db03_current_actor_id()\n  AND circles_app.db03_can_access_activity_circle(\"circleId\")\n);",
+      "sha256": "9c3c106f16a8c249dfa3b4092cfa8cf45f83b1b62a4450382f9da7bee4ed8f5f"
+    },
+    {
+      "name": "db03_activity_circle_preferences_update",
+      "relation": "circles_app.\"activityCirclePreferences\"",
+      "command": "UPDATE",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_activity_circle_preferences_update ON circles_app.\"activityCirclePreferences\" FOR UPDATE TO circles_app_runtime USING (\n  \"recipientId\" = circles_app.db03_current_actor_id()\n) WITH CHECK (\n  \"recipientId\" = circles_app.db03_current_actor_id()\n  AND circles_app.db03_can_access_activity_circle(\"circleId\")\n);",
+      "sha256": "4d6c960a65fef01d8b9ed120a520c6133186db3108fde9d8e26d89b3f2fcb483"
+    },
+    {
+      "name": "db03_activity_circle_preferences_delete",
+      "relation": "circles_app.\"activityCirclePreferences\"",
+      "command": "DELETE",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_activity_circle_preferences_delete ON circles_app.\"activityCirclePreferences\" FOR DELETE TO circles_app_runtime USING (\n  \"recipientId\" = circles_app.db03_current_actor_id()\n);",
+      "sha256": "4c8aac0c20d4e8dda6e662d08351118312974d05020ab1d7ed837dbe7f811dc1"
+    },
+    {
+      "name": "db03_moderation_cases_select",
+      "relation": "circles_app.\"moderationCases\"",
+      "command": "SELECT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_moderation_cases_select ON circles_app.\"moderationCases\" FOR SELECT TO circles_app_runtime USING (\n  circles_app.db03_can_manage_circle(\"circleId\")\n);",
+      "sha256": "6ab017690f3c4ffadf5580fd046c22de63a4741774c85ccf981f38eddca538bc"
+    },
+    {
+      "name": "db03_moderation_cases_insert",
+      "relation": "circles_app.\"moderationCases\"",
+      "command": "INSERT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_moderation_cases_insert ON circles_app.\"moderationCases\" FOR INSERT TO circles_app_runtime WITH CHECK (\n  (circles_app.db03_current_actor_id() IS NOT NULL OR circles_app.db03_is_system_actor())\n  AND circles_app.db03_can_read_circle(\"circleId\")\n);",
+      "sha256": "0e9c8e4924135f3ef0db41bb5ce44bb5ab4cc1161147a3901812b196d91f61a1"
+    },
+    {
+      "name": "db03_moderation_cases_update",
+      "relation": "circles_app.\"moderationCases\"",
+      "command": "UPDATE",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_moderation_cases_update ON circles_app.\"moderationCases\" FOR UPDATE TO circles_app_runtime USING (\n  circles_app.db03_can_manage_circle(\"circleId\")\n) WITH CHECK (\n  circles_app.db03_can_manage_circle(\"circleId\")\n);",
+      "sha256": "cd4721a11135fbd0c5e6dd58e0a451a160eddc49f0bed56d895cd1d50d41ed19"
+    },
+    {
+      "name": "db03_moderation_cases_delete",
+      "relation": "circles_app.\"moderationCases\"",
+      "command": "DELETE",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_moderation_cases_delete ON circles_app.\"moderationCases\" FOR DELETE TO circles_app_runtime USING (\n  circles_app.db03_can_manage_circle(\"circleId\")\n);",
+      "sha256": "5fc88d343bdbf64b02a1a72447bfafa878d5a0512e5c4a6557e2922c729f4655"
+    },
+    {
+      "name": "db03_moderation_actions_select",
+      "relation": "circles_app.\"moderationActions\"",
+      "command": "SELECT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_moderation_actions_select ON circles_app.\"moderationActions\" FOR SELECT TO circles_app_runtime USING (\n  circles_app.db03_can_manage_moderation_case(\"caseId\")\n);",
+      "sha256": "a926ac13a68bf5ace044104e56826f6cb6a76d0a97c14fa14a29cc60994c817b"
+    },
+    {
+      "name": "db03_moderation_actions_insert",
+      "relation": "circles_app.\"moderationActions\"",
+      "command": "INSERT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_moderation_actions_insert ON circles_app.\"moderationActions\" FOR INSERT TO circles_app_runtime WITH CHECK (\n  \"reviewerId\" = circles_app.db03_current_actor_id()\n  AND circles_app.db03_can_manage_moderation_case(\"caseId\")\n);",
+      "sha256": "4fa026a318bb6e000a40840cf636de1a327de5cd91b301cf143926f96f4498a6"
+    },
+    {
+      "name": "db03_moderation_actions_update",
+      "relation": "circles_app.\"moderationActions\"",
+      "command": "UPDATE",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_moderation_actions_update ON circles_app.\"moderationActions\" FOR UPDATE TO circles_app_runtime USING (\n  circles_app.db03_can_manage_moderation_case(\"caseId\")\n) WITH CHECK (\n  circles_app.db03_can_manage_moderation_case(\"caseId\")\n);",
+      "sha256": "4df44f9c583abfebe794eae5a49e936ad54a5ea4c550cb38dbe0a7255eaeb929"
+    },
+    {
+      "name": "db03_moderation_actions_delete",
+      "relation": "circles_app.\"moderationActions\"",
+      "command": "DELETE",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_moderation_actions_delete ON circles_app.\"moderationActions\" FOR DELETE TO circles_app_runtime USING (\n  circles_app.db03_can_manage_moderation_case(\"caseId\")\n);",
+      "sha256": "59d0a57f7b0b9b366e7fbdca76d78bbf5e8bdba741dba553cac9a8203d74b673"
+    },
+    {
+      "name": "db03_post_publish_receipts_select",
+      "relation": "circles_publish.\"postPublishReceipts\"",
+      "command": "SELECT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_post_publish_receipts_select ON circles_publish.\"postPublishReceipts\" FOR SELECT TO circles_app_runtime USING (\n  \"actorId\" = circles_app.db03_current_actor_id()\n  OR circles_app.db03_is_system_actor() OR circles_app.db03_is_admin_actor()\n);",
+      "sha256": "e5cc9dd7caed8fb85a289fe9fbdb8ed3eea34f6c20d3ced499db0869242b1be9"
+    },
+    {
+      "name": "db03_post_publish_receipts_insert",
+      "relation": "circles_publish.\"postPublishReceipts\"",
+      "command": "INSERT",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_post_publish_receipts_insert ON circles_publish.\"postPublishReceipts\" FOR INSERT TO circles_app_runtime WITH CHECK (\n  \"actorId\" = circles_app.db03_current_actor_id()\n);",
+      "sha256": "4b6cc16ae1b0fb6c23908119cf38a2fd680778a4b1858565d75e5551e0dcd464"
+    },
+    {
+      "name": "db03_post_publish_receipts_update",
+      "relation": "circles_publish.\"postPublishReceipts\"",
+      "command": "UPDATE",
+      "acl": {
+        "role": "circles_app_runtime"
+      },
+      "body": "CREATE POLICY db03_post_publish_receipts_update ON circles_publish.\"postPublishReceipts\" FOR UPDATE TO circles_app_runtime USING (\n  \"actorId\" = circles_app.db03_current_actor_id()\n) WITH CHECK (\n  \"actorId\" = circles_app.db03_current_actor_id()\n);",
+      "sha256": "eddbcbdff585f7dd39df58b289e10c1e816359123a05ac7d3022f66a8fb5ddd5"
+    }
+  ],
+  "helpers": [
+    {
+      "name": "circles_app.db03_current_actor_id",
+      "signature": "circles_app.db03_current_actor_id()",
+      "acl": {
+        "public": "REVOKE",
+        "anon": "REVOKE",
+        "authenticated": "REVOKE",
+        "service_role": "REVOKE",
+        "circles_app_runtime": "GRANT EXECUTE"
+      },
+      "body": "CREATE OR REPLACE FUNCTION circles_app.db03_current_actor_id()\nRETURNS integer\nLANGUAGE plpgsql\nSTABLE\nSET search_path TO pg_catalog\nAS $db03_actor_id$\nDECLARE\n  value text;\nBEGIN\n  IF pg_catalog.current_setting('circles.actor_kind', true) IS DISTINCT FROM 'user' THEN\n    RETURN NULL;\n  END IF;\n  value := pg_catalog.current_setting('circles.actor_id', true);\n  IF value IS NULL OR value !~ '^[1-9][0-9]{0,9}$' THEN\n    RETURN NULL;\n  END IF;\n  BEGIN\n    RETURN value::integer;\n  EXCEPTION WHEN numeric_value_out_of_range THEN\n    RETURN NULL;\n  END;\nEND\n$db03_actor_id$;",
+      "sha256": "01309377152ab16b771b0f4b0cf533f21c0ba6cb21ce583b95906ca2ffd52170"
+    },
+    {
+      "name": "circles_app.db03_is_system_actor",
+      "signature": "circles_app.db03_is_system_actor()",
+      "acl": {
+        "public": "REVOKE",
+        "anon": "REVOKE",
+        "authenticated": "REVOKE",
+        "service_role": "REVOKE",
+        "circles_app_runtime": "GRANT EXECUTE"
+      },
+      "body": "CREATE OR REPLACE FUNCTION circles_app.db03_is_system_actor()\nRETURNS boolean\nLANGUAGE sql\nSTABLE\nSET search_path TO pg_catalog\nAS $db03_system$\n  SELECT pg_catalog.current_setting('circles.actor_kind', true) = 'system'\n$db03_system$;",
+      "sha256": "3233333e581c98827d85510ce148b9b68c0c72b934a0d4edf1df87f2c8fb5e2d"
+    },
+    {
+      "name": "circles_app.db03_is_admin_actor",
+      "signature": "circles_app.db03_is_admin_actor()",
+      "acl": {
+        "public": "REVOKE",
+        "anon": "REVOKE",
+        "authenticated": "REVOKE",
+        "service_role": "REVOKE",
+        "circles_app_runtime": "GRANT EXECUTE"
+      },
+      "body": "CREATE OR REPLACE FUNCTION circles_app.db03_is_admin_actor()\nRETURNS boolean\nLANGUAGE plpgsql\nSTABLE\nSECURITY DEFINER\nSET search_path TO pg_catalog, circles_app\nAS $db03_admin$\nDECLARE\n  actor_id integer;\nBEGIN\n  IF circles_app.db03_is_system_actor() THEN\n    RETURN true;\n  END IF;\n  actor_id := circles_app.db03_current_actor_id();\n  IF actor_id IS NULL THEN\n    RETURN false;\n  END IF;\n  RETURN EXISTS (\n    SELECT 1\n    FROM circles_app.users AS user_row\n    WHERE user_row.id = actor_id\n      AND user_row.role::text = 'admin'\n  );\nEND\n$db03_admin$;",
+      "sha256": "f414d4a5b5a2c475bb57db79b4fd331233c0a9ce89801d6acce50321c0a683f3"
+    },
+    {
+      "name": "circles_app.db03_can_read_circle",
+      "signature": "circles_app.db03_can_read_circle(p_circle_id integer)",
+      "acl": {
+        "public": "REVOKE",
+        "anon": "REVOKE",
+        "authenticated": "REVOKE",
+        "service_role": "REVOKE",
+        "circles_app_runtime": "GRANT EXECUTE"
+      },
+      "body": "CREATE OR REPLACE FUNCTION circles_app.db03_can_read_circle(p_circle_id integer)\nRETURNS boolean\nLANGUAGE plpgsql\nSTABLE\nSECURITY DEFINER\nSET search_path TO pg_catalog, circles_app\nAS $db03_read_circle$\nDECLARE\n  actor_id integer;\nBEGIN\n  IF circles_app.db03_is_system_actor() OR circles_app.db03_is_admin_actor() THEN\n    RETURN true;\n  END IF;\n  actor_id := circles_app.db03_current_actor_id();\n  RETURN EXISTS (\n    SELECT 1\n    FROM circles_app.circles AS circle_row\n    WHERE circle_row.id = p_circle_id\n      AND (\n        circle_row.privacy::text = 'public'\n        OR (\n          actor_id IS NOT NULL\n          AND EXISTS (\n            SELECT 1\n            FROM circles_app.memberships AS membership_row\n            WHERE membership_row.\"circleId\" = circle_row.id\n              AND membership_row.\"userId\" = actor_id\n              AND membership_row.role::text IN ('owner', 'moderator', 'member')\n          )\n        )\n      )\n  );\nEND\n$db03_read_circle$;",
+      "sha256": "1b5fb99ebbcdfb8584e09d1687fd4f4f08369661c1fc1bfc2ca386cfc0882674"
+    },
+    {
+      "name": "circles_app.db03_can_manage_circle",
+      "signature": "circles_app.db03_can_manage_circle(p_circle_id integer)",
+      "acl": {
+        "public": "REVOKE",
+        "anon": "REVOKE",
+        "authenticated": "REVOKE",
+        "service_role": "REVOKE",
+        "circles_app_runtime": "GRANT EXECUTE"
+      },
+      "body": "CREATE OR REPLACE FUNCTION circles_app.db03_can_manage_circle(p_circle_id integer)\nRETURNS boolean\nLANGUAGE plpgsql\nSTABLE\nSECURITY DEFINER\nSET search_path TO pg_catalog, circles_app\nAS $db03_manage_circle$\nDECLARE\n  actor_id integer;\nBEGIN\n  IF circles_app.db03_is_system_actor() OR circles_app.db03_is_admin_actor() THEN\n    RETURN true;\n  END IF;\n  actor_id := circles_app.db03_current_actor_id();\n  IF actor_id IS NULL THEN\n    RETURN false;\n  END IF;\n  RETURN EXISTS (\n    SELECT 1\n    FROM circles_app.circles AS circle_row\n    WHERE circle_row.id = p_circle_id\n      AND (\n        circle_row.\"ownerId\" = actor_id\n        OR EXISTS (\n          SELECT 1\n          FROM circles_app.memberships AS membership_row\n          WHERE membership_row.\"circleId\" = circle_row.id\n            AND membership_row.\"userId\" = actor_id\n            AND membership_row.role::text IN ('owner', 'moderator')\n        )\n      )\n  );\nEND\n$db03_manage_circle$;",
+      "sha256": "bcb56b7b1d7332d341d36b6420799b69abb0ed978acc8f94b42684679637dd3b"
+    },
+    {
+      "name": "circles_app.db03_can_publish_to_circle",
+      "signature": "circles_app.db03_can_publish_to_circle(p_circle_id integer)",
+      "acl": {
+        "public": "REVOKE",
+        "anon": "REVOKE",
+        "authenticated": "REVOKE",
+        "service_role": "REVOKE",
+        "circles_app_runtime": "GRANT EXECUTE"
+      },
+      "body": "CREATE OR REPLACE FUNCTION circles_app.db03_can_publish_to_circle(p_circle_id integer)\nRETURNS boolean\nLANGUAGE plpgsql\nSTABLE\nSECURITY DEFINER\nSET search_path TO pg_catalog, circles_app\nAS $db03_publish_circle$\nDECLARE\n  actor_id integer;\nBEGIN\n  IF p_circle_id IS NULL THEN\n    RETURN circles_app.db03_current_actor_id() IS NOT NULL\n      OR circles_app.db03_is_system_actor();\n  END IF;\n  IF circles_app.db03_is_system_actor() OR circles_app.db03_is_admin_actor() THEN\n    RETURN true;\n  END IF;\n  actor_id := circles_app.db03_current_actor_id();\n  RETURN actor_id IS NOT NULL AND EXISTS (\n    SELECT 1\n    FROM circles_app.memberships AS membership_row\n    WHERE membership_row.\"circleId\" = p_circle_id\n      AND membership_row.\"userId\" = actor_id\n      AND membership_row.role::text IN ('owner', 'moderator', 'member')\n  );\nEND\n$db03_publish_circle$;",
+      "sha256": "74458cba909c7ef4a6c05e9c31eb2d8b2ce7661b2efb7c607705f6c9ca5c16c4"
+    },
+    {
+      "name": "circles_app.db03_can_read_membership",
+      "signature": "circles_app.db03_can_read_membership(p_circle_id integer, p_user_id integer, p_role text)",
+      "acl": {
+        "public": "REVOKE",
+        "anon": "REVOKE",
+        "authenticated": "REVOKE",
+        "service_role": "REVOKE",
+        "circles_app_runtime": "GRANT EXECUTE"
+      },
+      "body": "CREATE OR REPLACE FUNCTION circles_app.db03_can_read_membership(\n  p_circle_id integer,\n  p_user_id integer,\n  p_role text\n)\nRETURNS boolean\nLANGUAGE sql\nSTABLE\nSECURITY DEFINER\nSET search_path TO pg_catalog, circles_app\nAS $db03_read_membership$\n  SELECT circles_app.db03_is_system_actor()\n      OR circles_app.db03_is_admin_actor()\n      OR circles_app.db03_current_actor_id() = p_user_id\n      OR circles_app.db03_can_manage_circle(p_circle_id)\n      OR (\n        p_role <> 'pending'\n        AND circles_app.db03_can_read_circle(p_circle_id)\n      )\n$db03_read_membership$;",
+      "sha256": "c5c1412dfb4d0009cf41ed421c564687875901a8fbf8a4380652c86817efe667"
+    },
+    {
+      "name": "circles_app.db03_can_read_post_id",
+      "signature": "circles_app.db03_can_read_post_id(p_post_id integer)",
+      "acl": {
+        "public": "REVOKE",
+        "anon": "REVOKE",
+        "authenticated": "REVOKE",
+        "service_role": "REVOKE",
+        "circles_app_runtime": "GRANT EXECUTE"
+      },
+      "body": "CREATE OR REPLACE FUNCTION circles_app.db03_can_read_post_id(p_post_id integer)\nRETURNS boolean\nLANGUAGE plpgsql\nSTABLE\nSECURITY DEFINER\nSET search_path TO pg_catalog, circles_app\nAS $db03_read_post$\nDECLARE\n  circle_id integer;\nBEGIN\n  SELECT post_row.\"circleId\" INTO circle_id\n  FROM circles_app.posts AS post_row\n  WHERE post_row.id = p_post_id;\n  IF NOT FOUND THEN\n    RETURN false;\n  END IF;\n  RETURN circle_id IS NULL OR circles_app.db03_can_read_circle(circle_id);\nEND\n$db03_read_post$;",
+      "sha256": "3226309a60011409b1d7ac7b69ad3253a2d7fe97f48c2e52ca5189c5aee74ec1"
+    },
+    {
+      "name": "circles_app.db03_can_edit_post_id",
+      "signature": "circles_app.db03_can_edit_post_id(p_post_id integer, p_author_id integer)",
+      "acl": {
+        "public": "REVOKE",
+        "anon": "REVOKE",
+        "authenticated": "REVOKE",
+        "service_role": "REVOKE",
+        "circles_app_runtime": "GRANT EXECUTE"
+      },
+      "body": "CREATE OR REPLACE FUNCTION circles_app.db03_can_edit_post_id(\n  p_post_id integer,\n  p_author_id integer\n)\nRETURNS boolean\nLANGUAGE plpgsql\nSTABLE\nSECURITY DEFINER\nSET search_path TO pg_catalog, circles_app\nAS $db03_edit_post$\nDECLARE\n  circle_id integer;\nBEGIN\n  IF circles_app.db03_is_system_actor() OR circles_app.db03_is_admin_actor() THEN\n    RETURN true;\n  END IF;\n  IF circles_app.db03_current_actor_id() = p_author_id THEN\n    RETURN true;\n  END IF;\n  SELECT post_row.\"circleId\" INTO circle_id\n  FROM circles_app.posts AS post_row\n  WHERE post_row.id = p_post_id;\n  RETURN FOUND AND circle_id IS NOT NULL\n    AND circles_app.db03_can_manage_circle(circle_id);\nEND\n$db03_edit_post$;",
+      "sha256": "d7b752236aa481b69e7dbf5aa82d72f20a2bd11e60136bf334a9ae0b92e79d98"
+    },
+    {
+      "name": "circles_app.db03_can_access_conversation",
+      "signature": "circles_app.db03_can_access_conversation(p_conversation_id integer)",
+      "acl": {
+        "public": "REVOKE",
+        "anon": "REVOKE",
+        "authenticated": "REVOKE",
+        "service_role": "REVOKE",
+        "circles_app_runtime": "GRANT EXECUTE"
+      },
+      "body": "CREATE OR REPLACE FUNCTION circles_app.db03_can_access_conversation(p_conversation_id integer)\nRETURNS boolean\nLANGUAGE sql\nSTABLE\nSECURITY DEFINER\nSET search_path TO pg_catalog, circles_app\nAS $db03_conversation$\n  SELECT circles_app.db03_is_system_actor()\n      OR circles_app.db03_is_admin_actor()\n      OR EXISTS (\n        SELECT 1\n        FROM circles_app.\"conversationParticipants\" AS participant_row\n        WHERE participant_row.\"conversationId\" = p_conversation_id\n          AND participant_row.\"userId\" = circles_app.db03_current_actor_id()\n      )\n$db03_conversation$;",
+      "sha256": "0924dafab1c2f2feade534cccf8e879decf2e989618c10b7bee8b0d25d9de466"
+    },
+    {
+      "name": "circles_app.db03_can_insert_conversation_participant",
+      "signature": "circles_app.db03_can_insert_conversation_participant(p_conversation_id integer, p_user_id integer)",
+      "acl": {
+        "public": "REVOKE",
+        "anon": "REVOKE",
+        "authenticated": "REVOKE",
+        "service_role": "REVOKE",
+        "circles_app_runtime": "GRANT EXECUTE"
+      },
+      "body": "CREATE OR REPLACE FUNCTION circles_app.db03_can_insert_conversation_participant(\n  p_conversation_id integer,\n  p_user_id integer\n)\nRETURNS boolean\nLANGUAGE plpgsql\nSTABLE\nSECURITY DEFINER\nSET search_path TO pg_catalog, circles_app\nAS $db03_insert_participant$\nDECLARE\n  actor_id integer;\n  conversation_kind text;\n  direct_key text;\n  circle_id integer;\nBEGIN\n  IF circles_app.db03_is_system_actor() OR circles_app.db03_is_admin_actor() THEN\n    RETURN true;\n  END IF;\n  actor_id := circles_app.db03_current_actor_id();\n  IF actor_id IS NULL THEN\n    RETURN false;\n  END IF;\n  SELECT kind::text, \"directKey\", \"circleId\"\n    INTO conversation_kind, direct_key, circle_id\n  FROM circles_app.conversations\n  WHERE id = p_conversation_id;\n  IF NOT FOUND THEN\n    RETURN false;\n  END IF;\n  IF conversation_kind = 'circle' THEN\n    RETURN p_user_id = actor_id\n      AND circles_app.db03_can_publish_to_circle(circle_id);\n  END IF;\n  RETURN conversation_kind = 'direct'\n    AND direct_key = concat(\n      least(actor_id, p_user_id), ':', greatest(actor_id, p_user_id)\n    );\nEND\n$db03_insert_participant$;",
+      "sha256": "466c8bddf961868b8081344f50a51630ffcfbc26a89fa5e4fcd299eeff672f64"
+    },
+    {
+      "name": "circles_app.db03_can_access_activity_circle",
+      "signature": "circles_app.db03_can_access_activity_circle(p_circle_id integer)",
+      "acl": {
+        "public": "REVOKE",
+        "anon": "REVOKE",
+        "authenticated": "REVOKE",
+        "service_role": "REVOKE",
+        "circles_app_runtime": "GRANT EXECUTE"
+      },
+      "body": "CREATE OR REPLACE FUNCTION circles_app.db03_can_access_activity_circle(p_circle_id integer)\nRETURNS boolean\nLANGUAGE sql\nSTABLE\nSECURITY DEFINER\nSET search_path TO pg_catalog, circles_app\nAS $db03_activity_circle$\n  SELECT circles_app.db03_is_system_actor()\n      OR circles_app.db03_is_admin_actor()\n      OR circles_app.db03_can_read_circle(p_circle_id)\n      OR EXISTS (\n        SELECT 1\n        FROM circles_app.memberships AS membership_row\n        WHERE membership_row.\"circleId\" = p_circle_id\n          AND membership_row.\"userId\" = circles_app.db03_current_actor_id()\n      )\n$db03_activity_circle$;",
+      "sha256": "c47559801c5c7778eec47ebd1dc96ab5564fcb7acbb72e405fd582309ddc8d12"
+    },
+    {
+      "name": "circles_app.db03_can_read_report",
+      "signature": "circles_app.db03_can_read_report(p_post_id integer, p_reporter_id integer)",
+      "acl": {
+        "public": "REVOKE",
+        "anon": "REVOKE",
+        "authenticated": "REVOKE",
+        "service_role": "REVOKE",
+        "circles_app_runtime": "GRANT EXECUTE"
+      },
+      "body": "CREATE OR REPLACE FUNCTION circles_app.db03_can_read_report(\n  p_post_id integer,\n  p_reporter_id integer\n)\nRETURNS boolean\nLANGUAGE plpgsql\nSTABLE\nSECURITY DEFINER\nSET search_path TO pg_catalog, circles_app\nAS $db03_report$\nDECLARE\n  circle_id integer;\nBEGIN\n  IF circles_app.db03_is_system_actor() OR circles_app.db03_is_admin_actor()\n     OR circles_app.db03_current_actor_id() = p_reporter_id THEN\n    RETURN true;\n  END IF;\n  SELECT post_row.\"circleId\" INTO circle_id\n  FROM circles_app.posts AS post_row\n  WHERE post_row.id = p_post_id;\n  RETURN FOUND AND circle_id IS NOT NULL\n    AND circles_app.db03_can_manage_circle(circle_id);\nEND\n$db03_report$;",
+      "sha256": "ad53641f13d253c44d86ccc945e46c90d12afccd768b0120eca1d5200566c378"
+    },
+    {
+      "name": "circles_app.db03_can_manage_moderation_case",
+      "signature": "circles_app.db03_can_manage_moderation_case(p_case_id integer)",
+      "acl": {
+        "public": "REVOKE",
+        "anon": "REVOKE",
+        "authenticated": "REVOKE",
+        "service_role": "REVOKE",
+        "circles_app_runtime": "GRANT EXECUTE"
+      },
+      "body": "CREATE OR REPLACE FUNCTION circles_app.db03_can_manage_moderation_case(p_case_id integer)\nRETURNS boolean\nLANGUAGE sql\nSTABLE\nSECURITY DEFINER\nSET search_path TO pg_catalog, circles_app\nAS $db03_moderation_case$\n  SELECT circles_app.db03_is_system_actor()\n      OR circles_app.db03_is_admin_actor()\n      OR EXISTS (\n        SELECT 1\n        FROM circles_app.\"moderationCases\" AS case_row\n        WHERE case_row.id = p_case_id\n          AND circles_app.db03_can_manage_circle(case_row.\"circleId\")\n      )\n$db03_moderation_case$;",
+      "sha256": "3757829aa07fe9c1e7e11c28bdbc8749c51459ce0d4fd3a8d064482eeeb90022"
+    },
+    {
+      "name": "circles_app.db03_enforce_runtime_circle_owner",
+      "signature": "circles_app.db03_enforce_runtime_circle_owner()",
+      "acl": {
+        "execution": "trigger-only; no application EXECUTE grant"
+      },
+      "body": "CREATE OR REPLACE FUNCTION circles_app.db03_enforce_runtime_circle_owner()\nRETURNS trigger\nLANGUAGE plpgsql\nSET search_path TO pg_catalog, circles_app\nAS $db03_circle_owner_trigger$\nBEGIN\n  IF current_user = 'circles_app_runtime'\n     AND OLD.\"ownerId\" IS DISTINCT FROM NEW.\"ownerId\"\n     AND NOT circles_app.db03_is_system_actor()\n     AND NOT circles_app.db03_is_admin_actor() THEN\n    RAISE EXCEPTION 'DB-03 runtime actor may not transfer a Circle owner';\n  END IF;\n  RETURN NEW;\nEND\n$db03_circle_owner_trigger$;",
+      "sha256": "7a019de562fd77870f92f2d526120eef210cf26d1c71fdc5082c510b68f7fe91"
+    },
+    {
+      "name": "circles_app.db03_enforce_runtime_membership_role",
+      "signature": "circles_app.db03_enforce_runtime_membership_role()",
+      "acl": {
+        "execution": "trigger-only; no application EXECUTE grant"
+      },
+      "body": "CREATE OR REPLACE FUNCTION circles_app.db03_enforce_runtime_membership_role()\nRETURNS trigger\nLANGUAGE plpgsql\nSET search_path TO pg_catalog, circles_app\nAS $db03_membership_role_trigger$\nDECLARE\n  actor_id integer;\n  actor_is_owner boolean;\nBEGIN\n  IF current_user <> 'circles_app_runtime'\n     OR OLD.role IS NOT DISTINCT FROM NEW.role\n     OR circles_app.db03_is_system_actor()\n     OR circles_app.db03_is_admin_actor() THEN\n    RETURN NEW;\n  END IF;\n  actor_id := circles_app.db03_current_actor_id();\n  SELECT circle_row.\"ownerId\" = actor_id INTO actor_is_owner\n  FROM circles_app.circles AS circle_row\n  WHERE circle_row.id = NEW.\"circleId\";\n  IF actor_is_owner THEN\n    RETURN NEW;\n  END IF;\n  IF OLD.role::text = 'pending'\n     AND NEW.role::text = 'member'\n     AND circles_app.db03_can_manage_circle(NEW.\"circleId\") THEN\n    RETURN NEW;\n  END IF;\n  RAISE EXCEPTION 'DB-03 runtime actor may not change this membership role';\nEND\n$db03_membership_role_trigger$;",
+      "sha256": "19f77758d9f049637688c079278f2a53fa58186e412d6682fa67a2895dcde3ea"
+    }
+  ],
+  "explicitly_remaining_nine_tables": [
+    {
+      "relation": "circles_app._dataMigrations",
+      "direct_actions": ["migration bookkeeping read/write"],
+      "status": "not actor-scoped by DB-03"
+    },
+    {
+      "relation": "circles_app.activeHostLeases",
+      "direct_actions": ["live host lease read/insert/update/delete"],
+      "status": "not actor-scoped by DB-03"
+    },
+    {
+      "relation": "circles_app.applicationSessions",
+      "direct_actions": ["signed session create/find-active/revoke"],
+      "status": "named application-session-persistence system bootstrap only"
+    },
+    {
+      "relation": "circles_app.liveChat",
+      "direct_actions": ["live chat read/insert"],
+      "status": "not actor-scoped by DB-03; tRPC live path remains request-scoped"
+    },
+    {
+      "relation": "circles_app.liveSignals",
+      "direct_actions": ["live signal read/insert/delete"],
+      "status": "not actor-scoped by DB-03; tRPC live path remains request-scoped"
+    },
+    {
+      "relation": "circles_app.liveViewers",
+      "direct_actions": ["viewer read/insert/update/delete"],
+      "status": "not actor-scoped by DB-03; tRPC live path remains request-scoped"
+    },
+    {
+      "relation": "circles_app.socialSeedMarkers",
+      "direct_actions": ["seed idempotency read/insert"],
+      "status": "not actor-scoped by DB-03"
+    },
+    {
+      "relation": "circles_app.streams",
+      "direct_actions": [
+        "stream discovery/lifecycle read/insert/update/delete"
+      ],
+      "status": "not actor-scoped by DB-03; tRPC live path remains request-scoped"
+    },
+    {
+      "relation": "circles_app.users",
+      "direct_actions": [
+        "verified OAuth/session/email source-user read/insert/update"
+      ],
+      "status": "named verified identity/bootstrap system paths only"
+    }
+  ],
+  "non_claims": [
+    "This candidate does not claim actor enforcement for the remaining nine circles_app tables.",
+    "This fixture does not compose parent-owned readiness, audit, health, or recovery policy-contract variants.",
+    "No runtime flag or fixture-created context grants the shipped getDb implementation unmarked real database access."
+  ]
+}

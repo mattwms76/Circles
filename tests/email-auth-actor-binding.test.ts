@@ -32,6 +32,10 @@ vi.mock("../server/db", () => ({
   getDb: vi.fn(),
   getUserByOpenId: state.getUserByOpenId,
   upsertUser: state.upsertUser,
+  withTrustedSystemDatabaseTransaction: async (
+    _operation: string,
+    work: () => Promise<unknown>,
+  ) => work(),
 }));
 
 const { SDKServer } = await import("../server/_core/sdk");

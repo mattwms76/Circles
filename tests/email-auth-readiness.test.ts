@@ -4,6 +4,10 @@ import { checkBackendReadiness } from "../server/_core/readiness";
 const mocks = vi.hoisted(() => ({ query: vi.fn(), status: vi.fn() }));
 vi.mock("../server/db", () => ({
   getDb: async () => ({ $client: { query: mocks.query } }),
+  withTrustedSystemDatabaseTransaction: async (
+    _operation: string,
+    work: () => Promise<unknown>,
+  ) => work(),
 }));
 vi.mock("../server/turn-config", () => ({ loadTurnConfiguration: () => null }));
 vi.mock("../server/_core/email-auth", () => ({

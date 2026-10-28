@@ -15,6 +15,12 @@ import {
   type RuntimeRolePool,
 } from "./runtime-role-pool";
 import { assertPlatformFeature } from "./platform-settings";
+import {
+  databaseActorSettings,
+  getDatabaseActorScope,
+  runWithDatabaseActorScope,
+  type DatabaseActor,
+} from "./actor-context";
 
 const databaseSchema = {
   ...coreSchema,
@@ -45,11 +51,31 @@ export class PostgreSqlDatabaseUnavailableError extends Error {
 }
 
 /**
- * Lazily creates the PostgreSQL-only application database. There is deliberately
- * no DATABASE_URL/MySQL fallback: callers either use the private Supabase schema
- * through the runtime role or receive null and fail closed at their boundary.
+ * Writes only closed, server-derived values with SET LOCAL before request code
+ * obtains its transaction. Commit/rollback resets them; a leaked transaction
+ * is destroyed by RuntimeRolePool's existing checkout cleanup barrier.
  */
-export async function getDb(): Promise<CirclesDatabase | null> {
+async function setDatabaseActorSettings(
+  transaction: CirclesTransaction,
+  actor: DatabaseActor,
+): Promise<void> {
+  const { actorId, actorKind } = databaseActorSettings(actor);
+  // actorId is a positive safe integer or literal 0 and actorKind is a closed
+  // union. Neither value originates in a router input or viewer-scope DTO.
+  await transaction.execute(
+    sql.raw(`SET LOCAL circles.actor_id TO '${actorId}'`),
+  );
+  await transaction.execute(
+    sql.raw(`SET LOCAL circles.actor_kind TO '${actorKind}'`),
+  );
+}
+
+/**
+ * Opens the restricted runtime database only to install a transaction-local
+ * actor. It is intentionally private: no normal service caller receives a
+ * raw/unmarked database outside `withDatabaseActorTransaction`.
+ */
+async function getRuntimeDatabaseForScopedTransaction(): Promise<CirclesDatabase | null> {
   if (database) return database;
 
   try {
@@ -62,6 +88,103 @@ export async function getDb(): Promise<CirclesDatabase | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * Lazily creates the PostgreSQL-only application database. There is deliberately
+ * no DATABASE_URL/MySQL fallback: callers either use the private Supabase schema
+ * through the runtime role or receive null and fail closed at their boundary.
+ */
+export async function getDb(): Promise<CirclesDatabase | null> {
+  const actorScope = getDatabaseActorScope();
+  // A Drizzle transaction has the same query surface services use. Keeping the
+  // cast here prevents callers from getting the raw pool within actor scope.
+  if (actorScope) return actorScope.database as CirclesDatabase;
+  // `router.createCaller` fixtures may supply a mocked getDb module, but the
+  // shipped implementation never opens a real runtime pool for unmarked work.
+  // Direct HTTP/bootstrap code must use the named trusted transaction below.
+  return null;
+}
+
+/**
+ * Executes one tRPC operation in an outer actor-scoped transaction. Existing
+ * service transactions become savepoints, preserving their lock order while
+ * every database operation observes one transaction-local trusted identity.
+ */
+export async function withDatabaseActorTransaction<T>(
+  actor: DatabaseActor,
+  callback: () => Promise<T>,
+): Promise<T> {
+  const existingScope = getDatabaseActorScope();
+  if (existingScope) {
+    const sameActor =
+      existingScope.actor.kind === actor.kind &&
+      (existingScope.actor.kind !== "user" ||
+        actor.kind !== "user" ||
+        existingScope.actor.userId === actor.userId);
+    if (!sameActor) throw new PostgreSqlDatabaseUnavailableError();
+    return callback();
+  }
+
+  const db = await getRuntimeDatabaseForScopedTransaction();
+  if (!db) throw new PostgreSqlDatabaseUnavailableError();
+  return db.transaction(async (transaction) => {
+    await setDatabaseActorSettings(transaction, actor);
+    return runWithDatabaseActorScope(
+      { actor, database: transaction },
+      callback,
+    );
+  });
+}
+
+/**
+ * Enumerates the only direct, server-owned database paths that may run as the
+ * system actor before a tRPC request actor exists. This is not an HTTP input,
+ * environment flag, or caller-provided capability: the value is checked again
+ * at runtime before a transaction can open.
+ */
+const TRUSTED_SYSTEM_DATABASE_OPERATIONS = [
+  "application-session-persistence",
+  "email-identity-readiness",
+  "verified-email-identity",
+  "oauth-pending-state",
+  "verified-oauth-user-sync",
+  "verified-session-user-sync",
+  "media-reference-authorization",
+  "readiness-catalog",
+] as const;
+
+export type TrustedSystemDatabaseOperation =
+  (typeof TRUSTED_SYSTEM_DATABASE_OPERATIONS)[number];
+
+export class InvalidTrustedSystemDatabaseOperationError extends Error {
+  constructor() {
+    super("Trusted database operation is unavailable");
+    this.name = "InvalidTrustedSystemDatabaseOperationError";
+  }
+}
+
+function isTrustedSystemDatabaseOperation(
+  value: string,
+): value is TrustedSystemDatabaseOperation {
+  return (TRUSTED_SYSTEM_DATABASE_OPERATIONS as readonly string[]).includes(
+    value,
+  );
+}
+
+/**
+ * Runs one reviewed direct-server operation with an explicit system actor.
+ * Callers are intentionally limited to the static operation inventory above;
+ * application services must continue to obtain their actor from tRPC context.
+ */
+export async function withTrustedSystemDatabaseTransaction<T>(
+  operation: TrustedSystemDatabaseOperation,
+  callback: () => Promise<T>,
+): Promise<T> {
+  if (!isTrustedSystemDatabaseOperation(operation)) {
+    throw new InvalidTrustedSystemDatabaseOperationError();
+  }
+  return withDatabaseActorTransaction({ kind: "system" }, callback);
 }
 
 /**

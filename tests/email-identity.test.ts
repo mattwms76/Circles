@@ -18,6 +18,11 @@ type FakeDatabase = {
   transaction: ReturnType<typeof vi.fn>;
 };
 
+const runFixtureDatabaseTransaction = async <T>(
+  _operation: string,
+  work: () => Promise<T>,
+): Promise<T> => work();
+
 function queuedDatabase(rows: unknown[][]): FakeDatabase {
   const execute = vi.fn();
   for (const next of rows) execute.mockResolvedValueOnce({ rows: next });
@@ -41,6 +46,7 @@ describe("email provider identity authority", () => {
     const store = new EmailIdentityStore({
       getDatabase: async () => database as never,
       upsertSourceUserInTransaction,
+      runTrustedDatabaseTransaction: runFixtureDatabaseTransaction,
     });
 
     await expect(store.resolveForSignIn(identity)).resolves.toEqual({
@@ -71,6 +77,7 @@ describe("email provider identity authority", () => {
     const store = new EmailIdentityStore({
       getDatabase: async () => database as never,
       upsertSourceUserInTransaction,
+      runTrustedDatabaseTransaction: runFixtureDatabaseTransaction,
     });
 
     await expect(store.resolveForSignIn(identity)).resolves.toEqual({
@@ -99,6 +106,7 @@ describe("email provider identity authority", () => {
     const store = new EmailIdentityStore({
       getDatabase: async () => database as never,
       upsertSourceUserInTransaction,
+      runTrustedDatabaseTransaction: runFixtureDatabaseTransaction,
     });
 
     await expect(store.resolveForSignIn(identity)).rejects.toBeInstanceOf(
@@ -115,6 +123,7 @@ describe("email provider identity authority", () => {
     ]);
     const storeBySubject = new EmailIdentityStore({
       getDatabase: async () => subjectAlreadyLinked as never,
+      runTrustedDatabaseTransaction: runFixtureDatabaseTransaction,
     });
     await expect(
       storeBySubject.linkToExistingUser(identity, 19),
@@ -128,6 +137,7 @@ describe("email provider identity authority", () => {
     ]);
     const storeByUser = new EmailIdentityStore({
       getDatabase: async () => userAlreadyLinked as never,
+      runTrustedDatabaseTransaction: runFixtureDatabaseTransaction,
     });
     await expect(
       storeByUser.linkToExistingUser(identity, 19),
@@ -135,7 +145,10 @@ describe("email provider identity authority", () => {
   });
 
   it("fails unavailable with no fake mapping when database configuration/store access is missing", async () => {
-    const store = new EmailIdentityStore({ getDatabase: async () => null });
+    const store = new EmailIdentityStore({
+      getDatabase: async () => null,
+      runTrustedDatabaseTransaction: runFixtureDatabaseTransaction,
+    });
     await expect(store.resolveForSignIn(identity)).rejects.toBeInstanceOf(
       EmailIdentityUnavailableError,
     );
@@ -179,6 +192,7 @@ describe("email provider identity authority", () => {
     });
     const store = new EmailIdentityStore({
       getDatabase: async () => database as never,
+      runTrustedDatabaseTransaction: runFixtureDatabaseTransaction,
     });
 
     await expect(store.resolveForSignIn(identity)).resolves.toEqual({

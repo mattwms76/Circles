@@ -1,4 +1,4 @@
-import { getDb } from "../db";
+import { getDb, withTrustedSystemDatabaseTransaction } from "../db";
 import { loadTurnConfiguration } from "../turn-config";
 import { withOperationDeadline } from "./bounded-network";
 import {
@@ -37,17 +37,24 @@ export async function checkBackendReadiness(
   try {
     const deadline =
       dependencies.databaseDeadlineMs ?? READINESS_DATABASE_DEADLINE_MS;
-    const db = await withOperationDeadline(
-      (dependencies.getDatabase ?? getDb)(),
-      deadline,
-    );
-    if (db) {
+    const collectEvidence = async (): Promise<ReadinessEvidence | null> => {
+      const db = await withOperationDeadline(
+        (dependencies.getDatabase ?? getDb)(),
+        deadline,
+      );
+      if (!db) return null;
       const result = await withOperationDeadline(
         db.$client.query<ReadinessEvidence>(READINESS_SQL),
         deadline,
       );
-      evidence = result.rows[0] ?? null;
-    }
+      return result.rows[0] ?? null;
+    };
+    evidence = dependencies.getDatabase
+      ? await collectEvidence()
+      : await withTrustedSystemDatabaseTransaction(
+          "readiness-catalog",
+          collectEvidence,
+        );
   } catch {
     // Readiness is fail-closed; raw driver errors never reach the response.
   }

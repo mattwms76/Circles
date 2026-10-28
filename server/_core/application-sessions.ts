@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { and, eq, gt, isNull } from "drizzle-orm";
 import { applicationSessions } from "../../drizzle/session-schema";
-import { getDb } from "../db";
+import { getDb, withTrustedSystemDatabaseTransaction } from "../db";
 
 export type ApplicationSessionBinding = {
   sessionId: string;
@@ -56,13 +56,29 @@ export class DrizzleApplicationSessionStore implements ApplicationSessionStore {
     return db;
   }
 
+  /**
+   * App-session rows are touched only while issuing, validating, or revoking a
+   * signed application credential. These direct SDK paths exist before tRPC
+   * context construction, so they use the reviewed system bootstrap scope.
+   */
+  private async withSessionStoreTransaction<T>(
+    work: () => Promise<T>,
+  ): Promise<T> {
+    return withTrustedSystemDatabaseTransaction(
+      "application-session-persistence",
+      work,
+    );
+  }
+
   async create(session: NewApplicationSession): Promise<void> {
-    const db = await this.requireDb();
-    await db.insert(applicationSessions).values({
-      sessionFingerprint: fingerprintApplicationSession(session.sessionId),
-      userOpenId: session.openId,
-      appId: session.appId,
-      expiresAt: session.expiresAt,
+    await this.withSessionStoreTransaction(async () => {
+      const db = await this.requireDb();
+      await db.insert(applicationSessions).values({
+        sessionFingerprint: fingerprintApplicationSession(session.sessionId),
+        userOpenId: session.openId,
+        appId: session.appId,
+        expiresAt: session.expiresAt,
+      });
     });
   }
 
@@ -70,59 +86,63 @@ export class DrizzleApplicationSessionStore implements ApplicationSessionStore {
     binding: ApplicationSessionBinding,
     now: Date,
   ): Promise<ActiveApplicationSession | null> {
-    const db = await this.requireDb();
-    const rows = await db
-      .select({
-        userOpenId: applicationSessions.userOpenId,
-        appId: applicationSessions.appId,
-        expiresAt: applicationSessions.expiresAt,
-        revokedAt: applicationSessions.revokedAt,
-      })
-      .from(applicationSessions)
-      .where(
-        and(
-          eq(
-            applicationSessions.sessionFingerprint,
-            fingerprintApplicationSession(binding.sessionId),
+    return this.withSessionStoreTransaction(async () => {
+      const db = await this.requireDb();
+      const rows = await db
+        .select({
+          userOpenId: applicationSessions.userOpenId,
+          appId: applicationSessions.appId,
+          expiresAt: applicationSessions.expiresAt,
+          revokedAt: applicationSessions.revokedAt,
+        })
+        .from(applicationSessions)
+        .where(
+          and(
+            eq(
+              applicationSessions.sessionFingerprint,
+              fingerprintApplicationSession(binding.sessionId),
+            ),
+            eq(applicationSessions.userOpenId, binding.openId),
+            eq(applicationSessions.appId, binding.appId),
+            isNull(applicationSessions.revokedAt),
+            gt(applicationSessions.expiresAt, now),
           ),
-          eq(applicationSessions.userOpenId, binding.openId),
-          eq(applicationSessions.appId, binding.appId),
-          isNull(applicationSessions.revokedAt),
-          gt(applicationSessions.expiresAt, now),
-        ),
-      )
-      .limit(1);
+        )
+        .limit(1);
 
-    const row = rows[0];
-    if (!row) return null;
-    return {
-      ...binding,
-      openId: row.userOpenId,
-      appId: row.appId,
-      expiresAt: row.expiresAt,
-      revokedAt: row.revokedAt,
-    };
+      const row = rows[0];
+      if (!row) return null;
+      return {
+        ...binding,
+        openId: row.userOpenId,
+        appId: row.appId,
+        expiresAt: row.expiresAt,
+        revokedAt: row.revokedAt,
+      };
+    });
   }
 
   async revoke(
     binding: ApplicationSessionBinding,
     revokedAt: Date,
   ): Promise<void> {
-    const db = await this.requireDb();
-    await db
-      .update(applicationSessions)
-      .set({ revokedAt })
-      .where(
-        and(
-          eq(
-            applicationSessions.sessionFingerprint,
-            fingerprintApplicationSession(binding.sessionId),
+    await this.withSessionStoreTransaction(async () => {
+      const db = await this.requireDb();
+      await db
+        .update(applicationSessions)
+        .set({ revokedAt })
+        .where(
+          and(
+            eq(
+              applicationSessions.sessionFingerprint,
+              fingerprintApplicationSession(binding.sessionId),
+            ),
+            eq(applicationSessions.userOpenId, binding.openId),
+            eq(applicationSessions.appId, binding.appId),
+            isNull(applicationSessions.revokedAt),
           ),
-          eq(applicationSessions.userOpenId, binding.openId),
-          eq(applicationSessions.appId, binding.appId),
-          isNull(applicationSessions.revokedAt),
-        ),
-      );
+        );
+    });
   }
 }
 

@@ -91,6 +91,58 @@ describe("environment configuration contract", () => {
     expect(result).toMatchObject({ ok: true, errors: [] });
   });
 
+  it("accepts dedicated mode only with the separate application credential", () => {
+    const environment = canonicalRuntimeEnvironment();
+    delete environment.SUPABASE_DATABASE_URL;
+    environment.CIRCLES_DB_LOGIN_MODE = "dedicated";
+    environment.CIRCLES_APP_DATABASE_URL =
+      "postgresql://dedicated-synthetic-credential";
+    expect(validateEnvironment(environment, "runtime")).toMatchObject({
+      ok: true,
+      errors: [],
+    });
+  });
+
+  it("rejects mixed dedicated and operational credentials without echoing them", () => {
+    const environment: Record<string, string> = {
+      ...canonicalRuntimeEnvironment(),
+      CIRCLES_DB_LOGIN_MODE: "dedicated",
+      CIRCLES_APP_DATABASE_URL: "must-not-echo-dedicated-credential",
+    };
+    const result = validateEnvironment(environment, "runtime");
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContainEqual(
+      expect.objectContaining({ name: "SUPABASE_DATABASE_URL" }),
+    );
+    expect(JSON.stringify(result)).not.toContain(
+      environment.CIRCLES_APP_DATABASE_URL,
+    );
+    expect(JSON.stringify(result)).not.toContain(
+      environment.SUPABASE_DATABASE_URL,
+    );
+  });
+
+  it("rejects dedicated inputs in legacy mode and unknown login modes", () => {
+    expect(
+      validateEnvironment(
+        {
+          ...canonicalRuntimeEnvironment(),
+          CIRCLES_APP_DATABASE_URL: "synthetic",
+        },
+        "runtime",
+      ).ok,
+    ).toBe(false);
+    expect(
+      validateEnvironment(
+        {
+          ...canonicalRuntimeEnvironment(),
+          CIRCLES_DB_LOGIN_MODE: "arbitrary",
+        },
+        "runtime",
+      ).ok,
+    ).toBe(false);
+  });
+
   it("requires server-only Supabase PostgreSQL and rejects DATABASE_URL as a runtime substitute", () => {
     const environment = canonicalRuntimeEnvironment();
     delete environment.SUPABASE_DATABASE_URL;

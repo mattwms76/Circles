@@ -5,6 +5,8 @@ import {
   normalizedUserEmail,
   type CirclesTransaction,
   upsertUserInTransaction,
+  type TrustedSystemDatabaseOperation,
+  withTrustedSystemDatabaseTransaction,
 } from "../db";
 import type { InsertUser } from "../../drizzle/schema";
 import { EMAIL_IDENTITY_READINESS_SQL } from "./database-contracts";
@@ -41,6 +43,11 @@ type SourceUserUpsert = (
 type EmailIdentityDependencies = {
   getDatabase?: () => Promise<IdentityDatabase | null>;
   upsertSourceUserInTransaction?: SourceUserUpsert;
+  /** Explicit isolated-fixture seam; production uses the default scoped runner. */
+  runTrustedDatabaseTransaction?: <T>(
+    operation: TrustedSystemDatabaseOperation,
+    work: () => Promise<T>,
+  ) => Promise<T>;
 };
 
 type MappingRow = {
@@ -207,23 +214,35 @@ async function insertMapping(
 export class EmailIdentityStore {
   private readonly getDatabase: () => Promise<IdentityDatabase | null>;
   private readonly upsertSourceUserInTransaction: SourceUserUpsert;
+  private readonly runTrustedDatabaseTransaction: <T>(
+    operation: TrustedSystemDatabaseOperation,
+    work: () => Promise<T>,
+  ) => Promise<T>;
 
   constructor(dependencies: EmailIdentityDependencies = {}) {
     this.getDatabase = dependencies.getDatabase ?? getDb;
     this.upsertSourceUserInTransaction =
       dependencies.upsertSourceUserInTransaction ??
       ((transaction, input) => upsertUserInTransaction(transaction, input));
+    this.runTrustedDatabaseTransaction =
+      dependencies.runTrustedDatabaseTransaction ??
+      withTrustedSystemDatabaseTransaction;
   }
 
   async isReady(): Promise<boolean> {
     try {
-      const database = await this.getDatabase();
-      if (!database) return false;
-      const result = await database.execute(
-        sql.raw(EMAIL_IDENTITY_READINESS_SQL),
-      );
-      return (
-        (result.rows[0] as { ready?: unknown } | undefined)?.ready === true
+      return await this.runTrustedDatabaseTransaction(
+        "email-identity-readiness",
+        async () => {
+          const database = await this.getDatabase();
+          if (!database) return false;
+          const result = await database.execute(
+            sql.raw(EMAIL_IDENTITY_READINESS_SQL),
+          );
+          return (
+            (result.rows[0] as { ready?: unknown } | undefined)?.ready === true
+          );
+        },
       );
     } catch {
       return false;
@@ -240,87 +259,99 @@ export class EmailIdentityStore {
     const sourceOpenId = providerOpenId(identity.subject);
     const normalizedEmail = normalizedUserEmail(identity.email);
     try {
-      const database = await this.requireDatabase();
-      try {
-        return await database.transaction(async (transaction) => {
-          await lockScope(
-            transaction,
-            `circles.email-identity.subject:${identity.subject}`,
-          );
-          await lockUserEmailAllocation(transaction, normalizedEmail);
+      return await this.runTrustedDatabaseTransaction(
+        "verified-email-identity",
+        async () => {
+          const database = await this.requireDatabase();
+          try {
+            return await database.transaction(async (transaction) => {
+              await lockScope(
+                transaction,
+                `circles.email-identity.subject:${identity.subject}`,
+              );
+              await lockUserEmailAllocation(transaction, normalizedEmail);
 
-          const linked = await linkedBySubject(transaction, identity.subject);
-          if (linked) {
-            if (linked.openId !== sourceOpenId) {
-              throw new EmailIdentityLinkRequiredError();
-            }
-            return linked;
-          }
+              const linked = await linkedBySubject(
+                transaction,
+                identity.subject,
+              );
+              if (linked) {
+                if (linked.openId !== sourceOpenId) {
+                  throw new EmailIdentityLinkRequiredError();
+                }
+                return linked;
+              }
 
-          let source = await sourceUserByOpenId(transaction, sourceOpenId);
-          if (
-            await sourceEmailCollision(
-              transaction,
-              normalizedEmail,
-              source?.id ?? null,
-            )
-          ) {
-            // This branch executes only after the provider token and /user identity
-            // validation completed. Anonymous sign-in requests cannot probe it.
-            throw new EmailIdentityLinkRequiredError();
-          }
+              let source = await sourceUserByOpenId(transaction, sourceOpenId);
+              if (
+                await sourceEmailCollision(
+                  transaction,
+                  normalizedEmail,
+                  source?.id ?? null,
+                )
+              ) {
+                // This branch executes only after the provider token and /user identity
+                // validation completed. Anonymous sign-in requests cannot probe it.
+                throw new EmailIdentityLinkRequiredError();
+              }
 
-          if (!source) {
-            // This is the established registration/default-role upsert authority,
-            // invoked in this same transaction while the subject/email locks remain
-            // held. It never receives role metadata from the email route.
-            await this.upsertSourceUserInTransaction(transaction, {
-              openId: sourceOpenId,
-              name: identity.name ?? null,
-              email: identity.email,
-              loginMethod: "email",
+              if (!source) {
+                // This is the established registration/default-role upsert authority,
+                // invoked in this same transaction while the subject/email locks remain
+                // held. It never receives role metadata from the email route.
+                await this.upsertSourceUserInTransaction(transaction, {
+                  openId: sourceOpenId,
+                  name: identity.name ?? null,
+                  email: identity.email,
+                  loginMethod: "email",
+                });
+                source = await sourceUserByOpenId(transaction, sourceOpenId);
+              }
+              if (!source) throw new EmailIdentityUnavailableError();
+
+              if (
+                await sourceEmailCollision(
+                  transaction,
+                  normalizedEmail,
+                  source.id,
+                )
+              ) {
+                throw new EmailIdentityLinkRequiredError();
+              }
+
+              const userSubject = await linkedByUser(transaction, source.id);
+              if (userSubject && userSubject !== identity.subject) {
+                throw new EmailIdentityLinkRequiredError();
+              }
+
+              await insertMapping(transaction, identity.subject, source.id);
+              return {
+                userId: source.id,
+                openId: source.openId,
+                name: source.name,
+              };
             });
-            source = await sourceUserByOpenId(transaction, sourceOpenId);
+          } catch (error) {
+            if (!isUniqueViolation(error)) throw error;
+            // PostgreSQL marks the allocation transaction aborted on 23505. It has
+            // rolled back (including a just-created source) before this fresh read
+            // transaction reacquires the same subject → email lock order.
+            return await database.transaction(async (transaction) => {
+              await lockScope(
+                transaction,
+                `circles.email-identity.subject:${identity.subject}`,
+              );
+              await lockUserEmailAllocation(transaction, normalizedEmail);
+              const concurrent = await linkedBySubject(
+                transaction,
+                identity.subject,
+              );
+              if (concurrent?.openId === sourceOpenId) return concurrent;
+              throw new EmailIdentityLinkRequiredError();
+            });
           }
-          if (!source) throw new EmailIdentityUnavailableError();
-
-          if (
-            await sourceEmailCollision(transaction, normalizedEmail, source.id)
-          ) {
-            throw new EmailIdentityLinkRequiredError();
-          }
-
-          const userSubject = await linkedByUser(transaction, source.id);
-          if (userSubject && userSubject !== identity.subject) {
-            throw new EmailIdentityLinkRequiredError();
-          }
-
-          await insertMapping(transaction, identity.subject, source.id);
-          return {
-            userId: source.id,
-            openId: source.openId,
-            name: source.name,
-          };
-        });
-      } catch (error) {
-        if (!isUniqueViolation(error)) throw error;
-        // PostgreSQL marks the allocation transaction aborted on 23505. It has
-        // rolled back (including a just-created source) before this fresh read
-        // transaction reacquires the same subject → email lock order.
-        return await database.transaction(async (transaction) => {
-          await lockScope(
-            transaction,
-            `circles.email-identity.subject:${identity.subject}`,
-          );
-          await lockUserEmailAllocation(transaction, normalizedEmail);
-          const concurrent = await linkedBySubject(
-            transaction,
-            identity.subject,
-          );
-          if (concurrent?.openId === sourceOpenId) return concurrent;
-          throw new EmailIdentityLinkRequiredError();
-        });
-      }
+        },
+      );
     } catch (error) {
       return unavailableUnlessKnown(error);
     }
@@ -336,44 +367,49 @@ export class EmailIdentityStore {
     }
 
     try {
-      const database = await this.requireDatabase();
-      return await database.transaction(async (transaction) => {
-        await lockScope(
-          transaction,
-          `circles.email-identity.subject:${identity.subject}`,
-        );
-        await lockScope(
-          transaction,
-          `circles.email-identity.user:${actorUserId}`,
-        );
+      return await this.runTrustedDatabaseTransaction(
+        "verified-email-identity",
+        async () => {
+          const database = await this.requireDatabase();
+          return database.transaction(async (transaction) => {
+            await lockScope(
+              transaction,
+              `circles.email-identity.subject:${identity.subject}`,
+            );
+            await lockScope(
+              transaction,
+              `circles.email-identity.user:${actorUserId}`,
+            );
 
-        const subjectLink = await linkedBySubject(
-          transaction,
-          identity.subject,
-        );
-        if (subjectLink) {
-          if (subjectLink.userId !== actorUserId) {
-            throw new EmailIdentityLinkRequiredError();
-          }
-          return subjectLink;
-        }
+            const subjectLink = await linkedBySubject(
+              transaction,
+              identity.subject,
+            );
+            if (subjectLink) {
+              if (subjectLink.userId !== actorUserId) {
+                throw new EmailIdentityLinkRequiredError();
+              }
+              return subjectLink;
+            }
 
-        const userSubject = await linkedByUser(transaction, actorUserId);
-        if (userSubject && userSubject !== identity.subject) {
-          throw new EmailIdentityLinkRequiredError();
-        }
+            const userSubject = await linkedByUser(transaction, actorUserId);
+            if (userSubject && userSubject !== identity.subject) {
+              throw new EmailIdentityLinkRequiredError();
+            }
 
-        const actor = await sourceUserById(transaction, actorUserId);
-        if (!actor) throw new EmailIdentityUnavailableError();
+            const actor = await sourceUserById(transaction, actorUserId);
+            if (!actor) throw new EmailIdentityUnavailableError();
 
-        try {
-          await insertMapping(transaction, identity.subject, actor.userId);
-        } catch (error) {
-          if (!isUniqueViolation(error)) throw error;
-          throw new EmailIdentityLinkRequiredError();
-        }
-        return actor;
-      });
+            try {
+              await insertMapping(transaction, identity.subject, actor.userId);
+            } catch (error) {
+              if (!isUniqueViolation(error)) throw error;
+              throw new EmailIdentityLinkRequiredError();
+            }
+            return actor;
+          });
+        },
+      );
     } catch (error) {
       return unavailableUnlessKnown(error);
     }

@@ -8,17 +8,22 @@ const projectRef = "vvclcsqletcxzoaayqzq";
 const directHost = `db.${projectRef}.supabase.co`;
 const poolerHost = "aws-0-eu-west-1.pooler.supabase.com";
 
-function connectionFor(url: string) {
-  return getPostgresConnectionOptions(
-    { SUPABASE_DATABASE_URL: url },
-    projectRoot,
-  );
+function connectionFor(url: string, mode?: "legacy" | "dedicated") {
+  const environment =
+    mode === "dedicated"
+      ? {
+          CIRCLES_APP_DATABASE_URL: url,
+          CIRCLES_DB_LOGIN_MODE: mode,
+        }
+      : { SUPABASE_DATABASE_URL: url };
+  return getPostgresConnectionOptions(environment, projectRoot);
 }
 
 describe("DB-02 dedicated application login connection contract", () => {
-  it("accepts the exact dedicated principal on the pinned direct host and normalizes it to its pinned pooler identity", () => {
+  it("accepts only the exact dedicated principal on the pinned session pooler identity", () => {
     const options = connectionFor(
-      `postgresql://circles_app_login:synthetic%2Dcredential@${directHost}:5432/postgres?sslmode=disable`,
+      `postgresql://circles_app_login.${projectRef}:synthetic%2Dcredential@${poolerHost}:5432/postgres?sslmode=disable`,
+      "dedicated",
     );
 
     expect(options).toMatchObject({
@@ -41,6 +46,7 @@ describe("DB-02 dedicated application login connection contract", () => {
   it("accepts only the exact dedicated pooler identity", () => {
     const options = connectionFor(
       `postgresql://circles_app_login.${projectRef}:synthetic@${poolerHost}:5432/postgres`,
+      "dedicated",
     );
 
     expect(options.user).toBe(`circles_app_login.${projectRef}`);
@@ -64,16 +70,19 @@ describe("DB-02 dedicated application login connection contract", () => {
     expect(() =>
       connectionFor(
         `postgresql://circles_app_login:synthetic@db.other.supabase.co/postgres`,
+        "dedicated",
       ),
     ).toThrow("unexpected host");
     expect(() =>
       connectionFor(
         `postgresql://circles_app_login_extra:synthetic@${directHost}/postgres`,
+        "dedicated",
       ),
-    ).toThrow("unexpected database user");
+    ).toThrow("session pooler host");
     expect(() =>
       connectionFor(
         `postgresql://circles_app_login.other:synthetic@${poolerHost}/postgres`,
+        "dedicated",
       ),
     ).toThrow("unexpected database user");
   });

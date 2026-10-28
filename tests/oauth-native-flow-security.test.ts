@@ -46,6 +46,10 @@ vi.mock("../server/_core/sdk", () => ({
 vi.mock("../server/db", () => ({
   getUserByOpenId: mocks.getUserByOpenId,
   upsertUser: mocks.upsertUser,
+  withTrustedSystemDatabaseTransaction: async (
+    _operation: string,
+    work: () => Promise<unknown>,
+  ) => work(),
 }));
 
 const nonce = "N4s1a7B9cD2eF5gH8jK0mN3pQ6rT9vW1yZ4_AbCdEfG";

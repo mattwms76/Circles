@@ -11,7 +11,7 @@ import {
   socialUploads,
 } from "../../drizzle/schema";
 import { streams } from "../../drizzle/live-schema";
-import { getDb } from "../db";
+import { getDb, withTrustedSystemDatabaseTransaction } from "../db";
 import { storageGetSignedUrl } from "../storage";
 import {
   decryptSocialMedia,
@@ -480,16 +480,21 @@ async function sendDecryptedSocialMedia(req: Request, res: Response) {
     return;
   }
 
-  const db = await getDb();
-  if (!db) {
-    res.status(503).send("Media service unavailable");
-    return;
-  }
-
   const cancellation = requestCancellation(req, res);
   try {
     const userId = await requester(req);
-    const upload = await isAuthorizedSocialMedia(db, key, userId);
+    // This direct public/private media route must first resolve a strictly
+    // validated encrypted object key, then authorize its concrete references.
+    // It cannot receive a tRPC actor scope, so the reviewed system operation is
+    // limited to this lookup rather than exposing unmarked getDb() access.
+    const upload = await withTrustedSystemDatabaseTransaction(
+      "media-reference-authorization",
+      async () => {
+        const db = await getDb();
+        if (!db) throw new Error("Media database unavailable");
+        return isAuthorizedSocialMedia(db, key, userId);
+      },
+    );
     if (!upload) {
       res.status(404).send("Media not found");
       return;

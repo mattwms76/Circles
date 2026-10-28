@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { upsertUser } from "../server/db";
+import { upsertUser, withTrustedSystemDatabaseTransaction } from "../server/db";
 
 const mocks = vi.hoisted(() => {
   const transaction = vi.fn();
@@ -41,7 +41,17 @@ function transactionForExistingUser(existing: boolean) {
   const onConflictDoUpdate = vi.fn().mockResolvedValue(undefined);
   const values = vi.fn(() => ({ onConflictDoUpdate }));
   const insert = vi.fn(() => ({ values }));
-  return { execute, insert, select, onConflictDoUpdate, values };
+  const transaction = vi.fn();
+  const tx = {
+    execute,
+    insert,
+    select,
+    transaction,
+    onConflictDoUpdate,
+    values,
+  };
+  transaction.mockImplementation(async (work) => work(tx));
+  return tx;
 }
 
 beforeEach(() => {
@@ -64,7 +74,12 @@ describe("platform registration admission", () => {
     );
 
     await expect(
-      upsertUser({ openId: "existing-verified-oauth", name: "Existing user" }),
+      withTrustedSystemDatabaseTransaction("verified-oauth-user-sync", () =>
+        upsertUser({
+          openId: "existing-verified-oauth",
+          name: "Existing user",
+        }),
+      ),
     ).resolves.toBeUndefined();
 
     expect(mocks.assertPlatformFeature).not.toHaveBeenCalled();
@@ -92,7 +107,12 @@ describe("platform registration admission", () => {
     mocks.assertPlatformFeature.mockRejectedValue(denied);
 
     await expect(
-      upsertUser({ openId: "new-verified-oauth", email: "new@example.test" }),
+      withTrustedSystemDatabaseTransaction("verified-oauth-user-sync", () =>
+        upsertUser({
+          openId: "new-verified-oauth",
+          email: "new@example.test",
+        }),
+      ),
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
 
     expect(mocks.assertPlatformFeature).toHaveBeenCalledWith(

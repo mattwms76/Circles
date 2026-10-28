@@ -112,6 +112,13 @@ jobs:
           /usr/bin/python3 -B operations/tests/db14-current-receipt.pg17.py --local-pg17
           /usr/bin/python3 -B operations/tests/current-feature-fk-indexes.pg17.py
           /usr/bin/python3 -B operations/tests/media-objects-key-regex.pg17.py
+          /usr/bin/python3 -B operations/tests/remaining-db01-legacy-public-privacy.pg17.py
+          node operations/tests/remaining-db02.pg17.mjs
+          CIRCLES_REMAINING_DB06_LOCAL_PG17=1 node operations/tests/remaining-db06-future-function-privileges.pg17.mjs
+          /usr/bin/python3 -B operations/tests/remaining-db16-lifecycle.pg17.py --local-pg17
+          CIRCLES_DB17_LOCAL_PG17=1 /usr/bin/python3 -B operations/tests/remaining-db17-live-relationships.pg17.py
+          CIRCLES_REMAINING_DB03_LOCAL_PG17=1 pnpm exec tsx operations/tests/remaining-db03-actor-rls.pg17.mjs
+          CIRCLES_REMAINING_DB03_HTTP_PG17=1 pnpm exec vitest run operations/tests/remaining-db03-http.pg17.test.ts
 
       - name: Run isolated Circle Home HTTP and PostgreSQL E2E
         run: pnpm test:e2e:circle-home

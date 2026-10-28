@@ -89,6 +89,10 @@ vi.mock("../server/_core/sdk", () => ({
 vi.mock("../server/db", () => ({
   getUserByOpenId: serverMocks.getUserByOpenId,
   upsertUser: serverMocks.upsertUser,
+  withTrustedSystemDatabaseTransaction: async (
+    _operation: string,
+    work: () => Promise<unknown>,
+  ) => work(),
 }));
 
 const nativeFlowToken = "native-flow-token-abcdefghijklmnopqrstuvwxyz";

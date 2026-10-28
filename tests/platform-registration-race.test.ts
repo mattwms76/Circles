@@ -2,7 +2,7 @@ import { TRPCError } from "@trpc/server";
 import type { SQL } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { upsertUser } from "../server/db";
+import { upsertUser, withTrustedSystemDatabaseTransaction } from "../server/db";
 
 const mocks = vi.hoisted(() => {
   const transaction = vi.fn();
@@ -68,6 +68,7 @@ describe("platform registration same-identity serialization", () => {
       const transactionName = `tx${transactionNumber}`;
       const execute = vi.fn(async (query: SQL) => {
         const compiled = new PgDialect().sqlToQuery(query);
+        if (!compiled.sql.includes("pg_advisory_xact_lock")) return;
         executedLocks.push({ sql: compiled.sql, params: compiled.params });
 
         if (advisoryLockHolder !== null) {
@@ -92,7 +93,9 @@ describe("platform registration same-identity serialization", () => {
       });
       const values = vi.fn(() => ({ onConflictDoUpdate }));
       const insert = vi.fn(() => ({ values }));
-      const tx = { execute, insert, select };
+      const transaction = vi.fn();
+      const tx = { execute, insert, select, transaction };
+      transaction.mockImplementation(async (work) => work(tx));
       transactions.push(tx);
 
       await work(tx);
@@ -107,7 +110,10 @@ describe("platform registration same-identity serialization", () => {
       await releaseFirstAdmission.promise;
     });
 
-    const first = upsertUser({ openId: sourceOpenId, name: "First callback" });
+    const first = withTrustedSystemDatabaseTransaction(
+      "verified-oauth-user-sync",
+      () => upsertUser({ openId: sourceOpenId, name: "First callback" }),
+    );
     await firstAdmissionStarted.promise;
 
     mocks.assertPlatformFeature.mockRejectedValue(
@@ -116,10 +122,14 @@ describe("platform registration same-identity serialization", () => {
         message: "synthetic later reader failure",
       }),
     );
-    const second = upsertUser({
-      openId: sourceOpenId,
-      name: "Second callback",
-    });
+    const second = withTrustedSystemDatabaseTransaction(
+      "verified-oauth-user-sync",
+      () =>
+        upsertUser({
+          openId: sourceOpenId,
+          name: "Second callback",
+        }),
+    );
     await secondLockWaiting.promise;
 
     expect(events).toEqual([

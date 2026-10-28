@@ -1,10 +1,22 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { validateOutputPaths } from "../scripts/circles-oauth-security-audit.mjs";
 
-const project = path.resolve(import.meta.dirname, "..");
+const execFileAsync = promisify(execFile);
+
+async function createGitProject(directory: string) {
+  const project = path.join(directory, "project");
+  await fs.mkdir(path.join(project, "server"), {
+    recursive: true,
+    mode: 0o700,
+  });
+  await execFileAsync("git", ["init", "--quiet", project]);
+  return project;
+}
 
 describe("private audit output path boundary", () => {
   it("rejects a symlinked output parent pointing inside the actual Git tree", async () => {
@@ -13,6 +25,7 @@ describe("private audit output path boundary", () => {
     );
     try {
       await fs.chmod(directory, 0o700);
+      const project = await createGitProject(directory);
       const linked = path.join(directory, "linked-project");
       await fs.symlink(project, linked, "dir");
       await expect(
@@ -35,6 +48,7 @@ describe("private audit output path boundary", () => {
     );
     try {
       await fs.chmod(directory, 0o700);
+      const project = await createGitProject(directory);
       await expect(
         validateOutputPaths({
           projectDir: path.join(project, "server"),

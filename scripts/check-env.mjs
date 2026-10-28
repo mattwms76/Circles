@@ -59,6 +59,8 @@ export const ENVIRONMENT_CONTRACT = Object.freeze({
     "API_ORIGIN",
     "BUILT_IN_FORGE_API_KEY",
     "BUILT_IN_FORGE_API_URL",
+    "CIRCLES_APP_DATABASE_URL",
+    "CIRCLES_DB_LOGIN_MODE",
     "CIRCLES_EMAIL_AUTH_ENABLED",
     "CIRCLES_PLATFORM_SETTINGS_ENABLED",
     "DATABASE_URL",
@@ -97,6 +99,8 @@ export const ENVIRONMENT_CONTRACT = Object.freeze({
     "API_ORIGIN",
     "BUILT_IN_FORGE_API_KEY",
     "BUILT_IN_FORGE_API_URL",
+    "CIRCLES_APP_DATABASE_URL",
+    "CIRCLES_DB_LOGIN_MODE",
     "CIRCLES_EMAIL_AUTH_ENABLED",
     "CIRCLES_PLATFORM_SETTINGS_ENABLED",
     "DATABASE_URL",
@@ -237,9 +241,43 @@ export function validateEnvironment(env = process.env, mode = "runtime") {
   const warnings = [];
 
   if (mode === "runtime") {
+    const databaseLoginMode = env.CIRCLES_DB_LOGIN_MODE || "legacy";
+    if (!new Set(["legacy", "dedicated"]).has(databaseLoginMode)) {
+      errors.push(
+        issue("CIRCLES_DB_LOGIN_MODE", "must be legacy or dedicated"),
+      );
+    }
     for (const name of ENVIRONMENT_CONTRACT.runtime.required) {
+      if (name === "SUPABASE_DATABASE_URL" && databaseLoginMode === "dedicated")
+        continue;
       if (!hasValue(env[name]))
         errors.push(issue(name, "is required at runtime"));
+    }
+
+    if (databaseLoginMode === "dedicated") {
+      if (!hasValue(env.CIRCLES_APP_DATABASE_URL)) {
+        errors.push(
+          issue(
+            "CIRCLES_APP_DATABASE_URL",
+            "is required in dedicated application mode",
+          ),
+        );
+      }
+      if (hasValue(env.SUPABASE_DATABASE_URL)) {
+        errors.push(
+          issue(
+            "SUPABASE_DATABASE_URL",
+            "must not coexist with dedicated application credentials",
+          ),
+        );
+      }
+    } else if (hasValue(env.CIRCLES_APP_DATABASE_URL)) {
+      errors.push(
+        issue(
+          "CIRCLES_APP_DATABASE_URL",
+          "requires dedicated application mode",
+        ),
+      );
     }
 
     if (env.NODE_ENV === "production") {

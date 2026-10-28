@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { getDb } from "../db";
+import { getDb, withTrustedSystemDatabaseTransaction } from "../db";
 
 const NONCE_PATTERN = /^[A-Za-z0-9_-]{32,128}$/;
 /**
@@ -175,7 +175,16 @@ export class PostgresOAuthPendingStateStore implements OAuthPendingStateStore {
 
   private async query(text: string, values: unknown[]): Promise<QueryResult> {
     try {
-      return await (await this.executor()).query(text, values);
+      // Fixtures intentionally supply an in-memory executor. The shipped
+      // implementation instead wraps each one-shot state operation in the
+      // narrow server-owned bootstrap transaction before calling getDb().
+      if (this.suppliedExecutor) {
+        return await this.suppliedExecutor.query(text, values);
+      }
+      return await withTrustedSystemDatabaseTransaction(
+        "oauth-pending-state",
+        async () => (await this.executor()).query(text, values),
+      );
     } catch {
       throw new OAuthPendingStateStoreUnavailableError();
     }
