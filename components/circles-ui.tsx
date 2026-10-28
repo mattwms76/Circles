@@ -478,6 +478,8 @@ export function Empty({
   text,
   action,
   onAction,
+  actionLoading = false,
+  actionDisabled = false,
   headingLevel = 1,
 }: {
   icon?: IconName;
@@ -485,6 +487,8 @@ export function Empty({
   text: string;
   action?: string;
   onAction?: () => void;
+  actionLoading?: boolean;
+  actionDisabled?: boolean;
   headingLevel?: 1 | 2 | 3;
 }) {
   return (
@@ -518,7 +522,13 @@ export function Empty({
         {text}
       </T>
       {action && onAction && (
-        <Button title={action} onPress={onAction} style={{ marginTop: 8 }} />
+        <Button
+          title={action}
+          onPress={onAction}
+          loading={actionLoading}
+          disabled={actionDisabled}
+          style={{ marginTop: 8 }}
+        />
       )}
     </View>
   );

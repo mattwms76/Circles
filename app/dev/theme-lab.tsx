@@ -284,9 +284,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
+    alignSelf: "center",
     gap: 16,
+    maxWidth: 960,
     padding: 20,
     paddingBottom: 32,
+    width: "100%",
   },
   header: {
     gap: 6,

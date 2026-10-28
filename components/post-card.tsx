@@ -705,129 +705,137 @@ export function PostCard({
                 backgroundColor: C.paper,
                 borderTopLeftRadius: 25,
                 borderTopRightRadius: 25,
-                paddingHorizontal: 20,
-                paddingTop: 20,
-                paddingBottom: Math.max(20, insets.bottom + 12),
-                gap: 16,
                 maxHeight: "85%",
+                flexShrink: 1,
+                minHeight: 0,
+                overflow: "hidden",
               }}
             >
-              <View style={s.between}>
-                <Heading style={{ fontSize: 19, fontWeight: "700" }}>
-                  The conversation
-                </Heading>
-                <IconButton
-                  icon="close"
-                  label="Close comments"
-                  onPress={() => setCommentsOpen(false)}
-                />
-              </View>
-              {commentsDisplayState === "loading" ? (
-                <Loading />
-              ) : commentsDisplayState === "error" ? (
-                <Empty
-                  icon="chatbubble-ellipses-outline"
-                  title="We couldn’t load the comments."
-                  text="Check your connection and try again."
-                  action={actionsAvailable ? "Try again" : undefined}
-                  onAction={
-                    actionsAvailable ? () => void comments.refetch() : undefined
-                  }
-                />
-              ) : commentsDisplayState === "empty" ? (
-                <T
-                  style={{
-                    color: C.muted,
-                    paddingVertical: 30,
-                    textAlign: "center",
-                  }}
-                >
-                  Be the first to say something kind.
-                </T>
-              ) : (
-                <ScrollView
-                  showsHorizontalScrollIndicator={false}
-                  style={{ flexGrow: 0, flexShrink: 1 }}
-                  contentContainerStyle={{ gap: 16 }}
-                  keyboardShouldPersistTaps="handled"
-                  keyboardDismissMode="interactive"
-                  showsVerticalScrollIndicator={false}
-                >
-                  {(comments.data ?? []).map((comment) => (
-                    <View
-                      key={comment.id}
-                      style={[s.row, { alignItems: "flex-start", gap: 12 }]}
-                    >
-                      <UserAvatar
-                        uri={comment.author.avatar}
-                        name={comment.author.name}
-                        size={30}
-                        userId={comment.author.id}
-                      />
-                      <View style={{ flex: 1, minWidth: 0 }}>
-                        <T style={{ fontWeight: "700", fontSize: 14 }}>
-                          {comment.author.name}
-                          <T style={{ fontSize: 12, color: C.muted }}>
-                            {" "}
-                            · {ago(comment.createdAt)}
-                          </T>
-                        </T>
-                        <T style={{ fontSize: 14, lineHeight: 21 }}>
-                          {comment.text}
-                        </T>
-                      </View>
-                    </View>
-                  ))}
-                </ScrollView>
-              )}
-              <View
-                style={[
-                  s.row,
-                  {
-                    gap: 10,
-                    borderTopWidth: 1,
-                    borderColor: C.border,
-                    paddingTop: 15,
-                  },
-                ]}
+              <ScrollView
+                showsHorizontalScrollIndicator={false}
+                style={{ flexShrink: 1, minHeight: 0 }}
+                contentContainerStyle={{
+                  gap: 16,
+                  paddingHorizontal: 20,
+                  paddingTop: 20,
+                  paddingBottom: Math.max(20, insets.bottom + 12),
+                }}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="interactive"
+                showsVerticalScrollIndicator={false}
               >
-                <TextInput
-                  value={commentText}
-                  onChangeText={setCommentText}
-                  editable={actionsAvailable && !isCommentSubmitting}
-                  placeholder="Add to the conversation…"
-                  placeholderTextColor={C.muted}
-                  accessibilityLabel="Comment text"
-                  style={{
-                    flex: 1,
-                    minHeight: 44,
-                    paddingHorizontal: 12,
-                    paddingVertical: 11,
-                    backgroundColor: C.bg,
-                    borderRadius: 12,
-                    fontSize: 14,
-                    lineHeight: 21,
-                    color: C.ink,
-                  }}
-                />
-                <IconButton
-                  icon="arrow-up-circle"
-                  color={C.coral}
-                  size={32}
-                  disabled={
-                    actionBusy || isCommentSubmitting || !commentText.trim()
-                  }
-                  loading={actionBusy || isCommentSubmitting}
-                  onPress={submitComment}
-                  label={
-                    isCommentSubmitting
-                      ? "Sending comment"
-                      : commentText.trim()
-                        ? "Send comment"
-                        : "Enter a comment to send"
-                  }
-                />
-              </View>
+                <View style={s.between}>
+                  <Heading style={{ fontSize: 19, fontWeight: "700" }}>
+                    The conversation
+                  </Heading>
+                  <IconButton
+                    icon="close"
+                    label="Close comments"
+                    onPress={() => setCommentsOpen(false)}
+                  />
+                </View>
+                {commentsDisplayState === "loading" ? (
+                  <Loading />
+                ) : commentsDisplayState === "error" ? (
+                  <Empty
+                    icon="chatbubble-ellipses-outline"
+                    title="We couldn’t load the comments."
+                    text="Check your connection and try again."
+                    action={actionsAvailable ? "Try again" : undefined}
+                    onAction={
+                      actionsAvailable
+                        ? () => void comments.refetch()
+                        : undefined
+                    }
+                  />
+                ) : commentsDisplayState === "empty" ? (
+                  <T
+                    style={{
+                      color: C.muted,
+                      paddingVertical: 30,
+                      textAlign: "center",
+                    }}
+                  >
+                    Be the first to say something kind.
+                  </T>
+                ) : (
+                  <View style={{ gap: 16 }}>
+                    {(comments.data ?? []).map((comment) => (
+                      <View
+                        key={comment.id}
+                        style={[s.row, { alignItems: "flex-start", gap: 12 }]}
+                      >
+                        <UserAvatar
+                          uri={comment.author.avatar}
+                          name={comment.author.name}
+                          size={30}
+                          userId={comment.author.id}
+                        />
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                          <T style={{ fontWeight: "700", fontSize: 14 }}>
+                            {comment.author.name}
+                            <T style={{ fontSize: 12, color: C.muted }}>
+                              {" "}
+                              · {ago(comment.createdAt)}
+                            </T>
+                          </T>
+                          <T style={{ fontSize: 14, lineHeight: 21 }}>
+                            {comment.text}
+                          </T>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                )}
+                <View
+                  style={[
+                    s.row,
+                    {
+                      gap: 10,
+                      borderTopWidth: 1,
+                      borderColor: C.border,
+                      paddingTop: 15,
+                    },
+                  ]}
+                >
+                  <TextInput
+                    value={commentText}
+                    onChangeText={setCommentText}
+                    editable={actionsAvailable && !isCommentSubmitting}
+                    placeholder="Add to the conversation…"
+                    placeholderTextColor={C.muted}
+                    accessibilityLabel="Comment text"
+                    style={{
+                      flex: 1,
+                      minHeight: 44,
+                      paddingHorizontal: 12,
+                      paddingVertical: 11,
+                      backgroundColor: C.bg,
+                      borderRadius: 12,
+                      fontSize: 14,
+                      lineHeight: 21,
+                      color: C.ink,
+                    }}
+                  />
+                  <IconButton
+                    icon="arrow-up-circle"
+                    color={C.coral}
+                    size={32}
+                    disabled={
+                      actionBusy || isCommentSubmitting || !commentText.trim()
+                    }
+                    loading={actionBusy || isCommentSubmitting}
+                    onPress={submitComment}
+                    label={
+                      isCommentSubmitting
+                        ? "Sending comment"
+                        : commentText.trim()
+                          ? "Send comment"
+                          : "Enter a comment to send"
+                    }
+                  />
+                </View>
+              </ScrollView>
             </View>
           </View>
         </KeyboardAvoidingView>

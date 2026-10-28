@@ -14,11 +14,19 @@ import {
 import {
   circleManageActionTarget,
   createCircleManageActionSingleFlight,
-  resolveCircleMemberDisplayStates,
   type CircleManageAction,
   type CircleManagePendingAction,
 } from "@/lib/design31-circle";
 import { resolveFnd001QueryDisplayState } from "@/lib/fnd001-query-display-state";
+import {
+  resolveD28012CirclePageDisplayStates,
+  type D28012CirclePageDisplayState,
+} from "@/lib/d28-012-circle-pages";
+import {
+  createD28013ManagePostDisclosure,
+  isCurrentD28013ManagePostDisclosure,
+  type D28013ManagePostDisclosure,
+} from "@/lib/d28-013-manage-post-disclosure";
 import { parsePositiveSafeId } from "@/lib/feed-ui-helpers";
 import { invalidateCircleDirectories } from "@/lib/source-query-invalidation";
 import {
@@ -63,6 +71,44 @@ type CircleManageOutcome = {
   tone: "success" | "error";
 };
 
+function CircleRetainedPageRecovery({
+  displayState,
+  itemName,
+  onRetryNextPage,
+  onRefresh,
+}: {
+  displayState: D28012CirclePageDisplayState;
+  itemName: string;
+  onRetryNextPage: () => void;
+  onRefresh: () => void;
+}) {
+  if (!displayState.showRetainedError || !displayState.retryMode) return null;
+
+  const isContinuationError = displayState.retryMode === "next";
+  return (
+    <View style={{ gap: 8, marginTop: 8 }}>
+      <StatusMessage
+        message={
+          isContinuationError
+            ? `We couldn’t load more ${itemName}. The ${itemName} already here are still available.`
+            : `We couldn’t refresh ${itemName}. The ${itemName} already here are still available.`
+        }
+        tone="error"
+      />
+      <Button
+        title={
+          isContinuationError
+            ? `Retry loading more ${itemName}`
+            : `Refresh ${itemName}`
+        }
+        secondary
+        onPress={isContinuationError ? onRetryNextPage : onRefresh}
+        style={{ alignSelf: "flex-start" }}
+      />
+    </View>
+  );
+}
+
 export default function CircleScreen() {
   const { id } = useLocalSearchParams<{ id?: string | string[] }>();
   const routeCircleId = parsePositiveSafeId(id);
@@ -106,6 +152,8 @@ function CircleScreenInstance() {
   const [pendingManageActions, setPendingManageActions] = useState<
     CircleManagePendingAction[]
   >([]);
+  const [expandedManagePostDisclosure, setExpandedManagePostDisclosure] =
+    useState<D28013ManagePostDisclosure | null>(null);
   const [membershipError, setMembershipError] =
     useState<MembershipError | null>(null);
   const [manageOutcome, setManageOutcome] =
@@ -212,18 +260,42 @@ function CircleScreenInstance() {
     (member) => member.role !== "pending",
   );
   const feedItems = feed.data?.pages.flatMap((page) => page.items) ?? [];
-  const { membersDisplayState, manageMembersDisplayState } =
-    resolveCircleMemberDisplayStates({
-      members: memberItems,
+  const canReadCurrentCircleContents =
+    !!routeCircleId &&
+    !!group &&
+    (group.privacy === "public" || !!group.joined);
+  const {
+    feed: feedDisplayState,
+    members: membersDisplayState,
+    manageMembers: manageMembersDisplayState,
+    managePosts: managePostsDisplayState,
+  } = resolveD28012CirclePageDisplayStates({
+    canReadCurrentCircleContents,
+    feed: {
+      itemCount: feedItems.length,
+      hasNextPage: !!feed.hasNextPage,
+      isLoading: feed.isLoading,
+      isError: feed.isError,
+      isFetchNextPageError: feed.isFetchNextPageError,
+      isRefetchError: feed.isRefetchError,
+      error: feed.error,
+    },
+    members: {
+      visibleItemCount: visibleMemberItems.length,
+      manageableItemCount: memberItems.length,
+      hasNextPage: !!members.hasNextPage,
       isLoading: members.isLoading,
       isError: members.isError,
-      hasNextPage: !!members.hasNextPage,
-    });
-  const feedDisplayState = resolveFnd001QueryDisplayState({
-    isLoading: feed.isLoading,
-    isError: feed.isError,
-    hasContent: feedItems.length > 0 || !!feed.hasNextPage,
+      isFetchNextPageError: members.isFetchNextPageError,
+      isRefetchError: members.isRefetchError,
+      error: members.error,
+    },
   });
+  const isAdmin = group?.role === "owner" || group?.role === "moderator";
+  const canManageCircleContents =
+    isAdmin &&
+    !membersDisplayState.isAuthorizationDenied &&
+    !feedDisplayState.isAuthorizationDenied;
   const utils = trpc.useUtils();
   const refresh = () => {
     void circle.refetch();
@@ -355,7 +427,12 @@ function CircleScreenInstance() {
   ) => {
     const operation = mountedMembershipScope.current;
     const target = circleManageActionTarget(targetKind, targetId);
-    if (!operation || operation.scope !== circleActionScope || !target) {
+    if (
+      !canManageCircleContents ||
+      !operation ||
+      operation.scope !== circleActionScope ||
+      !target
+    ) {
       return null;
     }
 
@@ -507,7 +584,6 @@ function CircleScreenInstance() {
         action.target === target &&
         action.operation.scope === circleActionScope,
     );
-  const isAdmin = group?.role === "owner" || group?.role === "moderator";
   const canManageHome = homeUi.canEdit;
   const homeManagementWasDenied =
     homeUi.isAuthorityAvailable && currentHome?.canManage === false;
@@ -759,9 +835,9 @@ function CircleScreenInstance() {
                 title="A little space, just for members."
                 text="Request to join this circle to see its moments and join the conversation."
               />
-            ) : feedDisplayState === "loading" ? (
+            ) : feedDisplayState.kind === "loading" ? (
               <Loading />
-            ) : feedDisplayState === "error" ? (
+            ) : feedDisplayState.kind === "error" ? (
               <Empty
                 headingLevel={2}
                 icon="images-outline"
@@ -770,7 +846,7 @@ function CircleScreenInstance() {
                 action="Try again"
                 onAction={() => void feed.refetch()}
               />
-            ) : feedDisplayState === "empty" ? (
+            ) : feedDisplayState.kind === "empty" ? (
               <Empty
                 headingLevel={2}
                 icon="images-outline"
@@ -786,27 +862,37 @@ function CircleScreenInstance() {
             ))}
           {tab === "Feed" &&
             (group.privacy === "public" || !!group.joined) &&
-            feedDisplayState === "content" &&
-            (feed.hasNextPage ? (
-              <Button
-                title="Show more moments"
-                secondary
-                loading={feed.isFetchingNextPage}
-                onPress={() => void feed.fetchNextPage()}
-                style={{ alignSelf: "center", marginTop: 8 }}
-              />
-            ) : (
-              <T
-                style={{
-                  color: C.muted,
-                  fontSize: 12,
-                  textAlign: "center",
-                  paddingVertical: 14,
-                }}
-              >
-                You’ve reached the end of these moments.
-              </T>
-            ))}
+            feedDisplayState.kind === "content" && (
+              <>
+                <CircleRetainedPageRecovery
+                  displayState={feedDisplayState}
+                  itemName="moments"
+                  onRetryNextPage={() => void feed.fetchNextPage()}
+                  onRefresh={() => void feed.refetch()}
+                />
+                {!feedDisplayState.showRetainedError &&
+                  (feed.hasNextPage ? (
+                    <Button
+                      title="Show more moments"
+                      secondary
+                      loading={feed.isFetchingNextPage}
+                      onPress={() => void feed.fetchNextPage()}
+                      style={{ alignSelf: "center", marginTop: 8 }}
+                    />
+                  ) : (
+                    <T
+                      style={{
+                        color: C.muted,
+                        fontSize: 12,
+                        textAlign: "center",
+                        paddingVertical: 14,
+                      }}
+                    >
+                      You’ve reached the end of these moments.
+                    </T>
+                  ))}
+              </>
+            )}
           {tab === "Members" &&
             (group.privacy === "private" && !group.joined ? (
               <Empty
@@ -815,9 +901,9 @@ function CircleScreenInstance() {
                 title="Members only."
                 text="Join the circle to meet its people."
               />
-            ) : membersDisplayState === "loading" ? (
+            ) : membersDisplayState.kind === "loading" ? (
               <Loading />
-            ) : membersDisplayState === "error" ? (
+            ) : membersDisplayState.kind === "error" ? (
               <Empty
                 headingLevel={2}
                 icon="people-outline"
@@ -826,7 +912,7 @@ function CircleScreenInstance() {
                 action="Try again"
                 onAction={() => void members.refetch()}
               />
-            ) : membersDisplayState === "empty" ? (
+            ) : membersDisplayState.kind === "empty" ? (
               <Empty
                 headingLevel={2}
                 icon="people-outline"
@@ -898,27 +984,37 @@ function CircleScreenInstance() {
             ))}
           {tab === "Members" &&
             (group.privacy === "public" || !!group.joined) &&
-            membersDisplayState === "content" &&
-            (members.hasNextPage ? (
-              <Button
-                title="Show more members"
-                secondary
-                loading={members.isFetchingNextPage}
-                onPress={() => void members.fetchNextPage()}
-                style={{ alignSelf: "center", marginTop: 8 }}
-              />
-            ) : (
-              <T
-                style={{
-                  color: C.muted,
-                  fontSize: 12,
-                  textAlign: "center",
-                  paddingVertical: 14,
-                }}
-              >
-                You’ve reached the end of these members.
-              </T>
-            ))}
+            membersDisplayState.kind === "content" && (
+              <>
+                <CircleRetainedPageRecovery
+                  displayState={membersDisplayState}
+                  itemName="members"
+                  onRetryNextPage={() => void members.fetchNextPage()}
+                  onRefresh={() => void members.refetch()}
+                />
+                {!membersDisplayState.showRetainedError &&
+                  (members.hasNextPage ? (
+                    <Button
+                      title="Show more members"
+                      secondary
+                      loading={members.isFetchingNextPage}
+                      onPress={() => void members.fetchNextPage()}
+                      style={{ alignSelf: "center", marginTop: 8 }}
+                    />
+                  ) : (
+                    <T
+                      style={{
+                        color: C.muted,
+                        fontSize: 12,
+                        textAlign: "center",
+                        paddingVertical: 14,
+                      }}
+                    >
+                      You’ve reached the end of these members.
+                    </T>
+                  ))}
+              </>
+            )}
           {tab === "About" && (
             <View style={[s.card, { padding: 22, gap: 16 }]}>
               <T style={{ fontSize: 19, fontWeight: "700" }}>
@@ -1012,6 +1108,7 @@ function CircleScreenInstance() {
                     title="Open Reports"
                     secondary
                     icon="flag-outline"
+                    disabled={!canManageCircleContents}
                     onPress={() => router.push(`/moderation/${circleId}`)}
                     style={{ alignSelf: "flex-start" }}
                   />
@@ -1067,9 +1164,9 @@ function CircleScreenInstance() {
                       tone={manageOutcome.tone}
                     />
                   )}
-                {manageMembersDisplayState === "loading" ? (
+                {manageMembersDisplayState.kind === "loading" ? (
                   <Loading />
-                ) : manageMembersDisplayState === "error" ? (
+                ) : manageMembersDisplayState.kind === "error" ? (
                   <Empty
                     headingLevel={2}
                     icon="people-outline"
@@ -1078,7 +1175,7 @@ function CircleScreenInstance() {
                     action="Try again"
                     onAction={() => void members.refetch()}
                   />
-                ) : manageMembersDisplayState === "empty" ? (
+                ) : manageMembersDisplayState.kind === "empty" ? (
                   <Empty
                     headingLevel={2}
                     icon="people-outline"
@@ -1162,7 +1259,10 @@ function CircleScreenInstance() {
                                     }
                                     secondary
                                     loading={approveActionPending}
-                                    disabled={memberActionPending}
+                                    disabled={
+                                      memberActionPending ||
+                                      !canManageCircleContents
+                                    }
                                     onPress={() => approveManagedMember(member)}
                                     style={{
                                       flexGrow: 1,
@@ -1183,7 +1283,10 @@ function CircleScreenInstance() {
                                       }
                                       secondary
                                       loading={roleActionPending}
-                                      disabled={memberActionPending}
+                                      disabled={
+                                        memberActionPending ||
+                                        !canManageCircleContents
+                                      }
                                       onPress={() => updateMemberRole(member)}
                                       style={{
                                         flexGrow: 1,
@@ -1207,7 +1310,10 @@ function CircleScreenInstance() {
                                     }
                                     secondary
                                     loading={removeActionPending}
-                                    disabled={memberActionPending}
+                                    disabled={
+                                      memberActionPending ||
+                                      !canManageCircleContents
+                                    }
                                     onPress={() => removeManagedMember(member)}
                                     style={{
                                       flexGrow: 1,
@@ -1220,24 +1326,31 @@ function CircleScreenInstance() {
                         </View>
                       );
                     })}
-                    {members.hasNextPage && (
-                      <Button
-                        title="Show more members"
-                        secondary
-                        loading={members.isFetchingNextPage}
-                        onPress={() => void members.fetchNextPage()}
-                        style={{ alignSelf: "center" }}
-                      />
-                    )}
+                    <CircleRetainedPageRecovery
+                      displayState={manageMembersDisplayState}
+                      itemName="members"
+                      onRetryNextPage={() => void members.fetchNextPage()}
+                      onRefresh={() => void members.refetch()}
+                    />
+                    {!manageMembersDisplayState.showRetainedError &&
+                      members.hasNextPage && (
+                        <Button
+                          title="Show more members"
+                          secondary
+                          loading={members.isFetchingNextPage}
+                          onPress={() => void members.fetchNextPage()}
+                          style={{ alignSelf: "center" }}
+                        />
+                      )}
                   </View>
                 )}
               </View>
               <T style={{ fontSize: 17, fontWeight: "700", marginTop: 8 }}>
                 Moderate posts
               </T>
-              {feedDisplayState === "loading" ? (
+              {managePostsDisplayState.kind === "loading" ? (
                 <Loading />
-              ) : feedDisplayState === "error" ? (
+              ) : managePostsDisplayState.kind === "error" ? (
                 <Empty
                   headingLevel={2}
                   icon="images-outline"
@@ -1246,7 +1359,7 @@ function CircleScreenInstance() {
                   action="Try again"
                   onAction={() => void feed.refetch()}
                 />
-              ) : feedDisplayState === "empty" ? (
+              ) : managePostsDisplayState.kind === "empty" ? (
                 <Empty
                   headingLevel={2}
                   icon="images-outline"
@@ -1261,6 +1374,13 @@ function CircleScreenInstance() {
                     );
                     const deleteActionPending =
                       pendingAction?.action === "delete-post";
+                    const isManagePostExpanded =
+                      isCurrentD28013ManagePostDisclosure({
+                        disclosure: expandedManagePostDisclosure,
+                        currentScope: circleActionScope,
+                        postId: post.id,
+                        canManage: canManageCircleContents,
+                      });
 
                     return (
                       <View
@@ -1277,7 +1397,7 @@ function CircleScreenInstance() {
                           {post.author.name}
                         </T>
                         <T
-                          numberOfLines={2}
+                          numberOfLines={isManagePostExpanded ? undefined : 2}
                           style={{
                             fontSize: 14,
                             lineHeight: 21,
@@ -1288,6 +1408,31 @@ function CircleScreenInstance() {
                         </T>
                         <Button
                           title={
+                            isManagePostExpanded
+                              ? "Show less"
+                              : "Read full moment"
+                          }
+                          secondary
+                          disabled={!canManageCircleContents}
+                          onPress={() => {
+                            if (!canManageCircleContents) return;
+                            setExpandedManagePostDisclosure((current) =>
+                              isCurrentD28013ManagePostDisclosure({
+                                disclosure: current,
+                                currentScope: circleActionScope,
+                                postId: post.id,
+                                canManage: canManageCircleContents,
+                              })
+                                ? null
+                                : createD28013ManagePostDisclosure(
+                                    circleActionScope,
+                                    post.id,
+                                  ),
+                            );
+                          }}
+                        />
+                        <Button
+                          title={
                             deleteActionPending
                               ? "Removing post…"
                               : "Remove from circle"
@@ -1295,21 +1440,28 @@ function CircleScreenInstance() {
                           secondary
                           icon="trash-outline"
                           loading={deleteActionPending}
-                          disabled={!!pendingAction}
+                          disabled={!!pendingAction || !canManageCircleContents}
                           onPress={() => removeManagedPost(post)}
                         />
                       </View>
                     );
                   })}
-                  {feed.hasNextPage && (
-                    <Button
-                      title="Show more moments"
-                      secondary
-                      loading={feed.isFetchingNextPage}
-                      onPress={() => void feed.fetchNextPage()}
-                      style={{ alignSelf: "center" }}
-                    />
-                  )}
+                  <CircleRetainedPageRecovery
+                    displayState={managePostsDisplayState}
+                    itemName="posts"
+                    onRetryNextPage={() => void feed.fetchNextPage()}
+                    onRefresh={() => void feed.refetch()}
+                  />
+                  {!managePostsDisplayState.showRetainedError &&
+                    feed.hasNextPage && (
+                      <Button
+                        title="Show more moments"
+                        secondary
+                        loading={feed.isFetchingNextPage}
+                        onPress={() => void feed.fetchNextPage()}
+                        style={{ alignSelf: "center" }}
+                      />
+                    )}
                 </View>
               )}
             </View>

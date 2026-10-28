@@ -13,6 +13,7 @@ import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
 import { resolvePagedDisplayState } from "../../lib/a26-paged-display";
 import { A26_CIRCLE_HERO_BACKPLATE_COLOR } from "../../lib/a26-directory-ui";
+import { countLabel } from "../../lib/count-copy";
 import { AppShell } from "@/components/app-shell";
 import { CircleCard } from "@/components/circle-card";
 import { OnboardingEntry } from "@/components/onboarding-entry";
@@ -59,6 +60,10 @@ export default function CirclesScreen() {
     isRefetchError: circles.isRefetchError,
     error: circles.error,
   });
+  const retainedRetryLoading =
+    circlesDisplayState.retryMode === "next"
+      ? circles.isFetchingNextPage
+      : circles.isRefetching;
   return (
     <AppShell>
       <View style={{ gap: compactHero ? 14 : 21 }}>
@@ -71,7 +76,7 @@ export default function CirclesScreen() {
           </View>
           <IconButton
             icon="add"
-            color={C.coral}
+            color={C.action}
             label="Create a circle"
             onPress={() =>
               requireAuth(() => router.push("/create?mode=circle"))
@@ -261,7 +266,7 @@ export default function CirclesScreen() {
               marginLeft: "auto",
             }}
           >
-            {items.length} circles
+            {countLabel(items.length, "circle")}
           </T>
         </View>
       </View>
@@ -275,6 +280,8 @@ export default function CirclesScreen() {
               circles.error?.message || "Check your connection and try again."
             }
             action="Try again"
+            actionLoading={circles.isFetching}
+            actionDisabled={circles.isFetching}
             onAction={() => {
               void circles.refetch();
             }}
@@ -318,6 +325,8 @@ export default function CirclesScreen() {
                     : "Refresh circles"
                 }
                 secondary
+                loading={retainedRetryLoading}
+                disabled={retainedRetryLoading}
                 onPress={() => {
                   if (circlesDisplayState.retryMode === "next") {
                     void circles.fetchNextPage();

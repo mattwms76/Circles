@@ -1,0 +1,2040 @@
+{
+  "schema_version": 1,
+  "source": {
+    "identity": "7d8a82aebca5efd27901fad6a829fdd1af18079e/tree73ecf8c8d181bcf034ea6292fe82410028505387 + labeled dirty D28 repair paths",
+    "commit": "7d8a82aebca5efd27901fad6a829fdd1af18079e",
+    "tree": "73ecf8c8d181bcf034ea6292fe82410028505387",
+    "dirtyPaths": [
+      "M TODO.md",
+      " M app/(tabs)/circles.tsx",
+      " M app/account/confirmed.tsx",
+      " M app/chat/[id].tsx",
+      " M app/circle/[id].tsx",
+      " M app/create.tsx",
+      " M app/dev/theme-lab.tsx",
+      " M app/live/[id].tsx",
+      " M app/onboarding.tsx",
+      " M components/activity-badge.tsx",
+      " M components/circles-ui.tsx",
+      " M components/post-card.tsx",
+      " M components/profile-screen.tsx",
+      " M plan.md",
+      " M tests/design31-media-messaging.test.ts",
+      "?? docs/d28-confirmed-design-repairs-20261028.json",
+      "?? docs/d28-confirmed-design-repairs-20261028.md",
+      "?? lib/d28-008-auth-presentation.ts",
+      "?? lib/d28-010-chat-media.ts",
+      "?? lib/d28-012-circle-pages.ts",
+      "?? lib/d28-013-manage-post-disclosure.ts",
+      "?? lib/d28-017-live-media-badge.ts",
+      "?? lib/d28-020-membership-target.ts",
+      "?? lib/d28-022-activity-badge-count.ts",
+      "?? tests/d28-001-create-icon-contrast.test.ts",
+      "?? tests/d28-002-directory-retries.test.ts",
+      "?? tests/d28-003-circles-result-count.test.ts",
+      "?? tests/d28-006-comments-sheet.test.ts",
+      "?? tests/d28-008-auth-presentation.test.ts",
+      "?? tests/d28-010-chat-media.test.ts",
+      "?? tests/d28-012-circle-pages.test.ts",
+      "?? tests/d28-013-manage-post-disclosure.test.ts",
+      "?? tests/d28-015-theme-lab-width.test.ts",
+      "?? tests/d28-016-live-title.test.ts",
+      "?? tests/d28-017-live-media-badge.test.ts",
+      "?? tests/d28-020-membership-target.test.tsx",
+      "?? tests/d28-022-activity-badge.test.tsx"
+    ],
+    "changedFileSha256": {
+      "TODO.md": "13bfe314f2eab2004201e255ddb25af53a5fe0871c1e1eafedf2bb6c3ab0ffe9",
+      "app/(tabs)/circles.tsx": "996805e6d7e884be0ad58aff984e1571846b7a1252c5a982e020657c047fd8a1",
+      "app/account/confirmed.tsx": "844f397ad60f9dc91d4a31c4ff9b05511dbeff23014b8c13f25fe9e7f1c6a4c2",
+      "app/chat/[id].tsx": "f80e10495bb55a0957eb270f8785c57a44732c1b1bfa6c4db1df969684da0ff9",
+      "app/circle/[id].tsx": "45c9d59150fabd3d23e31ad9faeb1d4cd7dadf249fb5a1059fef187ff9abb8db",
+      "app/create.tsx": "f7130ba7a9971715e23c3fae01d6102ee8d71d109248aca727983a7288c5b893",
+      "app/dev/theme-lab.tsx": "b537feb684bf4c09eb40281ccf68ce8c763ac2e32637678b19ee8a1d2efa30c5",
+      "app/live/[id].tsx": "be89466ee4e7f5feacae4d8fab964423819647e0541cdaa762a5c4e82f41a6cd",
+      "app/onboarding.tsx": "88afe6c8341bee723ce72199a326558ae2fbb4b7f474f6ad9e63a541bacd8822",
+      "components/activity-badge.tsx": "9ff7b87405da0cd8796a9dbedb3ed6e2a6919814e71633a9e31337c4b30f70ad",
+      "components/circles-ui.tsx": "23995e83297275873ee929a5fe44bf390c81446a94d9d8b9f71b62db38de3bac",
+      "components/post-card.tsx": "d1b11f4ec7ee98d1b2546e91f0b9f629477eb2f4d0fe6174bb04d61485a7bab9",
+      "components/profile-screen.tsx": "46e97a8a8786c3b4884961d082210df2d102d890284ae475f49a52c4790a8900",
+      "docs/d28-confirmed-design-repairs-20261028.json": "c6b6484f1618b1b9d4a9a13ca7b768e087f4f3cec927ef1bd9d30958ce684510",
+      "docs/d28-confirmed-design-repairs-20261028.md": "27f408a3cd571e6947d54d9483d2deabf5046d9a4ac0e0ba28e2f71272ead265",
+      "lib/d28-008-auth-presentation.ts": "c3af2e62aa9a7a8b90b23d17b8bf66716e6ab41ef45b3058ae02b5cd5589f276",
+      "lib/d28-010-chat-media.ts": "3abcc7cbba976774d5e37fe085fbbe784cb91bb6cad10a9cc7195518087c8916",
+      "lib/d28-012-circle-pages.ts": "c41919a83ac7e5b703fa87060a224dae9ffb4e981dd0c39e41bbb4d1dae64301",
+      "lib/d28-013-manage-post-disclosure.ts": "6f291d16972f7c621ef85a41cf511052ee513f681ac2185f89d4972ef7a8f216",
+      "lib/d28-017-live-media-badge.ts": "0634b5b3d8ee222d2d93374b54a46c59b76cfe85d7185fda1a9c108ff077a528",
+      "lib/d28-020-membership-target.ts": "cb71eb8bcb47be16a4fac6a9438c6060a33ab7dddc41ee9f35e947115251a47b",
+      "lib/d28-022-activity-badge-count.ts": "ed6ebfd0211c4f85f6939f253d5b7bf3b150a5785ede92dcc2d9d003155e6815",
+      "plan.md": "8a7dfcd421e2a19bf0f145512628c843971ab2578a0dedb014d0d662486012b1",
+      "tests/d28-001-create-icon-contrast.test.ts": "a9ed175b03de5c0b50778998d5c180b96bb8f844b59f14af1acdf702404a90f5",
+      "tests/d28-002-directory-retries.test.ts": "096b9c204e164da9c8d708298615d94d288c889640dc3fa260d7664c33df5e10",
+      "tests/d28-003-circles-result-count.test.ts": "9d0341ac577eb161806b7a186908935d936e91091f40e1fa98f354afa5630bea",
+      "tests/d28-006-comments-sheet.test.ts": "e9826c8a3e5ab2cd9000392b31647a33443d042b0af7755af87f0ad852eafd6c",
+      "tests/d28-008-auth-presentation.test.ts": "a69a53af859df4b626f0099efbf36807ca50f8b98e4523a91c9b20d26d8f9910",
+      "tests/d28-010-chat-media.test.ts": "268c3ce6102f5c2e19b841d5b606180766a7e0a215d302109b1964af8265fc5d",
+      "tests/d28-012-circle-pages.test.ts": "caeec73529864972ede3cbc1d6f5720c78c6e64ccd028635672186e34817eb01",
+      "tests/d28-013-manage-post-disclosure.test.ts": "c13a5186409982017dc950cd4389f6edfa6446691f4f418d2e7ec8e8f4e37182",
+      "tests/d28-015-theme-lab-width.test.ts": "ae6294d88386164180ce56a6c9d2f69dca852ebe9c48a78ab7595d492d5747b9",
+      "tests/d28-016-live-title.test.ts": "e7a673194e0c8eec0e6625b88e4e6422eb15f9965de6958eb04bed7ab485cd61",
+      "tests/d28-017-live-media-badge.test.ts": "31bafe8dff652ccb4c632a97e4863133dfafc1749461ac0b0b7596bd6c048d44",
+      "tests/d28-020-membership-target.test.tsx": "0f1544e7ce7b8aad9623b18917ea736fbae92eb2b4680c1829158436706a7d95",
+      "tests/d28-022-activity-badge.test.tsx": "5daf9866d275e4a1cbe485f99fb42cab0f4d8c62f181110b093022b3a68d817d",
+      "tests/design31-media-messaging.test.ts": "3bf9a255c0805d1b51851dbb33056803962da032e3cc779318469409780efe9d"
+    },
+    "mode": "13 confirmed-source repairs; 11 conditional findings remain open"
+  },
+  "expected_ids": [
+    "D28-001",
+    "D28-002",
+    "D28-003",
+    "D28-004",
+    "D28-005",
+    "D28-006",
+    "D28-007",
+    "D28-008",
+    "D28-009",
+    "D28-010",
+    "D28-011",
+    "D28-012",
+    "D28-013",
+    "D28-014",
+    "D28-015",
+    "D28-016",
+    "D28-017",
+    "D28-018",
+    "D28-019",
+    "D28-020",
+    "D28-021",
+    "D28-022",
+    "D28-023",
+    "D28-024",
+    "D28-025",
+    "D28-026",
+    "D28-027",
+    "D28-028",
+    "D28-029"
+  ],
+  "aliases": {
+    "D28-025": "D28-006",
+    "D28-026": "D28-006",
+    "D28-027": "D28-007",
+    "D28-028": "D28-008",
+    "D28-029": "D28-008"
+  },
+  "alias_details": {
+    "D28-025": {
+      "canonical": "D28-006",
+      "screenId": "03-home",
+      "localId": "03-home-01",
+      "title": "Home comments error dialog has no scrollable route under keyboard-height pressure",
+      "classification": "conditional-source",
+      "severity": "medium",
+      "reason": "Same PostCard comments middle-region containment cause; Home adds the unrendered keyboard trigger."
+    },
+    "D28-026": {
+      "canonical": "D28-006",
+      "screenId": "21-shared",
+      "localId": "21-shared-01-comments",
+      "title": "Shared comments capped modal body under short/enlarged viewports",
+      "classification": "conditional-source",
+      "severity": "medium",
+      "reason": "Shared review\u2019s comments portion is the same PostCard sheet cause; the combined raw item was split from its distinct options-card observation."
+    },
+    "D28-027": {
+      "canonical": "D28-007",
+      "screenId": "21-shared",
+      "localId": "21-shared-01-options",
+      "title": "Shared options card under short/enlarged viewports",
+      "classification": "conditional-source",
+      "severity": "medium",
+      "reason": "Same PostCard options-card containment cause; kept separate from the comments-sheet cause."
+    },
+    "D28-028": {
+      "canonical": "D28-008",
+      "screenId": "05-profile",
+      "localId": "05-profile-01",
+      "title": "Own profile presents auth checking/error as a guest sign-in state",
+      "classification": "confirmed-source",
+      "severity": "medium",
+      "reason": "Same unresolved-auth-to-guest consumer mechanism, recorded once with all three affected routes."
+    },
+    "D28-029": {
+      "canonical": "D28-008",
+      "screenId": "06-confirmed",
+      "localId": "06-confirmed-01",
+      "title": "Confirmation auth error is presented as guest sign-in without route retry",
+      "classification": "confirmed-source",
+      "severity": "medium",
+      "reason": "Same unresolved-auth-to-guest consumer mechanism, recorded once with all three affected routes."
+    }
+  },
+  "runs": [
+    {
+      "id": "screen-source-review",
+      "kind": "source_contract",
+      "status": "passed",
+      "source_identity": "7d8a82aebca5efd27901fad6a829fdd1af18079e/tree73ecf8c8d181bcf034ea6292fe82410028505387",
+      "artifact": "/home/ubuntu/circles-design-audit-20261028-1515/raw-review-results.json",
+      "count": 21,
+      "limits": [
+        "Read-only source review supplied by independent screen workers; no application code was edited.",
+        "Source mechanisms do not establish native dynamic type, IME, physical target, screen-reader, provider, or authenticated-account behavior.",
+        "No full test suite or service/account/provider interaction was run by this reducer."
+      ]
+    },
+    {
+      "id": "public-capture-ledger",
+      "kind": "metadata_only",
+      "status": "passed",
+      "source_identity": "7d8a82aebca5efd27901fad6a829fdd1af18079e/tree73ecf8c8d181bcf034ea6292fe82410028505387",
+      "artifact": "/home/ubuntu/circles-design-audit-20261028-1515/evidence/public-captures.json",
+      "count": 56,
+      "limits": [
+        "All captures are public/guest web entry views; some may be initial loading and are viewport-only.",
+        "They cover 14 static entry routes at four viewports, not six dynamic route bodies or authenticated/protected states.",
+        "They are not native, keyboard, dynamic-type, screen-reader, or physical-target proof."
+      ]
+    },
+    {
+      "id": "guest-web-text-pressure-390",
+      "kind": "web_synthetic",
+      "status": "passed",
+      "source_identity": "7d8a82aebca5efd27901fad6a829fdd1af18079e/tree73ecf8c8d181bcf034ea6292fe82410028505387",
+      "artifact": "/home/ubuntu/circles-design-audit-20261028-1515/evidence/text-pressure-390.json",
+      "count": 1,
+      "limits": [
+        "Not native dynamic type or browser zoom; source fontScale layout branch not changed",
+        "Icon fonts excluded; original brand text may still be doubled",
+        "No forms submitted, credentials, mutations or source changes",
+        "Initial loading/guest state is not signed-in content",
+        "Geometry candidates are not automatically defects",
+        "The measured 390\u00d7640 guest/home iframe remained at document width 390; header actions reflowed and retained 44\u00d744 bounds while tab targets grew vertically.",
+        "This is an injected stress measurement, not a screenshot-stable state, native dynamic type, browser zoom, or automatic defect verdict."
+      ]
+    },
+    {
+      "id": "register-metadata-validation",
+      "kind": "metadata_only",
+      "status": "passed",
+      "source_identity": "7d8a82aebca5efd27901fad6a829fdd1af18079e/tree73ecf8c8d181bcf034ea6292fe82410028505387",
+      "artifact": "/home/ubuntu/circles-design-audit-20261028-1515/evidence/register-validation.txt",
+      "count": null,
+      "limits": [
+        "Validator checks register metadata only; it does not verify the underlying design assertions, visual rendering, native behavior, test execution, or remediation."
+      ]
+    },
+    {
+      "id": "repair-D28-001-1",
+      "kind": "mocked_unit",
+      "status": "failed",
+      "source_identity": "D28 worker candidate: 7d8a82aebca5efd27901fad6a829fdd1af18079e/tree73ecf8c8d181bcf034ea6292fe82410028505387",
+      "artifact": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-001-tests.log",
+      "count": 2,
+      "limits": [
+        "Run occurred before the one-line source repair.",
+        "The failing source-consumer assertion recorded C.coral where C.action was required.",
+        "Credential-free isolated Vitest execution; no browser, native, account, or provider proof."
+      ],
+      "command": "env -i HOME=/home/ubuntu PATH=\"$PATH\" NODE_ENV=test CI=1 NO_COLOR=1 npx --offline --yes pnpm@9.12.0 exec vitest run tests/d28-001-create-icon-contrast.test.ts"
+    },
+    {
+      "id": "repair-D28-001-2",
+      "kind": "mocked_unit",
+      "status": "passed",
+      "source_identity": "D28 worker candidate: 7d8a82aebca5efd27901fad6a829fdd1af18079e/tree73ecf8c8d181bcf034ea6292fe82410028505387",
+      "artifact": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-001-tests-corrected.log",
+      "count": 2,
+      "limits": [
+        "Asserts actual assigned-source token consumption and a deterministic opaque sRGB pair calculation.",
+        "Does not prove browser rendering, native display brightness, physical-device appearance, or assistive-technology projection."
+      ],
+      "command": "env -i HOME=/home/ubuntu PATH=\"$PATH\" NODE_ENV=test CI=1 NO_COLOR=1 npx --offline --yes pnpm@9.12.0 exec vitest run tests/d28-001-create-icon-contrast.test.ts"
+    },
+    {
+      "id": "repair-D28-001-3",
+      "kind": "source_contract",
+      "status": "passed",
+      "source_identity": "D28 worker candidate: 7d8a82aebca5efd27901fad6a829fdd1af18079e/tree73ecf8c8d181bcf034ea6292fe82410028505387",
+      "artifact": "terminal output: All matched files use Prettier code style!",
+      "count": null,
+      "limits": [
+        "Restricted to the two D28-001 owned application/test paths.",
+        "No full lint, full typecheck, or full suite was run."
+      ],
+      "command": "env -i HOME=/home/ubuntu PATH=\"$PATH\" NODE_ENV=test CI=1 NO_COLOR=1 npx --offline --yes pnpm@9.12.0 exec prettier --check 'app/(tabs)/circles.tsx' tests/d28-001-create-icon-contrast.test.ts"
+    },
+    {
+      "id": "repair-D28-002-1",
+      "kind": "mocked_unit",
+      "status": "failed",
+      "source_identity": "D28 worker candidate: 7d8a82aebca5efd27901fad6a829fdd1af18079e/tree73ecf8c8d181bcf034ea6292fe82410028505387",
+      "artifact": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-002-tests.log",
+      "count": 2,
+      "limits": [
+        "The two failures are the intentionally preserved pre-fix source-regression baseline.",
+        "Actual-source assertions only; no React Native render, live tRPC request, account, provider, browser, or device seam."
+      ],
+      "command": "env -i HOME=/home/ubuntu PATH=\"$PATH\" NODE_ENV=test CI=1 NO_COLOR=1 npx --offline --yes pnpm@9.12.0 exec vitest run tests/d28-002-directory-retries.test.ts"
+    },
+    {
+      "id": "repair-D28-002-2",
+      "kind": "mocked_unit",
+      "status": "passed",
+      "source_identity": "D28 worker candidate: 7d8a82aebca5efd27901fad6a829fdd1af18079e/tree73ecf8c8d181bcf034ea6292fe82410028505387",
+      "artifact": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-002-tests-corrected.log",
+      "count": 2,
+      "limits": [
+        "One focused Vitest file; count is not a full-suite total.",
+        "Actual-source assertions only; no React Native render, live tRPC request, account, provider, browser, or device seam."
+      ],
+      "command": "env -i HOME=/home/ubuntu PATH=\"$PATH\" NODE_ENV=test CI=1 NO_COLOR=1 npx --offline --yes pnpm@9.12.0 exec vitest run tests/d28-002-directory-retries.test.ts"
+    },
+    {
+      "id": "repair-D28-002-3",
+      "kind": "source_contract",
+      "status": "passed",
+      "source_identity": "D28 worker candidate: 7d8a82aebca5efd27901fad6a829fdd1af18079e/tree73ecf8c8d181bcf034ea6292fe82410028505387",
+      "artifact": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-002-lint.log",
+      "count": null,
+      "limits": [
+        "Path-scoped lint only; no full typecheck or full suite was run."
+      ],
+      "command": "env -i HOME=/home/ubuntu PATH=\"$PATH\" NODE_ENV=test CI=1 NO_COLOR=1 npx --offline --yes pnpm@9.12.0 exec eslint 'app/(tabs)/circles.tsx' components/circles-ui.tsx tests/d28-002-directory-retries.test.ts"
+    },
+    {
+      "id": "repair-D28-003-1",
+      "kind": "mocked_unit",
+      "status": "failed",
+      "source_identity": "D28 worker candidate: 7d8a82aebca5efd27901fad6a829fdd1af18079e/tree73ecf8c8d181bcf034ea6292fe82410028505387",
+      "artifact": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-003-tests.log",
+      "count": 2,
+      "limits": [
+        "The initial source/helper regression executed two cases: one passed helper case and one expected failing source-binding case.",
+        "This is not React Native, browser, device, screen-reader, or live-query proof."
+      ],
+      "command": "env -i HOME=/home/ubuntu PATH=\"$PATH\" NODE_ENV=test CI=1 NO_COLOR=1 npx --offline --yes pnpm@9.12.0 exec vitest run tests/d28-003-circles-result-count.test.ts"
+    },
+    {
+      "id": "repair-D28-003-2",
+      "kind": "mocked_unit",
+      "status": "passed",
+      "source_identity": "D28 worker candidate: 7d8a82aebca5efd27901fad6a829fdd1af18079e/tree73ecf8c8d181bcf034ea6292fe82410028505387",
+      "artifact": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-003-tests-corrected.log",
+      "count": 2,
+      "limits": [
+        "The two passing cases exercise countLabel directly and inspect the actual screen's source binding to items.length.",
+        "The rerun is the same two cases as the pre-fix run and is not additive to the test count.",
+        "No tRPC response, React Native rendering, native typography, screen reader, or live account/provider behavior was exercised."
+      ],
+      "command": "env -i HOME=/home/ubuntu PATH=\"$PATH\" NODE_ENV=test CI=1 NO_COLOR=1 npx --offline --yes pnpm@9.12.0 exec vitest run tests/d28-003-circles-result-count.test.ts"
+    },
+    {
+      "id": "repair-D28-003-3",
+      "kind": "source_contract",
+      "status": "passed",
+      "source_identity": "D28 worker candidate: 7d8a82aebca5efd27901fad6a829fdd1af18079e/tree73ecf8c8d181bcf034ea6292fe82410028505387",
+      "artifact": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-003.md",
+      "count": null,
+      "limits": [
+        "Formatting validation is not a behavioral test and emits no assertion count.",
+        "Only the assigned screen and unique D28-003 test path were checked."
+      ],
+      "command": "env -i HOME=/home/ubuntu PATH=\"$PATH\" NODE_ENV=test CI=1 NO_COLOR=1 npx --offline --yes pnpm@9.12.0 exec prettier --check 'app/(tabs)/circles.tsx' tests/d28-003-circles-result-count.test.ts"
+    },
+    {
+      "id": "repair-D28-006-1",
+      "kind": "mocked_unit",
+      "status": "passed",
+      "source_identity": "D28 worker candidate: 7d8a82aebca5efd27901fad6a829fdd1af18079e/tree73ecf8c8d181bcf034ea6292fe82410028505387",
+      "artifact": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-006-corrected-tests.log",
+      "count": 4,
+      "limits": [
+        "Directly exercises actual PostCard element branches with mocked React hooks, query data, and React Native primitive seams.",
+        "Does not mount a native device, measure Yoga layout, exercise an IME, or inspect a screen-reader tree."
+      ],
+      "command": "env -i HOME=/home/ubuntu PATH=\"$PATH\" NODE_ENV=test CI=1 NO_COLOR=1 npx --offline --yes pnpm@9.12.0 exec vitest run tests/d28-006-comments-sheet.test.ts"
+    },
+    {
+      "id": "repair-D28-006-2",
+      "kind": "source_contract",
+      "status": "passed",
+      "source_identity": "D28 worker candidate: 7d8a82aebca5efd27901fad6a829fdd1af18079e/tree73ecf8c8d181bcf034ea6292fe82410028505387",
+      "artifact": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-006.md",
+      "count": null,
+      "limits": [
+        "Formatting check only; it does not provide behavioral or native-layout proof."
+      ],
+      "command": "env -i HOME=/home/ubuntu PATH=\"$PATH\" NODE_ENV=test CI=1 NO_COLOR=1 npx --offline --yes pnpm@9.12.0 exec prettier --check components/post-card.tsx tests/d28-006-comments-sheet.test.ts"
+    },
+    {
+      "id": "repair-D28-008-1",
+      "kind": "mocked_unit",
+      "status": "passed",
+      "source_identity": "D28 worker candidate: 7d8a82aebca5efd27901fad6a829fdd1af18079e/tree73ecf8c8d181bcf034ea6292fe82410028505387",
+      "artifact": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-008-corrected-tests.log",
+      "count": 8,
+      "limits": [
+        "Actual assigned source functions are rendered through mocked local Expo/React Native, tRPC, router, and Circles-context seams.",
+        "The refresh action is a mock invocation; no provider, account, network, or live session was used.",
+        "This is not browser, native-device, IME, screen-reader, or accessibility-tree proof."
+      ],
+      "command": "env -i HOME=/home/ubuntu PATH=\"$PATH\" NODE_ENV=test CI=1 NO_COLOR=1 npx --offline --yes pnpm@9.12.0 exec vitest run tests/d28-008-auth-presentation.test.ts"
+    },
+    {
+      "id": "repair-D28-010-1",
+      "kind": "mocked_unit",
+      "status": "passed",
+      "source_identity": "D28 worker candidate: 7d8a82aebca5efd27901fad6a829fdd1af18079e/tree73ecf8c8d181bcf034ea6292fe82410028505387",
+      "artifact": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-010-tests.log",
+      "count": 10,
+      "limits": [
+        "Tests the actual pure sizing helper common to photo and video branches, not a mounted ChatScreen/native render.",
+        "Covers photo and video at 320 with lateral inset, 390, tablet, wide, and extreme-pressure deterministic geometries.",
+        "Does not validate device safe areas, IME, playback, image decoding, retries, provider/account state, or accessibility tree output."
+      ],
+      "command": "env -i HOME=/home/ubuntu PATH=\"$PATH\" NODE_ENV=test CI=1 NO_COLOR=1 npx --offline --yes pnpm@9.12.0 exec vitest run tests/d28-010-chat-media.test.ts"
+    },
+    {
+      "id": "repair-D28-010-2",
+      "kind": "source_contract",
+      "status": "passed",
+      "source_identity": "D28 worker candidate: 7d8a82aebca5efd27901fad6a829fdd1af18079e/tree73ecf8c8d181bcf034ea6292fe82410028505387",
+      "artifact": "terminal output at 2026-10-28T16:09:42Z",
+      "count": null,
+      "limits": [
+        "Formatting-only check of owned paths; this is not a typecheck or full test suite."
+      ],
+      "command": "env -i HOME=/home/ubuntu PATH=\"$PATH\" NODE_ENV=test CI=1 NO_COLOR=1 npx --offline --yes pnpm@9.12.0 exec prettier --check 'app/chat/[id].tsx' lib/d28-010-chat-media.ts tests/d28-010-chat-media.test.ts"
+    },
+    {
+      "id": "repair-D28-012-1",
+      "kind": "mocked_unit",
+      "status": "passed",
+      "source_identity": "D28 worker candidate: 7d8a82aebca5efd27901fad6a829fdd1af18079e/tree73ecf8c8d181bcf034ea6292fe82410028505387",
+      "artifact": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-012-corrected-tests.log",
+      "count": 6,
+      "limits": [
+        "Focused helper and actual-source wiring regression only.",
+        "No React Native mount, tRPC/network request, account, native device, IME, screen-reader, provider, or session proof."
+      ],
+      "command": "env -i HOME=/home/ubuntu PATH=\"$PATH\" NODE_ENV=test CI=1 NO_COLOR=1 npx --offline --yes pnpm@9.12.0 exec vitest run tests/d28-012-circle-pages.test.ts"
+    },
+    {
+      "id": "repair-D28-012-2",
+      "kind": "source_contract",
+      "status": "passed",
+      "source_identity": "D28 worker candidate: 7d8a82aebca5efd27901fad6a829fdd1af18079e/tree73ecf8c8d181bcf034ea6292fe82410028505387",
+      "artifact": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-012-lint.log",
+      "count": null,
+      "limits": [
+        "Static owned-path lint only; no full lint or typecheck."
+      ],
+      "command": "env -i HOME=/home/ubuntu PATH=\"$PATH\" NODE_ENV=test CI=1 NO_COLOR=1 npx --offline --yes pnpm@9.12.0 exec eslint 'app/circle/[id].tsx' lib/d28-012-circle-pages.ts tests/d28-012-circle-pages.test.ts"
+    },
+    {
+      "id": "repair-D28-013-1",
+      "kind": "mocked_unit",
+      "status": "passed",
+      "source_identity": "D28 worker candidate: 7d8a82aebca5efd27901fad6a829fdd1af18079e/tree73ecf8c8d181bcf034ea6292fe82410028505387",
+      "artifact": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-013-corrected-tests.log",
+      "count": 3,
+      "limits": [
+        "Focused helper and actual-source wiring regression only.",
+        "No React Native mount, tRPC/network request, account, moderator fixture, native device, IME, screen-reader, provider, or session proof."
+      ],
+      "command": "env -i HOME=/home/ubuntu PATH=\"$PATH\" NODE_ENV=test CI=1 NO_COLOR=1 npx --offline --yes pnpm@9.12.0 exec vitest run tests/d28-013-manage-post-disclosure.test.ts"
+    },
+    {
+      "id": "repair-D28-013-2",
+      "kind": "source_contract",
+      "status": "passed",
+      "source_identity": "D28 worker candidate: 7d8a82aebca5efd27901fad6a829fdd1af18079e/tree73ecf8c8d181bcf034ea6292fe82410028505387",
+      "artifact": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-013-lint.log",
+      "count": null,
+      "limits": [
+        "Static lint only on the three D28-013-owned paths; no full lint or typecheck."
+      ],
+      "command": "env -i HOME=/home/ubuntu PATH=\"$PATH\" NODE_ENV=test CI=1 NO_COLOR=1 npx --offline --yes pnpm@9.12.0 exec eslint 'app/circle/[id].tsx' lib/d28-013-manage-post-disclosure.ts tests/d28-013-manage-post-disclosure.test.ts"
+    },
+    {
+      "id": "repair-D28-015-1",
+      "kind": "mocked_unit",
+      "status": "failed",
+      "source_identity": "D28 worker candidate: 7d8a82aebca5efd27901fad6a829fdd1af18079e/tree73ecf8c8d181bcf034ea6292fe82410028505387",
+      "artifact": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-015-tests.log",
+      "count": 1,
+      "limits": [
+        "The pre-change guard failed because no centered/capped content well existed.",
+        "Its first wrapper-specific assertion was replaced only in the new owned test with the behavior-level ScrollView content-container assertion; no existing parent-owned test changed."
+      ],
+      "command": "env -i HOME=/home/ubuntu PATH=\"$PATH\" NODE_ENV=test CI=1 NO_COLOR=1 npx --offline --yes pnpm@9.12.0 exec vitest run tests/d28-015-theme-lab-width.test.ts"
+    },
+    {
+      "id": "repair-D28-015-2",
+      "kind": "mocked_unit",
+      "status": "passed",
+      "source_identity": "D28 worker candidate: 7d8a82aebca5efd27901fad6a829fdd1af18079e/tree73ecf8c8d181bcf034ea6292fe82410028505387",
+      "artifact": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-015-tests-corrected.log",
+      "count": 1,
+      "limits": [
+        "Source-equivalent regression reads the actual assigned TSX style declaration.",
+        "It does not render a browser or native device."
+      ],
+      "command": "env -i HOME=/home/ubuntu PATH=\"$PATH\" NODE_ENV=test CI=1 NO_COLOR=1 npx --offline --yes pnpm@9.12.0 exec vitest run tests/d28-015-theme-lab-width.test.ts"
+    },
+    {
+      "id": "repair-D28-015-3",
+      "kind": "source_contract",
+      "status": "passed",
+      "source_identity": "D28 worker candidate: 7d8a82aebca5efd27901fad6a829fdd1af18079e/tree73ecf8c8d181bcf034ea6292fe82410028505387",
+      "artifact": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-015-lint.log",
+      "count": null,
+      "limits": [
+        "Path-limited lint only; no full lint, typecheck, or suite was run."
+      ],
+      "command": "env -i HOME=/home/ubuntu PATH=\"$PATH\" NODE_ENV=test CI=1 NO_COLOR=1 npx --offline --yes pnpm@9.12.0 exec eslint --max-warnings=0 app/dev/theme-lab.tsx tests/d28-015-theme-lab-width.test.ts"
+    },
+    {
+      "id": "repair-D28-016-1",
+      "kind": "mocked_unit",
+      "status": "passed",
+      "source_identity": "D28 worker candidate: 7d8a82aebca5efd27901fad6a829fdd1af18079e/tree73ecf8c8d181bcf034ea6292fe82410028505387",
+      "artifact": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-016-corrected-tests.log",
+      "count": 1,
+      "limits": [
+        "Parses the actual assigned TSX source and verifies that the Heading rendering live.title is uncapped and still has a ScrollView ancestor.",
+        "Does not mount React Native, measure Yoga layout, render enlarged text, observe an authenticated account, exercise an IME, inspect a screen-reader tree, or prove native/provider behavior."
+      ],
+      "command": "env -i HOME=/home/ubuntu PATH=\"$PATH\" NODE_ENV=test CI=1 NO_COLOR=1 npx --offline --yes pnpm@9.12.0 exec vitest run tests/d28-016-live-title.test.ts"
+    },
+    {
+      "id": "repair-D28-016-2",
+      "kind": "source_contract",
+      "status": "passed",
+      "source_identity": "D28 worker candidate: 7d8a82aebca5efd27901fad6a829fdd1af18079e/tree73ecf8c8d181bcf034ea6292fe82410028505387",
+      "artifact": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-016.md",
+      "count": null,
+      "limits": [
+        "Formatting check only; it does not provide behavioral, visual, native-layout, or accessibility proof."
+      ],
+      "command": "env -i HOME=/home/ubuntu PATH=\"$PATH\" NODE_ENV=test CI=1 NO_COLOR=1 npx --offline --yes pnpm@9.12.0 exec prettier --check 'app/live/[id].tsx' tests/d28-016-live-title.test.ts"
+    },
+    {
+      "id": "repair-D28-017-1",
+      "kind": "mocked_unit",
+      "status": "failed",
+      "source_identity": "D28 worker candidate: 7d8a82aebca5efd27901fad6a829fdd1af18079e/tree73ecf8c8d181bcf034ea6292fe82410028505387",
+      "artifact": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-017-tests.log",
+      "count": 0,
+      "limits": [
+        "The intentionally pre-implementation helper import was unresolved, so Vitest reported one failed suite and no executed tests.",
+        "The executor returned exit code 2; raw failure output is preserved."
+      ],
+      "command": "env -i HOME=/home/ubuntu PATH=\"$PATH\" NODE_ENV=test CI=1 NO_COLOR=1 npx --offline --yes pnpm@9.12.0 exec vitest run tests/d28-017-live-media-badge.test.ts"
+    },
+    {
+      "id": "repair-D28-017-2",
+      "kind": "mocked_unit",
+      "status": "passed",
+      "source_identity": "D28 worker candidate: 7d8a82aebca5efd27901fad6a829fdd1af18079e/tree73ecf8c8d181bcf034ea6292fe82410028505387",
+      "artifact": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-017-corrected-tests.log",
+      "count": 2,
+      "limits": [
+        "Source/helper-level regression only; it does not mount Expo, LiveMedia, authenticated state, or a native adapter.",
+        "No browser, device, media/TURN, screen-reader, provider, account, or production-network proof is claimed."
+      ],
+      "command": "env -i HOME=/home/ubuntu PATH=\"$PATH\" NODE_ENV=test CI=1 NO_COLOR=1 npx --offline --yes pnpm@9.12.0 exec vitest run tests/d28-017-live-media-badge.test.ts"
+    },
+    {
+      "id": "repair-D28-017-3",
+      "kind": "source_contract",
+      "status": "passed",
+      "source_identity": "D28 worker candidate: 7d8a82aebca5efd27901fad6a829fdd1af18079e/tree73ecf8c8d181bcf034ea6292fe82410028505387",
+      "artifact": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-017-format.log",
+      "count": null,
+      "limits": [
+        "Formatting check only; this has no test assertion count."
+      ],
+      "command": "env -i HOME=/home/ubuntu PATH=\"$PATH\" NODE_ENV=test CI=1 NO_COLOR=1 npx --offline --yes pnpm@9.12.0 exec prettier --check 'app/live/[id].tsx' lib/d28-017-live-media-badge.ts tests/d28-017-live-media-badge.test.ts"
+    },
+    {
+      "id": "repair-D28-020-1",
+      "kind": "mocked_unit",
+      "status": "passed",
+      "source_identity": "D28 worker candidate: 7d8a82aebca5efd27901fad6a829fdd1af18079e/tree73ecf8c8d181bcf034ea6292fe82410028505387",
+      "artifact": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-020-tests-corrected.log",
+      "count": 2,
+      "limits": [
+        "One focused Vitest file; no full suite or full TypeScript check was run.",
+        "React Native, router, TRPC, and Circles UI primitives are mocked, so this is source-equivalent component-prop evidence rather than native/device or accessibility-tree proof.",
+        "The stale-completion regression uses a synthetic deferred Promise and does not invoke a real authenticated membership mutation."
+      ],
+      "command": "env -i HOME=/home/ubuntu PATH=\"$PATH\" NODE_ENV=test CI=1 NO_COLOR=1 npx --offline --yes pnpm@9.12.0 exec vitest run tests/d28-020-membership-target.test.tsx"
+    },
+    {
+      "id": "repair-D28-022-1",
+      "kind": "mocked_unit",
+      "status": "passed",
+      "source_identity": "D28 worker candidate: 7d8a82aebca5efd27901fad6a829fdd1af18079e/tree73ecf8c8d181bcf034ea6292fe82410028505387",
+      "artifact": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-022-corrected-tests.log",
+      "count": 9,
+      "limits": [
+        "Focused actual-component function test with mocked React Native, TRPC, and control-accessibility seams.",
+        "Exercises current-viewer response gating and malformed runtime count safety without network or server calls.",
+        "Does not prove a native accessibility tree, screen-reader announcement, device layout, or physical touch-target measurement."
+      ],
+      "command": "env -i HOME=/home/ubuntu PATH=\"$PATH\" NODE_ENV=test CI=1 NO_COLOR=1 npx --offline --yes pnpm@9.12.0 exec vitest run tests/d28-022-activity-badge.test.tsx"
+    },
+    {
+      "id": "final-strict-types",
+      "kind": "source_contract",
+      "status": "passed",
+      "source_identity": "7d8a82aebca5efd27901fad6a829fdd1af18079e + final D28 client source hashes",
+      "artifact": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/evidence/types-final.log",
+      "count": null,
+      "limits": [
+        "Source/check metadata only; no native device/provider/account journey."
+      ]
+    },
+    {
+      "id": "final-unit-regressions",
+      "kind": "unit_mixed",
+      "status": "passed",
+      "source_identity": "7d8a82aebca5efd27901fad6a829fdd1af18079e + final D28 client source hashes",
+      "artifact": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/evidence/source-gates-border-final.log",
+      "count": 1097,
+      "limits": [
+        "211 test files; includes53dedicatedD28cases; do not add focused/repeated runs to this total.",
+        "Mocked/source/deterministic mixed evidence, no production credentials."
+      ]
+    },
+    {
+      "id": "final-lint-and-api-build",
+      "kind": "source_contract",
+      "status": "passed",
+      "source_identity": "7d8a82aebca5efd27901fad6a829fdd1af18079e + final D28 client source hashes",
+      "artifact": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/evidence/source-gates-final.log",
+      "count": null,
+      "limits": [
+        "Source/check metadata only; no native device/provider/account journey."
+      ]
+    },
+    {
+      "id": "final-platform-js",
+      "kind": "source_contract",
+      "status": "passed",
+      "source_identity": "7d8a82aebca5efd27901fad6a829fdd1af18079e + final D28 client source hashes",
+      "artifact": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/evidence/platform-js-exports-final.log",
+      "count": 3,
+      "limits": [
+        "Web/iOS/Android JavaScript exports with public-only build settings.",
+        "No signed native release, device test or Hermes bytecode proof."
+      ]
+    },
+    {
+      "id": "final-priority-browser",
+      "kind": "web_synthetic",
+      "status": "passed",
+      "source_identity": "7d8a82aebca5efd27901fad6a829fdd1af18079e + final D28 client source hashes",
+      "artifact": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/evidence/priority-render-results.json",
+      "count": 79,
+      "limits": [
+        "12cases: actualPostCard/RNW with inert auth/query/router/media/insets/icons; Chat extractedbubble+actualhelper, labeledmedia stubs.",
+        "Comments320x640/320x360;4attachmentconfigurations including320/44inset.",
+        "Programmaticscrolling notnativekeyboard/IME/DT/gesture/provider/account/playback proof.",
+        "Unchanged comments source measurements retained across helper-only correction."
+      ]
+    },
+    {
+      "id": "independent-review",
+      "kind": "source_contract",
+      "status": "passed",
+      "source_identity": "7d8a82aebca5efd27901fad6a829fdd1af18079e + final D28 client source hashes",
+      "artifact": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/evidence/integration-review.md",
+      "count": null,
+      "limits": [
+        "Read-only integration review; repeated6D28-012cases notadded to totals."
+      ]
+    },
+    {
+      "id": "environment-and-audit-tools",
+      "kind": "metadata_only",
+      "status": "passed",
+      "source_identity": "7d8a82aebca5efd27901fad6a829fdd1af18079e + final D28 client source hashes",
+      "artifact": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/evidence/environment-audit-gates-corrected.log",
+      "count": null,
+      "limits": [
+        "Templatecheck;16Nodeauditutilitycases;10registervalidatorutilitycases; separate checks, no production data."
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": "D28-001",
+      "title": "Header Create-circle glyph uses low-contrast decorative coral",
+      "severity": "medium",
+      "classification": "confirmed-source",
+      "categories": [
+        "contrast",
+        "button",
+        "icon",
+        "visual-affordance"
+      ],
+      "affectedRoutes": [
+        "/circles"
+      ],
+      "sourceRefs": [
+        "app/(tabs)/circles.tsx:72-83",
+        "components/circles-ui.tsx:22-38",
+        "components/circles-ui.tsx:289-353",
+        "lib/ui-accessibility.ts:1-9"
+      ],
+      "source_paths": [
+        "app/(tabs)/circles.tsx",
+        "tests/d28-001-create-icon-contrast.test.ts"
+      ],
+      "trigger": "Any displayed /circles state, including the supplied public guest captures.",
+      "impact": "The only visible Create glyph is #ED604A on #FFF0EB (2.968:1), so the sighted affordance can be hard to distinguish even though its label and 44-point target remain present.",
+      "recommendation": "Keep the IconButton, label, route, geometry, and decorative palette. Use C.action (#A53728, 5.954:1 on C.soft) or another action/icon token at or above 3:1 for this functional glyph.",
+      "repair": "Changed only the /circles header Create circle IconButton glyph consumer from decorative C.coral to approved C.action, retaining the C.soft branded surface, label, route, geometry, and existing target behavior. Added a focused actual-source consumer plus deterministic opaque color-pair contrast regression.",
+      "gaps": [
+        "No native/device brightness or physical-display observation; the deterministic opaque source-pair calculation is not an overall contrast-conformance claim.",
+        "No native/device brightness or physical-display observation was performed; deterministic opaque source-pair contrast is not overall contrast-conformance proof.",
+        "No rendered accessibility-tree observation was performed; this repair retains the pre-existing label and target behavior in source.",
+        "Parent-owned full integration gates remain pending."
+      ],
+      "baselineRefs": [
+        "D26-02 functional coral repair retained elsewhere; this is the direct current Create consumer."
+      ],
+      "mechanismKey": "d26-02-functional-coral-on-soft-create-icon",
+      "source_status": "repaired",
+      "evidence_refs": [
+        "screen-source-review",
+        "repair-D28-001-1",
+        "repair-D28-001-2",
+        "repair-D28-001-3",
+        "final-strict-types",
+        "final-unit-regressions",
+        "final-lint-and-api-build",
+        "final-platform-js",
+        "independent-review",
+        "environment-and-audit-tools"
+      ],
+      "priority": 8,
+      "implemented_repair": "Changed only the /circles header Create circle IconButton glyph consumer from decorative C.coral to approved C.action, retaining the C.soft branded surface, label, route, geometry, and existing target behavior. Added a focused actual-source consumer plus deterministic opaque color-pair contrast regression.",
+      "original_recommendation": "Keep the IconButton, label, route, geometry, and decorative palette. Use C.action (#A53728, 5.954:1 on C.soft) or another action/icon token at or above 3:1 for this functional glyph.",
+      "repair_report": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-001.md",
+      "parent_integration_notes": [
+        "No shared primitive or cross-worker source integration is required.",
+        "Include the preserved initial failure and final focused-test artifacts in the aggregate D28 evidence.",
+        "Run parent-owned final integration gates only after concurrent scoped fixes settle."
+      ]
+    },
+    {
+      "id": "D28-002",
+      "title": "Directory retry controls remain enabled and visually non-busy while recovery is outstanding",
+      "severity": "medium",
+      "classification": "confirmed-source",
+      "categories": [
+        "button",
+        "async-feedback",
+        "loading-error-state"
+      ],
+      "affectedRoutes": [
+        "/circles"
+      ],
+      "sourceRefs": [
+        "app/(tabs)/circles.tsx:269-280",
+        "app/(tabs)/circles.tsx:303-340",
+        "components/circles-ui.tsx:211-286",
+        "components/circles-ui.tsx:475-523",
+        "lib/a26-paged-display.ts:46-79"
+      ],
+      "source_paths": [
+        "app/(tabs)/circles.tsx",
+        "components/circles-ui.tsx",
+        "tests/d28-002-directory-retries.test.ts"
+      ],
+      "trigger": "The initial directory request has failed with no retained items, or a retained refresh/next-page error is visible, and the user activates Try again, Refresh circles, or Retry loading more circles.",
+      "impact": "The recovery control gives neither visible nor programmatic busy feedback and can be activated repeatedly while its request remains outstanding.",
+      "recommendation": "Derive retry-local busy state from the matching query flag and pass it to the existing Button. Add a narrow action-loading/action-disabled path to Empty or render the retry locally; retain copy and retained rows.",
+      "repair": "The no-content Try again action forwards circles.isFetching to Empty actionLoading and actionDisabled. The retained Retry loading more circles action uses circles.isFetchingNextPage; the retained Refresh circles action uses circles.isRefetching. Retained retry Button loading and disabled props share the matching retry-flight value, while existing retained rows and retry callbacks remain unchanged. Empty actionLoading/actionDisabled are optional, default false, and are forwarded to the existing named Button only.",
+      "gaps": [
+        "No rendered retry/error state was supplied; this is a deterministic source-path finding.",
+        "No matching rendered retry/error state was supplied.",
+        "Native and assistive-technology projection of Button busy/disabled state remains unobserved.",
+        "Parent-owned final full-suite/typecheck gates remain pending by design."
+      ],
+      "baselineRefs": [
+        "D26-03 and A26-003 retained-content/recovery repairs remain; this is a distinct missing busy-state consumer."
+      ],
+      "mechanismKey": "circles-directory-retry-busy-state",
+      "source_status": "repaired",
+      "evidence_refs": [
+        "screen-source-review",
+        "repair-D28-002-1",
+        "repair-D28-002-2",
+        "repair-D28-002-3",
+        "final-strict-types",
+        "final-unit-regressions",
+        "final-lint-and-api-build",
+        "final-platform-js",
+        "independent-review",
+        "environment-and-audit-tools"
+      ],
+      "priority": 5,
+      "implemented_repair": "The no-content Try again action forwards circles.isFetching to Empty actionLoading and actionDisabled. The retained Retry loading more circles action uses circles.isFetchingNextPage; the retained Refresh circles action uses circles.isRefetching. Retained retry Button loading and disabled props share the matching retry-flight value, while existing retained rows and retry callbacks remain unchanged. Empty actionLoading/actionDisabled are optional, default false, and are forwarded to the existing named Button only.",
+      "original_recommendation": "Derive retry-local busy state from the matching query flag and pass it to the existing Button. Add a narrow action-loading/action-disabled path to Empty or render the retry locally; retain copy and retained rows.",
+      "repair_report": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-002.md",
+      "parent_integration_notes": [
+        "Preserve the prior D28-001 change in app/(tabs)/circles.tsx when integrating this shared-file edit.",
+        "Run the parent-planned final gates after concurrent workers settle; do not represent this focused source-level evidence as native or live-query proof.",
+        "No service restart, configuration change, provider action, or account operation is required by this repair."
+      ]
+    },
+    {
+      "id": "D28-003",
+      "title": "Singular result count is grammatically plural",
+      "severity": "low",
+      "classification": "confirmed-source",
+      "categories": [
+        "text",
+        "content-quality"
+      ],
+      "affectedRoutes": [
+        "/circles"
+      ],
+      "sourceRefs": [
+        "app/(tabs)/circles.tsx:256-265",
+        "lib/count-copy.ts:1-16"
+      ],
+      "source_paths": [
+        "app/(tabs)/circles.tsx",
+        "tests/d28-003-circles-result-count.test.ts"
+      ],
+      "trigger": "A search, category, or membership filter returns exactly one loaded circle.",
+      "impact": "The normal summary says \u201c1 circles,\u201d which reads as unfinished copy.",
+      "recommendation": "Use countLabel(items.length, \"circle\") or countNoun for the existing summary without changing the count meaning, loading behavior, or layout.",
+      "repair": "The Circles result summary now uses countLabel(items.length, \"circle\") so one loaded result reads \"1 circle\" while zero and multiple results remain plural. The underlying loaded-item count, pagination semantics, and layout are unchanged.",
+      "gaps": [
+        "No one-result screenshot was supplied; the copy outcome is deterministic from current source.",
+        "No one-result screenshot was supplied; the singular copy outcome is deterministic from the source/helper behavior.",
+        "The focused regression does not mount the React Native screen or verify browser/native visual layout, screen-reader speech, device typography, or live tRPC/account/provider behavior.",
+        "No full typecheck or full suite was run under the parent-owned final-gate constraint."
+      ],
+      "baselineRefs": [],
+      "mechanismKey": "circles-directory-result-count-inflection",
+      "source_status": "repaired",
+      "evidence_refs": [
+        "screen-source-review",
+        "repair-D28-003-1",
+        "repair-D28-003-2",
+        "repair-D28-003-3",
+        "final-strict-types",
+        "final-unit-regressions",
+        "final-lint-and-api-build",
+        "final-platform-js",
+        "independent-review",
+        "environment-and-audit-tools"
+      ],
+      "priority": 20,
+      "implemented_repair": "The Circles result summary now uses countLabel(items.length, \"circle\") so one loaded result reads \"1 circle\" while zero and multiple results remain plural. The underlying loaded-item count, pagination semantics, and layout are unchanged.",
+      "original_recommendation": "Use countLabel(items.length, \"circle\") or countNoun for the existing summary without changing the count meaning, loading behavior, or layout.",
+      "repair_report": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-003.md",
+      "parent_integration_notes": [
+        "Retain this serial update in app/(tabs)/circles.tsx alongside the prior D28-001 and D28-002 edits; no additional code wiring is required.",
+        "Parent may run authorized broader integration gates; this worker did not alter parent-owned tests, shared utilities, services, configuration, or protected paths."
+      ]
+    },
+    {
+      "id": "D28-004",
+      "title": "Discover Live thumbnails become an ultra-wide crop at tablet and wide content widths",
+      "severity": "medium",
+      "classification": "conditional-source",
+      "categories": [
+        "responsive-layout",
+        "media-aspect-ratio"
+      ],
+      "affectedRoutes": [
+        "/discover"
+      ],
+      "sourceRefs": [
+        "app/(tabs)/discover.tsx:323-327",
+        "app/(tabs)/discover.tsx:702-761",
+        "components/app-shell.tsx:417-434",
+        "app/live/index.tsx:143-158"
+      ],
+      "source_paths": [
+        "app/(tabs)/discover.tsx",
+        "app/live/index.tsx",
+        "components/app-shell.tsx"
+      ],
+      "trigger": "Open Discover Live with returned sessions where the content column reaches its 680-point cap.",
+      "impact": "A fixed 180-point-tall thumbnail at 680 points is 3.78:1, so normally 16:9 or vertically composed media can lose material scene content under cover cropping.",
+      "recommendation": "Use a 16:9 aspect ratio or an intentional responsive ratio/bounded-height policy while retaining contentFit cover, the card target, and text treatment. Render-check portrait, tablet, and wide thumbnails with vertically important content.",
+      "repair": "Use a 16:9 aspect ratio or an intentional responsive ratio/bounded-height policy while retaining contentFit cover, the card target, and text treatment. Render-check portrait, tablet, and wide thumbnails with vertically important content.",
+      "gaps": [
+        "No supplied artifact renders Discover Live content.",
+        "Actual crop/focal impact depends on returned media."
+      ],
+      "baselineRefs": [],
+      "mechanismKey": "discover-live-fixed-thumbnail-height-wide-crop",
+      "source_status": "open",
+      "evidence_refs": [
+        "screen-source-review"
+      ],
+      "priority": 17
+    },
+    {
+      "id": "D28-005",
+      "title": "Compact People rows have no enlarged-text reflow before the action can starve identity text",
+      "severity": "medium",
+      "classification": "conditional-source",
+      "categories": [
+        "responsive-layout",
+        "text-resize",
+        "content-readability"
+      ],
+      "affectedRoutes": [
+        "/discover"
+      ],
+      "sourceRefs": [
+        "app/(tabs)/discover.tsx:323-327",
+        "app/(tabs)/discover.tsx:460-566",
+        "components/circles-ui.tsx:51-62",
+        "components/circles-ui.tsx:130-208",
+        "components/circles-ui.tsx:211-287",
+        "components/app-shell.tsx:417-434",
+        "lib/app-shell-layout.ts:11-30",
+        "shared/social.ts:1-10"
+      ],
+      "source_paths": [
+        "app/(tabs)/discover.tsx",
+        "components/app-shell.tsx",
+        "components/circles-ui.tsx",
+        "lib/app-shell-layout.ts",
+        "shared/social.ts"
+      ],
+      "trigger": "At 320 points with 2\u00d7 text, a People row places a long identity block beside a static Your profile, Please wait, Following, or Follow action.",
+      "impact": "The action can retain most of the row while the identity text measure collapses toward the avatar and gaps, making names, handles, bios, or error copy impractically narrow.",
+      "recommendation": "At a compact-width/enlarged-text threshold, move the action to its own line or an intentional full-width action area before the identity column loses usable text measure. Retain labels, profile target, and 48-point Button.",
+      "repair": "At a compact-width/enlarged-text threshold, move the action to its own line or an intentional full-width action area before the identity column loses usable text measure. Retain labels, profile target, and 48-point Button.",
+      "gaps": [
+        "No People row or native 2\u00d7 text rendering was supplied.",
+        "Font shaping and action width determine the final threshold."
+      ],
+      "baselineRefs": [],
+      "mechanismKey": "discover-people-row-compact-action-identity-pressure",
+      "source_status": "open",
+      "evidence_refs": [
+        "screen-source-review"
+      ],
+      "priority": 18
+    },
+    {
+      "id": "D28-006",
+      "title": "Comments sheet cannot contain loading/error states at short available heights",
+      "severity": "medium",
+      "classification": "confirmed-source",
+      "categories": [
+        "dialog",
+        "clipping",
+        "overlap",
+        "keyboard",
+        "layout",
+        "async-state"
+      ],
+      "affectedRoutes": [
+        "/",
+        "/discover",
+        "/circle/:id",
+        "/profile",
+        "/person/:id",
+        "/updates/:id",
+        "/moderation/:circleId",
+        "(shared PostCard/Circle Home)"
+      ],
+      "sourceRefs": [
+        "components/post-card.tsx:682-834",
+        "components/circles-ui.tsx:289-353",
+        "components/circles-ui.tsx:475-534",
+        "app/updates/[id].tsx:178-184"
+      ],
+      "source_paths": [
+        "components/post-card.tsx",
+        "tests/d28-006-comments-sheet.test.ts"
+      ],
+      "trigger": "Open comments from any PostCard consumer at a 320-point available height; the loading branch alone exceeds the 85% sheet cap, and error/empty branches are taller. Keyboard reduction can create the same constraint.",
+      "impact": "Header, loading/error/retry content, or the always-present composer can fall outside the capped sheet with no scroll path, impairing recovery and comment composition.",
+      "recommendation": "Keep the sheet appearance, safe-bottom padding, and keyboard avoidance. Anchor the header/composer and make every middle state\u2014including loading, empty, and error/retry\u2014flexible, minHeight-zero, and scrollable; or make the entire sheet keyboard-aware and scrollable.",
+      "repair": "Reworked the PostCard comments sheet into a naturally bounded, shrinkable full-sheet scroll surface so its header, loading/error/empty/content state, retry, and composer remain reachable when available height is short, while preserving the outer keyboard avoidance, safe-bottom inset, sheet styling, and existing comment/account/async guards.",
+      "gaps": [
+        "No matching authenticated comments capture or native IME render was supplied.",
+        "Native keyboard behavior remains unobserved even though the 320-point source geometry is deterministic.",
+        "No native/device or physical 320-point layout observation was performed.",
+        "Native keyboard/IME behavior remains unobserved.",
+        "Focused tests use mocked React Native and query seams; they do not prove a screen-reader tree, provider behavior, or authenticated account behavior."
+      ],
+      "baselineRefs": [
+        "D26-29 sibling-backdrop repair is retained and is unrelated to sheet height containment."
+      ],
+      "mechanismKey": "post-card-comments-sheet-short-height-overflow",
+      "source_status": "repaired",
+      "evidence_refs": [
+        "screen-source-review",
+        "repair-D28-006-1",
+        "repair-D28-006-2",
+        "final-strict-types",
+        "final-unit-regressions",
+        "final-lint-and-api-build",
+        "final-platform-js",
+        "final-priority-browser",
+        "independent-review",
+        "environment-and-audit-tools"
+      ],
+      "priority": 1,
+      "implemented_repair": "Reworked the PostCard comments sheet into a naturally bounded, shrinkable full-sheet scroll surface so its header, loading/error/empty/content state, retry, and composer remain reachable when available height is short, while preserving the outer keyboard avoidance, safe-bottom inset, sheet styling, and existing comment/account/async guards.",
+      "original_recommendation": "Keep the sheet appearance, safe-bottom padding, and keyboard avoidance. Anchor the header/composer and make every middle state\u2014including loading, empty, and error/retry\u2014flexible, minHeight-zero, and scrollable; or make the entire sheet keyboard-aware and scrollable.",
+      "repair_report": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-006.md",
+      "parent_integration_notes": [
+        "No cross-owner source wiring is needed; only the assigned PostCard source path and unique D28-006 test were changed.",
+        "Parent may include these paths in final batch checks and should retain the native/IME evidence gap in the consolidated report.",
+        "No services, configuration, SQL, providers, accounts, publication, or Git actions were performed."
+      ]
+    },
+    {
+      "id": "D28-007",
+      "title": "Post options dialog lacks short-height overflow containment",
+      "severity": "medium",
+      "classification": "conditional-source",
+      "categories": [
+        "dialog",
+        "short-height",
+        "text-scaling",
+        "overflow"
+      ],
+      "affectedRoutes": [
+        "/",
+        "/discover",
+        "/circle/:id",
+        "/profile",
+        "/person/:id",
+        "/updates/:id",
+        "/moderation/:circleId",
+        "(shared PostCard/Circle Home)"
+      ],
+      "sourceRefs": [
+        "components/post-card.tsx:835-910",
+        "components/circles-ui.tsx:51-63",
+        "components/circles-ui.tsx:211-287"
+      ],
+      "source_paths": [
+        "components/circles-ui.tsx",
+        "components/post-card.tsx"
+      ],
+      "trigger": "A signed-in author opens Moment options on a compact short-height viewport while Report wraps, especially at 2\u00d7 text.",
+      "impact": "The centered action card has no safe-inset-aware maximum height or scroll recovery; a wrapped action can push Close or a lower action beyond the visible window.",
+      "recommendation": "Preserve the centered card, sibling backdrop, busy guards, and action order. Add safe-area-aware maxHeight plus a scrollable action stack, or an equivalent compact short-height layout, so every action remains reachable.",
+      "repair": "Preserve the centered card, sibling backdrop, busy guards, and action order. Add safe-area-aware maxHeight plus a scrollable action stack, or an equivalent compact short-height layout, so every action remains reachable.",
+      "gaps": [
+        "No signed-in owner/options dialog or native 2\u00d7 text render was supplied.",
+        "Exact font shaping and actual overflow require rendering confirmation."
+      ],
+      "baselineRefs": [
+        "D26-29 separate noninteractive backdrop remains repaired; this is height containment, not press propagation."
+      ],
+      "mechanismKey": "post-card-options-sheet-short-height-overflow",
+      "source_status": "open",
+      "evidence_refs": [
+        "screen-source-review"
+      ],
+      "priority": 16
+    },
+    {
+      "id": "D28-008",
+      "title": "Unresolved auth status is presented as a settled guest flow",
+      "severity": "medium",
+      "classification": "confirmed-source",
+      "categories": [
+        "authentication-state",
+        "loading-error-feedback",
+        "misleading-cta",
+        "controls"
+      ],
+      "affectedRoutes": [
+        "/profile",
+        "/account/confirmed",
+        "/create"
+      ],
+      "sourceRefs": [
+        "components/profile-screen.tsx:580-589",
+        "components/profile-screen.tsx:655-663",
+        "app/account/confirmed.tsx:8-10",
+        "app/account/confirmed.tsx:23-39",
+        "app/create.tsx:179",
+        "app/create.tsx:916-925",
+        "hooks/circles-context.tsx:148-172",
+        "hooks/circles-context.tsx:394-411"
+      ],
+      "source_paths": [
+        "app/account/confirmed.tsx",
+        "app/create.tsx",
+        "components/profile-screen.tsx",
+        "lib/d28-008-auth-presentation.ts",
+        "tests/d28-008-auth-presentation.test.ts"
+      ],
+      "trigger": "At any listed route, authState is checking or error and no retained user is available; the user then follows the displayed Sign in action.",
+      "impact": "The route shows guest copy while authority is unresolved or has failed. During checking the sign-in intent cannot open the modal; during error it produces at most transient provider feedback without a persistent route-local retry.",
+      "recommendation": "Read authState and refresh in each consumer. Show a checking presentation while unresolved and a persistent local error/retry while error; show the current guest sign-in panel only when authState is guest. Preserve guest copy and existing protected-action behavior.",
+      "repair": "{'sharedMechanism': 'resolveD28008AuthPresentation maps existing authState and current-user availability to checking, error, guest, or authenticated presentations.', 'profile': 'Own Profile shows Loading while checking and a persistent route-local refresh retry on auth error before its settled guest panel. Other-person profiles remain public.', 'confirmation': 'Email confirmation shows Loading while checking and a persistent route-local refresh retry on auth error while preserving settled guest and authenticated copy.', 'create': 'Create shows Loading while checking and a persistent route-local refresh retry on auth error before its settled guest panel; account-sensitive profile, introduction, and publication queries use the confirmed authenticated presentation. Composer mutations, publish idempotency, and media cleanup were not changed.'}",
+      "gaps": [
+        "No matching checking/error screenshot exists; all supplied entry captures are guest/public.",
+        "This is not a claim about account/provider timing or a live session.",
+        "No live auth-provider/account/session verification.",
+        "No browser or native render, device, IME, screen-reader, or accessibility-tree verification.",
+        "No full typecheck or full suite; parent owns final gates."
+      ],
+      "baselineRefs": [
+        "D26-12/A26-007 repaired analogous consumers; these current route consumers are new occurrences, not a reopening of the repaired routes."
+      ],
+      "mechanismKey": "auth-state-unresolved-collapsed-to-guest",
+      "source_status": "repaired",
+      "evidence_refs": [
+        "screen-source-review",
+        "repair-D28-008-1",
+        "final-strict-types",
+        "final-unit-regressions",
+        "final-lint-and-api-build",
+        "final-platform-js",
+        "independent-review",
+        "environment-and-audit-tools"
+      ],
+      "priority": 2,
+      "implemented_repair": "{'sharedMechanism': 'resolveD28008AuthPresentation maps existing authState and current-user availability to checking, error, guest, or authenticated presentations.', 'profile': 'Own Profile shows Loading while checking and a persistent route-local refresh retry on auth error before its settled guest panel. Other-person profiles remain public.', 'confirmation': 'Email confirmation shows Loading while checking and a persistent route-local refresh retry on auth error while preserving settled guest and authenticated copy.', 'create': 'Create shows Loading while checking and a persistent route-local refresh retry on auth error before its settled guest panel; account-sensitive profile, introduction, and publication queries use the confirmed authenticated presentation. Composer mutations, publish idempotency, and media cleanup were not changed.'}",
+      "original_recommendation": "Read authState and refresh in each consumer. Show a checking presentation while unresolved and a persistent local error/retry while error; show the current guest sign-in panel only when authState is guest. Preserve guest copy and existing protected-action behavior.",
+      "repair_report": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-008.md",
+      "parent_integration_notes": [
+        "Retain the five changed paths and perform parent-owned final integration checks after concurrent work settles.",
+        "No provider, server, shared type, configuration, SQL, or migration change is required.",
+        "Existing non-D28-008 tests were not modified or weakened."
+      ]
+    },
+    {
+      "id": "D28-009",
+      "title": "Account email authentication guards have no vertical-overflow recovery",
+      "severity": "medium",
+      "classification": "conditional-source",
+      "categories": [
+        "layout",
+        "text-resize",
+        "error-state",
+        "control-reachability"
+      ],
+      "affectedRoutes": [
+        "/account/email"
+      ],
+      "sourceRefs": [
+        "app/account/email.tsx:80-145",
+        "components/app-shell.tsx:102-119",
+        "components/app-shell.tsx:141-176",
+        "components/app-shell.tsx:417-446",
+        "components/circles-ui.tsx:51-62",
+        "components/circles-ui.tsx:211-287",
+        "lib/app-shell-layout.ts:11-31"
+      ],
+      "source_paths": [
+        "app/account/email.tsx",
+        "components/app-shell.tsx",
+        "components/circles-ui.tsx",
+        "lib/app-shell-layout.ts"
+      ],
+      "trigger": "At compact 320\u00d7640 or shorter usable height with 2\u00d7 text, enter auth error or an unauthenticated existing-account proof error.",
+      "impact": "The non-scrolling guard stack can place recovery copy and Retry/Back/proof controls off-screen with no vertical route to them.",
+      "recommendation": "Keep the copy, centered styling, and state logic. Give only the checking/error/unauthenticated guard branches a bounded local ScrollView with flexGrow centered content and existing 24-point gutters; keep EmailAuthForm\u2019s own scroller separate.",
+      "repair": "Keep the copy, centered styling, and state logic. Give only the checking/error/unauthenticated guard branches a bounded local ScrollView with flexGrow centered content and existing 24-point gutters; keep EmailAuthForm\u2019s own scroller separate.",
+      "gaps": [
+        "Only a source metric estimate exists; no matching rendered state, native dynamic-type, or IME observation was supplied."
+      ],
+      "baselineRefs": [
+        "D26-09/D26-15 and A26-008/A26-026 email-form repairs are retained; this is a separate non-form guard stack."
+      ],
+      "mechanismKey": "account-email-auth-guard-vertical-overflow",
+      "source_status": "open",
+      "evidence_refs": [
+        "screen-source-review"
+      ],
+      "priority": 19
+    },
+    {
+      "id": "D28-010",
+      "title": "Attachment media can exceed its bubble after compact lateral safe-area reduction",
+      "severity": "medium",
+      "classification": "confirmed-source",
+      "categories": [
+        "layout",
+        "attachments",
+        "safe-area",
+        "overflow"
+      ],
+      "affectedRoutes": [
+        "/chat/:id"
+      ],
+      "sourceRefs": [
+        "app/chat/[id].tsx:181-215",
+        "app/chat/[id].tsx:726-737",
+        "app/chat/[id].tsx:826-865",
+        "components/app-shell.tsx:113-139",
+        "components/app-shell.tsx:417-445",
+        "lib/app-shell-layout.ts:11-30"
+      ],
+      "source_paths": [
+        "app/chat/[id].tsx",
+        "lib/d28-010-chat-media.ts",
+        "tests/d28-010-chat-media.test.ts"
+      ],
+      "trigger": "An authenticated 320-point conversation contains a photo or video message and combined left/right safe-area insets are at least 2 points.",
+      "impact": "Media width is calculated from un-inset window width, while its padded bubble sits inside a smaller 80% transcript rail; it can extend outside the intended rail or make the transcript horizontally overwide.",
+      "recommendation": "Derive attachment width from measured post-inset transcript content width, or cap it to the bubble inner width after gutters, wrapper cap, and padding. Retain the existing 120\u2013220 bounds, 1.38 ratio, and failure/retry behavior.",
+      "repair": "Chat attachments now derive width from the current post-inset, AppShell-capped transcript and bubble inner width. Both photo and video retain the existing 1.38 aspect ratio and failure/retry behavior, remain at or below the 120\u2013220 preferred range when space permits, and no longer force the 120-point lower preference past physically available bubble width.",
+      "gaps": [
+        "No conversation, lateral-safe-inset device, or attachment screenshot was supplied; this is deterministic source geometry.",
+        "No native/device or rendered ChatScreen proof; the 320 lateral-safe-inset case is deterministic source geometry only.",
+        "No authenticated conversation, real attachment, provider, account, service, browser, or production-network verification was performed.",
+        "The helper intentionally follows the current AppShell 760-point transcript cap and must be revisited by the appropriate owner if that layout contract changes."
+      ],
+      "baselineRefs": [
+        "D26-17 and D26-26 remain retained; this is the separate Chat media-width formula."
+      ],
+      "mechanismKey": "chat-attachment-media-width-ignores-effective-inset-content-width",
+      "source_status": "repaired",
+      "evidence_refs": [
+        "screen-source-review",
+        "repair-D28-010-1",
+        "repair-D28-010-2",
+        "final-strict-types",
+        "final-unit-regressions",
+        "final-lint-and-api-build",
+        "final-platform-js",
+        "final-priority-browser",
+        "independent-review",
+        "environment-and-audit-tools"
+      ],
+      "priority": 4,
+      "implemented_repair": "Chat attachments now derive width from the current post-inset, AppShell-capped transcript and bubble inner width. Both photo and video retain the existing 1.38 aspect ratio and failure/retry behavior, remain at or below the 120\u2013220 preferred range when space permits, and no longer force the 120-point lower preference past physically available bubble width.",
+      "original_recommendation": "Derive attachment width from measured post-inset transcript content width, or cap it to the bubble inner width after gutters, wrapper cap, and padding. Retain the existing 120\u2013220 bounds, 1.38 ratio, and failure/retry behavior.",
+      "repair_report": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-010.md",
+      "parent_integration_notes": [
+        "Retain the D28-010 Chat import and common chatMediaWidth use for both media branches while integrating concurrent work.",
+        "Parent owns full-suite/typecheck/integration gates; none were run under this focused-test contract.",
+        "No server, shared, config, provider, account, service, Git, publication, or migration action is needed for this fix."
+      ]
+    },
+    {
+      "id": "D28-011",
+      "title": "Non-transcript Chat guards have no vertical recovery path under text pressure",
+      "severity": "medium",
+      "classification": "conditional-source",
+      "categories": [
+        "layout",
+        "text-scaling",
+        "loading-error-guest-states",
+        "control-reachability"
+      ],
+      "affectedRoutes": [
+        "/chat/:id"
+      ],
+      "sourceRefs": [
+        "app/chat/[id].tsx:623-724",
+        "app/chat/[id].tsx:629-663",
+        "components/app-shell.tsx:148-176",
+        "components/app-shell.tsx:214-274",
+        "components/app-shell.tsx:417-445",
+        "components/circles-ui.tsx:475-523"
+      ],
+      "source_paths": [
+        "app/chat/[id].tsx",
+        "components/app-shell.tsx",
+        "components/circles-ui.tsx"
+      ],
+      "trigger": "At compact short height with 2\u00d7 text, a wrapping Chat header precedes a direct guest Sign in or auth-error Try again/Empty branch.",
+      "impact": "The transcript scroller is unavailable in exactly these guard/recovery states, so their action may land below the visible viewport with no way to scroll to it.",
+      "recommendation": "Wrap only non-transcript guard/recovery branches in a bounded vertical ScrollView or equivalent with safe bottom inset and flexGrow content. Preserve the transcript scroller, pinned authenticated composer, and keyboard treatment.",
+      "repair": "Wrap only non-transcript guard/recovery branches in a bounded vertical ScrollView or equivalent with safe bottom inset and flexGrow content. Preserve the transcript scroller, pinned authenticated composer, and keyboard treatment.",
+      "gaps": [
+        "No 2\u00d7 text, short-height, or Chat artifact was supplied; native font metrics require confirmation."
+      ],
+      "baselineRefs": [
+        "A26-007 and D26-15 remain retained but do not provide Chat guard-state scrolling."
+      ],
+      "mechanismKey": "chat-guard-state-no-vertical-scroll-under-text-pressure",
+      "source_status": "open",
+      "evidence_refs": [
+        "screen-source-review"
+      ],
+      "priority": 22
+    },
+    {
+      "id": "D28-012",
+      "title": "Retained Circle pages are replaced by the generic error empty state",
+      "severity": "medium",
+      "classification": "confirmed-source",
+      "categories": [
+        "async-state",
+        "data-retention",
+        "loading-error-state",
+        "feed",
+        "members",
+        "manage"
+      ],
+      "affectedRoutes": [
+        "/circle/:id"
+      ],
+      "sourceRefs": [
+        "app/circle/[id].tsx:190-226",
+        "app/circle/[id].tsx:754-809",
+        "app/circle/[id].tsx:810-921",
+        "app/circle/[id].tsx:1070-1233",
+        "app/circle/[id].tsx:1238-1314",
+        "lib/design31-circle.ts:39-65",
+        "lib/fnd001-query-display-state.ts:15-29",
+        "lib/a26-paged-display.ts:41-79"
+      ],
+      "source_paths": [
+        "app/circle/[id].tsx",
+        "lib/d28-012-circle-pages.ts",
+        "tests/d28-012-circle-pages.test.ts"
+      ],
+      "trigger": "A Circle Feed or Members query already has one or more loaded pages, then a recoverable continuation or refetch error reports isError while retaining data.pages. The same data supplies Manage for appropriate roles.",
+      "impact": "Previously readable rows/cards and continuation recovery disappear behind a generic Empty error. In Manage, decision context disappears with them.",
+      "recommendation": "Apply a Circle-scoped retained-page resolver equivalent to resolvePagedDisplayState. Retain authorized items with concise inline recovery, retry the next page for continuation failure and refresh for refetch failure, while preserving blank error behavior for no-content and explicit authorization failures.",
+      "repair": "Circle Feed, Members, Manage members, and Manage posts now use an isolated current-scope adapter around the existing retained-page resolver. Recoverable errors retain authorized content with the correct local next-page or refresh retry; explicit authorization denials hide affected rows and fence moderation actions.",
+      "gaps": [
+        "No Circle detail or retained-error artifact was supplied; this is current source state precedence.",
+        "No Circle retained-error render artifact was supplied.",
+        "No mounted React Native, native device, IME, assistive-technology, live account, provider, or production-network validation was performed."
+      ],
+      "baselineRefs": [
+        "A26-003 retained-page recovery is present in other consumers; D26-22/D26-23 remain present and distinct."
+      ],
+      "mechanismKey": "paged-retained-content-hidden-on-error",
+      "source_status": "repaired",
+      "evidence_refs": [
+        "screen-source-review",
+        "repair-D28-012-1",
+        "repair-D28-012-2",
+        "final-strict-types",
+        "final-unit-regressions",
+        "final-lint-and-api-build",
+        "final-platform-js",
+        "independent-review",
+        "environment-and-audit-tools"
+      ],
+      "priority": 3,
+      "implemented_repair": "Circle Feed, Members, Manage members, and Manage posts now use an isolated current-scope adapter around the existing retained-page resolver. Recoverable errors retain authorized content with the correct local next-page or refresh retry; explicit authorization denials hide affected rows and fence moderation actions.",
+      "original_recommendation": "Apply a Circle-scoped retained-page resolver equivalent to resolvePagedDisplayState. Retain authorized items with concise inline recovery, retry the next page for continuation failure and refresh for refetch failure, while preserving blank error behavior for no-content and explicit authorization failures.",
+      "repair_report": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-012.md",
+      "parent_integration_notes": [
+        "Parent should run final integration gates after all serial Circle owners settle.",
+        "D28-013 shares app/circle/[id].tsx and must preserve this resolver wiring, retry routing, authority fence, and existing immutable manage/chat single-flight guards.",
+        "No shared resolver or existing test was changed."
+      ]
+    },
+    {
+      "id": "D28-013",
+      "title": "Manage can remove a long post from a two-line preview with no full-content path",
+      "severity": "medium",
+      "classification": "confirmed-source",
+      "categories": [
+        "text",
+        "content-disclosure",
+        "manage",
+        "destructive-action",
+        "long-content"
+      ],
+      "affectedRoutes": [
+        "/circle/:id"
+      ],
+      "sourceRefs": [
+        "app/circle/[id].tsx:1265-1300",
+        "server/social-router.ts:197-228",
+        "shared/social.ts:25-38"
+      ],
+      "source_paths": [
+        "app/circle/[id].tsx",
+        "lib/d28-013-manage-post-disclosure.ts",
+        "tests/d28-013-manage-post-disclosure.test.ts"
+      ],
+      "trigger": "An owner or moderator opens Manage for a Circle post whose valid text requires more than two displayed lines.",
+      "impact": "The destructive removal control appears without a way to inspect the full post in that context, increasing the chance of an uninformed moderation action.",
+      "recommendation": "Keep the compact summary but add a named Read full moment/details path or show complete text in the removal review/confirmation before the destructive control. Preserve role authorization and target-scoped busy state.",
+      "repair": "Manage post cards retain a compact two-line default and now provide a named Read full moment / Show less review control before removal. Expanded content is accepted only for the exact current account/Circle scope, post ID, and current moderation authority; the existing target-scoped deletion pending lock is unchanged.",
+      "gaps": [
+        "No long-post Manage render or moderator fixture was supplied; valid input allowance and two-line cap are current-source facts.",
+        "No long-post Manage render or moderator fixture was supplied.",
+        "No mounted React Native, native device, IME, assistive-technology, live account, provider, session, or production-network validation was performed."
+      ],
+      "baselineRefs": [
+        "D26-14 long author-name repair is retained; this is the distinct Manage post-text cap."
+      ],
+      "mechanismKey": "circle-manage-destructive-post-summary-truncation",
+      "source_status": "repaired",
+      "evidence_refs": [
+        "screen-source-review",
+        "repair-D28-013-1",
+        "repair-D28-013-2",
+        "final-strict-types",
+        "final-unit-regressions",
+        "final-lint-and-api-build",
+        "final-platform-js",
+        "independent-review",
+        "environment-and-audit-tools"
+      ],
+      "priority": 7,
+      "implemented_repair": "Manage post cards retain a compact two-line default and now provide a named Read full moment / Show less review control before removal. Expanded content is accepted only for the exact current account/Circle scope, post ID, and current moderation authority; the existing target-scoped deletion pending lock is unchanged.",
+      "original_recommendation": "Keep the compact summary but add a named Read full moment/details path or show complete text in the removal review/confirmation before the destructive control. Preserve role authorization and target-scoped busy state.",
+      "repair_report": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-013.md",
+      "parent_integration_notes": [
+        "Run parent-owned final integration gates after serial Circle owners settle; this worker did not run a full suite or typecheck.",
+        "Preserve D28-012 retained-page resolver wiring, explicit-denial precedence, recovery callbacks, and existing moderation single-flight controls in app/circle/[id].tsx.",
+        "Review the D28-013 helper and focused test with the final changed paths; no server route, shared contract, or additional wiring is needed."
+      ]
+    },
+    {
+      "id": "D28-014",
+      "title": "Circle privacy pills lack a compact 2\u00d7-text width policy",
+      "severity": "medium",
+      "classification": "conditional-source",
+      "categories": [
+        "text-scaling",
+        "layout",
+        "controls",
+        "wrapping"
+      ],
+      "affectedRoutes": [
+        "/create"
+      ],
+      "sourceRefs": [
+        "app/create.tsx:108-159",
+        "app/create.tsx:840-847",
+        "app/create.tsx:1003-1019",
+        "components/circles-ui.tsx:51-63"
+      ],
+      "source_paths": [
+        "app/create.tsx",
+        "components/circles-ui.tsx"
+      ],
+      "trigger": "In authenticated Circle mode at 320 points, enable 2\u00d7 text and view Public \u00b7 anyone can join or Private \u00b7 approval needed.",
+      "impact": "The whole-pill Pressable has no row-bounded max width or shrink policy, so an intrinsic label may extend past the composer edge rather than wrap inside its target.",
+      "recommendation": "Give the Circle privacy-pill variant a row-bounded max width and Pressable shrink behavior, and allow the visible label to wrap inside that control while retaining its icon, selected treatment, and 44-point target.",
+      "repair": "Give the Circle privacy-pill variant a row-bounded max width and Pressable shrink behavior, and allow the visible label to wrap inside that control while retaining its icon, selected treatment, and 44-point target.",
+      "gaps": [
+        "No authenticated Circle-mode or native/web 2\u00d7 render was supplied.",
+        "The worker\u2019s font proxy was not a native rendering result."
+      ],
+      "baselineRefs": [],
+      "mechanismKey": "create-privacy-pill-unbounded-2x",
+      "source_status": "open",
+      "evidence_refs": [
+        "screen-source-review"
+      ],
+      "priority": 21
+    },
+    {
+      "id": "D28-015",
+      "title": "Theme Lab has an uncapped, over-wide content measure",
+      "severity": "low",
+      "classification": "confirmed-source",
+      "categories": [
+        "layout",
+        "readability"
+      ],
+      "affectedRoutes": [
+        "/dev/theme-lab"
+      ],
+      "sourceRefs": [
+        "app/dev/theme-lab.tsx:286-290",
+        "app/dev/theme-lab.tsx:303-318",
+        "app/dev/theme-lab.tsx:328-385",
+        "app/dev/theme-lab.tsx:387-413"
+      ],
+      "source_paths": [
+        "app/dev/theme-lab.tsx",
+        "tests/d28-015-theme-lab-width.test.ts"
+      ],
+      "trigger": "At the declared 1440\u00d7900 wide condition with zero lateral safe inset, the content remains uncapped: short token/value endpoints span roughly 1,340 points and palette cards about 696 points each.",
+      "impact": "Short related labels and values require an excessive horizontal scan and compact palette choices become disproportionate broad panels. Essential content and controls remain available.",
+      "recommendation": "Cap and center the readable content container, or separately cap the scheme group and palette sections, retaining width:100%, gutters, safe-area ownership, wrapping, scrolling, and action/radio behavior.",
+      "repair": "Capped and centered Theme Lab's existing ScrollView content container at 960 points while retaining full width, compact gutters, safe-area ownership, local preview controls, and intrinsic heights.",
+      "gaps": [
+        "The 1440 guest Theme Lab image shows the wide measure but cannot prove every interaction or native layout.",
+        "The original D28-015 screenshot cannot prove every interaction or native layout; no additional rendered/native evidence was authorized.",
+        "Parent-owned final integration gates remain outstanding."
+      ],
+      "baselineRefs": [
+        "D26-18 radio-boundary repair remains retained."
+      ],
+      "mechanismKey": "theme-lab-wide-unbounded-content-measure",
+      "source_status": "repaired",
+      "evidence_refs": [
+        "screen-source-review",
+        "public-capture-ledger",
+        "repair-D28-015-1",
+        "repair-D28-015-2",
+        "repair-D28-015-3",
+        "final-strict-types",
+        "final-unit-regressions",
+        "final-lint-and-api-build",
+        "final-platform-js",
+        "independent-review",
+        "environment-and-audit-tools"
+      ],
+      "priority": 23,
+      "implemented_repair": "Capped and centered Theme Lab's existing ScrollView content container at 960 points while retaining full width, compact gutters, safe-area ownership, local preview controls, and intrinsic heights.",
+      "original_recommendation": "Cap and center the readable content container, or separately cap the scheme group and palette sections, retaining width:100%, gutters, safe-area ownership, wrapping, scrolling, and action/radio behavior.",
+      "repair_report": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-015.md",
+      "parent_integration_notes": [
+        "Integrate only app/dev/theme-lab.tsx and tests/d28-015-theme-lab-width.test.ts from this worker.",
+        "No cross-owner wiring is required because the fix is local to Theme Lab's existing ScrollView content container.",
+        "Run parent-owned final checks after concurrent work settles; do not infer native/browser proof from this source-level regression."
+      ]
+    },
+    {
+      "id": "D28-016",
+      "title": "Primary live title is visually truncated with no in-session full-title view",
+      "severity": "medium",
+      "classification": "confirmed-source",
+      "categories": [
+        "text",
+        "layout",
+        "resize-text"
+      ],
+      "affectedRoutes": [
+        "/live/:id"
+      ],
+      "sourceRefs": [
+        "app/live/[id].tsx:407-410",
+        "app/live/[id].tsx:515-560",
+        "server/live-router.ts:1018-1025"
+      ],
+      "source_paths": [
+        "app/live/[id].tsx",
+        "tests/d28-016-live-title.test.ts"
+      ],
+      "trigger": "A signed-in session has a valid title requiring more than three lines in the compact 167-pixel title cell, or text is enlarged.",
+      "impact": "The primary detail title can be unable to distinguish the live session because it is capped at three lines without an expand control, alternative full-title surface, or detail destination.",
+      "recommendation": "Remove the three-line cap from the detail-only Heading and let it wrap within the existing scrollable surface. Preserve any compact directory-card cap.",
+      "repair": "Removed only the three-line cap from the primary Live detail Heading that renders live.title, allowing the title to wrap naturally within its existing scrollable detail surface while retaining the existing row layout, title styling, media behavior, and interaction policies.",
+      "gaps": [
+        "No authenticated live-detail or enlarged-text capture exists; the visual truncation policy itself is deterministic.",
+        "No authenticated Live-detail or enlarged-text capture was performed.",
+        "No native/device or Yoga layout observation was performed.",
+        "Keyboard/IME, screen-reader-tree, and provider behavior remain unobserved."
+      ],
+      "baselineRefs": [
+        "D26-25 was an onboarding long-title repair, not this Live-detail consumer."
+      ],
+      "mechanismKey": "live-detail.primary-title-unbounded-visual-truncation",
+      "source_status": "repaired",
+      "evidence_refs": [
+        "screen-source-review",
+        "repair-D28-016-1",
+        "repair-D28-016-2",
+        "final-strict-types",
+        "final-unit-regressions",
+        "final-lint-and-api-build",
+        "final-platform-js",
+        "independent-review",
+        "environment-and-audit-tools"
+      ],
+      "priority": 9,
+      "implemented_repair": "Removed only the three-line cap from the primary Live detail Heading that renders live.title, allowing the title to wrap naturally within its existing scrollable detail surface while retaining the existing row layout, title styling, media behavior, and interaction policies.",
+      "original_recommendation": "Remove the three-line cap from the detail-only Heading and let it wrap within the existing scrollable surface. Preserve any compact directory-card cap.",
+      "repair_report": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-016.md",
+      "parent_integration_notes": [
+        "No cross-owner source wiring or shared helper is needed; only the assigned Live detail source path and unique D28-016 test were changed.",
+        "Parent may include these paths in final non-concurrent batch checks and should retain the native/authenticated visual-validation gaps in the consolidated report.",
+        "No services, configuration, SQL, providers, accounts, publication, or Git actions were performed."
+      ]
+    },
+    {
+      "id": "D28-017",
+      "title": "Error-state media badge continues to say CONNECTING",
+      "severity": "low",
+      "classification": "confirmed-source",
+      "categories": [
+        "text",
+        "async-feedback",
+        "media-state"
+      ],
+      "affectedRoutes": [
+        "/live/:id"
+      ],
+      "sourceRefs": [
+        "app/live/[id].tsx:146-150",
+        "app/live/[id].tsx:349-381",
+        "app/live/[id].tsx:469-514",
+        "lib/a26-live-media-state.ts:77-93"
+      ],
+      "source_paths": [
+        "app/live/[id].tsx",
+        "lib/d28-017-live-media-badge.ts",
+        "tests/d28-017-live-media-badge.test.ts"
+      ],
+      "trigger": "The LiveMedia adapter reports a media error after the signed-in session-detail surface renders.",
+      "impact": "Failure feedback and Rejoin are visible, but the over-video badge still says CONNECTING, which can delay a recovery decision.",
+      "recommendation": "Add a distinct error-phase label such as VIDEO UNAVAILABLE or REJOIN REQUIRED while retaining LIVE and CONNECTING labels, placement, count, backplate, and colors.",
+      "repair": "{'error': 'VIDEO UNAVAILABLE', 'ready': 'LIVE', 'otherPhases': 'CONNECTING', 'preserved': ['existing viewer-count suffix', 'badge placement, padding, backplate, and colors', 'ready-derived badge color', 'current-generation/admitted controls', 'existing media error message and Rejoin live video control', 'prior D28-016 uncapped primary title']}",
+      "gaps": [
+        "No matching media-error capture was supplied; the contradictory branches are current-source facts.",
+        "Native media error rendering, adapter lifecycle behavior, and Rejoin interaction remain unobserved outside source/helper evidence.",
+        "The focused test cannot prove screen-reader announcement, physical display, or provider/account behavior."
+      ],
+      "baselineRefs": [
+        "A26-012 current-generation ready-state repair and D26-20 media backplate repair remain retained."
+      ],
+      "mechanismKey": "live-detail.media-error-badge-state-copy",
+      "source_status": "repaired",
+      "evidence_refs": [
+        "screen-source-review",
+        "repair-D28-017-1",
+        "repair-D28-017-2",
+        "repair-D28-017-3",
+        "final-strict-types",
+        "final-unit-regressions",
+        "final-lint-and-api-build",
+        "final-platform-js",
+        "independent-review",
+        "environment-and-audit-tools"
+      ],
+      "priority": 24,
+      "implemented_repair": "{'error': 'VIDEO UNAVAILABLE', 'ready': 'LIVE', 'otherPhases': 'CONNECTING', 'preserved': ['existing viewer-count suffix', 'badge placement, padding, backplate, and colors', 'ready-derived badge color', 'current-generation/admitted controls', 'existing media error message and Rejoin live video control', 'prior D28-016 uncapped primary title']}",
+      "original_recommendation": "Add a distinct error-phase label such as VIDEO UNAVAILABLE or REJOIN REQUIRED while retaining LIVE and CONNECTING labels, placement, count, backplate, and colors.",
+      "repair_report": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-017.md",
+      "parent_integration_notes": [
+        "No shared wiring is required; integrate serially after D28-016 in app/live/[id].tsx.",
+        "Preserve the D28-016 uncapped title and current generation/admitted controls during parent integration.",
+        "Run parent-owned final project gates after authorized changes settle."
+      ]
+    },
+    {
+      "id": "D28-018",
+      "title": "Compact 2\u00d7-text viewer-status badge may clip its trailing count",
+      "severity": "low",
+      "classification": "conditional-source",
+      "categories": [
+        "text",
+        "layout",
+        "resize-text",
+        "media-overlay"
+      ],
+      "affectedRoutes": [
+        "/live/:id"
+      ],
+      "sourceRefs": [
+        "app/live/[id].tsx:452-490",
+        "components/circles-ui.tsx:51-63",
+        "shared/social.ts:68-80"
+      ],
+      "source_paths": [
+        "app/live/[id].tsx",
+        "components/circles-ui.tsx",
+        "shared/social.ts"
+      ],
+      "trigger": "A 320-point compact media surface renders with 2\u00d7 text and/or a sufficiently wide raw viewer count.",
+      "impact": "The absolute badge has only a left inset inside an overflow-clipped media parent, so status wording or the trailing count may extend under the clipped edge.",
+      "recommendation": "Constrain the badge to both horizontal media insets and permit wrapping rather than extension under clipped media; retain the full accessible count and label.",
+      "repair": "Constrain the badge to both horizontal media insets and permit wrapping rather than extension under clipped media; retain the full accessible count and label.",
+      "gaps": [
+        "No authenticated media badge, dynamic-type, or count rendering was supplied.",
+        "React Native absolute-layout and font shaping require confirmation."
+      ],
+      "baselineRefs": [
+        "D26-20 addressed opaque status backplates, not this width constraint."
+      ],
+      "mechanismKey": "live-detail.compact-viewer-status-badge-width",
+      "source_status": "open",
+      "evidence_refs": [
+        "screen-source-review"
+      ],
+      "priority": 25
+    },
+    {
+      "id": "D28-019",
+      "title": "Host leave dialog may not clear or avoid an already-open chat keyboard",
+      "severity": "low",
+      "classification": "conditional-source",
+      "categories": [
+        "dialog",
+        "keyboard",
+        "safe-area"
+      ],
+      "affectedRoutes": [
+        "/live/:id"
+      ],
+      "sourceRefs": [
+        "app/live/[id].tsx:130-162",
+        "app/live/[id].tsx:397-403",
+        "app/live/[id].tsx:665-711",
+        "app/live/[id].tsx:717-787"
+      ],
+      "source_paths": [
+        "app/live/[id].tsx"
+      ],
+      "trigger": "A host leaves the multiline chat input focused with native IME open, then opens End/Leave confirmation.",
+      "impact": "The sibling Modal is outside the page KeyboardAvoidingView and sizes against window/safe area rather than keyboard viewport, so lower dialog actions may be covered on affected platforms.",
+      "recommendation": "Dismiss the chat keyboard when opening the dialog, or make the modal root keyboard-aware using the actual keyboard viewport; retain safe-area padding and the scrollable card.",
+      "repair": "Dismiss the chat keyboard when opening the dialog, or make the modal root keyboard-aware using the actual keyboard viewport; retain safe-area padding and the scrollable card.",
+      "gaps": [
+        "No native IME, safe-area, or host-dialog artifact was supplied."
+      ],
+      "baselineRefs": [
+        "D26-19 and D26-15 address different lease-waiting and guest auth-dialog mechanisms."
+      ],
+      "mechanismKey": "live-detail.leave-dialog-open-ime-clearance",
+      "source_status": "open",
+      "evidence_refs": [
+        "screen-source-review"
+      ],
+      "priority": 26
+    },
+    {
+      "id": "D28-020",
+      "title": "Recommendation join progress is indistinguishable across cards",
+      "severity": "medium",
+      "classification": "confirmed-source",
+      "categories": [
+        "async-state",
+        "controls",
+        "accessibility"
+      ],
+      "affectedRoutes": [
+        "/onboarding"
+      ],
+      "sourceRefs": [
+        "app/onboarding.tsx:177-270",
+        "app/onboarding.tsx:357-361",
+        "app/onboarding.tsx:449-486",
+        "app/onboarding.tsx:656-669",
+        "components/circles-ui.tsx:211-286"
+      ],
+      "source_paths": [
+        "app/onboarding.tsx",
+        "lib/d28-020-membership-target.ts",
+        "tests/d28-020-membership-target.test.tsx"
+      ],
+      "trigger": "An authenticated user has at least two public unjoined recommendation cards and activates Join circle on one while the shared membership mutation is pending.",
+      "impact": "All public Join controls become identical busy spinners, so the selected circle is not identifiable and progress appears to apply to several cards.",
+      "recommendation": "Synchronously capture the initiating circle id. Pass loading only to that card; keep other Join controls disabled but named, optionally showing concise local progress. Clear the target only for the current account/operation at settlement.",
+      "repair": "Recommendation membership progress is now synchronously captured per initiating circle and account. Only that card receives loading; all competing Join controls remain disabled with their existing named labels. Settlement clears progress only for the mounted current-account exact target, while the existing operationLock continues to exclude competing mutations.",
+      "gaps": [
+        "The supplied captures are guest/public entry states and do not render recommendations or a membership mutation.",
+        "No browser, native-device, physical-display, screen-reader, or keyboard interaction validation was performed.",
+        "No real account, TRPC service, provider, API, database, or production-network mutation was executed.",
+        "The focused source-equivalent test does not prove React Native runtime projection of disabled or busy semantics."
+      ],
+      "baselineRefs": [
+        "D26-24/D26-25 and A26-016 recommendation repairs remain retained."
+      ],
+      "mechanismKey": "onboarding.recommendation.membership-pending-identity",
+      "source_status": "repaired",
+      "evidence_refs": [
+        "screen-source-review",
+        "repair-D28-020-1",
+        "final-strict-types",
+        "final-unit-regressions",
+        "final-lint-and-api-build",
+        "final-platform-js",
+        "independent-review",
+        "environment-and-audit-tools"
+      ],
+      "priority": 6,
+      "implemented_repair": "Recommendation membership progress is now synchronously captured per initiating circle and account. Only that card receives loading; all competing Join controls remain disabled with their existing named labels. Settlement clears progress only for the mounted current-account exact target, while the existing operationLock continues to exclude competing mutations.",
+      "original_recommendation": "Synchronously capture the initiating circle id. Pass loading only to that card; keep other Join controls disabled but named, optionally showing concise local progress. Clear the target only for the current account/operation at settlement.",
+      "repair_report": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-020.md",
+      "parent_integration_notes": [
+        "Integrate only app/onboarding.tsx, lib/d28-020-membership-target.ts, and tests/d28-020-membership-target.test.tsx for this issue; no shared primitive, service, configuration, or provider change is required.",
+        "Run parent-owned final serial gates after concurrent edits settle and rerun the D28-020 focused test if onboarding changes during integration.",
+        "No parent-owned test assertion was modified or identified as stale."
+      ]
+    },
+    {
+      "id": "D28-021",
+      "title": "Raw like/comment counts can crowd the compact post action rail at 2\u00d7 text",
+      "severity": "medium",
+      "classification": "conditional-source",
+      "categories": [
+        "buttons",
+        "text",
+        "squeezing",
+        "overlap",
+        "layout"
+      ],
+      "affectedRoutes": [
+        "/",
+        "/discover",
+        "/circle/:id",
+        "/profile",
+        "/person/:id",
+        "/updates/:id",
+        "/moderation/:circleId",
+        "(shared PostCard/Circle Home)"
+      ],
+      "sourceRefs": [
+        "components/post-card.tsx:554-647",
+        "components/circles-ui.tsx:51-63",
+        "components/circles-ui.tsx:289-353",
+        "components/app-shell.tsx:417-434",
+        "lib/app-shell-layout.ts:11-31",
+        "server/social-service.ts:240-243",
+        "server/social-service.ts:1013-1019",
+        "server/social-service.ts:1046-1058"
+      ],
+      "source_paths": [
+        "components/app-shell.tsx",
+        "components/circles-ui.tsx",
+        "components/post-card.tsx",
+        "lib/app-shell-layout.ts",
+        "server/social-service.ts"
+      ],
+      "trigger": "A compact 320-point PostCard has multi-digit likes/comments, four actions, and 2\u00d7 system text.",
+      "impact": "Raw counts share a nonwrapping action rail with Share and Save; under font pressure they can compress, wrap awkwardly, or force overlap/overflow near other controls.",
+      "recommendation": "Retain the four actions and 44-point targets, but give the compact rail an intentional wrap/two-row policy or constrained flexible count controls. A compact visual count is acceptable if the exact value remains in the accessibility label/value.",
+      "repair": "Retain the four actions and 44-point targets, but give the compact rail an intentional wrap/two-row policy or constrained flexible count controls. A compact visual count is acceptable if the exact value remains in the accessibility label/value.",
+      "gaps": [
+        "No matching populated PostCard, exact Yoga/text layout, or native 2\u00d7 render was supplied."
+      ],
+      "baselineRefs": [
+        "A26-023 caps the separate Inbox unread badge, not PostCard reaction/comment counts."
+      ],
+      "mechanismKey": "post-card-action-rail-unbounded-counts",
+      "source_status": "open",
+      "evidence_refs": [
+        "screen-source-review"
+      ],
+      "priority": 15
+    },
+    {
+      "id": "D28-022",
+      "title": "Header badge caps the accessible unread count as well as the visual count",
+      "severity": "low",
+      "classification": "confirmed-source",
+      "categories": [
+        "text",
+        "controls",
+        "accessibility"
+      ],
+      "affectedRoutes": [
+        "/updates"
+      ],
+      "sourceRefs": [
+        "app/updates/index.tsx:469-511",
+        "components/app-shell.tsx:238-242",
+        "components/activity-badge.tsx:37-55",
+        "lib/activity-ui.ts:214-220",
+        "tests/activity-ui.test.ts:125-134"
+      ],
+      "source_paths": [
+        "components/activity-badge.tsx",
+        "lib/d28-022-activity-badge-count.ts",
+        "tests/d28-022-activity-badge.test.tsx"
+      ],
+      "trigger": "An authenticated user has an unread Activity count of at least 100 while /updates mounts the ActivityBadge.",
+      "impact": "The compact visual 99+ cap also becomes the accessible name, hiding the exact server-derived unread count from assistive technology.",
+      "recommendation": "Retain visual 99+ and the 44-point target. Build the accessibility label from the separately validated underlying integer count, reserving activityBadgeLabel for visual display.",
+      "repair": "ActivityBadge now validates the current authorized response's exact nonnegative safe-integer unread count separately from its visual label: 137 remains visually 99+ while accessibility announces 137; valid 0 and 1 are announced exactly; malformed and foreign-viewer data are withheld. The existing query gating, 44-point target, and badge geometry are unchanged.",
+      "gaps": [
+        "No authenticated updates render or accessibility tree was supplied; the shared label construction is deterministic in source.",
+        "No authenticated updates render or native accessibility tree was available; validation is deterministic source/component evidence only.",
+        "The corrected focused test does not exercise production TRPC, server authorization, a real account, provider, browser, device, or screen reader.",
+        "The initial evidence log retains a standalone alias-resolution collection block before the explicit real local helper seam; the separately retained behavioral baseline is 3 failed / 6 passed of 9 before repair."
+      ],
+      "baselineRefs": [
+        "A26-023 intended visual count capping while retaining exact accessible count."
+      ],
+      "mechanismKey": "activity-badge-accessible-count-after-visual-cap",
+      "source_status": "repaired",
+      "evidence_refs": [
+        "screen-source-review",
+        "repair-D28-022-1",
+        "final-strict-types",
+        "final-unit-regressions",
+        "final-lint-and-api-build",
+        "final-platform-js",
+        "independent-review",
+        "environment-and-audit-tools"
+      ],
+      "priority": 27,
+      "implemented_repair": "ActivityBadge now validates the current authorized response's exact nonnegative safe-integer unread count separately from its visual label: 137 remains visually 99+ while accessibility announces 137; valid 0 and 1 are announced exactly; malformed and foreign-viewer data are withheld. The existing query gating, 44-point target, and badge geometry are unchanged.",
+      "original_recommendation": "Retain visual 99+ and the 44-point target. Build the accessibility label from the separately validated underlying integer count, reserving activityBadgeLabel for visual display.",
+      "repair_report": "/home/ubuntu/circles-d28-confirmed-fixes-20261028/issues/D28-022.md",
+      "parent_integration_notes": [
+        "No shared wiring, API, server, schema, configuration, service, or account action is required.",
+        "Include the unique D28-022 helper and test in parent-owned final gates; do not overstate source style assertions as native accessibility proof.",
+        "Initial and corrected focused evidence are retained at the report-linked artifact paths."
+      ]
+    },
+    {
+      "id": "D28-023",
+      "title": "Fixed-height unread badge has conditional 2\u00d7 text-scale clipping or overlap pressure",
+      "severity": "low",
+      "classification": "conditional-source",
+      "categories": [
+        "layout",
+        "text",
+        "controls"
+      ],
+      "affectedRoutes": [
+        "/updates"
+      ],
+      "sourceRefs": [
+        "app/updates/index.tsx:469-511",
+        "components/app-shell.tsx:238-242",
+        "components/activity-badge.tsx:51-55",
+        "components/activity-badge.tsx:70-88",
+        "components/circles-ui.tsx:51-63"
+      ],
+      "source_paths": [
+        "app/updates/index.tsx",
+        "components/activity-badge.tsx",
+        "components/app-shell.tsx",
+        "components/circles-ui.tsx"
+      ],
+      "trigger": "A signed-in /updates screen has unread activity while the platform applies enlarged text up to 2\u00d7.",
+      "impact": "The 12-point text primitive can scale beyond the fixed 18-point badge backplate, risking clipping or paint outside the red badge into the bell. The enclosing target remains 44\u00d744.",
+      "recommendation": "Preserve the 44-point target and 99+ cap, but use minHeight plus modest vertical padding/intrinsic text height and retune offsets if needed. Render-check iOS, Android, and web at 1\u00d7 and 2\u00d7.",
+      "repair": "Preserve the 44-point target and 99+ cap, but use minHeight plus modest vertical padding/intrinsic text height and retune offsets if needed. Render-check iOS, Android, and web at 1\u00d7 and 2\u00d7.",
+      "gaps": [
+        "No matching route capture, native font-scale, or physical-device observation was supplied."
+      ],
+      "baselineRefs": [
+        "A26-023 is the distinct horizontal visual count-cap repair."
+      ],
+      "mechanismKey": "activity-badge-fixed-height-font-scale",
+      "source_status": "open",
+      "evidence_refs": [
+        "screen-source-review"
+      ],
+      "priority": 28
+    },
+    {
+      "id": "D28-024",
+      "title": "Compact tab captions have no deliberate enlarged-text presentation",
+      "severity": "low",
+      "classification": "conditional-source",
+      "categories": [
+        "navigation",
+        "typography",
+        "layout"
+      ],
+      "affectedRoutes": [
+        "(shared compact tabs)",
+        "/",
+        "/discover",
+        "/circles",
+        "/profile",
+        "/create",
+        "/live",
+        "/onboarding"
+      ],
+      "sourceRefs": [
+        "app/(tabs)/_layout.tsx:14-92",
+        "components/circles-ui.tsx:51-63",
+        "lib/app-shell-layout.ts:11-31"
+      ],
+      "source_paths": [
+        "app/(tabs)/_layout.tsx",
+        "components/circles-ui.tsx",
+        "lib/app-shell-layout.ts"
+      ],
+      "trigger": "Compact 320-point width with 2\u00d7 text, including narrower effective width after lateral safe insets.",
+      "impact": "Four text captions share a narrow bar around the central Create control without a documented large-text variant; labels can lose intended hierarchy through clipping, overlap, or uncontrolled wrapping. The icon targets remain available.",
+      "recommendation": "Define and render-test a deliberate compact large-text treatment, such as bounded short captions or accessible icon-first/selected-label presentation. Preserve 44-point targets, selected semantics, central Create, and the intentional absence of Chats.",
+      "repair": "Define and render-test a deliberate compact large-text treatment, such as bounded short captions or accessible icon-first/selected-label presentation. Preserve 44-point targets, selected semantics, central Create, and the intentional absence of Chats.",
+      "gaps": [
+        "The parent\u2019s 390\u00d7640 guest CSS font+line-height injection is not browser zoom or native dynamic type.",
+        "In that injected state tab target heights grew from 46 to 63 and the document width stayed 390; it did not establish a stable native 2\u00d7 state or itself prove a defect.",
+        "Horizontal chips are intentionally scrollable and are not part of this issue."
+      ],
+      "baselineRefs": [
+        "D26-05 route resolution and D26-06 target/control state repairs remain retained."
+      ],
+      "mechanismKey": "compact-tab-caption-large-text-pressure",
+      "source_status": "open",
+      "evidence_refs": [
+        "screen-source-review",
+        "guest-web-text-pressure-390"
+      ],
+      "priority": 14
+    }
+  ],
+  "audit_boundary": {
+    "user_scope": [
+      "overlapping",
+      "squashing",
+      "buttons",
+      "elements",
+      "font-size",
+      "text"
+    ],
+    "historical_ids": "Historical D26/A26 IDs are baseline references only and have not been renamed or automatically reopened.",
+    "no_repair_implemented": false,
+    "capture_boundary": [
+      "14 static entry routes only; 6 dynamic route bodies are source-reviewed",
+      "Guest guards are not signed-in content",
+      "Captures can show loading; no settled success assumed",
+      "Viewport-only, platform entrance transform/opacity normalization",
+      "No physical keyboard, text scaling, or IME proof"
+    ],
+    "parent_visual_safety": [
+      "Measurements captured at an initial guest/loading moment",
+      "CSS font+line-height injection, not browser zoom/native dynamic type",
+      "A later screenshot followed hydration and is not certified a stable2x state",
+      "Brand font may be doubled; icon fonts excluded",
+      "Measured overflow candidates require source/semantic review; horizontal chip scrollers are intentional"
+    ],
+    "original_capture_boundary_retained": true
+  },
+  "audit_source": {
+    "identity": "7d8a82aebca5efd27901fad6a829fdd1af18079e/tree73ecf8c8d181bcf034ea6292fe82410028505387",
+    "commit": "7d8a82aebca5efd27901fad6a829fdd1af18079e",
+    "tree": "73ecf8c8d181bcf034ea6292fe82410028505387",
+    "dirtyPaths": [],
+    "frozenSource": "/home/ubuntu/circles-design-audit-20261028-1515/source",
+    "mode": "read-only design audit; no repair implemented"
+  },
+  "repair_boundary": {
+    "approved_confirmed_ids": [
+      "D28-001",
+      "D28-002",
+      "D28-003",
+      "D28-006",
+      "D28-008",
+      "D28-010",
+      "D28-012",
+      "D28-013",
+      "D28-015",
+      "D28-016",
+      "D28-017",
+      "D28-020",
+      "D28-022"
+    ],
+    "conditional_ids_not_selected": [
+      "D28-004",
+      "D28-005",
+      "D28-007",
+      "D28-009",
+      "D28-011",
+      "D28-014",
+      "D28-018",
+      "D28-019",
+      "D28-021",
+      "D28-023",
+      "D28-024"
+    ],
+    "original_register_immutable": "/home/ubuntu/circles-design-audit-20261028-1515/issues.json",
+    "original_sha256": "7851e18000aa080f51d540f3eb60e20a7e21de065fabe3bc502e17e76f0eb4fa",
+    "publication": "not requested; disabled",
+    "native_provider_real_account_proof": "not established"
+  }
+}

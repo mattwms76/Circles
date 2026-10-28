@@ -1,4 +1,5 @@
 import { controlAccessibilityProps } from "../lib/control-accessibility";
+import { d28022ValidatedUnreadCount } from "../lib/d28-022-activity-badge-count";
 import { Pressable, StyleSheet, View } from "react-native";
 import { trpc } from "@/lib/trpc";
 import {
@@ -34,10 +35,12 @@ export function ActivityBadge({ viewerId, onPress }: ActivityBadgeProps) {
     isFetchedAfterMount: unread.isFetchedAfterMount,
     isFetching: unread.isFetching,
   });
-  const label = activityBadgeLabel(state.value?.count);
-  const accessibilityLabel = label
-    ? `Open Updates, ${label} unread`
-    : "Open Updates";
+  const unreadCount = d28022ValidatedUnreadCount(state.value?.count);
+  const label = activityBadgeLabel(unreadCount);
+  const accessibilityLabel =
+    unreadCount === undefined
+      ? "Open Updates"
+      : `Open Updates, ${unreadCount} unread`;
 
   return (
     <Pressable

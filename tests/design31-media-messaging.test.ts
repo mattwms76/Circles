@@ -329,6 +329,10 @@ vi.mock(
   "@/lib/a26-paged-display",
   async () => import("../lib/a26-paged-display"),
 );
+vi.mock(
+  "@/lib/d28-010-chat-media",
+  async () => import("../lib/d28-010-chat-media"),
+);
 const mediaModule = await vi.importActual<
   typeof import("../components/media-image")
 >("../components/media-image");

@@ -18,6 +18,7 @@ import {
   transitionA26LiveMediaState,
   type A26LiveMediaPhaseChange,
 } from "@/lib/a26-live-media-state";
+import { d28LiveMediaBadgeLabel } from "@/lib/d28-017-live-media-badge";
 import { useCircles } from "@/hooks/circles-context";
 import { resolveFnd001QueryDisplayState } from "@/lib/fnd001-query-display-state";
 import {
@@ -144,6 +145,7 @@ function LiveSessionScreen({
   });
   const hostGeneration = hostEndInput?.generation ?? null;
   const ready = mediaState.phase === "ready";
+  const mediaBadgeLabel = d28LiveMediaBadgeLabel(mediaState.phase);
   const mediaError = mediaState.error;
   const participantReady = isA26LiveParticipantReady(mediaState);
   const hostExitActionTitle = ready ? "End live session" : "Leave camera setup";
@@ -484,7 +486,7 @@ function LiveSessionScreen({
                       fontWeight: "700",
                     }}
                   >
-                    {ready ? "LIVE" : "CONNECTING"} · {live.viewers} watching
+                    {mediaBadgeLabel} · {live.viewers} watching
                   </T>
                 </View>
               </View>
@@ -521,7 +523,6 @@ function LiveSessionScreen({
                 />
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Heading
-                    numberOfLines={3}
                     style={{
                       fontSize: 19,
                       lineHeight: 24,

@@ -13,6 +13,7 @@ import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
 import type { StatusTone } from "@/lib/status-announcement";
 import { resolvePagedDisplayState } from "@/lib/a26-paged-display";
+import { resolveD28008AuthPresentation } from "../lib/d28-008-auth-presentation";
 import {
   getA26OwnProfileQueryInput,
   isA26CurrentActorProfile,
@@ -577,12 +578,14 @@ export default function ProfileScreen({
   onBack?: () => void;
 }) {
   const router = useRouter();
-  const { user, requireAuth, notify, showLogin, logout } = useCircles();
+  const { user, authState, refresh, requireAuth, notify, showLogin, logout } =
+    useCircles();
   const insets = useSafeAreaInsets();
   const { width, fontScale } = useWindowDimensions();
   const editorOuterPadding = width <= 360 ? 16 : 24;
   const compactOwnProfileActions = width <= 360 || fontScale >= 1.2;
   const own = !personId || personId === user?.id;
+  const authPresentation = resolveD28008AuthPresentation(authState, !!user);
   const profile = trpc.social.profile.useQuery(
     personId ? { id: personId } : getA26OwnProfileQueryInput(user?.id),
     { enabled: !invalidPersonRoute && (!!personId || !!user) },
@@ -652,7 +655,17 @@ export default function ProfileScreen({
           action="Discover people"
           onAction={() => router.push("/discover")}
         />
-      ) : !personId && !user ? (
+      ) : own && authPresentation === "checking" ? (
+        <Loading />
+      ) : own && authPresentation === "error" ? (
+        <Empty
+          icon="person-outline"
+          title="We couldn’t confirm your sign-in."
+          text="Check your connection and try again."
+          action="Try again"
+          onAction={() => void refresh()}
+        />
+      ) : own && authPresentation === "guest" ? (
         <Empty
           icon="person-outline"
           title="A space that’s all you."

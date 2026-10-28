@@ -44,6 +44,7 @@ import {
   createRootSafeAreaInsets,
   resolveCreateRecipient,
 } from "@/lib/design31-create";
+import { resolveD28008AuthPresentation } from "../lib/d28-008-auth-presentation";
 import {
   Heading,
   Button,
@@ -52,6 +53,7 @@ import {
   Icon,
   IconButton,
   Input,
+  Loading,
   photo,
   s,
   T,
@@ -176,7 +178,10 @@ function CreateScreenForAccount() {
   }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user, authState, requireAuth, notify, showLogin } = useCircles();
+  const { user, authState, refresh, requireAuth, notify, showLogin } =
+    useCircles();
+  const authPresentation = resolveD28008AuthPresentation(authState, !!user);
+  const authenticated = authPresentation === "authenticated" && !!user;
   const [mode, setMode] = useState<CreateMode>(() =>
     normalizeCreateMode(params.mode),
   );
@@ -193,7 +198,7 @@ function CreateScreenForAccount() {
   const introductionTarget = trpc.onboarding.introductionTarget.useQuery(
     { circleId: circleId ?? 1 },
     {
-      enabled: introductionRequested && authState === "authenticated",
+      enabled: introductionRequested && authenticated,
       staleTime: 0,
       refetchOnMount: "always",
       retry: false,
@@ -201,7 +206,7 @@ function CreateScreenForAccount() {
   );
   const verifiedIntroduction = canPrefillIntroduction({
     requested: introductionRequested,
-    accountId: authState === "authenticated" ? user?.id : null,
+    accountId: authenticated ? user?.id : null,
     circleId,
     target: introductionTarget.data,
     confirmed:
@@ -315,7 +320,7 @@ function CreateScreenForAccount() {
   const recipientAllowsPublish =
     mode === "circle" || canPublishToCreateRecipient(recipient);
   const recipientCanRetry = canRetryCreateRecipient(recipient);
-  const profile = trpc.social.profile.useQuery({}, { enabled: !!user });
+  const profile = trpc.social.profile.useQuery({}, { enabled: authenticated });
   const utils = trpc.useUtils();
   const upload = trpc.social.upload.useMutation();
   const post = trpc.social.createPost.useMutation();
@@ -327,12 +332,12 @@ function CreateScreenForAccount() {
     retry: false,
   });
   const publicationStatus = trpc.social.publicationStatus.useQuery(undefined, {
-    enabled: authState === "authenticated" && mode === "post",
+    enabled: authenticated && mode === "post",
     retry: false,
     staleTime: 0,
   });
   const publicationIssue =
-    mode === "post" && user
+    mode === "post" && authenticated
       ? !publicationStatus.isFetchedAfterMount || publicationStatus.isFetching
         ? "Checking retry-safe publishing…"
         : publicationStatus.isError || publicationStatus.data?.ready !== true
@@ -878,7 +883,7 @@ function CreateScreenForAccount() {
               disabled={isDraftLocked}
             />
           </View>
-          {creationIssue && user && (
+          {creationIssue && authenticated && (
             <View style={[s.card, { padding: 14, gap: 8 }]}>
               <StatusMessage message={creationIssue} tone="error" />
               <Button
@@ -891,7 +896,7 @@ function CreateScreenForAccount() {
               />
             </View>
           )}
-          {publicationIssue && user && (
+          {publicationIssue && authenticated && (
             <View style={[s.card, { padding: 14, gap: 8 }]}>
               <StatusMessage
                 message={publicationIssue}
@@ -913,7 +918,18 @@ function CreateScreenForAccount() {
               />
             </View>
           )}
-          {!user ? (
+          {authPresentation === "checking" ? (
+            <Loading />
+          ) : authPresentation === "error" ? (
+            <Empty
+              headingLevel={2}
+              icon="person-outline"
+              title="We couldn’t confirm your sign-in."
+              text="Check your connection and try again."
+              action="Try again"
+              onAction={() => void refresh()}
+            />
+          ) : authPresentation === "guest" || !user ? (
             <Empty
               headingLevel={2}
               icon="person-outline"

@@ -68,6 +68,7 @@ import {
   isExplicitChatEditorAuthorityError,
   type ChatEditorAuthorityLatch,
 } from "../../lib/parity27-chat-editor-state";
+import { d28_010ChatAttachmentWidth } from "@/lib/d28-010-chat-media";
 
 type ReadReceiptState = {
   scope: string;
@@ -209,10 +210,11 @@ function ChatScreenInstance({ conversationId }: { conversationId: number }) {
   const deliveryUncertain = uncertainDeliveryOperation !== null;
   const hasSendableMessage = canSendMessage(text, !!asset);
   const canLoadProtectedChat = authState === "authenticated" && !!user;
-  const chatMediaWidth = Math.min(
-    220,
-    Math.max(120, Math.floor((windowWidth - 44) * 0.8) - 26),
-  );
+  const chatMediaWidth = d28_010ChatAttachmentWidth({
+    windowWidth,
+    leftInset: insets.left,
+    rightInset: insets.right,
+  });
   const conversationMetadata = trpc.social.conversations.useQuery(
     { conversationId, viewerScope: user?.id },
     {

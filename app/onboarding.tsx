@@ -25,6 +25,10 @@ import {
   canChangeA26IntroductionCircle,
   captureA26IntroductionCircleId,
 } from "../lib/a26-circle-ui";
+import {
+  canClearD28020MembershipTarget,
+  type D28020MembershipTarget,
+} from "../lib/d28-020-membership-target";
 import { trpc } from "@/lib/trpc";
 import {
   INTERESTS,
@@ -180,6 +184,7 @@ export function RecommendationCard({
   joined,
   pending,
   busy,
+  disabled = false,
   onJoin,
 }: {
   circle: Circle;
@@ -187,6 +192,7 @@ export function RecommendationCard({
   joined: boolean;
   pending: boolean;
   busy: boolean;
+  disabled?: boolean;
   onJoin: () => void;
 }) {
   const canJoin = circle.privacy === "public" && !joined && !pending;
@@ -265,6 +271,7 @@ export function RecommendationCard({
           accessibilityLabel={`Join ${circle.name}`}
           secondary
           loading={busy}
+          disabled={disabled}
           onPress={onJoin}
         />
       )}
@@ -328,9 +335,17 @@ function OnboardingWizard({
   const [outcome, setOutcome] = useState<OnboardingOutcome | null>(null);
 
   const operationLock = useRef(false);
+  const membershipTargetRef = useRef<D28020MembershipTarget | null>(null);
+  const membershipMountedRef = useRef(false);
   const save = trpc.onboarding.save.useMutation();
   const finish = trpc.onboarding.finish.useMutation();
   const membership = trpc.social.setMembership.useMutation();
+  useEffect(() => {
+    membershipMountedRef.current = true;
+    return () => {
+      membershipMountedRef.current = false;
+    };
+  }, []);
   const recommendations = trpc.onboarding.recommendations.useQuery(
     { limit: 6 },
     {
@@ -349,6 +364,11 @@ function OnboardingWizard({
       ? recommendations.data
       : null;
   const cards = recommendationsForAccount?.items ?? [];
+  const [membershipTargetCircleId, setMembershipTargetCircleId] = useState<
+    number | null
+  >(null);
+  const membershipBusy =
+    membership.isPending || membershipTargetCircleId !== null;
   const joinedPublicCircles = cards
     .map((item) => item.circle)
     .filter((circle) =>
@@ -357,7 +377,7 @@ function OnboardingWizard({
   const controlsBusy =
     save.isPending ||
     finish.isPending ||
-    membership.isPending ||
+    membershipBusy ||
     finishingDestination !== null;
 
   function clearOutcome() {
@@ -450,6 +470,12 @@ function OnboardingWizard({
     if (operationLock.current || controlsBusy || circle.privacy !== "public")
       return;
     operationLock.current = true;
+    const membershipTarget: D28020MembershipTarget = {
+      accountId,
+      circleId: circle.id,
+    };
+    membershipTargetRef.current = membershipTarget;
+    setMembershipTargetCircleId(membershipTarget.circleId);
     clearOutcome();
     try {
       const result = await membership.mutateAsync({
@@ -483,6 +509,17 @@ function OnboardingWizard({
       }
     } finally {
       operationLock.current = false;
+      if (
+        canClearD28020MembershipTarget(
+          membershipTargetRef.current,
+          membershipTarget,
+          currentAccountRef.current,
+          membershipMountedRef.current,
+        )
+      ) {
+        membershipTargetRef.current = null;
+        setMembershipTargetCircleId(null);
+      }
     }
   }
 
@@ -664,7 +701,10 @@ function OnboardingWizard({
                   item.circle.role === "pending" ||
                   pendingIds.has(item.circle.id)
                 }
-                busy={membership.isPending}
+                busy={
+                  membershipBusy && membershipTargetCircleId === item.circle.id
+                }
+                disabled={membershipBusy}
                 onJoin={() => void joinCircle(item.circle)}
               />
             ))}
