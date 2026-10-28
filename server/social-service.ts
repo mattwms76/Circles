@@ -41,7 +41,10 @@ import {
   socialUploads,
   users,
 } from "../drizzle/schema";
-import { postPublishReceipts } from "../drizzle/post-publish-receipt-schema";
+import {
+  postPublishReceiptInsertProjection,
+  postPublishReceipts,
+} from "../drizzle/post-publish-receipt-schema";
 import { streams } from "../drizzle/live-schema";
 import type {
   Circle,
@@ -2236,8 +2239,9 @@ export async function createPost(
       if (normalized.clientPublishId && payloadHash) {
         // The unique insert is the transaction-scoped operation claim. A competing request waits
         // for this transaction, then resolves the one durable receipt instead of creating a post.
+        const receiptInsert = postPublishReceiptInsertProjection();
         const claimedReceipt = await tx
-          .insert(postPublishReceipts)
+          .insert(receiptInsert)
           .values({
             actorId: userId,
             operationId: normalized.clientPublishId,
@@ -2249,7 +2253,7 @@ export async function createPost(
               postPublishReceipts.operationId,
             ],
           })
-          .returning({ postId: postPublishReceipts.postId });
+          .returning({ postId: receiptInsert.postId });
 
         if (!claimedReceipt[0]) {
           const existingReceipts = await tx

@@ -418,8 +418,8 @@ export const EMAIL_IDENTITY_READINESS_SQL = `
 `;
 
 /**
- * Installed receipt contract used by the protected composer preflight. The named
- * baseline UNIQUE remains mandatory even if DB-11 later adds a compatible primary key.
+ * Receipt readiness is finite: the captured six-column surrogate-key state plus the two exact
+ * historical five-column states used by local migration fixtures. It does not accept extras.
  */
 export const POST_PUBLICATION_STATUS_SQL = `
   WITH runtime_role AS (
@@ -431,7 +431,7 @@ export const POST_PUBLICATION_STATUS_SQL = `
     FROM pg_catalog.pg_namespace AS namespace_catalog
     WHERE namespace_catalog.nspname = 'circles_publish'::pg_catalog.name
   ), receipt_relation AS (
-    SELECT relation_catalog.oid, relation_catalog.relowner, relation_catalog.relrowsecurity, relation_catalog.relforcerowsecurity
+    SELECT relation_catalog.oid
     FROM pg_catalog.pg_class AS relation_catalog
     JOIN publish_schema ON publish_schema.namespace_oid = relation_catalog.relnamespace
     WHERE relation_catalog.relname = 'postPublishReceipts'::pg_catalog.name
@@ -442,142 +442,180 @@ export const POST_PUBLICATION_STATUS_SQL = `
     AND (SELECT pg_catalog.count(*) FROM runtime_role) = 1
     AND (SELECT pg_catalog.count(*) FROM publish_schema) = 1
     AND (SELECT pg_catalog.count(*) FROM receipt_relation) = 1
-    AND (SELECT relrowsecurity AND relforcerowsecurity FROM receipt_relation)
-    AND pg_catalog.has_schema_privilege(current_user, (SELECT namespace_oid FROM publish_schema), 'USAGE')
-    AND pg_catalog.has_table_privilege(current_user, (SELECT oid FROM receipt_relation), 'SELECT')
-    AND pg_catalog.has_table_privilege(current_user, (SELECT oid FROM receipt_relation), 'INSERT')
-    AND pg_catalog.has_table_privilege(current_user, (SELECT oid FROM receipt_relation), 'UPDATE')
-    AND NOT pg_catalog.has_table_privilege(current_user, (SELECT oid FROM receipt_relation), 'DELETE')
-    AND NOT pg_catalog.has_table_privilege(current_user, (SELECT oid FROM receipt_relation), 'TRUNCATE')
+    -- Receipt states are finite: five-column baseline, five-column composite-PK, or captured six-column surrogate-PK.
+    AND EXISTS (
+      SELECT 1 FROM pg_catalog.pg_class AS r
+      JOIN pg_catalog.pg_namespace AS n ON n.oid = r.relnamespace
+      JOIN pg_catalog.pg_roles AS o ON o.oid = r.relowner
+      WHERE r.oid = (SELECT oid FROM receipt_relation)
+        AND n.nspname = 'circles_publish'::pg_catalog.name
+        AND r.relname = 'postPublishReceipts'::pg_catalog.name
+        AND r.relkind = 'r'::pg_catalog."char"
+        AND r.relrowsecurity AND r.relforcerowsecurity
+        AND o.rolname = 'postgres'::pg_catalog.name
+    )
+    AND pg_catalog.has_schema_privilege((SELECT role_oid FROM runtime_role), 'circles_publish'::pg_catalog.name, 'USAGE'::pg_catalog.text)
+    AND pg_catalog.has_table_privilege((SELECT role_oid FROM runtime_role), (SELECT oid FROM receipt_relation), 'SELECT'::pg_catalog.text)
+    AND pg_catalog.has_table_privilege((SELECT role_oid FROM runtime_role), (SELECT oid FROM receipt_relation), 'INSERT'::pg_catalog.text)
+    AND pg_catalog.has_table_privilege((SELECT role_oid FROM runtime_role), (SELECT oid FROM receipt_relation), 'UPDATE'::pg_catalog.text)
+    AND NOT pg_catalog.has_table_privilege((SELECT role_oid FROM runtime_role), (SELECT oid FROM receipt_relation), 'DELETE'::pg_catalog.text)
+    AND NOT pg_catalog.has_table_privilege((SELECT role_oid FROM runtime_role), (SELECT oid FROM receipt_relation), 'TRUNCATE'::pg_catalog.text)
+    AND NOT pg_catalog.has_table_privilege((SELECT role_oid FROM runtime_role), (SELECT oid FROM receipt_relation), 'REFERENCES'::pg_catalog.text)
+    AND NOT pg_catalog.has_table_privilege((SELECT role_oid FROM runtime_role), (SELECT oid FROM receipt_relation), 'TRIGGER'::pg_catalog.text)
     AND NOT EXISTS (
-      WITH expected_columns(column_name, data_type, not_null) AS (
-        VALUES
-          ('actorId'::pg_catalog.name, 'integer'::pg_catalog.text, true),
-          ('operationId'::pg_catalog.name, 'character varying(96)'::pg_catalog.text, true),
-          ('payloadHash'::pg_catalog.name, 'character varying(64)'::pg_catalog.text, true),
-          ('postId'::pg_catalog.name, 'integer'::pg_catalog.text, false),
-          ('createdAt'::pg_catalog.name, 'timestamp with time zone'::pg_catalog.text, true)
-      )
       SELECT 1
-      FROM expected_columns
-      LEFT JOIN pg_catalog.pg_attribute AS attribute_catalog
-        ON attribute_catalog.attrelid = (SELECT oid FROM receipt_relation)
-       AND attribute_catalog.attname = expected_columns.column_name
-       AND attribute_catalog.attnum > 0
-       AND NOT attribute_catalog.attisdropped
-      WHERE attribute_catalog.attnum IS NULL
-        OR attribute_catalog.attnotnull IS DISTINCT FROM expected_columns.not_null
-        OR pg_catalog.format_type(attribute_catalog.atttypid, attribute_catalog.atttypmod) <> expected_columns.data_type
+      FROM pg_catalog.pg_class AS r
+      CROSS JOIN LATERAL pg_catalog.aclexplode(
+        COALESCE(r.relacl, pg_catalog.acldefault('r'::pg_catalog."char", r.relowner))
+      ) AS acl
+      WHERE r.oid = (SELECT oid FROM receipt_relation)
+        AND (
+          acl.grantee = 0
+          OR acl.grantee NOT IN (r.relowner, (SELECT role_oid FROM runtime_role))
+          OR (acl.grantee = (SELECT role_oid FROM runtime_role) AND (
+            acl.privilege_type NOT IN ('SELECT'::pg_catalog.text, 'INSERT'::pg_catalog.text, 'UPDATE'::pg_catalog.text)
+            OR acl.is_grantable
+          ))
+        )
     )
     AND (
       SELECT pg_catalog.count(*)
-      FROM pg_catalog.pg_attribute AS attribute_catalog
-      WHERE attribute_catalog.attrelid = (SELECT oid FROM receipt_relation)
-        AND attribute_catalog.attnum > 0
-        AND NOT attribute_catalog.attisdropped
-    ) = 5
-    AND EXISTS (
+      FROM pg_catalog.pg_class AS r
+      CROSS JOIN LATERAL pg_catalog.aclexplode(
+        COALESCE(r.relacl, pg_catalog.acldefault('r'::pg_catalog."char", r.relowner))
+      ) AS acl
+      WHERE r.oid = (SELECT oid FROM receipt_relation)
+        AND acl.grantee = (SELECT role_oid FROM runtime_role)
+        AND acl.privilege_type IN ('SELECT'::pg_catalog.text, 'INSERT'::pg_catalog.text, 'UPDATE'::pg_catalog.text)
+        AND NOT acl.is_grantable
+    ) = 3
+    AND NOT EXISTS (
       SELECT 1
-      FROM pg_catalog.pg_constraint AS constraint_catalog
-      JOIN pg_catalog.pg_index AS index_catalog
-        ON index_catalog.indexrelid = constraint_catalog.conindid
-      WHERE constraint_catalog.conname = 'post_publish_receipts_actor_operation_unique'::pg_catalog.name
-        AND constraint_catalog.conrelid = (SELECT oid FROM receipt_relation)
-        AND constraint_catalog.contype = 'u'::pg_catalog."char"
-        AND constraint_catalog.convalidated
-        AND constraint_catalog.conkey::pg_catalog.int2[] = ARRAY[1, 2]::pg_catalog.int2[]
-        AND index_catalog.indisunique
-        AND index_catalog.indisvalid
-        AND index_catalog.indisready
-        AND index_catalog.indislive
+      FROM (VALUES
+        ('actorId'::pg_catalog.name, 1::pg_catalog.int2, 'integer'::pg_catalog.text, true, ''::pg_catalog."char"),
+        ('operationId'::pg_catalog.name, 2::pg_catalog.int2, 'character varying(96)'::pg_catalog.text, true, ''::pg_catalog."char"),
+        ('payloadHash'::pg_catalog.name, 3::pg_catalog.int2, 'character varying(64)'::pg_catalog.text, true, ''::pg_catalog."char"),
+        ('postId'::pg_catalog.name, 4::pg_catalog.int2, 'integer'::pg_catalog.text, false, ''::pg_catalog."char"),
+        ('createdAt'::pg_catalog.name, 5::pg_catalog.int2, 'timestamp with time zone'::pg_catalog.text, true, ''::pg_catalog."char")
+      ) AS expected(name, ordinal, data_type, not_null, identity_kind)
+      LEFT JOIN pg_catalog.pg_attribute AS a
+        ON a.attrelid = (SELECT oid FROM receipt_relation) AND a.attname = expected.name AND a.attnum = expected.ordinal
+       AND a.attnum > 0 AND NOT a.attisdropped
+      WHERE a.attnum IS NULL
+         OR a.attnotnull IS DISTINCT FROM expected.not_null
+         OR a.attidentity IS DISTINCT FROM expected.identity_kind
+         OR pg_catalog.format_type(a.atttypid, a.atttypmod) <> expected.data_type
     )
     AND EXISTS (
-      SELECT 1
-      FROM pg_catalog.pg_constraint AS constraint_catalog
-      JOIN pg_catalog.pg_index AS index_catalog
-        ON index_catalog.indexrelid = constraint_catalog.conindid
-      WHERE constraint_catalog.conrelid = (SELECT oid FROM receipt_relation)
-        AND constraint_catalog.contype IN ('p'::pg_catalog."char", 'u'::pg_catalog."char")
-        AND constraint_catalog.convalidated
-        AND constraint_catalog.conkey::pg_catalog.int2[] = ARRAY[1, 2]::pg_catalog.int2[]
-        AND index_catalog.indisunique
-        AND index_catalog.indisvalid
-        AND index_catalog.indisready
-        AND index_catalog.indislive
-        AND index_catalog.indpred IS NULL
+      SELECT 1 FROM pg_catalog.pg_constraint AS c
+      JOIN pg_catalog.pg_index AS i ON i.indexrelid = c.conindid
+      WHERE c.conrelid = (SELECT oid FROM receipt_relation)
+        AND c.conname = 'post_publish_receipts_actor_operation_unique'::pg_catalog.name
+        AND c.contype = 'u'::pg_catalog."char" AND c.convalidated
+        AND NOT c.condeferrable AND NOT c.condeferred
+        AND c.conkey::pg_catalog.int2[] = ARRAY[1, 2]::pg_catalog.int2[]
+        AND i.indisunique AND NOT i.indisprimary AND i.indisvalid AND i.indisready AND i.indislive
+        AND i.indnkeyatts = 2 AND i.indnatts = 2 AND i.indexprs IS NULL AND i.indpred IS NULL
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM (VALUES
+        ('postPublishReceipts_actorId_fkey'::pg_catalog.name, 'f'::pg_catalog."char", ARRAY[1]::pg_catalog.int2[], pg_catalog.to_regclass('circles_app.users'), 'c'::pg_catalog."char"),
+        ('postPublishReceipts_postId_fkey'::pg_catalog.name, 'f'::pg_catalog."char", ARRAY[4]::pg_catalog.int2[], pg_catalog.to_regclass('circles_app.posts'), 'n'::pg_catalog."char"),
+        ('post_publish_receipts_operation_id_check'::pg_catalog.name, 'c'::pg_catalog."char", NULL::pg_catalog.int2[], NULL::pg_catalog.oid, NULL::pg_catalog."char"),
+        ('post_publish_receipts_payload_hash_check'::pg_catalog.name, 'c'::pg_catalog."char", NULL::pg_catalog.int2[], NULL::pg_catalog.oid, NULL::pg_catalog."char")
+      ) AS expected(name, kind, key_columns, refrel, delete_kind)
+      LEFT JOIN pg_catalog.pg_constraint AS c
+        ON c.conrelid = (SELECT oid FROM receipt_relation) AND c.conname = expected.name AND c.contype = expected.kind
+       AND c.convalidated
+       AND (expected.key_columns IS NULL OR c.conkey::pg_catalog.int2[] = expected.key_columns)
+       AND (expected.refrel IS NULL OR c.confrelid = expected.refrel)
+       AND (expected.delete_kind IS NULL OR c.confdeltype = expected.delete_kind)
+      WHERE c.oid IS NULL
     )
     AND EXISTS (
-      SELECT 1
-      FROM pg_catalog.pg_constraint AS constraint_catalog
-      WHERE constraint_catalog.conname = 'postPublishReceipts_actorId_fkey'::pg_catalog.name
-        AND constraint_catalog.conrelid = (SELECT oid FROM receipt_relation)
-        AND constraint_catalog.contype = 'f'::pg_catalog."char"
-        AND constraint_catalog.convalidated
-        AND constraint_catalog.conkey::pg_catalog.int2[] = ARRAY[1]::pg_catalog.int2[]
-        AND constraint_catalog.confrelid = pg_catalog.to_regclass('circles_app.users')
-        AND constraint_catalog.confdeltype = 'c'::pg_catalog."char"
+      SELECT 1 FROM pg_catalog.pg_index AS i
+      JOIN pg_catalog.pg_class AS ci ON ci.oid = i.indexrelid
+      WHERE i.indrelid = (SELECT oid FROM receipt_relation)
+        AND ci.relname = 'post_publish_receipts_post_idx'::pg_catalog.name
+        AND NOT i.indisunique AND NOT i.indisprimary AND i.indisvalid AND i.indisready AND i.indislive
+        AND i.indnkeyatts = 1 AND i.indnatts = 1 AND i.indexprs IS NULL AND i.indpred IS NULL
+        AND pg_catalog.pg_get_indexdef(i.indexrelid, 1, true) = '"postId"'::pg_catalog.text
     )
-    AND EXISTS (
-      SELECT 1
-      FROM pg_catalog.pg_constraint AS constraint_catalog
-      WHERE constraint_catalog.conname = 'postPublishReceipts_postId_fkey'::pg_catalog.name
-        AND constraint_catalog.conrelid = (SELECT oid FROM receipt_relation)
-        AND constraint_catalog.contype = 'f'::pg_catalog."char"
-        AND constraint_catalog.convalidated
-        AND constraint_catalog.conkey::pg_catalog.int2[] = ARRAY[4]::pg_catalog.int2[]
-        AND constraint_catalog.confrelid = pg_catalog.to_regclass('circles_app.posts')
-        AND constraint_catalog.confdeltype = 'n'::pg_catalog."char"
+    AND (
+      (
+        (SELECT pg_catalog.count(*) FROM pg_catalog.pg_attribute AS a WHERE a.attrelid = (SELECT oid FROM receipt_relation) AND a.attnum > 0 AND NOT a.attisdropped) = 5
+        AND (SELECT pg_catalog.count(*) FROM pg_catalog.pg_constraint AS c WHERE c.conrelid = (SELECT oid FROM receipt_relation)) = 5
+        AND (SELECT pg_catalog.count(*) FROM pg_catalog.pg_index AS i WHERE i.indrelid = (SELECT oid FROM receipt_relation)) = 2
+      )
+      OR (
+        (SELECT pg_catalog.count(*) FROM pg_catalog.pg_attribute AS a WHERE a.attrelid = (SELECT oid FROM receipt_relation) AND a.attnum > 0 AND NOT a.attisdropped) = 5
+        AND (SELECT pg_catalog.count(*) FROM pg_catalog.pg_constraint AS c WHERE c.conrelid = (SELECT oid FROM receipt_relation)) = 6
+        AND (SELECT pg_catalog.count(*) FROM pg_catalog.pg_index AS i WHERE i.indrelid = (SELECT oid FROM receipt_relation)) = 3
+        AND EXISTS (
+          SELECT 1 FROM pg_catalog.pg_constraint AS c JOIN pg_catalog.pg_index AS i ON i.indexrelid = c.conindid
+          WHERE c.conrelid = (SELECT oid FROM receipt_relation) AND c.conname = 'post_publish_receipts_pkey'::pg_catalog.name
+            AND c.contype = 'p'::pg_catalog."char" AND c.convalidated
+            AND NOT c.condeferrable AND NOT c.condeferred AND c.conkey::pg_catalog.int2[] = ARRAY[1, 2]::pg_catalog.int2[]
+            AND i.indisunique AND i.indisprimary AND i.indisvalid AND i.indisready AND i.indislive
+            AND i.indnkeyatts = 2 AND i.indnatts = 2 AND i.indexprs IS NULL AND i.indpred IS NULL
+        )
+      )
+      OR (
+        (SELECT pg_catalog.count(*) FROM pg_catalog.pg_attribute AS a WHERE a.attrelid = (SELECT oid FROM receipt_relation) AND a.attnum > 0 AND NOT a.attisdropped) = 6
+        AND (SELECT pg_catalog.count(*) FROM pg_catalog.pg_constraint AS c WHERE c.conrelid = (SELECT oid FROM receipt_relation)) = 6
+        AND (SELECT pg_catalog.count(*) FROM pg_catalog.pg_index AS i WHERE i.indrelid = (SELECT oid FROM receipt_relation)) = 3
+        AND NOT EXISTS (
+          SELECT 1 FROM (VALUES ('id'::pg_catalog.name, 6::pg_catalog.int2, 'bigint'::pg_catalog.text, true, 'a'::pg_catalog."char"))
+            AS expected(name, ordinal, data_type, not_null, identity_kind)
+          LEFT JOIN pg_catalog.pg_attribute AS a
+            ON a.attrelid = (SELECT oid FROM receipt_relation) AND a.attname = expected.name AND a.attnum = expected.ordinal
+           AND a.attnum > 0 AND NOT a.attisdropped
+          WHERE a.attnum IS NULL OR a.attnotnull IS DISTINCT FROM expected.not_null
+             OR a.attidentity IS DISTINCT FROM expected.identity_kind
+             OR pg_catalog.format_type(a.atttypid, a.atttypmod) <> expected.data_type
+        )
+        AND CASE WHEN EXISTS (
+          SELECT 1 FROM pg_catalog.pg_attribute AS identity_attribute
+          WHERE identity_attribute.attrelid = (SELECT oid FROM receipt_relation)
+            AND identity_attribute.attname = 'id'::pg_catalog.name
+            AND identity_attribute.attnum = 6
+            AND NOT identity_attribute.attisdropped
+            AND identity_attribute.attidentity = 'a'::pg_catalog."char"
+        ) THEN pg_catalog.pg_get_serial_sequence('circles_publish."postPublishReceipts"'::pg_catalog.text, 'id'::pg_catalog.text) = 'circles_publish."postPublishReceipts_id_seq"'::pg_catalog.text
+        ELSE false END
+        AND EXISTS (
+          SELECT 1 FROM pg_catalog.pg_class AS s
+          JOIN pg_catalog.pg_namespace AS n ON n.oid = s.relnamespace
+          JOIN pg_catalog.pg_roles AS o ON o.oid = s.relowner
+          JOIN pg_catalog.pg_depend AS d ON d.classid = 'pg_catalog.pg_class'::pg_catalog.regclass
+            AND d.objid = s.oid AND d.objsubid = 0 AND d.refclassid = 'pg_catalog.pg_class'::pg_catalog.regclass
+            AND d.refobjid = (SELECT oid FROM receipt_relation) AND d.refobjsubid = 6 AND d.deptype = 'i'::pg_catalog."char"
+          WHERE n.nspname = 'circles_publish'::pg_catalog.name AND s.relname = 'postPublishReceipts_id_seq'::pg_catalog.name
+            AND s.relkind = 'S'::pg_catalog."char" AND o.rolname = 'postgres'::pg_catalog.name
+        )
+        AND EXISTS (
+          SELECT 1 FROM pg_catalog.pg_constraint AS c JOIN pg_catalog.pg_index AS i ON i.indexrelid = c.conindid
+          WHERE c.conrelid = (SELECT oid FROM receipt_relation) AND c.conname = 'post_publish_receipts_pkey'::pg_catalog.name
+            AND c.contype = 'p'::pg_catalog."char" AND c.convalidated
+            AND NOT c.condeferrable AND NOT c.condeferred AND c.conkey::pg_catalog.int2[] = ARRAY[6]::pg_catalog.int2[]
+            AND i.indisunique AND i.indisprimary AND i.indisvalid AND i.indisready AND i.indislive
+            AND i.indnkeyatts = 1 AND i.indnatts = 1 AND i.indexprs IS NULL AND i.indpred IS NULL
+        )
+      )
     )
-    AND EXISTS (
-      SELECT 1
-      FROM pg_catalog.pg_constraint AS constraint_catalog
-      WHERE constraint_catalog.conname = 'post_publish_receipts_operation_id_check'::pg_catalog.name
-        AND constraint_catalog.conrelid = (SELECT oid FROM receipt_relation)
-        AND constraint_catalog.contype = 'c'::pg_catalog."char"
-        AND constraint_catalog.convalidated
-        AND pg_catalog.strpos(pg_catalog.pg_get_constraintdef(constraint_catalog.oid, true), '{15,95}'::pg_catalog.text) > 0
-    )
-    AND EXISTS (
-      SELECT 1
-      FROM pg_catalog.pg_constraint AS constraint_catalog
-      WHERE constraint_catalog.conname = 'post_publish_receipts_payload_hash_check'::pg_catalog.name
-        AND constraint_catalog.conrelid = (SELECT oid FROM receipt_relation)
-        AND constraint_catalog.contype = 'c'::pg_catalog."char"
-        AND constraint_catalog.convalidated
-        AND pg_catalog.strpos(pg_catalog.pg_get_constraintdef(constraint_catalog.oid, true), '[0-9a-f]{64}'::pg_catalog.text) > 0
-    )
-    AND EXISTS (
-      SELECT 1
-      FROM pg_catalog.pg_policy AS policy_catalog
-      WHERE policy_catalog.polname = 'post_publish_receipts_runtime_select'::pg_catalog.name
-        AND policy_catalog.polrelid = (SELECT oid FROM receipt_relation)
-        AND policy_catalog.polpermissive
-        AND policy_catalog.polcmd = 'r'::pg_catalog."char"
-        AND policy_catalog.polroles = ARRAY[(SELECT role_oid FROM runtime_role)]::pg_catalog.oid[]
-        AND pg_catalog.pg_get_expr(policy_catalog.polqual, policy_catalog.polrelid) = 'true'::pg_catalog.text
-        AND policy_catalog.polwithcheck IS NULL
-    )
-    AND EXISTS (
-      SELECT 1
-      FROM pg_catalog.pg_policy AS policy_catalog
-      WHERE policy_catalog.polname = 'post_publish_receipts_runtime_insert'::pg_catalog.name
-        AND policy_catalog.polrelid = (SELECT oid FROM receipt_relation)
-        AND policy_catalog.polpermissive
-        AND policy_catalog.polcmd = 'a'::pg_catalog."char"
-        AND policy_catalog.polroles = ARRAY[(SELECT role_oid FROM runtime_role)]::pg_catalog.oid[]
-        AND policy_catalog.polqual IS NULL
-        AND pg_catalog.pg_get_expr(policy_catalog.polwithcheck, policy_catalog.polrelid) = 'true'::pg_catalog.text
-    )
-    AND EXISTS (
-      SELECT 1
-      FROM pg_catalog.pg_policy AS policy_catalog
-      WHERE policy_catalog.polname = 'post_publish_receipts_runtime_update'::pg_catalog.name
-        AND policy_catalog.polrelid = (SELECT oid FROM receipt_relation)
-        AND policy_catalog.polpermissive
-        AND policy_catalog.polcmd = 'w'::pg_catalog."char"
-        AND policy_catalog.polroles = ARRAY[(SELECT role_oid FROM runtime_role)]::pg_catalog.oid[]
-        AND pg_catalog.pg_get_expr(policy_catalog.polqual, policy_catalog.polrelid) = 'true'::pg_catalog.text
-        AND pg_catalog.pg_get_expr(policy_catalog.polwithcheck, policy_catalog.polrelid) = 'true'::pg_catalog.text
+    AND (SELECT pg_catalog.count(*) FROM pg_catalog.pg_policy AS p WHERE p.polrelid = (SELECT oid FROM receipt_relation)) = 3
+    AND NOT EXISTS (
+      SELECT 1 FROM (VALUES
+        ('post_publish_receipts_runtime_select'::pg_catalog.name, 'r'::pg_catalog."char", 'true'::pg_catalog.text, NULL::pg_catalog.text),
+        ('post_publish_receipts_runtime_insert'::pg_catalog.name, 'a'::pg_catalog."char", NULL::pg_catalog.text, 'true'::pg_catalog.text),
+        ('post_publish_receipts_runtime_update'::pg_catalog.name, 'w'::pg_catalog."char", 'true'::pg_catalog.text, 'true'::pg_catalog.text)
+      ) AS expected(name, command, qual, with_check)
+      LEFT JOIN pg_catalog.pg_policy AS p
+        ON p.polrelid = (SELECT oid FROM receipt_relation) AND p.polname = expected.name AND p.polpermissive
+       AND p.polcmd = expected.command AND p.polroles = ARRAY[(SELECT role_oid FROM runtime_role)]::pg_catalog.oid[]
+       AND pg_catalog.pg_get_expr(p.polqual, p.polrelid) IS NOT DISTINCT FROM expected.qual
+       AND pg_catalog.pg_get_expr(p.polwithcheck, p.polrelid) IS NOT DISTINCT FROM expected.with_check
+      WHERE p.oid IS NULL
     )
   ) AS ready
   LIMIT 1

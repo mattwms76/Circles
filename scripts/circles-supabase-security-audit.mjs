@@ -35,6 +35,9 @@ import {
   APP_LOGIN_CONTRACT_VARIANTS,
   APP_LOGIN_ROLE,
   APPLICATION_ADMIN_ACL,
+  CURRENT_ADMIN_DIRECT_ACL,
+  CURRENT_ADMIN_FUNCTION_EXPECTATIONS,
+  CURRENT_ADMIN_TABLE_EXPECTATIONS,
   POLICY_CONTRACT_VARIANTS,
   REVIEWED_ADMIN_ROLE_NAMES,
   REVIEWED_ROLE_EXPECTATIONS,
@@ -353,6 +356,22 @@ export function evaluateInventory(expectedNames, tableRows) {
   };
 }
 
+export function evaluateSchemaIdentity(schema, expectedSchema) {
+  if (
+    !schema ||
+    typeof schema.schema_name !== "string" ||
+    typeof schema.owner !== "string" ||
+    typeof expectedSchema !== "string"
+  ) {
+    return { status: "fail", reason: "schema_identity_evidence_unavailable" };
+  }
+  return {
+    status: schema.schema_name === expectedSchema ? "pass" : "fail",
+    expected_schema: expectedSchema,
+    actual_schema: schema.schema_name,
+  };
+}
+
 export function evaluateRls(expectedNames, tableRows) {
   const byName = new Map(tableRows.map((row) => [row.table_name, row]));
   const missing_or_disabled = expectedNames.filter(
@@ -531,7 +550,7 @@ export function evaluateAppAdminPolicies(policies) {
   );
 }
 
-function projectedAdminFunction(row) {
+function projectedLegacyAdminFunction(row) {
   if (
     !row ||
     typeof row.function_name !== "string" ||
@@ -554,6 +573,122 @@ function projectedAdminFunction(row) {
     anon_execute: row.anon_execute,
     authenticated_execute: row.authenticated_execute,
     runtime_execute: row.runtime_execute,
+  };
+}
+
+function projectedCurrentAdminFunction(row) {
+  if (
+    !row ||
+    typeof row.function_name !== "string" ||
+    typeof row.owner !== "string" ||
+    typeof row.security_definer !== "boolean" ||
+    !Array.isArray(row.search_path) ||
+    !row.search_path.every((setting) => typeof setting === "string") ||
+    !/^[0-9a-f]{32}$/.test(row.body_definition_md5 ?? "") ||
+    typeof row.anon_execute !== "boolean" ||
+    typeof row.authenticated_execute !== "boolean" ||
+    typeof row.runtime_execute !== "boolean" ||
+    typeof row.admin_runtime_execute !== "boolean" ||
+    typeof row.native_executor_execute !== "boolean" ||
+    typeof row.app_runtime_execute !== "boolean" ||
+    !Array.isArray(row.direct_acl)
+  ) {
+    return null;
+  }
+  const directAcl = row.direct_acl.map((entry) => {
+    if (
+      !entry ||
+      typeof entry.grantee !== "string" ||
+      entry.grantee.length === 0 ||
+      entry.privilege_type !== "EXECUTE" ||
+      typeof entry.is_grantable !== "boolean"
+    ) {
+      return null;
+    }
+    return {
+      grantee: entry.grantee,
+      privilege_type: entry.privilege_type,
+      is_grantable: entry.is_grantable,
+    };
+  });
+  if (directAcl.some((entry) => entry === null)) return null;
+  return {
+    function_name: row.function_name,
+    owner: row.owner,
+    security_definer: row.security_definer,
+    search_path: [...row.search_path],
+    body_definition_md5: row.body_definition_md5,
+    anon_execute: row.anon_execute,
+    authenticated_execute: row.authenticated_execute,
+    runtime_execute: row.runtime_execute,
+    admin_runtime_execute: row.admin_runtime_execute,
+    native_executor_execute: row.native_executor_execute,
+    app_runtime_execute: row.app_runtime_execute,
+    direct_acl: directAcl.sort((left, right) =>
+      stableFingerprint(left).localeCompare(stableFingerprint(right)),
+    ),
+  };
+}
+
+function projectNonOwnerAclRows(rows, identityKeys) {
+  if (!Array.isArray(rows)) return null;
+  const projected = rows.map((row) => {
+    if (
+      !row ||
+      typeof row.owner !== "string" ||
+      row.owner.length === 0 ||
+      typeof row.grantee !== "string" ||
+      row.grantee.length === 0 ||
+      typeof row.privilege_type !== "string" ||
+      row.privilege_type.length === 0 ||
+      typeof row.is_grantable !== "boolean" ||
+      !identityKeys.every(
+        (key) => typeof row[key] === "string" && row[key].length > 0,
+      )
+    ) {
+      return null;
+    }
+    const identity = Object.fromEntries(
+      identityKeys.map((key) => [key, row[key]]),
+    );
+    return {
+      owner: row.owner,
+      ...identity,
+      grantee: row.grantee,
+      privilege_type: row.privilege_type,
+      is_grantable: row.is_grantable,
+    };
+  });
+  if (projected.some((row) => row === null)) return null;
+  return projected
+    .filter((row) => row.grantee !== row.owner)
+    .map(({ owner: _owner, ...row }) => row);
+}
+
+function evaluateCurrentAdminFunctionContract(functions) {
+  return exactRows(
+    functions,
+    CURRENT_ADMIN_FUNCTION_EXPECTATIONS,
+    projectedCurrentAdminFunction,
+  );
+}
+
+function evaluateAdminFunctionVariants(functions) {
+  const legacy = evaluateNamedVariants(
+    functions,
+    ADMIN_FUNCTION_CONTRACT_VARIANTS,
+    projectedLegacyAdminFunction,
+  );
+  const current = evaluateCurrentAdminFunctionContract(functions);
+  const matchedVariants = [
+    ...(legacy.status === "pass" ? [`legacy:${legacy.matched_variant}`] : []),
+    ...(current.status === "pass" ? ["current_complete_20261028"] : []),
+  ];
+  return {
+    status: matchedVariants.length === 1 ? "pass" : "fail",
+    matched_variant: matchedVariants.length === 1 ? matchedVariants[0] : null,
+    legacy,
+    current,
   };
 }
 
@@ -774,6 +909,53 @@ function projectedAdminTable(row) {
 export function evaluateAdminAuthorizationContract(appEvidence, adminEvidence) {
   if (!appEvidence || !adminEvidence)
     return { status: "fail", reason: "admin_contract_evidence_unavailable" };
+  const legacyTables = exactRows(
+    adminEvidence.raw_tables,
+    ADMIN_TABLE_EXPECTATIONS,
+    projectedAdminTable,
+  );
+  const currentTables = exactRows(
+    adminEvidence.raw_tables,
+    CURRENT_ADMIN_TABLE_EXPECTATIONS,
+    projectedAdminTable,
+  );
+  const functionVariants = evaluateAdminFunctionVariants(
+    adminEvidence.functions,
+  );
+  const currentDirectAcl = {
+    schema: exactRows(
+      projectNonOwnerAclRows(adminEvidence.schema_acl_privileges, [
+        "schema_name",
+      ]),
+      CURRENT_ADMIN_DIRECT_ACL.schema,
+    ),
+    tables: exactRows(
+      projectNonOwnerAclRows(adminEvidence.table_acl_privileges, [
+        "table_name",
+      ]),
+      CURRENT_ADMIN_DIRECT_ACL.tables,
+    ),
+    columns: exactRows(
+      projectNonOwnerAclRows(adminEvidence.column_acl_privileges, [
+        "table_name",
+        "column_name",
+        "column_key",
+      ]),
+      CURRENT_ADMIN_DIRECT_ACL.columns,
+    ),
+  };
+  const legacyState =
+    legacyTables.status === "pass" && functionVariants.legacy.status === "pass";
+  const currentState =
+    currentTables.status === "pass" &&
+    functionVariants.current.status === "pass" &&
+    Object.values(currentDirectAcl).every((result) => result.status === "pass");
+  const matchedStates = [
+    ...(legacyState
+      ? [`legacy:${functionVariants.legacy.matched_variant}`]
+      : []),
+    ...(currentState ? ["current_complete_20261028"] : []),
+  ];
   const checks = {
     role_flags: exactRows(
       reviewedRoleRows(appEvidence.roles),
@@ -804,16 +986,20 @@ export function evaluateAdminAuthorizationContract(appEvidence, adminEvidence) {
       reviewedAdminAclRows(appEvidence.routine_acl_privileges),
       APPLICATION_ADMIN_ACL.routines,
     ),
-    admin_table_inventory: exactRows(
-      adminEvidence.raw_tables,
-      ADMIN_TABLE_EXPECTATIONS,
-      projectedAdminTable,
-    ),
-    admin_functions: evaluateNamedVariants(
-      adminEvidence.functions,
-      ADMIN_FUNCTION_CONTRACT_VARIANTS,
-      projectedAdminFunction,
-    ),
+    admin_table_inventory: {
+      status:
+        legacyTables.status === "pass" || currentTables.status === "pass"
+          ? "pass"
+          : "fail",
+      legacy: legacyTables,
+      current: currentTables,
+    },
+    admin_functions: functionVariants,
+    admin_complete_state: {
+      status: matchedStates.length === 1 ? "pass" : "fail",
+      matched_variant: matchedStates.length === 1 ? matchedStates[0] : null,
+      current_direct_acl: currentDirectAcl,
+    },
   };
   const failed_checks = Object.entries(checks)
     .filter(([, result]) => result.status !== "pass")
@@ -2597,9 +2783,14 @@ async function collectEvidence(client, schemaName, runtimeRole) {
     SELECT p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' AS function_name,
            pg_get_userbyid(p.proowner) AS owner,
            p.prosecdef AS security_definer,
+           COALESCE(p.proconfig, ARRAY[]::text[]) AS search_path,
+           md5(pg_get_functiondef(p.oid)) AS body_definition_md5,
            has_function_privilege('anon', p.oid, 'EXECUTE') AS anon_execute,
            has_function_privilege('authenticated', p.oid, 'EXECUTE') AS authenticated_execute,
            has_function_privilege($2, p.oid, 'EXECUTE') AS runtime_execute,
+           has_function_privilege($3, p.oid, 'EXECUTE') AS admin_runtime_execute,
+           has_function_privilege($4, p.oid, 'EXECUTE') AS native_executor_execute,
+           has_function_privilege($5, p.oid, 'EXECUTE') AS app_runtime_execute,
            EXISTS (
              SELECT 1
              FROM unnest(COALESCE(p.proconfig, ARRAY[]::text[])) AS cfg(setting)
@@ -2615,7 +2806,13 @@ async function collectEvidence(client, schemaName, runtimeRole) {
     JOIN pg_namespace AS n ON n.oid = p.pronamespace
     WHERE n.nspname = $1
     ORDER BY function_name`,
-    [schemaName, runtimeRole],
+    [
+      schemaName,
+      runtimeRole,
+      "circles_admin_runtime",
+      "circles_admin_native_executor",
+      "circles_app_runtime",
+    ],
   );
 
   const routineAclResult = await queryCatalog(
@@ -2810,9 +3007,32 @@ async function collectEvidence(client, schemaName, runtimeRole) {
   const externalColumnPrivileges = withColumnKeys(
     rowsOrNull(externalColumnResult),
   );
+  const routineAclPrivileges = rowsOrNull(routineAclResult);
+  const routineAclByName = new Map();
+  if (Array.isArray(routineAclPrivileges)) {
+    for (const row of routineAclPrivileges) {
+      const existing = routineAclByName.get(row?.routine_name) ?? [];
+      existing.push(row);
+      routineAclByName.set(row?.routine_name, existing);
+    }
+  }
   const functions = rowsOrNull(functionResult)?.map((row) => ({
     ...row,
     routine_name: row.function_name,
+    // Retain only independently granted execute authority. The owner's default
+    // ACL is not a separate grant and is checked by the function owner field.
+    direct_acl: Array.isArray(routineAclPrivileges)
+      ? (routineAclByName.get(row.function_name) ?? [])
+          .filter((acl) => acl?.grantee !== acl?.owner)
+          .map((acl) => ({
+            grantee: acl?.grantee,
+            privilege_type: acl?.privilege_type,
+            is_grantable: acl?.is_grantable,
+          }))
+          .sort((left, right) =>
+            stableFingerprint(left).localeCompare(stableFingerprint(right)),
+          )
+      : null,
   }));
 
   const data = {
@@ -2832,7 +3052,7 @@ async function collectEvidence(client, schemaName, runtimeRole) {
     default_privilege_contexts: rowsOrNull(defaultContextsResult),
     default_privileges: rowsOrNull(defaultPrivilegesResult),
     functions,
-    routine_acl_privileges: rowsOrNull(routineAclResult),
+    routine_acl_privileges: routineAclPrivileges,
     schema_exposure_raw: rowsOrNull(exposureResult)?.[0] ?? null,
     external_schema_privileges: rowsOrNull(externalSchemaResult),
     external_table_privileges: rowsOrNull(externalTableResult),
@@ -3090,6 +3310,31 @@ export async function runAudit(options) {
       runtime_routine_privileges: evidence.runtime_routine_privileges,
     };
 
+    const schemaIdentity = {
+      application: evaluateSchemaIdentity(evidence.schema, SCHEMA),
+      administration: evaluateSchemaIdentity(
+        adminEvidence.schema,
+        ADMIN_SCHEMA,
+      ),
+    };
+    report.checks.push(
+      makeCheck(
+        context,
+        "private_schema_identity",
+        Object.values(schemaIdentity).every(
+          (result) => result.status === "pass",
+        )
+          ? "pass"
+          : "fail",
+        Object.values(schemaIdentity).every(
+          (result) => result.status === "pass",
+        )
+          ? "The catalog returned the exact circles_app and circles_admin schema identities."
+          : "The catalog did not return the expected private application/admin schema identity.",
+        schemaIdentity,
+      ),
+    );
+
     const inventory = Array.isArray(evidence.raw_tables)
       ? evaluateInventory(expectedNames, evidence.raw_tables)
       : null;
@@ -3153,8 +3398,8 @@ export async function runAudit(options) {
         context,
         "reviewed_admin_authorization_contract",
         adminAuthorizationEvaluation,
-        "The two reviewed admin roles, their exact membership edges, app-side schema/table/column/sequence ACLs, admin table inventory, and native helper set match the finite contract.",
-        "Reviewed admin-role flags, membership, app ACLs, admin inventory, native helpers, or named DB-08 helper-path state differ from the finite contract.",
+        "The reviewed admin roles, exact membership edges, app-side ACLs, and one whole legacy or current admin state match the finite contract; the current state additionally pins nine tables, direct admin ACLs, and every helper body/path/executor/ACL record.",
+        "Reviewed admin-role flags, membership, app ACLs, admin inventory, direct admin ACLs, native helpers, helper identity, executor capability, or a complete named state differs from the finite contract.",
       ),
     );
 
@@ -3165,8 +3410,8 @@ export async function runAudit(options) {
         context,
         "dedicated_application_login_authorization_contract",
         appLoginAuthorizationEvaluation,
-        "Dedicated application-login evidence matches one whole reviewed DB-02 state: historical baseline, NOLOGIN provisioning, or protected LOGIN cutover; any direct object ACL or extra membership edge is absent.",
-        "Dedicated application-login role flags, its SET-only runtime membership, direct object ACL boundary, or named DB-02 transition state differs from the finite contract.",
+        "Dedicated application-login evidence matches one whole reviewed DB-02 state: historical baseline, NOLOGIN provisioning, explicit detached NOLOGIN state, or protected LOGIN cutover; any direct object ACL or extra membership edge is absent.",
+        "Dedicated application-login role flags, detached/cutover membership boundary, direct object ACL boundary, or named DB-02 transition state differs from the finite contract.",
       ),
     );
 

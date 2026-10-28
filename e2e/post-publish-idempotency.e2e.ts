@@ -320,6 +320,21 @@ afterAll(async () => {
 
 describe.sequential("Post publication idempotency isolated HTTP E2E", () => {
   it("keeps the receipt table private, forced-RLS, and writable only by the runtime role", async () => {
+    const legacyColumns = await adminPool!.query<{ name: string }>(
+      `SELECT attribute_catalog.attname AS name
+         FROM pg_catalog.pg_attribute AS attribute_catalog
+        WHERE attribute_catalog.attrelid = 'circles_publish."postPublishReceipts"'::pg_catalog.regclass
+          AND attribute_catalog.attnum > 0
+          AND NOT attribute_catalog.attisdropped
+        ORDER BY attribute_catalog.attnum`,
+    );
+    expect(legacyColumns.rows).toEqual([
+      { name: "actorId" },
+      { name: "operationId" },
+      { name: "payloadHash" },
+      { name: "postId" },
+      { name: "createdAt" },
+    ]);
     const result = await adminPool!.query<{
       rls: boolean;
       forced: boolean;
@@ -511,6 +526,79 @@ describe.sequential("Post publication idempotency isolated HTTP E2E", () => {
       [input.clientPublishId],
     );
     expect(tombstone.rows).toEqual([{ postId: null }]);
+  });
+
+  it("retries through the current six-column generated-bigint receipt identity without exposing it", async () => {
+    // All legacy cases above use the unmodified five-column migration fixture. This local DDL
+    // deliberately upgrades only the remaining disposable fixture before the final DROP TABLE case.
+    await adminPool!.query(
+      `ALTER TABLE circles_publish."postPublishReceipts"
+         ADD COLUMN id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY`,
+    );
+    const identity = await adminPool!.query<{
+      sequence: string;
+      generatedAlways: boolean;
+      bigint: boolean;
+      primaryKey: boolean;
+    }>(
+      `SELECT pg_catalog.pg_get_serial_sequence(
+                'circles_publish."postPublishReceipts"',
+                'id'
+              ) AS sequence,
+              attribute_catalog.attidentity = 'a' AS "generatedAlways",
+              pg_catalog.format_type(
+                attribute_catalog.atttypid,
+                attribute_catalog.atttypmod
+              ) = 'bigint' AS bigint,
+              EXISTS (
+                SELECT 1
+                  FROM pg_catalog.pg_constraint AS constraint_catalog
+                 WHERE constraint_catalog.conrelid = attribute_catalog.attrelid
+                   AND constraint_catalog.contype = 'p'
+                   AND constraint_catalog.conkey = ARRAY[attribute_catalog.attnum]::smallint[]
+              ) AS "primaryKey"
+         FROM pg_catalog.pg_attribute AS attribute_catalog
+        WHERE attribute_catalog.attrelid = 'circles_publish."postPublishReceipts"'::pg_catalog.regclass
+          AND attribute_catalog.attname = 'id'
+          AND NOT attribute_catalog.attisdropped`,
+    );
+    expect(identity.rows).toEqual([
+      {
+        sequence: expect.any(String),
+        generatedAlways: true,
+        bigint: true,
+        primaryKey: true,
+      },
+    ]);
+    await adminPool!.query("SELECT setval($1::regclass, $2::bigint, true)", [
+      identity.rows[0]!.sequence,
+      BigInt(Number.MAX_SAFE_INTEGER).toString(),
+    ]);
+
+    const input: PublicationInput = {
+      text: "current generated receipt identity",
+      mediaType: "text",
+      clientPublishId: "publish-current-six-001",
+    };
+    const first = await publish(2, input);
+    const retry = await publish(2, input);
+    const id = postId(first);
+    expect(postId(retry)).toBe(id);
+    expect(Number.isSafeInteger(id)).toBe(true);
+    expect(first.data).not.toHaveProperty("receiptId");
+
+    const receipt = await adminPool!.query<{ id: string; postId: number }>(
+      `SELECT id::text AS id, "postId" AS "postId"
+         FROM circles_publish."postPublishReceipts"
+        WHERE "actorId" = 2 AND "operationId" = $1`,
+      [input.clientPublishId],
+    );
+    expect(receipt.rows).toEqual([
+      {
+        id: (BigInt(Number.MAX_SAFE_INTEGER) + 1n).toString(),
+        postId: id,
+      },
+    ]);
   });
 
   it("fails ID-bearing publication safely when the receipt migration is absent while legacy publication remains available", async () => {
