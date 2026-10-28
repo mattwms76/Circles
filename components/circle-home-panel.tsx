@@ -22,7 +22,16 @@ import {
 } from "@/shared/circle-home";
 import type { Post } from "@/shared/social";
 import { PostCard } from "@/components/post-card";
-import { Button, C, Empty, Icon, Loading, s, T } from "@/components/circles-ui";
+import {
+  Heading,
+  Button,
+  C,
+  Empty,
+  Icon,
+  Loading,
+  s,
+  T,
+} from "@/components/circles-ui";
 import { StatusMessage } from "@/components/status-message";
 
 type CircleHomePanelProps = {
@@ -31,6 +40,8 @@ type CircleHomePanelProps = {
   isLoading: boolean;
   isError: boolean;
   onRetry: () => void;
+  showSetupHints?: boolean;
+  onOpenFeed?: () => void;
 };
 
 /** The read-only Home tab. Its caller passes only response data bound to the active account. */
@@ -40,10 +51,13 @@ export function CircleHomePanel({
   isLoading,
   isError,
   onRetry,
+  showSetupHints = false,
+  onOpenFeed,
 }: CircleHomePanelProps) {
   if (!canRead) {
     return (
       <Empty
+        headingLevel={2}
         icon="lock-closed-outline"
         title="A little space, just for members."
         text="Join this circle to see its welcome, guidelines, and pinned moment."
@@ -55,6 +69,7 @@ export function CircleHomePanel({
   if (isError) {
     return (
       <Empty
+        headingLevel={2}
         icon="home-outline"
         title="We couldn’t load this circle’s Home."
         text="Check your connection and try again."
@@ -69,6 +84,7 @@ export function CircleHomePanel({
   if (!home) {
     return (
       <Empty
+        headingLevel={2}
         icon="home-outline"
         title="Home is getting ready."
         text="The circle’s welcome and guidelines will appear here when they’re available."
@@ -76,64 +92,98 @@ export function CircleHomePanel({
     );
   }
 
+  if (
+    !showSetupHints &&
+    !home.welcomeMessage &&
+    !home.rules.length &&
+    !home.pinnedPost
+  ) {
+    return (
+      <Empty
+        headingLevel={2}
+        icon="people-outline"
+        title="Get to know this circle."
+        text="Explore shared moments and meet the people who make this circle."
+        action={onOpenFeed ? "Explore moments" : undefined}
+        onAction={onOpenFeed}
+      />
+    );
+  }
+
   return (
     <View style={{ gap: 16 }}>
-      <View style={[s.card, { padding: 20, gap: 10 }]}>
-        <T style={s.eyebrow}>A NOTE FROM YOUR CIRCLE</T>
-        {home.welcomeMessage ? (
-          <T style={{ color: C.muted, fontSize: 15, lineHeight: 23 }}>
-            {home.welcomeMessage}
-          </T>
-        ) : (
-          <T style={{ color: C.muted, fontSize: 14, lineHeight: 21 }}>
-            No welcome message has been set yet.
-          </T>
-        )}
-      </View>
+      {(home.welcomeMessage || showSetupHints) && (
+        <View style={[s.card, { padding: 20, gap: 10 }]}>
+          <Heading level={2} style={s.eyebrow}>
+            A NOTE FROM YOUR CIRCLE
+          </Heading>
+          {home.welcomeMessage ? (
+            <T style={{ color: C.muted, fontSize: 15, lineHeight: 23 }}>
+              {home.welcomeMessage}
+            </T>
+          ) : (
+            <T style={{ color: C.muted, fontSize: 14, lineHeight: 21 }}>
+              No welcome message has been set yet.
+            </T>
+          )}
+        </View>
+      )}
 
-      <View style={[s.card, { padding: 20, gap: 13 }]}>
-        <T style={s.eyebrow}>CIRCLE GUIDELINES</T>
-        {home.rules.length ? (
-          home.rules.map((rule, index) => (
-            <View
-              key={`${index}:${rule}`}
-              style={[s.row, { alignItems: "flex-start", gap: 9 }]}
-            >
-              <Icon name="checkmark-circle-outline" size={18} color={C.green} />
-              <T
-                style={{
-                  flex: 1,
-                  color: C.muted,
-                  fontSize: 14,
-                  lineHeight: 21,
-                }}
+      {(home.rules.length > 0 || showSetupHints) && (
+        <View style={[s.card, { padding: 20, gap: 13 }]}>
+          <Heading level={2} style={s.eyebrow}>
+            CIRCLE GUIDELINES
+          </Heading>
+          {home.rules.length ? (
+            home.rules.map((rule, index) => (
+              <View
+                key={`${index}:${rule}`}
+                style={[s.row, { alignItems: "flex-start", gap: 9 }]}
               >
-                {rule}
+                <Icon
+                  name="checkmark-circle-outline"
+                  size={18}
+                  color={C.green}
+                />
+                <T
+                  style={{
+                    flex: 1,
+                    color: C.muted,
+                    fontSize: 14,
+                    lineHeight: 21,
+                  }}
+                >
+                  {rule}
+                </T>
+              </View>
+            ))
+          ) : (
+            <T style={{ color: C.muted, fontSize: 14, lineHeight: 21 }}>
+              This circle hasn’t configured any circle guidelines yet.
+            </T>
+          )}
+        </View>
+      )}
+
+      {(home.pinnedPost || showSetupHints) && (
+        <View style={{ gap: 8 }}>
+          <View style={[s.row, { gap: 7, paddingHorizontal: 2 }]}>
+            <Icon name="pin-outline" color={C.coral} size={17} />
+            <Heading level={2} style={s.eyebrow}>
+              PINNED MOMENT
+            </Heading>
+          </View>
+          {home.pinnedPost ? (
+            <PostCard post={home.pinnedPost} />
+          ) : (
+            <View style={[s.card, { padding: 20 }]}>
+              <T style={{ color: C.muted, fontSize: 14, lineHeight: 21 }}>
+                No moment is pinned right now.
               </T>
             </View>
-          ))
-        ) : (
-          <T style={{ color: C.muted, fontSize: 14, lineHeight: 21 }}>
-            This circle hasn’t configured any circle guidelines yet.
-          </T>
-        )}
-      </View>
-
-      <View style={{ gap: 8 }}>
-        <View style={[s.row, { gap: 7, paddingHorizontal: 2 }]}>
-          <Icon name="pin-outline" color={C.coral} size={17} />
-          <T style={s.eyebrow}>PINNED MOMENT</T>
+          )}
         </View>
-        {home.pinnedPost ? (
-          <PostCard post={home.pinnedPost} />
-        ) : (
-          <View style={[s.card, { padding: 20 }]}>
-            <T style={{ color: C.muted, fontSize: 14, lineHeight: 21 }}>
-              No post is pinned right now.
-            </T>
-          </View>
-        )}
-      </View>
+      )}
     </View>
   );
 }
@@ -455,7 +505,9 @@ export function CircleHomeEditor({
 
           {home.pinnedPost ? (
             <View style={{ gap: 8 }}>
-              <T style={s.eyebrow}>CURRENTLY PINNED</T>
+              <Heading level={2} style={s.eyebrow}>
+                CURRENTLY PINNED
+              </Heading>
               <PostCard post={home.pinnedPost} />
               <Button
                 title={

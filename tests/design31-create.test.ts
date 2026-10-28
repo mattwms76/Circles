@@ -11,6 +11,12 @@ import {
   createRootSafeAreaInsets,
   resolveCreateRecipient,
 } from "../lib/design31-create";
+vi.mock("@/components/screen-metadata", () => ({
+  ScreenMetadata: "ScreenMetadata",
+}));
+vi.mock("../components/screen-metadata", () => ({
+  ScreenMetadata: "ScreenMetadata",
+}));
 
 const fixture = vi.hoisted(() => ({
   params: {
@@ -132,6 +138,7 @@ vi.mock("@/components/circles-ui", () => ({
     title: {},
   },
   T: "T",
+  Heading: "T",
   Wordmark: "Wordmark",
 }));
 vi.mock("@/hooks/circles-context", () => ({

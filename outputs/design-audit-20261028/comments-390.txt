@@ -1,0 +1,128 @@
+- button "Circles home":
+  - generic: circles.
+- button "Search Circles":
+  - generic: 
+- button "Open messages":
+  - generic: 
+- generic: LESS SCROLLING. MORE BELONGING.
+- generic: Your daily connection
+- generic: Your world, a little closer.
+- generic: Good people. Shared passions. Real moments.
+- generic "Moments from people you may know":
+  - button "Create your moment":
+    - generic: "Y"
+    - generic: 
+    - generic: Your moment
+  - button "Open profile for Ada Moreno":
+    - generic: Ada
+  - button "Open profile for Jules Park":
+    - generic: Jules
+  - button "Open profile for Mina Patel":
+    - generic: Mina
+  - button "Open profile for Sam Okafor":
+    - generic: Sam
+  - button "Open profile for Rory Chen":
+    - generic: Rory
+- generic "Feed filters":
+  - button " For you":
+    - generic: 
+    - generic: For you
+  - button "Following":
+    - generic: Following
+  - button "Your circles":
+    - generic: Your circles
+  - button "Open Live now, 0 live sessions":
+    - generic: Live now · 0
+- button "Open Jules Park's profile":
+  - generic: Jules Park
+  - generic: 
+  - generic: · 556d
+  - generic: "@jules-parks"
+- button "Post options":
+  - generic: 
+- button "Open The Great Outdoors circle":
+  - generic: 
+  - generic: The Great Outdoors
+- button "Like post":
+  - generic: 
+  - generic: "0"
+- button "Open 0 comments":
+  - generic: 
+  - generic: "0"
+- button "Share post":
+  - generic: 
+- button "Save post":
+  - generic: 
+- generic: Jules
+- text: The trail began in a hush and ended above the weather. I love how a long climb gives every ordinary breath a little more meaning. What view has stayed with you lately?
+- button "Open Ada Moreno's profile":
+  - generic: Ada Moreno
+  - generic: 
+  - generic: · 558d
+  - generic: "@ada-m"
+- button "Post options":
+  - generic: 
+- button "Open Slow Living circle":
+  - generic: 
+  - generic: Slow Living
+- button "Like post":
+  - generic: 
+  - generic: "0"
+- button "Open 0 comments":
+  - generic: 
+  - generic: "0"
+- button "Share post":
+  - generic: 
+- button "Save post":
+  - generic: 
+- generic: Ada
+- text: A slow pour, an open window, and nowhere urgent to be for ten whole minutes. Today’s tiny luxury is letting the morning arrive before I do.
+- button "Open Sam Okafor's profile":
+  - generic: Sam Okafor
+  - generic: 
+  - generic: · 558d
+  - generic: "@sam-sees"
+- button "Post options":
+  - generic: 
+- button "Open Through the Lens circle":
+  - generic: 
+  - generic: Through the Lens
+- button "Like post":
+  - generic: 
+  - generic: "0"
+- button "Open 0 comments":
+  - generic: 
+  - generic: "0"
+- button "Share post":
+  - generic: 
+- button "Save post":
+  - generic: 
+- generic: Sam
+- text: Portraits work best when the person in front of the camera forgets they are performing. This in-between laugh was the frame I had been waiting for.
+- generic "End of feed. Example community content. Your own story starts with sign-in.":
+  - generic: 
+  - generic: You’re all caught up. Go make a moment.
+  - generic: Example community content · Your own story starts with sign-in.
+- tab " Home":
+  - generic: 
+  - generic: Home
+- tab " Discover":
+  - generic: 
+  - generic: Discover
+- button "Create a post or circle":
+  - generic: 
+- tab " Circles":
+  - generic: 
+  - generic: Circles
+- tab " You":
+  - generic: 
+  - generic: You
+- dialog:
+  - generic: The conversation
+  - button "close" [active]:
+    - generic: 
+  - generic: Be the first to say something kind.
+  - textbox "Comment text":
+    - /placeholder: Add to the conversation…
+  - button "Enter a comment to send" [disabled]:
+    - generic: 

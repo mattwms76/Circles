@@ -1,3 +1,4 @@
+import { controlAccessibilityProps } from "../../lib/control-accessibility";
 import React from "react";
 import { Tabs, useRouter } from "expo-router";
 import { Pressable, useWindowDimensions, View } from "react-native";
@@ -46,7 +47,7 @@ function TabBar({ state, navigation }: TabBarProps) {
           <React.Fragment key={route.key}>
             {index === 2 && (
               <Pressable
-                accessibilityLabel="Create a post or circle"
+                accessibilityLabel="Share a moment or create a circle"
                 accessibilityRole="button"
                 onPress={() => requireAuth(() => router.push("/create"))}
                 style={{
@@ -65,7 +66,7 @@ function TabBar({ state, navigation }: TabBarProps) {
             )}
             <Pressable
               accessibilityRole="tab"
-              accessibilityState={{ selected }}
+              {...controlAccessibilityProps({ selected }, "tab")}
               onPress={() => navigation.navigate(route.name)}
               style={{ flex: 1, alignItems: "center", gap: 4, minHeight: 44 }}
             >

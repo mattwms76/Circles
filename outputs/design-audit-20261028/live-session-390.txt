@@ -1,0 +1,10 @@
+- button "Circles home":
+  - generic: circles.
+- button "Search Circles"
+- button "Open messages"
+- button "Leave live stream"
+- generic: A MOMENT TOGETHER
+- generic: Come join the moment.
+- generic: Sign in to watch live video and join the conversation.
+- button "Sign in":
+  - generic: Sign in

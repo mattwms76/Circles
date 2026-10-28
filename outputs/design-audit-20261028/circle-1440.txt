@@ -1,0 +1,94 @@
+- button "Circles home":
+  - generic: circles.
+- button "Search Circles":
+  - generic: 
+  - generic: Find your people, circles, and inspiration
+  - generic: ⌘ K
+- button "Open messages":
+  - generic: 
+- button "Open your profile":
+  - generic: "Y"
+- generic: YOUR SPACE
+- button "Open Home":
+  - generic: 
+  - generic: Home
+- button "Open Discover":
+  - generic: 
+  - generic: Discover
+- button "Open My circles":
+  - generic: 
+  - generic: My circles
+- button "Open Updates":
+  - generic: 
+  - generic: Updates
+- button "Open Messages":
+  - generic: 
+  - generic: Messages
+- button "Open Profile":
+  - generic: 
+  - generic: Profile
+- button "Open Live now":
+  - generic: 
+  - generic: Live now
+- button "Create a post":
+  - generic: 
+  - generic: Create a post
+- generic: Less scrolling. More belonging.
+- generic: © 2026 Circles
+- button "Back to your people":
+  - generic: 
+  - generic: Back to your people
+- generic: CIRCLE SPACE
+- generic: MOUNTAINS
+- generic: The Great Outdoors
+- generic: 
+- generic: 
+- generic: Public circle · 1 members
+- generic: Trail notes, wide skies, and invitations to step outside.
+- button "Join this circle" [disabled]:
+  - progressbar:
+- generic "Circle sections":
+  - button "Home":
+    - generic: Home
+  - button "Feed":
+    - generic: Feed
+  - button "Members":
+    - generic: Members
+  - button "About":
+    - generic: About
+- generic: A NOTE FROM YOUR CIRCLE
+- generic: No welcome message has been set yet.
+- generic: CIRCLE GUIDELINES
+- generic: This circle hasn’t configured any circle guidelines yet.
+- generic: 
+- generic: PINNED MOMENT
+- generic: No post is pinned right now.
+- generic: Find your circles
+- generic: 
+- generic: Small communities. Big connections.
+- button "Open Design People":
+  - generic: Design People
+  - generic: 1 member · design
+- button "Join Design People":
+  - generic: Join
+- button "Open Through the Lens":
+  - generic: Through the Lens
+  - generic: 1 member · photo
+- button "Join Through the Lens":
+  - generic: Join
+- button "Open Weekend Runners":
+  - generic: Weekend Runners
+  - generic: 1 member · running
+- button "Join Weekend Runners":
+  - generic: Join
+- button "Explore all circles ↗":
+  - generic: Explore all circles ↗
+- generic: 
+- generic: Good things start with a circle.
+- generic: A space for your people, your passions, and everything in between.
+- button "Make it yours":
+  - generic: 
+  - generic: Make it yours
+- generic: THE CIRCLES WAY
+- generic: Be yourself. Be kind. Make room for someone new.
+- generic: Community preview · Example creator profiles and curated starter posts.

@@ -6,7 +6,16 @@ import { useCircles } from "@/hooks/circles-context";
 import { AppShell } from "@/components/app-shell";
 import { UserAvatar } from "@/components/user-avatar";
 import { resolveA26LiveCreationAvailability } from "@/lib/a26-live-lobby-state";
-import { Button, C, Empty, Icon, Loading, s, T } from "@/components/circles-ui";
+import {
+  Heading,
+  Button,
+  C,
+  Empty,
+  Icon,
+  Loading,
+  s,
+  T,
+} from "@/components/circles-ui";
 
 export default function LiveLobby() {
   const router = useRouter();
@@ -53,7 +62,7 @@ export default function LiveLobby() {
             </T>
           </View>
         </View>
-        <T style={s.title}>Be here, right now.</T>
+        <Heading style={s.title}>Be here, right now.</Heading>
         <T style={{ color: C.secondary, fontSize: 13 }}>
           A front-row seat to the people and passions you love.
         </T>
@@ -116,6 +125,7 @@ export default function LiveLobby() {
           </View>
         ) : !lives.data?.length ? (
           <Empty
+            headingLevel={2}
             icon="radio-outline"
             title="A little quiet, for now."
             text="No active broadcasts yet. Go live, share a skill, or just spend a little time with your people."
@@ -177,9 +187,12 @@ export default function LiveLobby() {
                     userId={live.host.id}
                   />
                   <View style={{ flex: 1 }}>
-                    <T style={{ fontWeight: "700", fontSize: 15 }}>
+                    <Heading
+                      level={2}
+                      style={{ fontWeight: "700", fontSize: 15 }}
+                    >
                       {live.title}
-                    </T>
+                    </Heading>
                     <T style={{ color: C.secondary, fontSize: 12 }}>
                       {preparing ? "Continue camera setup" : live.host.name}
                     </T>
@@ -199,13 +212,16 @@ export default function LiveLobby() {
           gap: 7,
         }}
       >
-        <T style={{ fontSize: 13, fontWeight: "700", color: C.secondary }}>
+        <Heading
+          level={2}
+          style={{ fontSize: 13, fontWeight: "700", color: C.secondary }}
+        >
           Real people. Real-time video.
-        </T>
+        </Heading>
         <T style={{ fontSize: 12, color: C.secondary, lineHeight: 19 }}>
-          Broadcasting uses your camera and microphone. Native WebRTC needs a
-          development or release build; some networks require a TURN relay for
-          reliable connections.
+          To broadcast, allow camera and microphone access when asked. Join from
+          the Circles app or a supported browser. If the video won’t connect,
+          check your connection and try again.
         </T>
       </View>
     </AppShell>

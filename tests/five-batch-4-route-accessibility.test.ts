@@ -120,7 +120,7 @@ describe("Batch 4 route contrast, status, and media accessibility", () => {
     );
     expect(postCard).toContain('accessibilityRole="image"');
     expect(postCard).toContain("accessibilityLabel={mediaAccessibilityLabel}");
-    expect(postCard).toContain("accessibilityState={{");
+    expect(postCard).toContain("controlAccessibilityProps({");
     expect(postCard).toContain("selected: liked,");
     expect(postCard).toContain("selected: commentsOpen,");
     expect(postCard).toContain("const actionBusy = !actionsAvailable;");

@@ -6,6 +6,7 @@ import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
 import {
   batch3AccountResourceScope,
+  isPendingAccountResourceScope,
   createBatch3AccountResourceSingleFlight,
   isCurrentBatch3AccountResourceOperation,
   type Batch3AccountResourceOperation,
@@ -34,6 +35,7 @@ import {
 } from "@/components/circle-home-panel";
 import { CircleActivityPreference } from "@/components/activity-preferences";
 import { PostCard } from "@/components/post-card";
+import { countLabel } from "../../lib/count-copy";
 import { StatusMessage } from "@/components/status-message";
 import { UserAvatar } from "@/components/user-avatar";
 import {
@@ -43,6 +45,7 @@ import {
 } from "@/lib/circle-home-ui";
 import { canUseCircleActivityPreferences } from "@/lib/activity-ui";
 import {
+  Heading,
   Button,
   C,
   Empty,
@@ -230,7 +233,10 @@ function CircleScreenInstance() {
     void invalidateCircleDirectories(utils);
   };
   const membership = trpc.social.setMembership.useMutation();
-  const isMembershipPending = pendingMembershipScope === circleActionScope;
+  const isMembershipPending = isPendingAccountResourceScope(
+    pendingMembershipScope,
+    circleActionScope,
+  );
   const updateMembership = (joined: boolean) => {
     const intent = a26MembershipIntent(joined, group?.role);
     requireAuth(() => {
@@ -281,7 +287,10 @@ function CircleScreenInstance() {
     });
   };
   const chat = trpc.social.openCircleChat.useMutation();
-  const isChatPending = pendingChatScope === circleActionScope;
+  const isChatPending = isPendingAccountResourceScope(
+    pendingChatScope,
+    circleActionScope,
+  );
   const openCircleChat = () => {
     const operation = captureA26CircleChatOperation({
       mountedOperation: mountedMembershipScope.current,
@@ -509,7 +518,7 @@ function CircleScreenInstance() {
   const manageTabAvailable = isAdmin || canManageHome || homeEditorIsOpen;
 
   return (
-    <AppShell>
+    <AppShell title={routeCircleId && group ? group.name : "Circle"}>
       {!routeCircleId ? (
         <Empty
           title="This circle link isn’t valid."
@@ -611,9 +620,11 @@ function CircleScreenInstance() {
           </View>
           <View style={{ paddingVertical: 24, gap: 13 }}>
             <View style={s.between}>
-              <T style={[s.title, { flex: 1, minWidth: 0, paddingRight: 10 }]}>
+              <Heading
+                style={[s.title, { flex: 1, minWidth: 0, paddingRight: 10 }]}
+              >
                 {group.name}
-              </T>
+              </Heading>
               <View
                 accessible={false}
                 importantForAccessibility="no-hide-descendants"
@@ -642,7 +653,7 @@ function CircleScreenInstance() {
                 {group.privacy === "private"
                   ? "Private circle"
                   : "Public circle"}{" "}
-                · {group.memberCount} members
+                · {countLabel(group.memberCount, "member")}
                 {group.role && group.role !== "pending"
                   ? ` · You’re ${group.role === "owner" ? "the owner" : `a ${group.role}`}`
                   : ""}
@@ -736,11 +747,14 @@ function CircleScreenInstance() {
               isLoading={homeUi.isLoading}
               isError={homeUi.isError}
               onRetry={() => void home.refetch()}
+              showSetupHints={canManageHome}
+              onOpenFeed={() => setTab("Feed")}
             />
           )}
           {tab === "Feed" &&
             (group.privacy === "private" && !group.joined ? (
               <Empty
+                headingLevel={2}
                 icon="lock-closed-outline"
                 title="A little space, just for members."
                 text="Request to join this circle to see its moments and join the conversation."
@@ -749,6 +763,7 @@ function CircleScreenInstance() {
               <Loading />
             ) : feedDisplayState === "error" ? (
               <Empty
+                headingLevel={2}
                 icon="images-outline"
                 title="We couldn’t load this circle’s moments."
                 text="Check your connection and try again."
@@ -757,6 +772,7 @@ function CircleScreenInstance() {
               />
             ) : feedDisplayState === "empty" ? (
               <Empty
+                headingLevel={2}
                 icon="images-outline"
                 title="Make the first connection."
                 text="Share a moment with the circle and give people something to talk about."
@@ -794,6 +810,7 @@ function CircleScreenInstance() {
           {tab === "Members" &&
             (group.privacy === "private" && !group.joined ? (
               <Empty
+                headingLevel={2}
                 icon="lock-closed-outline"
                 title="Members only."
                 text="Join the circle to meet its people."
@@ -802,6 +819,7 @@ function CircleScreenInstance() {
               <Loading />
             ) : membersDisplayState === "error" ? (
               <Empty
+                headingLevel={2}
                 icon="people-outline"
                 title="We couldn’t load the members."
                 text="Check your connection and try again."
@@ -810,6 +828,7 @@ function CircleScreenInstance() {
               />
             ) : membersDisplayState === "empty" ? (
               <Empty
+                headingLevel={2}
                 icon="people-outline"
                 title="No members to show yet."
                 text="Approved members will appear here when they join the circle."
@@ -908,7 +927,9 @@ function CircleScreenInstance() {
               <T style={{ color: C.muted, fontSize: 14, lineHeight: 22 }}>
                 {group.description}
               </T>
-              <T style={s.eyebrow}>CIRCLE GUIDELINES</T>
+              <Heading level={2} style={s.eyebrow}>
+                CIRCLE GUIDELINES
+              </Heading>
               {canReadHome && currentHome?.rules.length ? (
                 <View style={{ gap: 10 }}>
                   {currentHome.rules.map((rule, index) => (
@@ -973,9 +994,9 @@ function CircleScreenInstance() {
           )}
           {tab === "Manage" && manageTabAvailable && (
             <View style={{ gap: 20 }}>
-              <T style={{ fontSize: 18, fontWeight: "700" }}>
+              <Heading level={2} style={{ fontSize: 18, fontWeight: "700" }}>
                 Look after your people.
-              </T>
+              </Heading>
               <T style={{ color: C.muted, fontSize: 14, lineHeight: 21 }}>
                 Owners appoint moderators. Owners and moderators keep the circle
                 welcoming.
@@ -1036,9 +1057,9 @@ function CircleScreenInstance() {
                 )}
               </View>
               <View style={{ gap: 12 }}>
-                <T style={{ fontSize: 17, fontWeight: "700" }}>
+                <Heading level={2} style={{ fontSize: 17, fontWeight: "700" }}>
                   Manage members
-                </T>
+                </Heading>
                 {manageOutcome &&
                   manageOutcome.operation.scope === circleActionScope && (
                     <StatusMessage
@@ -1050,6 +1071,7 @@ function CircleScreenInstance() {
                   <Loading />
                 ) : manageMembersDisplayState === "error" ? (
                   <Empty
+                    headingLevel={2}
                     icon="people-outline"
                     title="We couldn’t load members to manage."
                     text="Check your connection and try again."
@@ -1058,6 +1080,7 @@ function CircleScreenInstance() {
                   />
                 ) : manageMembersDisplayState === "empty" ? (
                   <Empty
+                    headingLevel={2}
                     icon="people-outline"
                     title="No member requests or members yet."
                     text="Join requests and members will appear here when there are people to manage."
@@ -1216,6 +1239,7 @@ function CircleScreenInstance() {
                 <Loading />
               ) : feedDisplayState === "error" ? (
                 <Empty
+                  headingLevel={2}
                   icon="images-outline"
                   title="We couldn’t load posts to moderate."
                   text="Check your connection and try again."
@@ -1224,9 +1248,10 @@ function CircleScreenInstance() {
                 />
               ) : feedDisplayState === "empty" ? (
                 <Empty
+                  headingLevel={2}
                   icon="images-outline"
                   title="No circle posts to moderate."
-                  text="Posts shared with this circle will appear here."
+                  text="Moments shared with this circle will appear here."
                 />
               ) : (
                 <View style={{ gap: 12 }}>
@@ -1278,7 +1303,7 @@ function CircleScreenInstance() {
                   })}
                   {feed.hasNextPage && (
                     <Button
-                      title="Show more posts"
+                      title="Show more moments"
                       secondary
                       loading={feed.isFetchingNextPage}
                       onPress={() => void feed.fetchNextPage()}

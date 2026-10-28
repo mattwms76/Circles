@@ -1,3 +1,4 @@
+import { controlAccessibilityProps } from "../lib/control-accessibility";
 import {
   type ReactNode,
   useCallback,
@@ -476,6 +477,7 @@ function EmailAuthDialog({
           <View style={{ flex: 1, gap: 5 }}>
             <T
               accessibilityRole="header"
+              {...{ "aria-level": isStandalone ? 1 : 2 }}
               style={{ fontSize: 25, fontWeight: "800" }}
             >
               {dialogTitle(mode, formMode)}
@@ -637,7 +639,9 @@ function EmailAuthDialog({
                     ? "Create email credentials"
                     : "Create an account with email"
                 }
-                accessibilityState={{ disabled: hasPendingOperation }}
+                {...controlAccessibilityProps({
+                  disabled: hasPendingOperation,
+                })}
                 disabled={hasPendingOperation}
                 onPress={showSignUp}
                 style={{
@@ -661,7 +665,9 @@ function EmailAuthDialog({
                     ? "Back to add email sign-in"
                     : "Back to email sign in"
                 }
-                accessibilityState={{ disabled: hasPendingOperation }}
+                {...controlAccessibilityProps({
+                  disabled: hasPendingOperation,
+                })}
                 disabled={hasPendingOperation}
                 onPress={showSignIn}
                 style={{
@@ -685,7 +691,9 @@ function EmailAuthDialog({
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Connect existing Circles account"
-                accessibilityState={{ disabled: hasPendingOperation }}
+                {...controlAccessibilityProps({
+                  disabled: hasPendingOperation,
+                })}
                 disabled={hasPendingOperation}
                 onPress={connectExistingCirclesAccount}
                 style={{

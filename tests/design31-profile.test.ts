@@ -200,6 +200,7 @@ vi.mock("../components/circles-ui", () => ({
     eyebrow: { fontSize: 12 },
   },
   T: "T",
+  Heading: "T",
 }));
 vi.mock("@/hooks/circles-context", () => ({
   useCircles: () => ({

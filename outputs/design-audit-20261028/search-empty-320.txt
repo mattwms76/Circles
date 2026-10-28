@@ -1,0 +1,48 @@
+- button "Circles home":
+  - generic: circles.
+- button "Search Circles":
+  - generic: 
+- button "Open messages":
+  - generic: 
+- generic: FOLLOW YOUR CURIOSITY
+- generic: There’s more out there.
+- generic: 
+- textbox "Search people, circles, posts, and live moments" [active]:
+  - /placeholder: People, passions, places…
+  - text: zz-design-audit-no-matches
+- button "Clear search":
+  - generic: 
+- generic "Discover categories":
+  - button "For you":
+    - generic: For you
+  - button "People":
+    - generic: People
+  - button "Circles":
+    - generic: Circles
+  - button "Posts":
+    - generic: Posts
+  - button "Live":
+    - generic: Live
+- generic: People to know
+- generic: MAKE A CONNECTION
+- generic: 
+- generic: No people found.
+- generic: Try another name or handle.
+- generic: A circle for your thing
+- generic: 
+- generic: No circles found.
+- generic: A new passion deserves a new circle.
+- tab " Home":
+  - generic: 
+  - generic: Home
+- tab " Discover":
+  - generic: 
+  - generic: Discover
+- button "Create a post or circle":
+  - generic: 
+- tab " Circles":
+  - generic: 
+  - generic: Circles
+- tab " You":
+  - generic: 
+  - generic: You

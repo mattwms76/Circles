@@ -29,6 +29,7 @@ import { AppShell } from "@/components/app-shell";
 import { StatusMessage } from "@/components/status-message";
 import { UserAvatar } from "@/components/user-avatar";
 import {
+  Heading,
   Avatar,
   Button,
   C,
@@ -519,7 +520,7 @@ function LiveSessionScreen({
                   userId={live.host.id}
                 />
                 <View style={{ flex: 1, minWidth: 0 }}>
-                  <T
+                  <Heading
                     numberOfLines={3}
                     style={{
                       fontSize: 19,
@@ -529,7 +530,7 @@ function LiveSessionScreen({
                     }}
                   >
                     {live.title}
-                  </T>
+                  </Heading>
                   <T style={{ color: C.secondary, fontSize: 12 }}>
                     With {live.host.name}
                   </T>
@@ -568,9 +569,12 @@ function LiveSessionScreen({
               )}
               <View style={[s.card, { padding: 16, marginTop: 20, gap: 12 }]}>
                 <View style={s.between}>
-                  <T style={{ fontWeight: "700", fontSize: 15 }}>
+                  <Heading
+                    level={2}
+                    style={{ fontWeight: "700", fontSize: 15 }}
+                  >
                     In the conversation
-                  </T>
+                  </Heading>
                   <Icon
                     name="chatbubble-ellipses-outline"
                     size={19}
@@ -711,6 +715,7 @@ function LiveSessionScreen({
           )}
         </ScrollView>
         <Modal
+          accessibilityLabel="Leave live conversation"
           visible={endConfirm}
           transparent
           animationType="fade"

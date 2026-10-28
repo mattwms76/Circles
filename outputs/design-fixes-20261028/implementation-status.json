@@ -1,0 +1,127 @@
+{
+  "date": "2026-10-28",
+  "base": "db15a9a",
+  "implemented": [
+    "A01",
+    "A02",
+    "A03",
+    "A04",
+    "A05",
+    "A06",
+    "A07",
+    "R01",
+    "R02",
+    "R03"
+  ],
+  "extra": [
+    "Discover combines each person’s avatar and name into one profile target, reducing duplicate keyboard stops.",
+    "Unconfigured circle Home content becomes one welcoming visitor panel with an Explore moments action. Managers retain their setup prompts.",
+    "Update detail titles and the Mark as read action can wrap at narrow widths. Secondary empty states preserve the page-heading hierarchy."
+  ],
+  "checks": {
+    "typecheck": "passed",
+    "lint": "passed",
+    "whitespace": "passed",
+    "screenChecks": 48,
+    "rootOverflow": 0,
+    "missingTitles": 0,
+    "missingHeadings": 0,
+    "testsPassed": 975,
+    "testsFailed": 18
+  },
+  "failures": [
+    {
+      "file": "circle-home-e2e-safety.test.ts",
+      "cases": [
+        "strips credentials and fails closed on stop/partial-start failures"
+      ]
+    },
+    {
+      "file": "container-source-trigger.test.ts",
+      "cases": [
+        "runs for API and dependency changes as well as manual invocation"
+      ]
+    },
+    {
+      "file": "coturn-operations.test.ts",
+      "cases": [
+        "has syntax-clean helpers and refuses absent host prerequisites in default dry-run mode",
+        "requires TLS files and rejects host mutation unless root explicitly acknowledges --apply",
+        "renders a protected transient config without writing or logging the synthetic secret elsewhere"
+      ]
+    },
+    {
+      "file": "email-identity.test.ts",
+      "cases": [
+        "keeps schema/table private, owner-postgres, FORCE RLS, and only runtime SELECT/INSERT policies"
+      ]
+    },
+    {
+      "file": "oauth-audit-output-paths.test.ts",
+      "cases": [
+        "rejects a symlinked output parent pointing inside the actual Git tree",
+        "uses the Git root even when project-dir is a source subdirectory"
+      ]
+    },
+    {
+      "file": "oauth-pending-state.test.ts",
+      "cases": [
+        "keeps the migration private, RLS-enforced, and limited to the existing runtime role"
+      ]
+    },
+    {
+      "file": "origin-binding.test.ts",
+      "cases": [
+        "rejects an unbound continuity export before opening the bearer file"
+      ]
+    },
+    {
+      "file": "recover-api.test.ts",
+      "cases": [
+        "reports an invalid trusted auth-file live generation as incomplete without issuing live.signals"
+      ]
+    },
+    {
+      "file": "recovery-continuity.test.ts",
+      "cases": [
+        "encrypts a complete synthetic package to the approved public recipient and leaves no plaintext output"
+      ]
+    },
+    {
+      "file": "sec27-database-hardening.test.ts",
+      "cases": [
+        "keeps the bootstrap role proposal unapplied, narrowly scoped, and free of arbitrary role routing"
+      ]
+    },
+    {
+      "file": "sec27-dependency-consumers.test.ts",
+      "cases": [
+        "SEC-030 keeps the Expo flat configuration executable on the final ESLint 9 patch"
+      ]
+    },
+    {
+      "file": "sec27-operations-remediation.test.ts",
+      "cases": [
+        "locks the applied initial operations migration while making atomic checksum transport future-only"
+      ]
+    },
+    {
+      "file": "source-formatting.test.ts",
+      "cases": [
+        "refuses symlinks and parent-directory escapes"
+      ]
+    },
+    {
+      "file": "supabase-security-audit.test.ts",
+      "cases": [
+        "accepts only new private outputs outside the project Git tree and creates 0600 files exclusively",
+        "rejects a project subdirectory and every symlinked output parent without writing a report"
+      ]
+    }
+  ],
+  "limits": [
+    "Authenticated populated flows require original authorised login configuration. Email sign-in remains disabled in this environment.",
+    "Physical iOS/Android devices, native camera/microphone, real broadcasts, large system fonts, VoiceOver and TalkBack remain unverified.",
+    "The full suite is not green: failures remain in unchanged environment, dependency, security and deployment tooling on this Windows checkout."
+  ]
+}

@@ -1,3 +1,4 @@
+import { controlAccessibilityProps } from "../lib/control-accessibility";
 import {
   Image,
   MediaPlaceholder,
@@ -29,6 +30,7 @@ import {
 } from "@/lib/source-query-invalidation";
 import { UserAvatar } from "./user-avatar";
 import {
+  Heading,
   ago,
   Button,
   C,
@@ -433,7 +435,10 @@ export function PostCard({
           }}
           accessibilityRole="button"
           accessibilityLabel={`Open ${post.author.name}'s profile`}
-          accessibilityState={{ disabled: actionBusy, busy: actionBusy }}
+          {...controlAccessibilityProps({
+            disabled: actionBusy,
+            busy: actionBusy,
+          })}
           style={[
             s.row,
             { gap: 10, flex: 1, minHeight: 44 },
@@ -467,7 +472,7 @@ export function PostCard({
           onPress={() => {
             if (actionsAvailable) setMenu(true);
           }}
-          label="Post options"
+          label="Moment options"
           disabled={actionBusy}
           loading={actionBusy}
         />
@@ -480,7 +485,10 @@ export function PostCard({
           }}
           accessibilityRole="button"
           accessibilityLabel={`Open ${post.circleName} circle`}
-          accessibilityState={{ disabled: actionBusy, busy: actionBusy }}
+          {...controlAccessibilityProps({
+            disabled: actionBusy,
+            busy: actionBusy,
+          })}
           style={[
             {
               alignSelf: "flex-start",
@@ -557,12 +565,12 @@ export function PostCard({
               disabled={actionBusy || like.isPending}
               onPress={toggleLike}
               accessibilityRole="button"
-              accessibilityLabel={liked ? "Unlike post" : "Like post"}
-              accessibilityState={{
+              accessibilityLabel={liked ? "Unlike moment" : "Like moment"}
+              {...controlAccessibilityProps({
                 disabled: actionBusy || like.isPending,
                 busy: actionBusy || like.isPending,
                 selected: liked,
-              }}
+              })}
               style={[
                 s.row,
                 {
@@ -590,11 +598,11 @@ export function PostCard({
               }}
               accessibilityRole="button"
               accessibilityLabel={`Open ${post.comments} comments`}
-              accessibilityState={{
+              {...controlAccessibilityProps({
                 disabled: actionBusy,
                 busy: actionBusy,
                 selected: commentsOpen,
-              }}
+              })}
               style={[
                 s.row,
                 {
@@ -622,7 +630,7 @@ export function PostCard({
                   notify("Sharing could not open.", "error");
                 }
               }}
-              label="Share post"
+              label="Share moment"
               disabled={actionBusy}
               loading={actionBusy}
             />
@@ -632,7 +640,7 @@ export function PostCard({
             color={saved ? C.coral : C.ink}
             size={20}
             onPress={toggleSave}
-            label={saved ? "Remove saved post" : "Save post"}
+            label={saved ? "Remove saved post" : "Save moment"}
             disabled={actionBusy || save.isPending}
             loading={actionBusy || save.isPending}
           />
@@ -651,7 +659,10 @@ export function PostCard({
             }}
             accessibilityRole="button"
             accessibilityLabel={`Open all ${post.comments} comments`}
-            accessibilityState={{ disabled: actionBusy, busy: actionBusy }}
+            {...controlAccessibilityProps({
+              disabled: actionBusy,
+              busy: actionBusy,
+            })}
             style={[
               {
                 minWidth: 44,
@@ -669,6 +680,7 @@ export function PostCard({
         )}
       </View>
       <Modal
+        accessibilityLabel="Comments"
         visible={commentsOpen}
         transparent
         animationType="slide"
@@ -701,11 +713,12 @@ export function PostCard({
               }}
             >
               <View style={s.between}>
-                <T style={{ fontSize: 19, fontWeight: "700" }}>
+                <Heading style={{ fontSize: 19, fontWeight: "700" }}>
                   The conversation
-                </T>
+                </Heading>
                 <IconButton
                   icon="close"
+                  label="Close comments"
                   onPress={() => setCommentsOpen(false)}
                 />
               </View>
@@ -820,6 +833,7 @@ export function PostCard({
         </KeyboardAvoidingView>
       </Modal>
       <Modal
+        accessibilityLabel="Moment options"
         visible={menu}
         transparent
         animationType="fade"
@@ -860,9 +874,11 @@ export function PostCard({
               zIndex: 1,
             }}
           >
-            <T style={{ fontSize: 18, fontWeight: "700", marginBottom: 5 }}>
+            <Heading
+              style={{ fontSize: 18, fontWeight: "700", marginBottom: 5 }}
+            >
               Keep your circle kind.
-            </T>
+            </Heading>
             {post.circleId !== null && (
               <Button
                 title="Report inappropriate content"
@@ -875,7 +891,7 @@ export function PostCard({
             )}
             {user?.id === post.author.id && (
               <Button
-                title="Remove my post"
+                title="Remove my moment"
                 icon="trash-outline"
                 secondary
                 disabled={actionBusy || report.isPending}

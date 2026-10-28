@@ -1,3 +1,5 @@
+import { countNoun } from "./count-copy";
+
 export const A26_PROFILE_NAME_MAX_LENGTH = 120;
 export const A26_PROFILE_HANDLE_MIN_LENGTH = 2;
 export const A26_PROFILE_HANDLE_MAX_LENGTH = 48;
@@ -156,11 +158,12 @@ export function a26ProfileMomentStat({
   }
 
   const exactCount = normalizedA26ProfileCount(loadedCount);
+  const settledNoun = `${tab === "Saved" ? "saved " : ""}${countNoun(exactCount, "moment")}`;
   const completion = hasNextPage ? " loaded" : "";
   return {
     displayValue: formatA26ProfileStatCount(exactCount),
-    label: `${noun}${completion}`,
-    accessibilityLabel: `${exactCount} ${noun}${completion}`,
+    label: `${settledNoun}${completion}`,
+    accessibilityLabel: `${exactCount} ${settledNoun}${completion}`,
   };
 }
 

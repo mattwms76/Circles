@@ -19,6 +19,7 @@ vi.mock("@/lib/trpc", () => ({
 vi.mock("@/components/circles-ui", () => ({
   C: { soft: "#FFF0EB", border: "#E8E9E2", secondary: "#596456" },
   T: "T",
+  Heading: "T",
 }));
 
 function text(node: ReactNode): string {

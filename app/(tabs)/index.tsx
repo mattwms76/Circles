@@ -13,6 +13,7 @@ import { AppShell } from "@/components/app-shell";
 import { PostCard } from "@/components/post-card";
 import { UserAvatar } from "@/components/user-avatar";
 import {
+  Heading,
   Button,
   C,
   Empty,
@@ -84,10 +85,12 @@ export default function HomeScreen() {
             </T>
           </View>
         </View>
-        <T style={[s.title, { marginTop: 4, fontSize: width < 450 ? 28 : 31 }]}>
+        <Heading
+          style={[s.title, { marginTop: 4, fontSize: width < 450 ? 28 : 31 }]}
+        >
           Your world, a little closer
           <T style={{ color: C.coral, fontSize: 31 }}>.</T>
-        </T>
+        </Heading>
         <T
           style={{ color: C.muted, fontSize: 14, lineHeight: 21, marginTop: 2 }}
         >
@@ -258,6 +261,7 @@ export default function HomeScreen() {
         <Loading />
       ) : feedDisplayState.kind === "error" ? (
         <Empty
+          headingLevel={2}
           title="A small pause in the connection."
           text={feed.error?.message || "Check your connection and try again."}
           action="Reconnect"
@@ -267,6 +271,7 @@ export default function HomeScreen() {
         />
       ) : feedDisplayState.kind === "empty" ? (
         <Empty
+          headingLevel={2}
           icon="leaf-outline"
           title={
             filter === "following"

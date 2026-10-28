@@ -73,6 +73,7 @@ vi.mock("@/components/circles-ui", () => ({
   ago: () => "3 minutes ago",
   s: { between: {} },
   T: "T",
+  Heading: "T",
 }));
 vi.mock("../components/circles-ui", () => ({
   Button: "Button",
@@ -86,6 +87,7 @@ vi.mock("../components/circles-ui", () => ({
   },
   Empty: "Empty",
   T: "T",
+  Heading: "T",
 }));
 
 const { ActivityRow, activityRowLabels } = await import("../app/updates/index");

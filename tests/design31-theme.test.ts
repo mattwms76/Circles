@@ -12,6 +12,12 @@ import {
   themeLabPreviewPalettes,
   themeLabPreviewSchemes,
 } from "../lib/batch5-theme-lab";
+vi.mock("@/components/screen-metadata", () => ({
+  ScreenMetadata: "ScreenMetadata",
+}));
+vi.mock("../components/screen-metadata", () => ({
+  ScreenMetadata: "ScreenMetadata",
+}));
 
 const reactState = vi.hoisted(() => ({
   setters: [] as ReturnType<typeof vi.fn>[],

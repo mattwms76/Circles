@@ -1,0 +1,53 @@
+- button "Circles home":
+  - generic: circles.
+- button "Search Circles":
+  - generic: 
+- button "Open messages":
+  - generic: 
+- button "Go back from this profile":
+  - generic: 
+  - generic: Back
+- generic: MEET YOUR PEOPLE
+- generic: Jules Park
+- generic: "@jules-parks"
+- generic: Outside whenever possible.
+- generic "1 moments":
+  - generic: "1"
+  - generic: moments
+- generic "0 followers":
+  - generic: "0"
+  - generic: followers
+- generic "0 following":
+  - generic: "0"
+  - generic: following
+- button "Follow Jules Park":
+  - generic: Follow
+- button "Open a direct conversation with Jules Park":
+  - generic: 
+  - generic: Say hello
+- button "Moments":
+  - generic: Moments
+- button "Open Jules Park's profile":
+  - generic: Jules Park
+  - generic: 
+  - generic: · 556d
+  - generic: "@jules-parks"
+- button "Post options":
+  - generic: 
+- button "Open The Great Outdoors circle":
+  - generic: 
+  - generic: The Great Outdoors
+- button "Like post":
+  - generic: 
+  - generic: "0"
+- button "Open 0 comments":
+  - generic: 
+  - generic: "0"
+- button "Share post":
+  - generic: 
+- button "Save post":
+  - generic: 
+- generic: Jules
+- text: The trail began in a hush and ended above the weather. I love how a long climb gives every ordinary breath a little more meaning. What view has stayed with you lately?
+- generic "1 moments loaded. End of list.":
+  - generic: All 1 moments loaded.

@@ -1,0 +1,18 @@
+- button "Circles home":
+  - generic: circles.
+- button "Search Circles":
+  - generic: 
+- button "Open messages":
+  - generic: 
+- generic: IN THE MOMENT. TOGETHER.
+- generic: LIVE
+- generic: Be here, right now.
+- generic: A front-row seat to the people and passions you love.
+- button "Start a live conversation":
+  - generic: 
+  - generic: Start a live conversation
+- generic: 
+- generic: A little quiet, for now.
+- generic: No active broadcasts yet. Go live, share a skill, or just spend a little time with your people.
+- generic: Real people. Real-time video.
+- generic: Broadcasting uses your camera and microphone. Native WebRTC needs a development or release build; some networks require a TURN relay for reliable connections.

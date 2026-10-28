@@ -1,3 +1,4 @@
+import { controlAccessibilityProps } from "../../lib/control-accessibility";
 import {
   Image,
   MediaPlaceholder,
@@ -644,7 +645,11 @@ function ChatScreenInstance({ conversationId }: { conversationId: number }) {
             label="Back to inbox"
           />
           <View style={{ flex: 1, minWidth: 0 }}>
-            <T style={{ fontSize: 18, fontWeight: "700" }}>
+            <T
+              accessibilityRole="header"
+              {...{ "aria-level": 1 }}
+              style={{ fontSize: 18, fontWeight: "700" }}
+            >
               {authorizedConversation?.name || "Your conversation"}
             </T>
             <T
@@ -673,6 +678,7 @@ function ChatScreenInstance({ conversationId }: { conversationId: number }) {
               style={{ fontSize: 14, textAlign: "center" }}
             />
             <Empty
+              headingLevel={2}
               icon="cloud-offline-outline"
               title="Your conversation is waiting."
               text="Check your connection, then try the sign-in check again."
@@ -682,6 +688,7 @@ function ChatScreenInstance({ conversationId }: { conversationId: number }) {
           </View>
         ) : authState === "guest" ? (
           <Empty
+            headingLevel={2}
             title="Your conversations are private."
             text="Sign in to open this conversation."
             action="Sign in"
@@ -689,6 +696,7 @@ function ChatScreenInstance({ conversationId }: { conversationId: number }) {
           />
         ) : !user ? (
           <Empty
+            headingLevel={2}
             icon="cloud-offline-outline"
             title="Your sign-in needs another check."
             text="Try again before opening this conversation."
@@ -697,6 +705,7 @@ function ChatScreenInstance({ conversationId }: { conversationId: number }) {
           />
         ) : chatAuthorityLocked ? (
           <Empty
+            headingLevel={2}
             title="This conversation is unavailable."
             text="You no longer have access to this conversation."
             action="Back to inbox"
@@ -706,6 +715,7 @@ function ChatScreenInstance({ conversationId }: { conversationId: number }) {
           <Loading />
         ) : conversationUnavailable ? (
           <Empty
+            headingLevel={2}
             title="This conversation is unavailable."
             text={messagesError?.message ?? "This conversation is unavailable."}
             action="Back to inbox"
@@ -735,10 +745,10 @@ function ChatScreenInstance({ conversationId }: { conversationId: number }) {
                   onPress={loadEarlierMessages}
                   accessibilityRole="button"
                   accessibilityLabel="Load earlier messages"
-                  accessibilityState={{
+                  {...controlAccessibilityProps({
                     disabled: isFetchingEarlierMessages,
                     busy: isFetchingEarlierMessages,
-                  }}
+                  })}
                   style={{
                     alignSelf: "center",
                     minHeight: 44,
@@ -762,10 +772,10 @@ function ChatScreenInstance({ conversationId }: { conversationId: number }) {
                   onPress={loadEarlierMessages}
                   accessibilityRole="button"
                   accessibilityLabel="Retry loading earlier messages"
-                  accessibilityState={{
+                  {...controlAccessibilityProps({
                     disabled: isFetchingEarlierMessages,
                     busy: isFetchingEarlierMessages,
-                  }}
+                  })}
                   style={{
                     alignSelf: "center",
                     minHeight: 44,
@@ -787,6 +797,7 @@ function ChatScreenInstance({ conversationId }: { conversationId: number }) {
               )}
               {!loadedMessages.length && (
                 <Empty
+                  headingLevel={2}
                   icon="chatbubble-outline"
                   title="A hello goes a long way."
                   text="You’re connected. Start the conversation."
@@ -1002,10 +1013,10 @@ function ChatScreenInstance({ conversationId }: { conversationId: number }) {
                       ? "Retry message delivery"
                       : "Send message"
                   }
-                  accessibilityState={{
+                  {...controlAccessibilityProps({
                     disabled: sendDisabled,
                     busy: send.isPending || sendingMedia,
-                  }}
+                  })}
                   style={{
                     width: 44,
                     height: 44,

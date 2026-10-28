@@ -1,0 +1,141 @@
+- button "Circles home":
+  - generic: circles.
+- button "Search Circles":
+  - generic: 
+  - generic: Find your people, circles, and inspiration
+  - generic: ⌘ K
+- button "Open messages":
+  - generic: 
+- button "Open your profile":
+  - generic: "Y"
+- generic: YOUR SPACE
+- button "Open Home":
+  - generic: 
+  - generic: Home
+- button "Open Discover":
+  - generic: 
+  - generic: Discover
+- button "Open My circles":
+  - generic: 
+  - generic: My circles
+- button "Open Updates":
+  - generic: 
+  - generic: Updates
+- button "Open Messages":
+  - generic: 
+  - generic: Messages
+- button "Open Profile":
+  - generic: 
+  - generic: Profile
+- button "Open Live now":
+  - generic: 
+  - generic: Live now
+- button "Create a post":
+  - generic: 
+  - generic: Create a post
+- generic: Less scrolling. More belonging.
+- generic: © 2026 Circles
+- generic: FOLLOW YOUR CURIOSITY
+- generic: There’s more out there.
+- generic: 
+- textbox "Search people, circles, posts, and live moments":
+  - /placeholder: People, passions, places…
+- generic "Discover categories":
+  - button "For you":
+    - generic: For you
+  - button "People":
+    - generic: People
+  - button "Circles":
+    - generic: Circles
+  - button "Posts":
+    - generic: Posts
+  - button "Live":
+    - generic: Live
+- generic: People to know
+- generic: MAKE A CONNECTION
+- button "View Ada Moreno's profile":
+- button "View Ada Moreno's profile":
+  - generic: Ada Moreno
+  - generic: "@ada-m"
+  - generic: Noticing the generous little details.
+- button "Follow Ada Moreno":
+  - generic: Follow
+- button "View Jules Park's profile":
+- button "View Jules Park's profile":
+  - generic: Jules Park
+  - generic: "@jules-parks"
+  - generic: Outside whenever possible.
+- button "Follow Jules Park":
+  - generic: Follow
+- button "View Mina Patel's profile":
+- button "View Mina Patel's profile":
+  - generic: Mina Patel
+  - generic: "@mina-makes"
+  - generic: Designing with people, not around them.
+- button "Follow Mina Patel":
+  - generic: Follow
+- button "View Sam Okafor's profile":
+- button "View Sam Okafor's profile":
+  - generic: Sam Okafor
+  - generic: "@sam-sees"
+  - generic: Collecting light and honest moments.
+- button "Follow Sam Okafor":
+  - generic: Follow
+- button "View Rory Chen's profile":
+- button "View Rory Chen's profile":
+  - generic: Rory Chen
+  - generic: "@rory-runs"
+  - generic: A run is better with company.
+- button "Follow Rory Chen":
+  - generic: Follow
+- generic: You’ve reached the end of these people.
+- generic: A circle for your thing
+- button "Open Weekend Runners":
+  - generic: 
+  - generic: running
+- button "Open Weekend Runners":
+  - generic: Weekend Runners
+- generic: Easy miles, local routes, and a friendly reason to lace up.
+- generic: 
+- generic: 1 members · public
+- button "Join circle" [disabled]:
+  - progressbar:
+- button "Open Through the Lens":
+  - generic: 
+  - generic: photo
+- button "Open Through the Lens":
+  - generic: Through the Lens
+- generic: Photographs with a point of view and the stories just outside the frame.
+- generic: 
+- generic: 1 members · public
+- button "Join circle" [disabled]:
+  - progressbar:
+- generic: Find your circles
+- generic: 
+- generic: Small communities. Big connections.
+- button "Open Design People":
+  - generic: Design People
+  - generic: 1 member · design
+- button "Join Design People":
+  - generic: Join
+- button "Open Through the Lens":
+  - generic: Through the Lens
+  - generic: 1 member · photo
+- button "Join Through the Lens":
+  - generic: Join
+- button "Open Weekend Runners":
+  - generic: Weekend Runners
+  - generic: 1 member · running
+- button "Join Weekend Runners":
+  - generic: Join
+- button "Explore all circles ↗":
+  - generic: Explore all circles ↗
+- generic: 
+- generic: Good things start with a circle.
+- generic: A space for your people, your passions, and everything in between.
+- button "Make it yours":
+  - generic: 
+  - generic: Make it yours
+- generic: THE CIRCLES WAY
+- generic: Be yourself. Be kind. Make room for someone new.
+- generic: Community preview · Example creator profiles and curated starter posts.

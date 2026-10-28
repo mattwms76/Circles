@@ -17,7 +17,16 @@ import {
   resolveActivityResponseUiState,
 } from "@/lib/activity-ui";
 import { trpc } from "@/lib/trpc";
-import { Button, C, Empty, Icon, Loading, s, T } from "@/components/circles-ui";
+import {
+  Heading,
+  Button,
+  C,
+  Empty,
+  Icon,
+  Loading,
+  s,
+  T,
+} from "@/components/circles-ui";
 
 export function ActivityDetail({
   viewerId,
@@ -140,10 +149,17 @@ export function ActivityDetail({
 
   return (
     <View style={{ gap: 16 }}>
-      <View style={[s.between, { gap: 12 }]}>
-        <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
+      <View
+        style={[
+          s.between,
+          { gap: 12, flexWrap: "wrap", alignItems: "flex-start" },
+        ]}
+      >
+        <View style={{ flex: 1, flexBasis: 180, minWidth: 0, gap: 4 }}>
           <T style={s.eyebrow}>UPDATE</T>
-          <T style={{ fontSize: 21, fontWeight: "700" }}>Here’s what’s new</T>
+          <Heading style={{ fontSize: 21, fontWeight: "700" }}>
+            Here’s what’s new
+          </Heading>
         </View>
         <Button
           title={marking ? "Marking…" : marked ? "Marked read" : "Mark as read"}

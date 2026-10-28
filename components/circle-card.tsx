@@ -6,6 +6,7 @@ import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
 import {
   batch3AccountResourceScope,
+  isPendingAccountResourceScope,
   createBatch3AccountResourceSingleFlight,
   isCurrentBatch3AccountResourceOperation,
   type Batch3AccountResourceOperation,
@@ -13,6 +14,7 @@ import {
 import { invalidateCircleDirectories } from "@/lib/source-query-invalidation";
 import type { Circle } from "@/shared/social";
 import { Button, C, Icon, s, T } from "./circles-ui";
+import { countLabel } from "../lib/count-copy";
 
 type JoinError = { scope: string; message: string };
 
@@ -75,7 +77,10 @@ function CircleCardInstance({ circle }: { circle: Circle }) {
       mountedScope.current,
       capturedScope,
     );
-  const isJoinPending = pendingJoinScope === circleScope;
+  const isJoinPending = isPendingAccountResourceScope(
+    pendingJoinScope,
+    circleScope,
+  );
   const requestJoin = () => {
     requireAuth(() => {
       const capturedScope = mountedScope.current;
@@ -212,7 +217,7 @@ function CircleCardInstance({ circle }: { circle: Circle }) {
               numberOfLines={2}
               style={{ flex: 1, color: C.muted, fontSize: 12, lineHeight: 18 }}
             >
-              {circle.memberCount} members · {circle.privacy}
+              {countLabel(circle.memberCount, "member")} · {circle.privacy}
             </T>
           </View>
           <Button

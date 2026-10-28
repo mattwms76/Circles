@@ -1,3 +1,5 @@
+import { ScreenMetadata } from "@/components/screen-metadata";
+import { controlAccessibilityProps } from "../lib/control-accessibility";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AppState,
@@ -43,6 +45,7 @@ import {
   resolveCreateRecipient,
 } from "@/lib/design31-create";
 import {
+  Heading,
   Button,
   C,
   Empty,
@@ -119,7 +122,7 @@ function ComposerPill({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={title}
-      accessibilityState={{ selected, disabled }}
+      {...controlAccessibilityProps({ selected, disabled })}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
@@ -795,6 +798,15 @@ function CreateScreenForAccount() {
         createRootSafeAreaInsets(insets),
       ]}
     >
+      <ScreenMetadata
+        title={
+          mode === "circle"
+            ? "Create a circle"
+            : mode === "live"
+              ? "Start a live conversation"
+              : "Share a moment"
+        }
+      />
       <View
         style={[
           s.between,
@@ -836,16 +848,16 @@ function CreateScreenForAccount() {
           }}
         >
           <T style={s.eyebrow}>MAKE A LITTLE CONNECTION</T>
-          <T style={s.title}>
+          <Heading style={s.title}>
             {mode === "circle"
               ? "Bring your people together."
               : mode === "live"
                 ? "A moment, in real time."
                 : "What’s your world today?"}
-          </T>
+          </Heading>
           <View style={[s.row, { gap: 8, flexWrap: "wrap" }]}>
             <ComposerPill
-              title="Post"
+              title="Moment"
               icon="image-outline"
               selected={mode === "post"}
               onPress={() => selectMode("post")}
@@ -903,6 +915,7 @@ function CreateScreenForAccount() {
           )}
           {!user ? (
             <Empty
+              headingLevel={2}
               icon="person-outline"
               title="Make yourself at home."
               text="Sign in to share something, create your own community, or go live."
@@ -943,7 +956,7 @@ function CreateScreenForAccount() {
                       : "What are we talking about?"
                   }
                   editable={!isDraftLocked}
-                  accessibilityState={{ disabled: isDraftLocked }}
+                  {...controlAccessibilityProps({ disabled: isDraftLocked })}
                 />
               )}
               <Input
@@ -963,7 +976,7 @@ function CreateScreenForAccount() {
                     : "A thought, a story, something worth sharing…"
                 }
                 editable={!isDraftLocked}
-                accessibilityState={{ disabled: isDraftLocked }}
+                {...controlAccessibilityProps({ disabled: isDraftLocked })}
               />
               {mode === "circle" ? (
                 <>
@@ -1144,7 +1157,7 @@ function CreateScreenForAccount() {
                       ? "Change selected photo"
                       : `Add ${mode === "circle" ? "a cover photo" : "a photo or video"}`
                   }
-                  accessibilityState={{ disabled: isDraftLocked }}
+                  {...controlAccessibilityProps({ disabled: isDraftLocked })}
                   disabled={isDraftLocked}
                   style={{
                     backgroundColor: C.paper,
@@ -1268,6 +1281,7 @@ function CreateScreenForAccount() {
         </ScrollView>
       </KeyboardAvoidingView>
       <Modal
+        accessibilityLabel="Record a video"
         visible={recorderVisible}
         animationType="slide"
         onRequestClose={() => {

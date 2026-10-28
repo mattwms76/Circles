@@ -222,6 +222,7 @@ vi.mock("@/components/circles-ui", () => ({
   Pill: "Pill",
   s: { between: {}, card: {}, eyebrow: {}, row: {}, title: {} },
   T: "T",
+  Heading: "T",
 }));
 vi.mock("../components/circles-ui", () => ({
   ago: () => "just now",
@@ -247,6 +248,7 @@ vi.mock("../components/circles-ui", () => ({
   Pill: "Pill",
   s: { between: {}, card: {}, eyebrow: {}, row: {}, title: {} },
   T: "T",
+  Heading: "T",
 }));
 vi.mock("@/lib/trpc", () => ({
   trpc: {
@@ -650,6 +652,6 @@ describe("D26 media and messaging behavior", () => {
     );
     expect(
       findAll(ownerMenu, "Button").map((button) => button.props.title),
-    ).toEqual(["Report inappropriate content", "Remove my post", "Close"]);
+    ).toEqual(["Report inappropriate content", "Remove my moment", "Close"]);
   });
 });

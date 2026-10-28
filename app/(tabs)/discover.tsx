@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { Pressable, ScrollView, TextInput, View } from "react-native";
 import { Image } from "@/components/media-image";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { FOCUS_DISCOVER_SEARCH_EVENT } from "../../lib/search-shortcut";
 import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
 import {
@@ -25,6 +26,7 @@ import { PostCard } from "@/components/post-card";
 import { StatusMessage } from "@/components/status-message";
 import { UserAvatar } from "@/components/user-avatar";
 import {
+  Heading,
   Button,
   C,
   Empty,
@@ -126,6 +128,20 @@ export default function DiscoverScreen() {
 
 function DiscoverScreenInstance() {
   const router = useRouter();
+  const { focus } = useLocalSearchParams<{ focus?: string }>();
+  const searchInput = useRef<TextInput>(null);
+  useFocusEffect(
+    useCallback(() => {
+      if (focus === "search") searchInput.current?.focus();
+    }, [focus]),
+  );
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const focusSearch = () => searchInput.current?.focus();
+    window.addEventListener(FOCUS_DISCOVER_SEARCH_EVENT, focusSearch);
+    return () =>
+      window.removeEventListener(FOCUS_DISCOVER_SEARCH_EVENT, focusSearch);
+  }, []);
   const { user, requireAuth, notify } = useCircles();
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState("For you");
@@ -313,7 +329,7 @@ function DiscoverScreenInstance() {
     <AppShell>
       <View style={[contentWidth, { gap: 19 }]}>
         <T style={s.eyebrow}>FOLLOW YOUR CURIOSITY</T>
-        <T style={s.title}>There’s more out there.</T>
+        <Heading style={s.title}>There’s more out there.</Heading>
         <View
           style={[
             s.row,
@@ -329,11 +345,13 @@ function DiscoverScreenInstance() {
         >
           <Icon name="search-outline" size={19} color={C.secondary} />
           <TextInput
+            ref={searchInput}
+            testID="discover-search"
             placeholder="People, passions, places…"
             value={search}
             onChangeText={changeSearch}
             maxLength={80}
-            accessibilityLabel="Search people, circles, posts, and live moments"
+            accessibilityLabel="Search people, circles, moments, and live conversations"
             placeholderTextColor={C.secondary}
             style={{
               flex: 1,
@@ -363,7 +381,7 @@ function DiscoverScreenInstance() {
         >
           {["For you", "People", "Circles", "Posts", "Live"].map((item) => (
             <Pill
-              title={item}
+              title={item === "Posts" ? "Moments" : item}
               key={item}
               selected={tab === item}
               onPress={() => changeTab(item)}
@@ -374,7 +392,9 @@ function DiscoverScreenInstance() {
       {(tab === "For you" || tab === "People") && (
         <View style={[contentWidth, { marginTop: 25, gap: 15 }]}>
           <View style={s.between}>
-            <T style={{ fontSize: 17, fontWeight: "700" }}>People to know</T>
+            <Heading level={2} style={{ fontSize: 17, fontWeight: "700" }}>
+              People to know
+            </Heading>
             <T style={{ fontSize: 12, lineHeight: 18, color: C.secondary }}>
               MAKE A CONNECTION
             </T>
@@ -391,6 +411,7 @@ function DiscoverScreenInstance() {
             <Loading />
           ) : peopleDisplayState.kind === "error" ? (
             <Empty
+              headingLevel={2}
               icon="people-outline"
               title="We couldn’t load people to know."
               text="Check your connection and try again."
@@ -399,6 +420,7 @@ function DiscoverScreenInstance() {
             />
           ) : peopleDisplayState.kind === "empty" ? (
             <Empty
+              headingLevel={2}
               title="No people found."
               text="Try another name or handle."
             />
@@ -453,7 +475,14 @@ function DiscoverScreenInstance() {
                     onPress={() => router.push(`/person/${person.id}`)}
                     accessibilityRole="button"
                     accessibilityLabel={`View ${person.name}'s profile`}
-                    style={{ minWidth: 48, minHeight: 48 }}
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      minHeight: 48,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 12,
+                    }}
                   >
                     <UserAvatar
                       uri={person.avatar}
@@ -461,58 +490,55 @@ function DiscoverScreenInstance() {
                       size={48}
                       userId={person.id}
                     />
-                  </Pressable>
-                  <Pressable
-                    onPress={() => router.push(`/person/${person.id}`)}
-                    accessibilityRole="button"
-                    accessibilityLabel={`View ${person.name}'s profile`}
-                    style={{
-                      flex: 1,
-                      minWidth: 0,
-                      minHeight: 44,
-                      justifyContent: "center",
-                    }}
-                  >
-                    <T
+                    <View
                       style={{
-                        fontWeight: "700",
-                        fontSize: 14,
-                        lineHeight: 20,
+                        flex: 1,
+                        minWidth: 0,
+                        minHeight: 44,
+                        justifyContent: "center",
                       }}
                     >
-                      {person.name}
-                    </T>
-                    <T
-                      style={{
-                        color: C.secondary,
-                        fontSize: 12,
-                        lineHeight: 18,
-                      }}
-                    >
-                      @{person.handle}
-                    </T>
-                    <T
-                      numberOfLines={2}
-                      style={{
-                        color: C.secondary,
-                        fontSize: 14,
-                        lineHeight: 21,
-                      }}
-                    >
-                      {person.bio}
-                    </T>
-                    {followErrorText && (
                       <T
-                        accessibilityRole="alert"
+                        style={{
+                          fontWeight: "700",
+                          fontSize: 14,
+                          lineHeight: 20,
+                        }}
+                      >
+                        {person.name}
+                      </T>
+                      <T
                         style={{
                           color: C.secondary,
                           fontSize: 12,
                           lineHeight: 18,
                         }}
                       >
-                        {followErrorText} Try again when you’re ready.
+                        @{person.handle}
                       </T>
-                    )}
+                      <T
+                        numberOfLines={2}
+                        style={{
+                          color: C.secondary,
+                          fontSize: 14,
+                          lineHeight: 21,
+                        }}
+                      >
+                        {person.bio}
+                      </T>
+                      {followErrorText && (
+                        <T
+                          accessibilityRole="alert"
+                          style={{
+                            color: C.secondary,
+                            fontSize: 12,
+                            lineHeight: 18,
+                          }}
+                        >
+                          {followErrorText} Try again when you’re ready.
+                        </T>
+                      )}
+                    </View>
                   </Pressable>
                   {isOwnProfile ? (
                     <Button
@@ -571,13 +597,17 @@ function DiscoverScreenInstance() {
       )}
       {(tab === "For you" || tab === "Circles") && (
         <View style={[contentWidth, { marginTop: 27 }]}>
-          <T style={{ fontSize: 17, fontWeight: "700", marginBottom: 16 }}>
+          <Heading
+            level={2}
+            style={{ fontSize: 17, fontWeight: "700", marginBottom: 16 }}
+          >
             A circle for your thing
-          </T>
+          </Heading>
           {circlesDisplayState.kind === "loading" ? (
             <Loading />
           ) : circlesDisplayState.kind === "error" ? (
             <Empty
+              headingLevel={2}
               icon="ellipse-outline"
               title="We couldn’t load circles."
               text="Check your connection and try again."
@@ -586,6 +616,7 @@ function DiscoverScreenInstance() {
             />
           ) : circlesDisplayState.kind === "empty" ? (
             <Empty
+              headingLevel={2}
               title="No circles found."
               text="A new passion deserves a new circle."
             />
@@ -626,6 +657,7 @@ function DiscoverScreenInstance() {
             <Loading />
           ) : feedDisplayState.kind === "error" ? (
             <Empty
+              headingLevel={2}
               icon="images-outline"
               title="We couldn’t load moments."
               text="Check your connection and try again."
@@ -634,6 +666,7 @@ function DiscoverScreenInstance() {
             />
           ) : feedDisplayState.kind === "empty" ? (
             <Empty
+              headingLevel={2}
               title="No moments found."
               text="Try another word or explore a circle."
             />
@@ -672,6 +705,7 @@ function DiscoverScreenInstance() {
             <Loading />
           ) : livesDisplayState === "error" ? (
             <Empty
+              headingLevel={2}
               icon="radio-outline"
               title="We couldn’t load live moments."
               text="Check your connection and try again."
@@ -698,7 +732,7 @@ function DiscoverScreenInstance() {
                   accessible={false}
                 />
                 <View style={{ padding: 15 }}>
-                  <T style={{ fontWeight: "700" }}>{live.title}</T>
+                  <Heading style={{ fontWeight: "700" }}>{live.title}</Heading>
                   <T style={{ fontSize: 12, color: C.secondary }}>
                     {live.host.name} · {live.viewers} watching
                   </T>
@@ -707,6 +741,7 @@ function DiscoverScreenInstance() {
             ))
           ) : (
             <Empty
+              headingLevel={2}
               icon="radio-outline"
               title="A quiet moment, for now."
               text="No one is live right now. Start a conversation in real time."

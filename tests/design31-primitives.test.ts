@@ -38,7 +38,8 @@ vi.mock(
   async () => import("../lib/ui-accessibility"),
 );
 
-const { Avatar, C, Input, T } = await import("../components/circles-ui");
+const { Avatar, C, Heading, Input, T } =
+  await import("../components/circles-ui");
 type InputProps = import("../components/circles-ui").InputProps;
 
 type InspectableForwardRef<Instance, Props> = ForwardRefExoticComponent<
@@ -164,5 +165,22 @@ describe("D26 shared primitives accessibility foundation", () => {
       placeholderTextColor: C.secondary,
     });
     expect(contrastRatio(C.secondary, C.bg)).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+describe("audited heading semantics", () => {
+  it("exposes native header semantics and the requested web heading level", () => {
+    const title = Heading({ children: "Circle title" });
+    const section = Heading({ children: "Members", level: 2 });
+    expect(title.props).toMatchObject({
+      accessibilityRole: "header",
+      "aria-level": 1,
+      children: "Circle title",
+    });
+    expect(section.props).toMatchObject({
+      accessibilityRole: "header",
+      "aria-level": 2,
+      children: "Members",
+    });
   });
 });

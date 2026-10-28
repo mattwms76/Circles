@@ -1,0 +1,41 @@
+- button "Circles home":
+  - generic: circles.
+- button "Search Circles":
+  - generic: 
+- button "Open messages":
+  - generic: 
+- generic: FOLLOW YOUR CURIOSITY
+- generic: There’s more out there.
+- generic: 
+- textbox "Search people, circles, posts, and live moments":
+  - /placeholder: People, passions, places…
+- generic "Discover categories":
+  - button "For you":
+    - generic: For you
+  - button "People":
+    - generic: People
+  - button "Circles":
+    - generic: Circles
+  - button "Posts":
+    - generic: Posts
+  - button "Live" [active]:
+    - generic: Live
+- generic: 
+- generic: A quiet moment, for now.
+- generic: No one is live right now. Start a conversation in real time.
+- button "Go live":
+  - generic: Go live
+- tab " Home":
+  - generic: 
+  - generic: Home
+- tab " Discover":
+  - generic: 
+  - generic: Discover
+- button "Create a post or circle":
+  - generic: 
+- tab " Circles":
+  - generic: 
+  - generic: Circles
+- tab " You":
+  - generic: 
+  - generic: You

@@ -1,0 +1,8 @@
+{
+  "guestJoin": "Sign in dialog opens; Join is not busy or disabled",
+  "signInDialog": "Named modal; focus returns to Join",
+  "commentsDialog": "Named modal; contextual close; focus returns to comment control",
+  "keyboardFilter": "Space sets Outdoors aria-pressed=true; All restored",
+  "searchShortcut": "Ctrl+K opens Discover and focuses search",
+  "databaseWrites": "None performed in verification"
+}

@@ -52,7 +52,7 @@ describe("Batch 1A shared UI accessibility seams", () => {
   it("keeps Button names stable during loading and blocks loading presses in both semantics and handler", () => {
     expect(ui).toContain("accessibilityLabel={accessibilityLabel ?? title}");
     expect(ui).toContain(
-      "accessibilityState={{ disabled: isDisabled, busy: loading }}",
+      "controlAccessibilityProps({ disabled: isDisabled, busy: loading })",
     );
     expect(ui).toContain("disabled={isDisabled}");
     expect(ui).toContain("if (!isDisabled) onPress();");

@@ -1,0 +1,50 @@
+- button "Circles home":
+  - generic: circles.
+- button "Search Circles":
+  - generic: 
+- button "Open messages":
+  - generic: 
+- button "Back to your people":
+  - generic: 
+  - generic: Back to your people
+- generic: CIRCLE SPACE
+- generic: MOUNTAINS
+- generic: The Great Outdoors
+- generic: 
+- generic: 
+- generic: Public circle · 1 members
+- generic: Trail notes, wide skies, and invitations to step outside.
+- button "Join this circle" [disabled]:
+  - progressbar:
+- generic "Circle sections":
+  - button "Home":
+    - generic: Home
+  - button "Feed" [active]:
+    - generic: Feed
+  - button "Members":
+    - generic: Members
+  - button "About":
+    - generic: About
+- button "Open Jules Park's profile":
+  - generic: Jules Park
+  - generic: 
+  - generic: · 556d
+  - generic: "@jules-parks"
+- button "Post options":
+  - generic: 
+- button "Open The Great Outdoors circle":
+  - generic: 
+  - generic: The Great Outdoors
+- button "Like post":
+  - generic: 
+  - generic: "0"
+- button "Open 0 comments":
+  - generic: 
+  - generic: "0"
+- button "Share post":
+  - generic: 
+- button "Save post":
+  - generic: 
+- generic: Jules
+- text: The trail began in a hush and ended above the weather. I love how a long climb gives every ordinary breath a little more meaning. What view has stayed with you lately?
+- generic: You’ve reached the end of these moments.

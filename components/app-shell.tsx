@@ -1,4 +1,10 @@
-import React, { useEffect, useRef, useState } from "react";
+import { controlAccessibilityProps } from "../lib/control-accessibility";
+import React, {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { Pressable, ScrollView, useWindowDimensions, View } from "react-native";
 import { usePathname, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -38,6 +44,10 @@ import { Image } from "@/components/media-image";
 import { ActivityBadge } from "./activity-badge";
 import { StatusMessage } from "./status-message";
 import { UserAvatar } from "./user-avatar";
+import { ScreenMetadata } from "./screen-metadata";
+import { routeTitle } from "../lib/route-title";
+import { searchShortcutLabel } from "../lib/search-shortcut";
+import { countNoun } from "../lib/count-copy";
 
 export const navigation: {
   label: string;
@@ -61,7 +71,7 @@ export const navigation: {
     section: "discover",
   },
   {
-    label: "My circles",
+    label: "Circles",
     path: "/circles",
     icon: "ellipse-outline",
     active: "ellipse",
@@ -93,10 +103,12 @@ export function AppShell({
   children,
   scroll = true,
   sidebar = true,
+  title,
 }: {
   children: React.ReactNode;
   scroll?: boolean;
   sidebar?: boolean;
+  title?: string;
 }) {
   const { width } = useWindowDimensions();
   const router = useRouter();
@@ -106,6 +118,11 @@ export function AppShell({
   const layout = appShellLayout(width, insets);
   const { wide, gutter } = layout;
   const selectedSection = resolveAppNavigationSection(path);
+  const shortcutLabel = useSyncExternalStore(
+    subscribeToPlatform,
+    getShortcutLabel,
+    () => "Ctrl K",
+  );
   const ownProfileInput = getA26OwnProfileQueryInput(user?.id);
   const myProfile = trpc.social.profile.useQuery(ownProfileInput, {
     enabled: ownProfileInput !== undefined,
@@ -120,6 +137,7 @@ export function AppShell({
         ...layout.framePadding,
       }}
     >
+      <ScreenMetadata title={title ?? routeTitle(path)} />
       <View
         style={{
           borderBottomWidth: 1,
@@ -160,7 +178,7 @@ export function AppShell({
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Search Circles"
-              onPress={() => router.push("/discover")}
+              onPress={() => router.push("/discover?focus=search")}
               style={{
                 width: 370,
                 maxWidth: "100%",
@@ -189,7 +207,7 @@ export function AppShell({
                   paddingHorizontal: 5,
                 }}
               >
-                <T style={{ fontSize: 10, color: C.muted }}>⌘ K</T>
+                <T style={{ fontSize: 12, color: C.muted }}>{shortcutLabel}</T>
               </View>
             </Pressable>
           )}
@@ -208,7 +226,7 @@ export function AppShell({
             {!wide && (
               <IconButton
                 icon="search-outline"
-                onPress={() => router.push("/discover")}
+                onPress={() => router.push("/discover?focus=search")}
                 label="Search Circles"
               />
             )}
@@ -289,7 +307,8 @@ export function AppShell({
                     onPress={() => router.push(item.path as any)}
                     accessibilityRole="button"
                     accessibilityLabel={`Open ${item.label}`}
-                    accessibilityState={{ selected }}
+                    {...controlAccessibilityProps({ selected })}
+                    {...{ "aria-current": selected ? "page" : undefined }}
                     style={{
                       flexDirection: "row",
                       alignItems: "center",
@@ -333,7 +352,13 @@ export function AppShell({
                 onPress={() => router.push("/live")}
                 accessibilityRole="button"
                 accessibilityLabel="Open Live now"
-                accessibilityState={{ selected: selectedSection === "live" }}
+                {...controlAccessibilityProps({
+                  selected: selectedSection === "live",
+                })}
+                {...{
+                  "aria-current":
+                    selectedSection === "live" ? "page" : undefined,
+                }}
                 style={{
                   flexDirection: "row",
                   alignItems: "center",
@@ -372,7 +397,7 @@ export function AppShell({
               </Pressable>
             </View>
             <Button
-              title="Create a post"
+              title="Share a moment"
               icon="add"
               onPress={() => requireAuth(() => router.push("/create"))}
               style={{ marginTop: 29 }}
@@ -583,8 +608,7 @@ function SidebarCircleRow({
           <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
             <T style={{ fontSize: 12, fontWeight: "700" }}>{circle.name}</T>
             <T style={{ fontSize: 10, color: C.muted }}>
-              {circle.memberCount}{" "}
-              {circle.memberCount === 1 ? "member" : "members"} ·{" "}
+              {circle.memberCount} {countNoun(circle.memberCount, "member")} ·{" "}
               {circle.category}
             </T>
           </View>
@@ -750,5 +774,14 @@ export function CommunitySidebar() {
         </T>
       </View>
     </View>
+  );
+}
+
+function subscribeToPlatform() {
+  return () => {};
+}
+function getShortcutLabel() {
+  return searchShortcutLabel(
+    typeof navigator === "undefined" ? "" : navigator.platform,
   );
 }

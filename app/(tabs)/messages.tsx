@@ -8,6 +8,7 @@ import { StatusMessage } from "@/components/status-message";
 import { conversationAccessibility } from "@/lib/batch2-message-accessibility";
 import { inboxMatchState, visibleUnreadCount } from "@/lib/a26-messaging-state";
 import {
+  Heading,
   ago,
   Avatar,
   C,
@@ -54,7 +55,9 @@ export default function MessagesScreen() {
         >
           <View style={{ flex: 1, minWidth: 0 }}>
             <T style={s.eyebrow}>KEEP THE CONVERSATION GOING</T>
-            <T style={[s.title, { marginTop: 7 }]}>A little hello.</T>
+            <Heading style={[s.title, { marginTop: 7 }]}>
+              A little hello.
+            </Heading>
           </View>
           <IconButton
             icon="create-outline"
@@ -124,6 +127,7 @@ export default function MessagesScreen() {
               style={{ fontSize: 14, textAlign: "center" }}
             />
             <Empty
+              headingLevel={2}
               icon="cloud-offline-outline"
               title="Your inbox is waiting."
               text="Check your connection, then try the sign-in check again."
@@ -133,6 +137,7 @@ export default function MessagesScreen() {
           </View>
         ) : authState === "guest" ? (
           <Empty
+            headingLevel={2}
             icon="chatbubbles-outline"
             title="Your conversations live here."
             text="Sign in to message your people and chat with your circles."
@@ -149,6 +154,7 @@ export default function MessagesScreen() {
               style={{ fontSize: 14, textAlign: "center" }}
             />
             <Empty
+              headingLevel={2}
               title="Your inbox is unavailable right now."
               text="Check your connection and try again."
               action="Try again"
@@ -159,6 +165,7 @@ export default function MessagesScreen() {
           </View>
         ) : matchState === "no-match" ? (
           <Empty
+            headingLevel={2}
             icon="search-outline"
             title="No conversations match your filters."
             text="Try a different search, or clear your search and filters to see every conversation."
@@ -170,6 +177,7 @@ export default function MessagesScreen() {
           />
         ) : matchState === "empty" ? (
           <Empty
+            headingLevel={2}
             icon="chatbubble-ellipses-outline"
             title="It starts with a hello."
             text="Message a creator from their profile, or open the chat in a circle you’ve joined."

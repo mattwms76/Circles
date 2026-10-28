@@ -33,6 +33,7 @@ vi.mock("@/components/circles-ui", () => ({
   Loading: "Loading",
   s: { between: { flexDirection: "row" }, card: {}, row: {} },
   T: "T",
+  Heading: "T",
 }));
 vi.mock("@/components/status-message", () => ({
   StatusMessage: "StatusMessage",

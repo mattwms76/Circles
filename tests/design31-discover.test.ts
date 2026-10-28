@@ -157,6 +157,7 @@ const runtime = vi.hoisted(() => {
 
 vi.mock("react", async () => ({
   ...(await vi.importActual<typeof import("react")>("react")),
+  useCallback: <T>(callback: T) => callback,
   useEffect: runtime.useEffect,
   useRef: runtime.useRef,
   useState: runtime.useState,
@@ -168,6 +169,8 @@ vi.mock("react-native", () => ({
   View: "View",
 }));
 vi.mock("expo-router", () => ({
+  useLocalSearchParams: () => ({}),
+  useFocusEffect: () => {},
   useRouter: () => ({ push: runtime.push }),
 }));
 vi.mock("@/hooks/circles-context", () => ({
@@ -288,6 +291,7 @@ vi.mock("@/components/circles-ui", () => ({
     title: { fontSize: 29 },
   },
   T: "T",
+  Heading: "T",
 }));
 
 const { default: DiscoverScreen } = await import("../app/(tabs)/discover");

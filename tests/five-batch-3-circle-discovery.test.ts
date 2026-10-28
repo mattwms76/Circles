@@ -195,7 +195,7 @@ describe("Batch 3 Circle and Discover integrity", () => {
     expect(circlesScreen).toContain("joinedOnly,");
     expect(circlesScreen).not.toContain("circleItems.filter");
     expect(circlesScreen).toContain("maxLength={120}");
-    expect(circlesScreen).toContain("minHeight: 174");
+    expect(circlesScreen).toContain("minHeight: compactHero ? 96 : 174");
     expect(circlesScreen).toContain(
       'accessibilityLabel="Explore outdoor circles"',
     );

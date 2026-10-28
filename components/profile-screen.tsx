@@ -44,7 +44,9 @@ import { AppShell } from "./app-shell";
 import { PostCard } from "./post-card";
 import { StatusMessage } from "./status-message";
 import { UserAvatar } from "./user-avatar";
+import { countLabel, countNoun } from "../lib/count-copy";
 import {
+  Heading,
   Button,
   C,
   Empty,
@@ -106,7 +108,13 @@ function ProfileEditModal({
   }
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+    <Modal
+      accessibilityLabel="Edit profile"
+      visible
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -140,8 +148,14 @@ function ProfileEditModal({
             }}
           >
             <View style={s.between}>
-              <T style={{ fontWeight: "700", fontSize: 20 }}>Make it you.</T>
-              <IconButton icon="close" onPress={onClose} />
+              <Heading style={{ fontWeight: "700", fontSize: 20 }}>
+                Make it you.
+              </Heading>
+              <IconButton
+                icon="close"
+                label="Close profile editor"
+                onPress={onClose}
+              />
             </View>
             <Input
               label="YOUR NAME"
@@ -619,7 +633,7 @@ export default function ProfileScreen({
   });
   const statsLayout = a26ProfileStatsLayout(width, fontScale);
   return (
-    <AppShell>
+    <AppShell title={p?.name ?? (personId ? "Profile" : "Your profile")}>
       {onBack && (
         <Button
           title="Back"
@@ -741,9 +755,9 @@ export default function ProfileScreen({
             )}
           </View>
           <View style={{ paddingVertical: 16, gap: 10, minWidth: 0 }}>
-            <T testID="profile-name" style={[s.title, { flexShrink: 1 }]}>
+            <Heading testID="profile-name" style={[s.title, { flexShrink: 1 }]}>
               {p.name}
-            </T>
+            </Heading>
             <T style={{ color: C.muted, fontSize: 12 }}>@{p.handle}</T>
             <T style={{ color: C.muted, fontSize: 14, lineHeight: 21 }}>
               {p.bio || "A new face. A new connection."}
@@ -761,8 +775,8 @@ export default function ProfileScreen({
                 {
                   key: "followers",
                   displayValue: formatA26ProfileStatCount(p.followers),
-                  label: "followers",
-                  accessibilityLabel: `${p.followers} followers`,
+                  label: countNoun(p.followers, "follower"),
+                  accessibilityLabel: countLabel(p.followers, "follower"),
                 },
                 {
                   key: "following",
@@ -815,6 +829,7 @@ export default function ProfileScreen({
             <Loading />
           ) : feedDisplayState.kind === "error" ? (
             <Empty
+              headingLevel={2}
               icon="images-outline"
               title={
                 tab === "Saved"
@@ -827,6 +842,7 @@ export default function ProfileScreen({
             />
           ) : feedDisplayState.kind === "empty" ? (
             <Empty
+              headingLevel={2}
               icon="images-outline"
               title={
                 tab === "Saved"
@@ -837,7 +853,7 @@ export default function ProfileScreen({
               }
               text={
                 tab === "Saved"
-                  ? "Tap the bookmark on a post to keep it here."
+                  ? "Tap the bookmark on a moment to keep it here."
                   : "A photo, a thought, a small part of your day."
               }
               action={own && tab !== "Saved" ? "Share a moment" : undefined}
@@ -893,11 +909,11 @@ export default function ProfileScreen({
                 <View
                   testID="profile-feed-end"
                   accessible
-                  accessibilityLabel={`${posts.length} ${tab === "Saved" ? "saved moments" : "moments"} loaded. End of list.`}
+                  accessibilityLabel={`${posts.length} ${tab === "Saved" ? "saved " : ""}${countNoun(posts.length, "moment")} loaded. End of list.`}
                   style={{ alignItems: "center", paddingVertical: 14 }}
                 >
                   <T style={{ color: C.secondary, fontSize: 12 }}>
-                    {`All ${posts.length} ${tab === "Saved" ? "saved moments" : "moments"} loaded.`}
+                    {`All ${posts.length} ${tab === "Saved" ? "saved " : ""}${countNoun(posts.length, "moment")} loaded.`}
                   </T>
                 </View>
               )}

@@ -113,6 +113,7 @@ vi.mock("@/components/circles-ui", () => ({
   Input: "Input",
   Logo: "Logo",
   T: "T",
+  Heading: "T",
 }));
 vi.mock("@/components/status-message", () => ({
   StatusMessage: "StatusMessage",

@@ -26,6 +26,7 @@ import { LiveAvatarProvider } from "@/hooks/live-avatar-context";
 import { OnboardingNavigation } from "@/components/onboarding-navigation";
 import { SourceRevalidation } from "@/components/source-revalidation";
 import { PlatformMaintenanceNotice } from "@/components/platform-maintenance-notice";
+import { SearchShortcut } from "@/components/search-shortcut";
 
 const DEFAULT_WEB_INSETS: EdgeInsets = { top: 0, right: 0, bottom: 0, left: 0 };
 const DEFAULT_WEB_FRAME: Rect = { x: 0, y: 0, width: 0, height: 0 };
@@ -111,6 +112,7 @@ export default function RootLayout() {
               <SourceRevalidation />
               <OnboardingNavigation />
               <PlatformMaintenanceNotice />
+              <SearchShortcut />
               {/* Default to hiding native headers so raw route segments don't appear (e.g. "(tabs)", "products/[id]"). */}
               {/* If a screen needs the native header, explicitly enable it and set a human title via Stack.Screen options. */}
               {/* in order for ios apps tab switching to work, use presentation: "fullScreenModal" for login page, whenever you decide to use presentation: "modal*/}

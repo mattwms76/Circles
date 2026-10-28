@@ -17,7 +17,14 @@ import * as ReactNative from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { trpc } from "@/lib/trpc";
 import { credentialAdmission } from "../lib/sec27-credential-admission";
-import { Button, C, IconButton, Logo, T } from "@/components/circles-ui";
+import {
+  Heading,
+  Button,
+  C,
+  IconButton,
+  Logo,
+  T,
+} from "@/components/circles-ui";
 import { EmailAuthForm } from "@/components/email-auth-form";
 import { StatusMessage } from "@/components/status-message";
 import { usePathname, useRouter } from "expo-router";
@@ -445,6 +452,7 @@ export function CirclesProvider({
       )}
       {!!logoutRecovery && (
         <Modal
+          accessibilityLabel="Secure sign-out recovery"
           transparent
           visible
           animationType="fade"
@@ -472,9 +480,9 @@ export function CirclesProvider({
                 width: "100%",
               }}
             >
-              <T style={{ fontSize: 22, fontWeight: "800" }}>
+              <Heading style={{ fontSize: 22, fontWeight: "800" }}>
                 Sign-out needs your attention
-              </T>
+              </Heading>
               <StatusMessage message={logoutRecovery.message} tone="error" />
               <View style={{ gap: 5 }}>
                 <T style={{ color: C.secondary, fontSize: 13 }}>
@@ -510,6 +518,7 @@ export function CirclesProvider({
         </Modal>
       )}
       <Modal
+        accessibilityLabel="Sign in"
         transparent
         visible={loginVisible}
         animationType="fade"
@@ -557,7 +566,7 @@ export function CirclesProvider({
                   />
                 </View>
                 <Logo size={58} />
-                <T
+                <Heading
                   style={{
                     fontSize: 29,
                     lineHeight: 35,
@@ -566,7 +575,7 @@ export function CirclesProvider({
                   }}
                 >
                   Your people are here.
-                </T>
+                </Heading>
                 <T style={{ color: C.secondary }}>
                   Sign in to make a circle, share your moments, and keep the
                   conversation going.

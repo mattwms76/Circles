@@ -1,3 +1,4 @@
+import { controlAccessibilityProps } from "../lib/control-accessibility";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -106,7 +107,7 @@ function DurationChoice({
     <Pressable
       accessibilityRole="radio"
       accessibilityLabel={`${duration} second maximum recording length`}
-      accessibilityState={{ selected, disabled }}
+      {...controlAccessibilityProps({ selected, disabled }, "radio")}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [

@@ -118,6 +118,7 @@ vi.mock("@/components/circles-ui", () => ({
   Loading: "Loading",
   s: { between: {}, card: {}, row: {} },
   T: "T",
+  Heading: "T",
 }));
 vi.mock("../components/circles-ui", () => ({
   ago: () => "just now",
@@ -140,6 +141,7 @@ vi.mock("../components/circles-ui", () => ({
   Empty: "Empty",
   s: { between: {}, card: {}, row: {} },
   T: "T",
+  Heading: "T",
 }));
 vi.mock("@/hooks/circles-context", () => ({
   useCircles: () => ({
@@ -462,7 +464,7 @@ describe("A26 Activity repairs", () => {
       (control) => control.props.accessibilityLabel === "Open Jordan's profile",
     );
     const like = findElements(card, "Pressable").find(
-      (control) => control.props.accessibilityLabel === "Like post",
+      (control) => control.props.accessibilityLabel === "Like moment",
     );
     const comments = findElements(card, "Pressable").find(
       (control) => control.props.accessibilityLabel === "Open 2 comments",
@@ -481,12 +483,12 @@ describe("A26 Activity repairs", () => {
     });
     expect(
       findElements(card, "IconButton").find(
-        (control) => control.props.label === "Post options",
+        (control) => control.props.label === "Moment options",
       )?.props,
     ).toMatchObject({ disabled: true, loading: true });
     expect(
       findElements(card, "IconButton").find(
-        (control) => control.props.label === "Share post",
+        (control) => control.props.label === "Share moment",
       )?.props,
     ).toMatchObject({ disabled: true, loading: true });
     (like?.props.onPress as () => void)();
