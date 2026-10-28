@@ -180,3 +180,30 @@ describe("email authentication client protocol", () => {
     });
   });
 });
+
+describe("native account creation", () => {
+  it.each(["ios", "android"])(
+    "identifies %s registration without accepting a provider session",
+    async (platform) => {
+      mocks.platform.OS = platform;
+      mocks.apiCall.mockReset();
+      mocks.setSessionToken.mockReset();
+      mocks.apiCall.mockResolvedValueOnce({
+        success: true,
+        confirmationRequired: true,
+      });
+      await client.signUpWithEmailPassword("new@example.test", "new-password");
+      expect(mocks.apiCall).toHaveBeenLastCalledWith(
+        "/api/auth/email/sign-up",
+        expect.objectContaining({
+          body: JSON.stringify({
+            email: "new@example.test",
+            password: "new-password",
+            client: "native",
+          }),
+        }),
+      );
+      expect(mocks.setSessionToken).not.toHaveBeenCalled();
+    },
+  );
+});

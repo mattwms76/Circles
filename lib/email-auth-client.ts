@@ -1,6 +1,7 @@
 import { Platform } from "react-native";
 import * as Api from "@/lib/_core/api";
 import * as nativeAuth from "@/lib/_core/auth";
+import { EMAIL_SIGN_UP_MESSAGES } from "./email-auth-feedback";
 
 export type EmailAuthStatus = {
   enabled: boolean;
@@ -30,7 +31,8 @@ export type EmailAuthClientErrorCode =
   | "email_auth_failed"
   | "email_auth_link_required"
   | "email_auth_session_unavailable"
-  | "email_auth_sign_up_failed";
+  | "email_auth_sign_up_failed"
+  | keyof typeof EMAIL_SIGN_UP_MESSAGES;
 
 /**
  * This error deliberately contains only a bounded, user-safe category. The API
@@ -47,6 +49,9 @@ export class EmailAuthClientError extends Error {
 }
 
 export function emailAuthErrorMessage(code: EmailAuthClientErrorCode): string {
+  if (Object.prototype.hasOwnProperty.call(EMAIL_SIGN_UP_MESSAGES, code)) {
+    return EMAIL_SIGN_UP_MESSAGES[code as keyof typeof EMAIL_SIGN_UP_MESSAGES];
+  }
   switch (code) {
     case "email_auth_status_unavailable":
       return "Email sign-in is unavailable right now. Please try again.";
@@ -58,6 +63,8 @@ export function emailAuthErrorMessage(code: EmailAuthClientErrorCode): string {
       return "This verified email must be connected to your existing Circles account. While signed in to that account, open Profile → Connect email sign-in.";
     case "email_auth_failed":
       return "Email or password is incorrect, or sign-in is unavailable. Please try again.";
+    default:
+      return "Email authentication is unavailable. Please try again.";
   }
 }
 
@@ -285,10 +292,21 @@ export async function signUpWithEmailPassword(
     try {
       result = await Api.apiCall<unknown>("/api/auth/email/sign-up", {
         method: "POST",
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({
+          email,
+          password,
+          ...(emailAuthClientKind() === "native" ? { client: "native" } : {}),
+        }),
         signal: request.signal,
       });
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      if (message === "Use at least 8 characters for your password")
+        throw new EmailAuthClientError("email_auth_weak_password");
+      if (message === "Too many email authentication attempts")
+        throw new EmailAuthClientError("email_auth_rate_limited");
+      if (message === "Email authentication is temporarily unavailable")
+        throw new EmailAuthClientError("email_auth_delivery_unavailable");
       throw new EmailAuthClientError("email_auth_sign_up_failed");
     }
 

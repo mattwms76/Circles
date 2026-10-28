@@ -1,3 +1,4 @@
+import { pathToFileURL } from "node:url";
 import express, {
   type ErrorRequestHandler,
   type Request,
@@ -538,7 +539,7 @@ export async function startServer() {
 
 if (
   process.argv[1] &&
-  import.meta.url === new URL(`file://${process.argv[1]}`).href
+  import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
   void startServer().catch(() => {
     console.error("[api] server failed to start");

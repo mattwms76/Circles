@@ -458,4 +458,80 @@ describe("email/password REST server contract", () => {
     expect(throttle.checkAndRecord("127.0.0.1:hashed", 1)).toBe(false);
     expect(throttle.size()).toBe(1);
   });
+  it("accepts native registration without minting an app session and rejects browser impersonation", async () => {
+    const { server, baseUrl, dependencies: wired } = await start();
+    try {
+      const body = {
+        email: verified.email,
+        password: "new-password",
+        client: "native",
+      };
+      const created = await post(baseUrl, "/api/auth/email/sign-up", body);
+      expect(created.status).toBe(200);
+      expect(await created.json()).toEqual({
+        success: true,
+        confirmationRequired: true,
+      });
+      expect(created.headers.get("set-cookie")).toBeNull();
+      expect(wired.sdkServer.createSessionToken).not.toHaveBeenCalled();
+      expect(wired.identityStore.resolveForSignIn).not.toHaveBeenCalled();
+      wired.fetchImpl.mockClear();
+      const rejected = await post(baseUrl, "/api/auth/email/sign-up", body, {
+        Origin: "https://attacker.invalid",
+        "Sec-Fetch-Site": "cross-site",
+      });
+      expect(rejected.status).toBe(403);
+      expect(wired.fetchImpl).not.toHaveBeenCalled();
+    } finally {
+      await close(server);
+    }
+  });
+  it.each([403, 422, 429, 500])(
+    "does not claim signup success when the provider rejects delivery (%s)",
+    async (status) => {
+      const fetchImpl = vi.fn(async () =>
+        response(
+          {
+            code: "email_address_not_authorized",
+            message: "private provider details",
+          },
+          status,
+        ),
+      );
+      const {
+        server,
+        baseUrl,
+        dependencies: wired,
+      } = await start({ fetchImpl });
+      try {
+        const result = await post(baseUrl, "/api/auth/email/sign-up", {
+          email: verified.email,
+          password: "new-password",
+          client: "native",
+        });
+        expect(result.status).toBe(status === 429 ? 429 : 503);
+        const data = await result.json();
+        expect(data.success).not.toBe(true);
+        expect(JSON.stringify(data)).not.toContain("private provider details");
+        expect(wired.sdkServer.createSessionToken).not.toHaveBeenCalled();
+      } finally {
+        await close(server);
+      }
+    },
+  );
+  it("rejects weak registration passwords before contacting the provider", async () => {
+    const { server, baseUrl, dependencies: wired } = await start();
+    try {
+      const result = await post(baseUrl, "/api/auth/email/sign-up", {
+        email: verified.email,
+        password: "short",
+        client: "native",
+      });
+      expect(result.status).toBe(400);
+      expect((await result.json()).code).toBe("WEAK_PASSWORD");
+      expect(wired.fetchImpl).not.toHaveBeenCalled();
+    } finally {
+      await close(server);
+    }
+  });
 });

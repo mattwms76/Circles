@@ -70,6 +70,7 @@ type EmailAuthFailureCode =
   | "RATE_LIMITED"
   | "LINK_REQUIRED"
   | "UNAVAILABLE"
+  | "WEAK_PASSWORD"
   | "NOT_AUTHENTICATED";
 
 export type EmailAuthStatus = {
@@ -176,6 +177,12 @@ export function isEmailAuthEnabled(
 
 function emailError(code: EmailAuthFailureCode): EmailAuthRouteError {
   switch (code) {
+    case "WEAK_PASSWORD":
+      return new EmailAuthRouteError(
+        400,
+        code,
+        "Use at least 8 characters for your password",
+      );
     case "INVALID_CREDENTIALS":
       return new EmailAuthRouteError(401, code, "Invalid email or password");
     case "REQUEST_NOT_ACCEPTED":
@@ -574,15 +581,32 @@ async function requestSupabaseSignup(
   email: string,
   password: string,
 ): Promise<void> {
-  // Do not inspect or return the provider response. In particular, confirmation
-  // required means no session, auth code, provider identity, or token is minted here.
+  // Successful registration remains confirmation-only. Provider credentials,
+  // identities and sessions are never returned to the caller.
+  if (password.length < 8) throw emailError("WEAK_PASSWORD");
   const response = await providerRequest(fetchImpl, config, "/auth/v1/signup", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ email, password }),
   });
-  if (!response.ok && response.status >= 500)
-    throw new ProviderTransportError();
+  if (!response.ok) {
+    if (response.status === 429) throw emailError("RATE_LIMITED");
+    if (response.status >= 500) throw new ProviderTransportError();
+    const failure = (await boundedJson(response)) as {
+      code?: unknown;
+      message?: unknown;
+      msg?: unknown;
+    };
+    const duplicate =
+      failure.code === "user_already_exists" ||
+      failure.code === "email_exists" ||
+      failure.message === "User already registered" ||
+      failure.msg === "User already registered";
+    if (duplicate) return;
+    if (failure.code === "weak_password") throw emailError("WEAK_PASSWORD");
+    // Do not claim an email was sent when registration or delivery was rejected.
+    throw emailError("UNAVAILABLE");
+  }
   if (response.body) await response.body.cancel().catch(() => undefined);
 }
 
@@ -838,10 +862,12 @@ export function registerEmailAuthRoutes(
     try {
       const config = configuredEmailAuth(environment);
       if (!config) throw emailError("UNAVAILABLE");
-      const credentials = parseCredentialBody(req.body, false);
-      // Sign-up has no client field in the fixed wire contract, so only the
-      // browser-origin/CSRF path is permitted. Native completion begins at sign-in.
-      enforceBrowserOrNativeRequest(req, "web");
+      // Preserve the original browser contract while admitting explicit native
+      // clients through the same metadata/origin checks used by sign-in.
+      const hasClient =
+        !!req.body && Object.prototype.hasOwnProperty.call(req.body, "client");
+      const credentials = parseCredentialBody(req.body, hasClient);
+      enforceBrowserOrNativeRequest(req, credentials.client ?? "web");
       if (
         !throttle.checkAndRecordAdmission(
           emailAdmissionKeys(req, credentials.email),

@@ -5,6 +5,7 @@ const routeTitles: Record<string, string> = {
   "/messages": "Messages",
   "/profile": "Your profile",
   "/account/email": "Connect email sign-in",
+  "/account/confirmed": "Email confirmation",
   "/create": "Share a moment",
   "/live": "Live conversations",
   "/oauth/callback": "Secure sign-in",

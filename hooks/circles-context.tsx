@@ -558,28 +558,20 @@ export function CirclesProvider({
                   width: "100%",
                 }}
               >
-                <View style={{ alignSelf: "flex-end" }}>
+                <View
+                  style={{
+                    alignItems: "center",
+                    flexDirection: "row",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <Logo size={34} />
                   <IconButton
                     icon="close"
                     onPress={() => setLogin(false)}
                     label="Close sign in"
                   />
                 </View>
-                <Logo size={58} />
-                <Heading
-                  style={{
-                    fontSize: 29,
-                    lineHeight: 35,
-                    fontWeight: "800",
-                    letterSpacing: -1,
-                  }}
-                >
-                  Your people are here.
-                </Heading>
-                <T style={{ color: C.secondary }}>
-                  Sign in to make a circle, share your moments, and keep the
-                  conversation going.
-                </T>
                 {loginVisible && (
                   <EmailAuthForm
                     mode="signIn"
