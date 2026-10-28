@@ -64,6 +64,10 @@ vi.mock(
   async () => import("../lib/app-shell-layout"),
 );
 vi.mock(
+  "@/lib/d28-024-tab-presentation",
+  async () => import("../lib/d28-024-tab-presentation"),
+);
+vi.mock(
   "@/lib/app-navigation-state",
   async () => import("../lib/app-navigation-state"),
 );

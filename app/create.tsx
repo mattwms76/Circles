@@ -39,6 +39,10 @@ import {
   type ReusableUpload,
 } from "@/lib/feed-ui-helpers";
 import {
+  d28014PrivacyPillControlStyle,
+  d28014PrivacyPillLabelStyle,
+} from "../lib/d28-014-privacy-pill";
+import {
   canPublishToCreateRecipient,
   canRetryCreateRecipient,
   createRootSafeAreaInsets,
@@ -113,12 +117,14 @@ function ComposerPill({
   onPress,
   icon,
   disabled = false,
+  privacyPill = false,
 }: {
   title: string;
   selected?: boolean;
   onPress: () => void;
   icon?: IconName;
   disabled?: boolean;
+  privacyPill?: boolean;
 }) {
   return (
     <Pressable
@@ -142,18 +148,22 @@ function ComposerPill({
           gap: 6,
           opacity: disabled ? 0.55 : pressed ? 0.7 : 1,
         },
+        privacyPill && d28014PrivacyPillControlStyle,
       ]}
     >
       {icon && (
         <Icon name={icon} size={15} color={selected ? "#fff" : C.secondary} />
       )}
       <T
-        style={{
-          fontSize: 12,
-          fontWeight: "600",
-          lineHeight: 18,
-          color: selected ? "#fff" : C.secondary,
-        }}
+        style={[
+          {
+            fontSize: 12,
+            fontWeight: "600",
+            lineHeight: 18,
+            color: selected ? "#fff" : C.secondary,
+          },
+          privacyPill && d28014PrivacyPillLabelStyle,
+        ]}
       >
         {title}
       </T>
@@ -1024,6 +1034,7 @@ function CreateScreenForAccount() {
                       selected={privacy === "public"}
                       onPress={() => changePrivacy("public")}
                       disabled={isDraftLocked}
+                      privacyPill
                     />
                     <ComposerPill
                       title="Private · approval needed"
@@ -1031,6 +1042,7 @@ function CreateScreenForAccount() {
                       selected={privacy === "private"}
                       onPress={() => changePrivacy("private")}
                       disabled={isDraftLocked}
+                      privacyPill
                     />
                   </View>
                 </>

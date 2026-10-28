@@ -11,6 +11,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 import {
   KeyboardAvoidingView,
@@ -151,6 +152,33 @@ function ChatVideoSource({
     />
   );
 }
+
+function ChatGuardRecovery({
+  bottomInset,
+  children,
+}: {
+  bottomInset: number;
+  children: ReactNode;
+}) {
+  return (
+    <ScrollView
+      style={{ flex: 1 }}
+      contentContainerStyle={{
+        flexGrow: 1,
+        justifyContent: "center",
+        paddingTop: 24,
+        paddingHorizontal: 24,
+        paddingBottom: Math.max(24, bottomInset + 24),
+      }}
+      showsHorizontalScrollIndicator={false}
+      showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+    >
+      {children}
+    </ScrollView>
+  );
+}
+
 export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id?: string | string[] }>();
   const router = useRouter();
@@ -664,65 +692,83 @@ function ChatScreenInstance({ conversationId }: { conversationId: number }) {
           <Icon name="chatbubbles-outline" color={C.green} size={23} />
         </View>
         {authState === "checking" ? (
-          <View style={{ alignItems: "center", gap: 12, paddingVertical: 32 }}>
-            <Loading />
-            <StatusMessage
-              message="Checking your sign-in…"
-              tone="info"
-              style={{ fontSize: 14, textAlign: "center" }}
-            />
-          </View>
+          <ChatGuardRecovery bottomInset={insets.bottom}>
+            <View
+              style={{ alignItems: "center", gap: 12, paddingVertical: 32 }}
+            >
+              <Loading />
+              <StatusMessage
+                message="Checking your sign-in…"
+                tone="info"
+                style={{ fontSize: 14, textAlign: "center" }}
+              />
+            </View>
+          </ChatGuardRecovery>
         ) : authState === "error" ? (
-          <View style={{ gap: 12 }}>
-            <StatusMessage
-              message="We couldn’t confirm your sign-in. Try again."
-              tone="error"
-              style={{ fontSize: 14, textAlign: "center" }}
+          <ChatGuardRecovery bottomInset={insets.bottom}>
+            <View style={{ gap: 12 }}>
+              <StatusMessage
+                message="We couldn’t confirm your sign-in. Try again."
+                tone="error"
+                style={{ fontSize: 14, textAlign: "center" }}
+              />
+              <Empty
+                headingLevel={2}
+                icon="cloud-offline-outline"
+                title="Your conversation is waiting."
+                text="Check your connection, then try the sign-in check again."
+                action="Try again"
+                onAction={refresh}
+              />
+            </View>
+          </ChatGuardRecovery>
+        ) : authState === "guest" ? (
+          <ChatGuardRecovery bottomInset={insets.bottom}>
+            <Empty
+              headingLevel={2}
+              title="Your conversations are private."
+              text="Sign in to open this conversation."
+              action="Sign in"
+              onAction={showLogin}
             />
+          </ChatGuardRecovery>
+        ) : !user ? (
+          <ChatGuardRecovery bottomInset={insets.bottom}>
             <Empty
               headingLevel={2}
               icon="cloud-offline-outline"
-              title="Your conversation is waiting."
-              text="Check your connection, then try the sign-in check again."
+              title="Your sign-in needs another check."
+              text="Try again before opening this conversation."
               action="Try again"
               onAction={refresh}
             />
-          </View>
-        ) : authState === "guest" ? (
-          <Empty
-            headingLevel={2}
-            title="Your conversations are private."
-            text="Sign in to open this conversation."
-            action="Sign in"
-            onAction={showLogin}
-          />
-        ) : !user ? (
-          <Empty
-            headingLevel={2}
-            icon="cloud-offline-outline"
-            title="Your sign-in needs another check."
-            text="Try again before opening this conversation."
-            action="Try again"
-            onAction={refresh}
-          />
+          </ChatGuardRecovery>
         ) : chatAuthorityLocked ? (
-          <Empty
-            headingLevel={2}
-            title="This conversation is unavailable."
-            text="You no longer have access to this conversation."
-            action="Back to inbox"
-            onAction={() => router.replace("/messages")}
-          />
+          <ChatGuardRecovery bottomInset={insets.bottom}>
+            <Empty
+              headingLevel={2}
+              title="This conversation is unavailable."
+              text="You no longer have access to this conversation."
+              action="Back to inbox"
+              onAction={() => router.replace("/messages")}
+            />
+          </ChatGuardRecovery>
         ) : messages.isLoading ? (
-          <Loading />
+          <ChatGuardRecovery bottomInset={insets.bottom}>
+            <Loading />
+          </ChatGuardRecovery>
         ) : conversationUnavailable ? (
-          <Empty
-            headingLevel={2}
-            title="This conversation is unavailable."
-            text={messagesError?.message ?? "This conversation is unavailable."}
-            action="Back to inbox"
-            onAction={() => router.replace("/messages")}
-          />
+          <ChatGuardRecovery bottomInset={insets.bottom}>
+            <Empty
+              headingLevel={2}
+              title="This conversation is unavailable."
+              text={
+                messagesError?.message ?? "This conversation is unavailable."
+              }
+              action="Back to inbox"
+              onAction={() => router.replace("/messages")}
+            />
+          </ChatGuardRecovery>
         ) : (
           <>
             <ScrollView

@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { ActivityIndicator, View } from "react-native";
+import { ActivityIndicator, ScrollView, View } from "react-native";
 import { useRouter } from "expo-router";
 import { AppShell } from "@/components/app-shell";
 import { Button, C, T } from "@/components/circles-ui";
@@ -60,19 +60,24 @@ export default function AccountEmailScreen() {
   if (authState === "checking") {
     return (
       <AppShell scroll={false} sidebar={false}>
-        <View
-          accessibilityLiveRegion="polite"
-          style={{
-            alignItems: "center",
-            flex: 1,
-            gap: 12,
+        <ScrollView
+          showsHorizontalScrollIndicator={false}
+          showsVerticalScrollIndicator={false}
+          style={{ flex: 1, width: "100%" }}
+          contentContainerStyle={{
+            flexGrow: 1,
             justifyContent: "center",
             padding: 24,
           }}
         >
-          <ActivityIndicator color={C.coral} />
-          <T style={{ color: C.muted }}>Checking your Circles sign-in…</T>
-        </View>
+          <View
+            accessibilityLiveRegion="polite"
+            style={{ alignItems: "center", gap: 12 }}
+          >
+            <ActivityIndicator color={C.coral} />
+            <T style={{ color: C.muted }}>Checking your Circles sign-in…</T>
+          </View>
+        </ScrollView>
       </AppShell>
     );
   }
@@ -80,28 +85,35 @@ export default function AccountEmailScreen() {
   if (authState === "error") {
     return (
       <AppShell scroll={false} sidebar={false}>
-        <View
-          style={{
-            alignItems: "center",
-            flex: 1,
-            gap: 14,
+        <ScrollView
+          showsHorizontalScrollIndicator={false}
+          showsVerticalScrollIndicator={false}
+          style={{ flex: 1, width: "100%" }}
+          contentContainerStyle={{
+            flexGrow: 1,
             justifyContent: "center",
             padding: 24,
           }}
         >
-          <T
-            accessibilityRole="header"
-            style={{ fontSize: 23, fontWeight: "800", textAlign: "center" }}
-          >
-            We couldn’t confirm your sign-in
-          </T>
-          <T style={{ color: C.secondary, textAlign: "center" }}>
-            Check your connection, then try again before adding an email sign-in
-            method.
-          </T>
-          <Button title="Try again" onPress={refresh} />
-          <Button title="Back to profile" secondary onPress={returnToProfile} />
-        </View>
+          <View style={{ alignItems: "center", gap: 14 }}>
+            <T
+              accessibilityRole="header"
+              style={{ fontSize: 23, fontWeight: "800", textAlign: "center" }}
+            >
+              We couldn’t confirm your sign-in
+            </T>
+            <T style={{ color: C.secondary, textAlign: "center" }}>
+              Check your connection, then try again before adding an email
+              sign-in method.
+            </T>
+            <Button title="Try again" onPress={refresh} />
+            <Button
+              title="Back to profile"
+              secondary
+              onPress={returnToProfile}
+            />
+          </View>
+        </ScrollView>
       </AppShell>
     );
   }
@@ -109,39 +121,46 @@ export default function AccountEmailScreen() {
   if (authState !== "authenticated" || !user) {
     return (
       <AppShell scroll={false} sidebar={false}>
-        <View
-          style={{
-            alignItems: "center",
-            flex: 1,
-            gap: 14,
+        <ScrollView
+          showsHorizontalScrollIndicator={false}
+          showsVerticalScrollIndicator={false}
+          style={{ flex: 1, width: "100%" }}
+          contentContainerStyle={{
+            flexGrow: 1,
             justifyContent: "center",
             padding: 24,
           }}
         >
-          <T
-            accessibilityRole="header"
-            style={{ fontSize: 23, fontWeight: "800", textAlign: "center" }}
-          >
-            Sign in required
-          </T>
-          <T style={{ color: C.secondary, textAlign: "center" }}>
-            Verify your existing Circles account before adding an email sign-in
-            method.
-          </T>
-          {existingProofError && (
-            <T accessibilityRole="alert" style={{ color: C.secondary }}>
-              {existingProofError}
+          <View style={{ alignItems: "center", gap: 14 }}>
+            <T
+              accessibilityRole="header"
+              style={{ fontSize: 23, fontWeight: "800", textAlign: "center" }}
+            >
+              Sign in required
             </T>
-          )}
-          <Button
-            title="Verify existing Circles account"
-            accessibilityLabel="Verify existing Circles account"
-            disabled={startingExistingProof}
-            loading={startingExistingProof}
-            onPress={() => void verifyExistingCirclesAccount()}
-          />
-          <Button title="Back to profile" secondary onPress={returnToProfile} />
-        </View>
+            <T style={{ color: C.secondary, textAlign: "center" }}>
+              Verify your existing Circles account before adding an email
+              sign-in method.
+            </T>
+            {existingProofError && (
+              <T accessibilityRole="alert" style={{ color: C.secondary }}>
+                {existingProofError}
+              </T>
+            )}
+            <Button
+              title="Verify existing Circles account"
+              accessibilityLabel="Verify existing Circles account"
+              disabled={startingExistingProof}
+              loading={startingExistingProof}
+              onPress={() => void verifyExistingCirclesAccount()}
+            />
+            <Button
+              title="Back to profile"
+              secondary
+              onPress={returnToProfile}
+            />
+          </View>
+        </ScrollView>
       </AppShell>
     );
   }

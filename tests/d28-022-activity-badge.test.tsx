@@ -100,10 +100,12 @@ describe("D28-022 ActivityBadge unread accessibility", () => {
     ).toMatchObject({ minWidth: 44, minHeight: 44 });
     expect(readableStyle(indicator?.props.style)).toMatchObject({
       minWidth: 18,
-      height: 18,
+      minHeight: 18,
       paddingHorizontal: 4,
+      paddingVertical: 2,
       borderRadius: 9,
     });
+    expect(readableStyle(indicator?.props.style)).not.toHaveProperty("height");
   });
 
   it.each([

@@ -1,5 +1,6 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import {
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -19,6 +20,8 @@ import {
   type A26LiveMediaPhaseChange,
 } from "@/lib/a26-live-media-state";
 import { d28LiveMediaBadgeLabel } from "@/lib/d28-017-live-media-badge";
+import { d28LiveStatusOverlayStyles } from "@/lib/d28-018-live-status-overlay";
+import { openD28LiveLeaveDialog } from "@/lib/d28-019-live-leave-dialog";
 import { useCircles } from "@/hooks/circles-context";
 import { resolveFnd001QueryDisplayState } from "@/lib/fnd001-query-display-state";
 import {
@@ -348,6 +351,13 @@ function LiveSessionScreen({
     router,
     streamId,
   ]);
+  const openEndConfirmation = useCallback(() => {
+    openD28LiveLeaveDialog({
+      isCurrentHost: host,
+      dismissKeyboard: Keyboard.dismiss,
+      openConfirmation: () => setEndConfirm(true),
+    });
+  }, [host]);
   const handleLiveMediaPhaseChange = useCallback(
     (change: A26LiveMediaPhaseChange) => {
       const operationScope = captureLiveOperationScope();
@@ -416,7 +426,7 @@ function LiveSessionScreen({
               icon="arrow-back"
               onPress={() =>
                 host
-                  ? setEndConfirm(true)
+                  ? openEndConfirmation()
                   : router.canGoBack()
                     ? router.back()
                     : router.replace("/live")
@@ -468,26 +478,31 @@ function LiveSessionScreen({
                   onHostLease={handleLiveHostLease}
                   onMediaPhaseChange={handleLiveMediaPhaseChange}
                 />
-                <View
-                  style={{
-                    position: "absolute",
-                    top: 14,
-                    left: 14,
-                    backgroundColor: ready ? C.action : C.secondary,
-                    paddingHorizontal: 9,
-                    paddingVertical: 5,
-                    borderRadius: 6,
-                  }}
-                >
-                  <T
-                    style={{
-                      color: C.actionText,
-                      fontSize: 10,
-                      fontWeight: "700",
-                    }}
+                <View style={d28LiveStatusOverlayStyles.container}>
+                  <View
+                    style={[
+                      d28LiveStatusOverlayStyles.badge,
+                      {
+                        backgroundColor: ready ? C.action : C.secondary,
+                        paddingHorizontal: 9,
+                        paddingVertical: 5,
+                        borderRadius: 6,
+                      },
+                    ]}
                   >
-                    {mediaBadgeLabel} · {live.viewers} watching
-                  </T>
+                    <T
+                      style={[
+                        d28LiveStatusOverlayStyles.text,
+                        {
+                          color: C.actionText,
+                          fontSize: 10,
+                          fontWeight: "700",
+                        },
+                      ]}
+                    >
+                      {mediaBadgeLabel} · {live.viewers} watching
+                    </T>
+                  </View>
                 </View>
               </View>
               {!!mediaError && (
@@ -565,7 +580,7 @@ function LiveSessionScreen({
                   title={hostExitActionTitle}
                   secondary
                   icon="stop-circle-outline"
-                  onPress={() => setEndConfirm(true)}
+                  onPress={openEndConfirmation}
                 />
               )}
               <View style={[s.card, { padding: 16, marginTop: 20, gap: 12 }]}>

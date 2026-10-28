@@ -5,6 +5,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { FOCUS_DISCOVER_SEARCH_EVENT } from "../../lib/search-shortcut";
 import { trpc } from "@/lib/trpc";
 import { useCircles } from "@/hooks/circles-context";
+import { d28005PeopleRowActionLayout } from "../../lib/d28-005-people-row";
 import {
   batch3AccountResourceScope,
   createBatch3AccountResourceSingleFlight,
@@ -145,6 +146,8 @@ function DiscoverScreenInstance() {
   const { user, requireAuth, notify } = useCircles();
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState("For you");
+  const [peopleRowWidth, setPeopleRowWidth] = useState<number | null>(null);
+  const peopleActionLayout = d28005PeopleRowActionLayout(peopleRowWidth);
   const [livesVisibleCount, setLivesVisibleCount] = useState(
     UI_COLLECTION_PAGE_SIZE,
   );
@@ -459,9 +462,21 @@ function DiscoverScreenInstance() {
               return (
                 <View
                   key={person.id}
+                  onLayout={(event) => {
+                    const nextWidth = event.nativeEvent.layout.width;
+                    setPeopleRowWidth((current) =>
+                      current === nextWidth ? current : nextWidth,
+                    );
+                  }}
                   style={[
                     s.row,
                     {
+                      flexDirection:
+                        peopleActionLayout === "full-width" ? "column" : "row",
+                      alignItems:
+                        peopleActionLayout === "full-width"
+                          ? "stretch"
+                          : "center",
                       padding: 14,
                       gap: 12,
                       backgroundColor: C.paper,
@@ -476,7 +491,12 @@ function DiscoverScreenInstance() {
                     accessibilityRole="button"
                     accessibilityLabel={`View ${person.name}'s profile`}
                     style={{
-                      flex: 1,
+                      flexGrow: peopleActionLayout === "full-width" ? 0 : 1,
+                      flexShrink: 1,
+                      width:
+                        peopleActionLayout === "full-width"
+                          ? "100%"
+                          : undefined,
                       minWidth: 0,
                       minHeight: 48,
                       flexDirection: "row",
@@ -549,6 +569,10 @@ function DiscoverScreenInstance() {
                       style={{
                         paddingHorizontal: 11,
                         borderRadius: 9,
+                        alignSelf:
+                          peopleActionLayout === "full-width"
+                            ? "stretch"
+                            : undefined,
                       }}
                     />
                   ) : (
@@ -562,6 +586,10 @@ function DiscoverScreenInstance() {
                       style={{
                         paddingHorizontal: 11,
                         borderRadius: 9,
+                        alignSelf:
+                          peopleActionLayout === "full-width"
+                            ? "stretch"
+                            : undefined,
                       }}
                     />
                   )}
@@ -727,7 +755,7 @@ function DiscoverScreenInstance() {
               >
                 <Image
                   source={{ uri: live.thumbnail }}
-                  style={{ width: "100%", height: 180 }}
+                  style={{ width: "100%", aspectRatio: 16 / 9 }}
                   contentFit="cover"
                   accessible={false}
                 />

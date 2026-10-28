@@ -24,6 +24,7 @@ import { createSingleFlightSubmitter } from "@/lib/single-flight-submit";
 import type { Post } from "@/shared/social";
 import { useCircles } from "@/hooks/circles-context";
 import { resolveFnd001QueryDisplayState } from "@/lib/fnd001-query-display-state";
+import { compactPostActionCount } from "../lib/d28-021-post-card-action-rail";
 import {
   invalidateModerationViews,
   invalidatePostFeeds,
@@ -205,6 +206,9 @@ export function PostCard({
     saveOptimism?.source === post && saveOptimism.scope === sourceScope
       ? saveOptimism.value
       : post.saved;
+  const likeCount = post.likes + (liked !== post.liked ? (liked ? 1 : -1) : 0);
+  const compactLikeCount = compactPostActionCount(likeCount);
+  const compactCommentCount = compactPostActionCount(post.comments);
   const like = trpc.social.likePost.useMutation();
   const save = trpc.social.savePost.useMutation();
   const toggleLike = useCallback(() => {
@@ -559,82 +563,89 @@ export function PostCard({
           gap: 9,
         }}
       >
-        <View style={s.between}>
-          <View style={[s.row, { gap: 15 }]}>
-            <Pressable
-              disabled={actionBusy || like.isPending}
-              onPress={toggleLike}
-              accessibilityRole="button"
-              accessibilityLabel={liked ? "Unlike moment" : "Like moment"}
-              {...controlAccessibilityProps({
-                disabled: actionBusy || like.isPending,
-                busy: actionBusy || like.isPending,
-                selected: liked,
-              })}
-              style={[
-                s.row,
-                {
-                  gap: 5,
-                  paddingVertical: 5,
-                  minWidth: 44,
-                  minHeight: 44,
-                  opacity: actionBusy || like.isPending ? 0.55 : 1,
-                },
-              ]}
-            >
-              <Icon
-                name={liked ? "heart" : "heart-outline"}
-                size={23}
-                color={liked ? C.coral : C.ink}
-              />
-              <T style={{ fontSize: 12, fontWeight: "600" }}>
-                {post.likes + (liked !== post.liked ? (liked ? 1 : -1) : 0)}
-              </T>
-            </Pressable>
-            <Pressable
-              disabled={actionBusy}
-              onPress={() => {
-                if (actionsAvailable) setCommentsOpen(true);
-              }}
-              accessibilityRole="button"
-              accessibilityLabel={`Open ${post.comments} comments`}
-              {...controlAccessibilityProps({
-                disabled: actionBusy,
-                busy: actionBusy,
-                selected: commentsOpen,
-              })}
-              style={[
-                s.row,
-                {
-                  gap: 5,
-                  paddingVertical: 5,
-                  minWidth: 44,
-                  minHeight: 44,
-                  opacity: actionBusy ? 0.55 : 1,
-                },
-              ]}
-            >
-              <Icon name="chatbubble-outline" size={21} />
-              <T style={{ fontSize: 12 }}>{post.comments}</T>
-            </Pressable>
-            <IconButton
-              icon="paper-plane-outline"
-              size={20}
-              onPress={async () => {
-                if (!actionsAvailable) return;
-                try {
-                  await Share.share({
-                    message: `${post.author.name} on Circles: ${post.text}${post.media ? `\n${post.media}` : ""}`,
-                  });
-                } catch {
-                  notify("Sharing could not open.", "error");
-                }
-              }}
-              label="Share moment"
-              disabled={actionBusy}
-              loading={actionBusy}
+        <View
+          style={{
+            flexDirection: "row",
+            flexWrap: "wrap",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <Pressable
+            disabled={actionBusy || like.isPending}
+            onPress={toggleLike}
+            accessibilityRole="button"
+            accessibilityLabel={liked ? "Unlike moment" : "Like moment"}
+            accessibilityValue={{ text: `${likeCount} likes` }}
+            {...controlAccessibilityProps({
+              disabled: actionBusy || like.isPending,
+              busy: actionBusy || like.isPending,
+              selected: liked,
+            })}
+            style={[
+              s.row,
+              {
+                gap: 5,
+                paddingVertical: 5,
+                minWidth: 44,
+                minHeight: 44,
+                opacity: actionBusy || like.isPending ? 0.55 : 1,
+              },
+            ]}
+          >
+            <Icon
+              name={liked ? "heart" : "heart-outline"}
+              size={23}
+              color={liked ? C.coral : C.ink}
             />
-          </View>
+            <T style={{ fontSize: 12, fontWeight: "600" }}>
+              {compactLikeCount}
+            </T>
+          </Pressable>
+          <Pressable
+            disabled={actionBusy}
+            onPress={() => {
+              if (actionsAvailable) setCommentsOpen(true);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={`Open ${post.comments} comments`}
+            accessibilityValue={{ text: `${post.comments} comments` }}
+            {...controlAccessibilityProps({
+              disabled: actionBusy,
+              busy: actionBusy,
+              selected: commentsOpen,
+            })}
+            style={[
+              s.row,
+              {
+                gap: 5,
+                paddingVertical: 5,
+                minWidth: 44,
+                minHeight: 44,
+                opacity: actionBusy ? 0.55 : 1,
+              },
+            ]}
+          >
+            <Icon name="chatbubble-outline" size={21} />
+            <T style={{ fontSize: 12 }}>{compactCommentCount}</T>
+          </Pressable>
+          <IconButton
+            icon="paper-plane-outline"
+            size={20}
+            onPress={async () => {
+              if (!actionsAvailable) return;
+              try {
+                await Share.share({
+                  message: `${post.author.name} on Circles: ${post.text}${post.media ? `\n${post.media}` : ""}`,
+                });
+              } catch {
+                notify("Sharing could not open.", "error");
+              }
+            }}
+            label="Share moment"
+            disabled={actionBusy}
+            loading={actionBusy}
+          />
           <IconButton
             icon={saved ? "bookmark" : "bookmark-outline"}
             color={saved ? C.coral : C.ink}
@@ -855,7 +866,9 @@ export function PostCard({
             backgroundColor: "#19201B88",
             justifyContent: "center",
             alignItems: "center",
-            padding: 30,
+            paddingHorizontal: 30,
+            paddingTop: Math.max(30, insets.top + 16),
+            paddingBottom: Math.max(30, insets.bottom + 16),
           }}
         >
           <Pressable
@@ -875,44 +888,51 @@ export function PostCard({
             style={{
               width: "100%",
               maxWidth: 350,
+              maxHeight: "100%",
+              minHeight: 0,
               backgroundColor: C.paper,
               borderRadius: 20,
-              padding: 22,
-              gap: 12,
+              overflow: "hidden",
               zIndex: 1,
             }}
           >
-            <Heading
-              style={{ fontSize: 18, fontWeight: "700", marginBottom: 5 }}
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              style={{ flexShrink: 1, minHeight: 0 }}
+              contentContainerStyle={{ padding: 22, gap: 12 }}
             >
-              Keep your circle kind.
-            </Heading>
-            {post.circleId !== null && (
+              <Heading
+                style={{ fontSize: 18, fontWeight: "700", marginBottom: 5 }}
+              >
+                Keep your circle kind.
+              </Heading>
+              {post.circleId !== null && (
+                <Button
+                  title="Report inappropriate content"
+                  icon="flag-outline"
+                  secondary
+                  disabled={actionBusy || remove.isPending}
+                  loading={actionBusy || report.isPending}
+                  onPress={submitReport}
+                />
+              )}
+              {user?.id === post.author.id && (
+                <Button
+                  title="Remove my moment"
+                  icon="trash-outline"
+                  secondary
+                  disabled={actionBusy || report.isPending}
+                  loading={actionBusy || remove.isPending}
+                  onPress={removePost}
+                />
+              )}
               <Button
-                title="Report inappropriate content"
-                icon="flag-outline"
+                title="Close"
                 secondary
-                disabled={actionBusy || remove.isPending}
-                loading={actionBusy || report.isPending}
-                onPress={submitReport}
+                disabled={menuBusy}
+                onPress={() => setMenu(false)}
               />
-            )}
-            {user?.id === post.author.id && (
-              <Button
-                title="Remove my moment"
-                icon="trash-outline"
-                secondary
-                disabled={actionBusy || report.isPending}
-                loading={actionBusy || remove.isPending}
-                onPress={removePost}
-              />
-            )}
-            <Button
-              title="Close"
-              secondary
-              disabled={menuBusy}
-              onPress={() => setMenu(false)}
-            />
+            </ScrollView>
           </View>
         </View>
       </Modal>
