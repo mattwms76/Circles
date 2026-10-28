@@ -1,0 +1,95 @@
+- button "Circles home":
+  - generic: circles.
+- button "Search Circles":
+  - generic: 
+- button "Open messages":
+  - generic: 
+- generic: FOLLOW YOUR CURIOSITY
+- generic: There’s more out there.
+- generic: 
+- textbox "Search people, circles, posts, and live moments":
+  - /placeholder: People, passions, places…
+- generic "Discover categories":
+  - button "For you":
+    - generic: For you
+  - button "People":
+    - generic: People
+  - button "Circles":
+    - generic: Circles
+  - button "Posts":
+    - generic: Posts
+  - button "Live":
+    - generic: Live
+- generic: People to know
+- generic: MAKE A CONNECTION
+- button "View Ada Moreno's profile":
+- button "View Ada Moreno's profile":
+  - generic: Ada Moreno
+  - generic: "@ada-m"
+  - generic: Noticing the generous little details.
+- button "Follow Ada Moreno":
+  - generic: Follow
+- button "View Jules Park's profile":
+- button "View Jules Park's profile":
+  - generic: Jules Park
+  - generic: "@jules-parks"
+  - generic: Outside whenever possible.
+- button "Follow Jules Park":
+  - generic: Follow
+- button "View Mina Patel's profile":
+- button "View Mina Patel's profile":
+  - generic: Mina Patel
+  - generic: "@mina-makes"
+  - generic: Designing with people, not around them.
+- button "Follow Mina Patel":
+  - generic: Follow
+- button "View Sam Okafor's profile":
+- button "View Sam Okafor's profile":
+  - generic: Sam Okafor
+  - generic: "@sam-sees"
+  - generic: Collecting light and honest moments.
+- button "Follow Sam Okafor":
+  - generic: Follow
+- button "View Rory Chen's profile":
+- button "View Rory Chen's profile":
+  - generic: Rory Chen
+  - generic: "@rory-runs"
+  - generic: A run is better with company.
+- button "Follow Rory Chen":
+  - generic: Follow
+- generic: You’ve reached the end of these people.
+- generic: A circle for your thing
+- button "Open Weekend Runners":
+  - generic: 
+  - generic: running
+- button "Open Weekend Runners":
+  - generic: Weekend Runners
+- generic: Easy miles, local routes, and a friendly reason to lace up.
+- generic: 
+- generic: 1 members · public
+- button "Join circle" [disabled]:
+  - progressbar:
+- button "Open Through the Lens":
+  - generic: 
+  - generic: photo
+- button "Open Through the Lens":
+  - generic: Through the Lens
+- generic: Photographs with a point of view and the stories just outside the frame.
+- generic: 
+- generic: 1 members · public
+- button "Join circle" [disabled]:
+  - progressbar:
+- tab " Home":
+  - generic: 
+  - generic: Home
+- tab " Discover":
+  - generic: 
+  - generic: Discover
+- button "Create a post or circle":
+  - generic: 
+- tab " Circles":
+  - generic: 
+  - generic: Circles
+- tab " You":
+  - generic: 
+  - generic: You

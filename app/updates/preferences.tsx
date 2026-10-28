@@ -9,6 +9,7 @@ import { useCircles } from "@/hooks/circles-context";
 import { ACTIVITY_PREFERENCES_LOAD_ERROR } from "@/lib/a26-activity-repairs";
 import { activityScopeKey } from "@/lib/activity-ui";
 import {
+  Heading,
   Button,
   C,
   Empty,
@@ -55,7 +56,7 @@ export default function ActivityPreferencesScreen() {
           <View style={[s.between, { gap: 12 }]}>
             <View style={{ flex: 1, minWidth: 0, gap: 5 }}>
               <T style={s.eyebrow}>YOUR ACTIVITY</T>
-              <T style={s.title}>Update preferences</T>
+              <Heading style={s.title}>Update preferences</Heading>
             </View>
             <IconButton
               icon="close"

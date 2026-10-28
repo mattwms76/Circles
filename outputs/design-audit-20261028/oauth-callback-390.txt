@@ -1,0 +1,4 @@
+- heading "Authentication failed" [level=1]
+- alert: This sign-in link is missing information. Please return to Circles and try again.
+- button "Back to Circles":
+  - generic: Back to Circles

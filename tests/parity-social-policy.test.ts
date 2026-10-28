@@ -2,6 +2,10 @@ import { EventEmitter } from "node:events";
 import { TRPCError } from "@trpc/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { circles, memberships, posts, reports } from "../drizzle/schema";
+import {
+  excessiveTableEntriesMp4,
+  syntheticRecordedMp4,
+} from "./fixtures/recorded-mp4";
 
 const mocks = vi.hoisted(() => ({
   assertPlatformFeature: vi.fn(),
@@ -9,10 +13,10 @@ const mocks = vi.hoisted(() => ({
   assertPlatformUploadSizeWithLimit: vi.fn(),
   encryptSocialMedia: vi.fn((bytes: Buffer) => bytes),
   getDb: vi.fn(),
-  inspectRecordedMp4: vi.fn(),
   recordModerationReport: vi.fn(),
   recordUpload: vi.fn(),
   storagePut: vi.fn(),
+  validateMp4Upload: vi.fn(),
 }));
 
 vi.mock("../server/db", () => ({ getDb: mocks.getDb }));
@@ -21,10 +25,11 @@ vi.mock("../server/platform-settings", () => ({
   assertPlatformUploadSize: mocks.assertPlatformUploadSize,
   assertPlatformUploadSizeWithLimit: mocks.assertPlatformUploadSizeWithLimit,
 }));
-vi.mock("../shared/recorded-video", () => ({
-  inspectRecordedMp4: mocks.inspectRecordedMp4,
-}));
 vi.mock("../server/storage", () => ({ storagePut: mocks.storagePut }));
+vi.mock("../server/sec27-video-validation", () => ({
+  Mp4ValidationError: class Mp4ValidationError extends Error {},
+  validateMp4Upload: mocks.validateMp4Upload,
+}));
 vi.mock("../server/moderation-events", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../server/moderation-events")>()),
   recordModerationReport: mocks.recordModerationReport,
@@ -105,6 +110,18 @@ function uploadCaller() {
   });
 }
 
+function deniedUploadCaller() {
+  const req = Object.assign(new EventEmitter(), { aborted: false });
+  const res = Object.assign(new EventEmitter(), { writableEnded: true });
+  return socialRouter.createCaller({
+    // createContext uses this exact null actor outcome after SDK authentication rejects a revoked
+    // durable session. The protected procedure must deny before any upload admission work begins.
+    user: null,
+    req: req as never,
+    res: res as never,
+  });
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   delete process.env.CIRCLES_PLATFORM_SETTINGS_ENABLED;
@@ -112,6 +129,7 @@ beforeEach(() => {
   mocks.assertPlatformUploadSize.mockResolvedValue(undefined);
   mocks.assertPlatformUploadSizeWithLimit.mockResolvedValue(20 * 1024 * 1024);
   mocks.recordModerationReport.mockResolvedValue(undefined);
+  mocks.validateMp4Upload.mockResolvedValue(undefined);
 });
 
 afterEach(() => mocks.getDb.mockReset());
@@ -190,14 +208,10 @@ describe("admin parity social policy", () => {
     expect(mocks.storagePut).not.toHaveBeenCalled();
   });
 
-  it("inspects explicit recorded MP4 metadata with the effective cap before encryption or storage", async () => {
+  it("rejects actual unsupported recorded MP4 metadata before hardened validation, encryption, or storage", async () => {
     mocks.getDb.mockResolvedValue({});
     mocks.assertPlatformUploadSizeWithLimit.mockResolvedValue(1_024);
-    mocks.inspectRecordedMp4.mockImplementation(() => {
-      throw new Error("This video must use H.264 video with AAC audio.");
-    });
-    const bytes = Buffer.alloc(12);
-    bytes.write("ftyp", 4, "ascii");
+    const bytes = Buffer.from(syntheticRecordedMp4({ videoEntryType: "hvc1" }));
 
     await expect(
       uploadCaller().upload({
@@ -205,12 +219,75 @@ describe("admin parity social policy", () => {
         mimeType: "video/mp4",
         recording: { maxDurationSeconds: 30 },
       }),
-    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
-
-    expect(mocks.inspectRecordedMp4).toHaveBeenCalledWith(bytes, {
-      maxDurationSeconds: 30,
-      maxBytes: 1_024,
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "This video must use H.264 video with AAC audio.",
     });
+
+    expect(mocks.encryptSocialMedia).not.toHaveBeenCalled();
+    expect(mocks.storagePut).not.toHaveBeenCalled();
+    expect(mocks.recordUpload).not.toHaveBeenCalled();
+  });
+
+  it("rejects an excessive recorded MP4 table before retained validation, encryption, storage, or upload recording", async () => {
+    mocks.getDb.mockResolvedValue({});
+    const bytes = Buffer.from(excessiveTableEntriesMp4());
+
+    await expect(
+      uploadCaller().upload({
+        base64: bytes.toString("base64"),
+        mimeType: "video/mp4",
+        recording: { maxDurationSeconds: 30 },
+      }),
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "This MP4 file exceeds the recording metadata resource limit.",
+    });
+
+    expect(mocks.validateMp4Upload).not.toHaveBeenCalled();
+    expect(mocks.encryptSocialMedia).not.toHaveBeenCalled();
+    expect(mocks.storagePut).not.toHaveBeenCalled();
+    expect(mocks.recordUpload).not.toHaveBeenCalled();
+  });
+
+  it("enforces the active effective cap against an actual recorded MP4 before encryption or storage", async () => {
+    mocks.getDb.mockResolvedValue({});
+    const bytes = Buffer.from(syntheticRecordedMp4());
+    mocks.assertPlatformUploadSizeWithLimit.mockResolvedValue(bytes.length - 1);
+
+    await expect(
+      uploadCaller().upload({
+        base64: bytes.toString("base64"),
+        mimeType: "video/mp4",
+        recording: { maxDurationSeconds: 30 },
+      }),
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "Keep your recorded video under the allowed size.",
+    });
+
+    expect(mocks.assertPlatformUploadSizeWithLimit).toHaveBeenCalledWith(
+      expect.any(Object),
+      bytes.length,
+    );
+    expect(mocks.encryptSocialMedia).not.toHaveBeenCalled();
+    expect(mocks.storagePut).not.toHaveBeenCalled();
+    expect(mocks.recordUpload).not.toHaveBeenCalled();
+  });
+
+  it("rejects a recording when protected context has rejected its credential before upload admission", async () => {
+    const bytes = Buffer.from(syntheticRecordedMp4());
+
+    await expect(
+      deniedUploadCaller().upload({
+        base64: bytes.toString("base64"),
+        mimeType: "video/mp4",
+        recording: { maxDurationSeconds: 30 },
+      }),
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+
+    expect(mocks.getDb).not.toHaveBeenCalled();
+    expect(mocks.assertPlatformUploadSizeWithLimit).not.toHaveBeenCalled();
     expect(mocks.encryptSocialMedia).not.toHaveBeenCalled();
     expect(mocks.storagePut).not.toHaveBeenCalled();
     expect(mocks.recordUpload).not.toHaveBeenCalled();

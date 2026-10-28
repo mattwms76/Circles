@@ -1,3 +1,5 @@
+import { ScreenMetadata } from "@/components/screen-metadata";
+import { controlAccessibilityProps } from "../../lib/control-accessibility";
 import { useState } from "react";
 import {
   KeyboardAvoidingView,
@@ -61,6 +63,7 @@ export default function ThemeLabScreen() {
 
   return (
     <View style={[styles.screen, { backgroundColor: palette.background }]}>
+      <ScreenMetadata title="Theme Lab" />
       <StatusBar style={previewScheme === "dark" ? "light" : "dark"} />
       <SafeAreaView
         edges={["top", "bottom", "left", "right"]}
@@ -78,7 +81,11 @@ export default function ThemeLabScreen() {
             showsVerticalScrollIndicator={false}
           >
             <View style={styles.header}>
-              <Text style={[styles.title, { color: palette.foreground }]}>
+              <Text
+                accessibilityRole="header"
+                {...{ "aria-level": 1 }}
+                style={[styles.title, { color: palette.foreground }]}
+              >
                 Theme Lab
               </Text>
               <Text style={[styles.body, { color: palette.muted }]}>
@@ -105,11 +112,13 @@ export default function ThemeLabScreen() {
                     accessibilityHint="Changes the preview in Theme Lab only; it does not change the app theme."
                     accessibilityLabel={`${displayName} preview palette`}
                     accessibilityRole="radio"
-                    aria-checked={toggleColors.isSelected}
-                    accessibilityState={{
-                      checked: toggleColors.isSelected,
-                      selected: toggleColors.isSelected,
-                    }}
+                    {...controlAccessibilityProps(
+                      {
+                        checked: toggleColors.isSelected,
+                        selected: toggleColors.isSelected,
+                      },
+                      "radio",
+                    )}
                     onPress={() => {
                       setPreviewScheme(scheme);
                       setLastAction(`Selected ${displayName} preview palette`);

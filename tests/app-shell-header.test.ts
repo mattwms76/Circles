@@ -6,6 +6,19 @@ import {
 } from "react";
 import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+vi.mock("react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("react")>()),
+  useSyncExternalStore: (_subscribe: unknown, getSnapshot: () => string) =>
+    getSnapshot(),
+  useState: <T>(value: T) => [value, vi.fn()],
+  useEffect: () => {},
+}));
+vi.mock("@/components/screen-metadata", () => ({
+  ScreenMetadata: "ScreenMetadata",
+}));
+vi.mock("../components/screen-metadata", () => ({
+  ScreenMetadata: "ScreenMetadata",
+}));
 
 const runtime = vi.hoisted(() => ({
   width: 390,
@@ -66,6 +79,7 @@ vi.mock("../components/circles-ui", () => ({
   IconButton: "IconButton",
   Logo: "Logo",
   T: "T",
+  Heading: "T",
   Wordmark: "Wordmark",
   C: {
     bg: "#F9F8F5",
@@ -193,7 +207,10 @@ describe("actual shell elements with mock native primitives, not device/layout r
       expect(messages).toBeDefined();
       search?.props.onPress?.();
       messages?.props.onPress?.();
-      expect(runtime.push.mock.calls).toEqual([["/discover"], ["/messages"]]);
+      expect(runtime.push.mock.calls).toEqual([
+        ["/discover?focus=search"],
+        ["/messages"],
+      ]);
       const activity = controls.find((node) => node.type === "ActivityBadge");
       expect(Boolean(activity)).toBe(signedIn);
       if (activity) {
@@ -239,7 +256,8 @@ describe("actual shell elements with mock native primitives, not device/layout r
     });
     const tabs = elements(bar).filter(
       (element) =>
-        element.props.accessibilityLabel === "Create a post or circle",
+        element.props.accessibilityLabel ===
+        "Share a moment or create a circle",
     );
     expect(tabs).toHaveLength(1);
     expect(
@@ -256,7 +274,7 @@ describe("actual shell elements with mock native primitives, not device/layout r
     const nodes = elements(byId(shell, "app-shell-header"));
     for (const [label, path] of [
       ["Circles home", "/"],
-      ["Search Circles", "/discover"],
+      ["Search Circles", "/discover?focus=search"],
     ]) {
       const control = nodes.find(
         (node) => node.props.accessibilityLabel === label,

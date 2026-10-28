@@ -1,5 +1,12 @@
+import { controlAccessibilityProps } from "../../lib/control-accessibility";
 import { useState } from "react";
-import { Pressable, ScrollView, TextInput, View } from "react-native";
+import {
+  Pressable,
+  ScrollView,
+  TextInput,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { Image } from "@/components/media-image";
 import { useRouter } from "expo-router";
 import { trpc } from "@/lib/trpc";
@@ -10,6 +17,7 @@ import { AppShell } from "@/components/app-shell";
 import { CircleCard } from "@/components/circle-card";
 import { OnboardingEntry } from "@/components/onboarding-entry";
 import {
+  Heading,
   Button,
   C,
   Empty,
@@ -24,6 +32,8 @@ import {
 
 export default function CirclesScreen() {
   const router = useRouter();
+  const { width } = useWindowDimensions();
+  const compactHero = width < 600;
   const { requireAuth } = useCircles();
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("All");
@@ -51,11 +61,13 @@ export default function CirclesScreen() {
   });
   return (
     <AppShell>
-      <View style={{ gap: 21 }}>
+      <View style={{ gap: compactHero ? 14 : 21 }}>
         <View style={[s.between, { alignItems: "flex-start", gap: 12 }]}>
           <View style={{ flex: 1, minWidth: 0 }}>
             <T style={s.eyebrow}>A PLACE TO BELONG</T>
-            <T style={[s.title, { marginTop: 6 }]}>Find your people.</T>
+            <Heading style={[s.title, { marginTop: 6 }]}>
+              Find your people.
+            </Heading>
           </View>
           <IconButton
             icon="add"
@@ -74,7 +86,7 @@ export default function CirclesScreen() {
           style={{
             overflow: "hidden",
             borderRadius: 19,
-            minHeight: 174,
+            minHeight: compactHero ? 96 : 174,
             backgroundColor: "#506744",
           }}
         >
@@ -88,38 +100,42 @@ export default function CirclesScreen() {
             }}
             contentFit="cover"
           />
-          <View style={{ padding: 23 }}>
+          <View style={{ padding: compactHero ? 8 : 23 }}>
             <View
               style={{
                 alignSelf: "flex-start",
                 maxWidth: "100%",
-                gap: 9,
-                paddingHorizontal: 14,
-                paddingVertical: 12,
+                gap: compactHero ? 0 : 9,
+                paddingHorizontal: compactHero ? 10 : 14,
+                paddingVertical: compactHero ? 6 : 12,
                 borderRadius: 12,
                 backgroundColor: A26_CIRCLE_HERO_BACKPLATE_COLOR,
               }}
             >
-              <T
-                style={{
-                  color: "#EEF6E9",
-                  fontSize: 10,
-                  letterSpacing: 1.3,
-                  fontWeight: "700",
-                }}
-              >
-                LIFE IS BETTER TOGETHER
-              </T>
+              {!compactHero && (
+                <T
+                  style={{
+                    color: "#EEF6E9",
+                    fontSize: 10,
+                    letterSpacing: 1.3,
+                    fontWeight: "700",
+                  }}
+                >
+                  LIFE IS BETTER TOGETHER
+                </T>
+              )}
               <T
                 style={{
                   color: "#fff",
-                  fontSize: 25,
-                  lineHeight: 29,
+                  fontSize: compactHero ? 20 : 25,
+                  lineHeight: compactHero ? 27 : 29,
                   fontWeight: "800",
                   letterSpacing: -0.7,
                 }}
               >
-                {"Big passions.\nYour kind of people."}
+                {compactHero
+                  ? "Your kind of people."
+                  : "Big passions.\nYour kind of people."}
               </T>
               <Pressable
                 onPress={() => {
@@ -206,7 +222,7 @@ export default function CirclesScreen() {
           <View style={[s.row, { gap: 18 }]}>
             <Pressable
               accessibilityRole="tab"
-              accessibilityState={{ selected: !joinedOnly }}
+              {...controlAccessibilityProps({ selected: !joinedOnly }, "tab")}
               onPress={() => setJoinedOnly(false)}
               style={{ minHeight: 44, justifyContent: "center" }}
             >
@@ -222,7 +238,7 @@ export default function CirclesScreen() {
             </Pressable>
             <Pressable
               accessibilityRole="tab"
-              accessibilityState={{ selected: joinedOnly }}
+              {...controlAccessibilityProps({ selected: joinedOnly }, "tab")}
               onPress={() => setJoinedOnly(true)}
               style={{ minHeight: 44, justifyContent: "center" }}
             >

@@ -1,8 +1,18 @@
+import { controlAccessibilityProps } from "../lib/control-accessibility";
 import React, { useEffect, useRef, useState } from "react";
 import { Pressable, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { AppShell } from "@/components/app-shell";
-import { Button, C, Empty, Icon, Loading, s, T } from "@/components/circles-ui";
+import {
+  Heading,
+  Button,
+  C,
+  Empty,
+  Icon,
+  Loading,
+  s,
+  T,
+} from "@/components/circles-ui";
 import { StatusMessage } from "@/components/status-message";
 import { useCircles } from "@/hooks/circles-context";
 import {
@@ -51,7 +61,9 @@ function OptionalGuestScreen() {
     <AppShell sidebar={false}>
       <View style={{ gap: 18, paddingTop: 18 }}>
         <T style={s.eyebrow}>OPTIONAL SETUP</T>
-        <T style={s.title}>A few preferences, only if you want them.</T>
+        <Heading style={s.title}>
+          A few preferences, only if you want them.
+        </Heading>
         <T style={{ color: C.secondary, lineHeight: 22 }}>
           Sign in to choose up to six interests and get optional public-circle
           suggestions. Your interests are private to your account.
@@ -110,7 +122,10 @@ function InterestChooser({
             key={interest.id}
             accessibilityRole="checkbox"
             accessibilityLabel={`${interest.label}, ${interest.category}`}
-            accessibilityState={{ checked, disabled: disabled || limitReached }}
+            {...controlAccessibilityProps(
+              { checked, disabled: disabled || limitReached },
+              "checkbox",
+            )}
             disabled={disabled || limitReached}
             onPress={() => onToggle(interest.id)}
             style={({ pressed }) => ({
@@ -267,7 +282,7 @@ function CompletedScreen() {
   return (
     <View style={{ gap: 16, paddingTop: 12 }}>
       <T style={s.eyebrow}>SETUP COMPLETE</T>
-      <T style={s.title}>Your Circles setup is ready.</T>
+      <Heading style={s.title}>Your Circles setup is ready.</Heading>
       <T style={{ color: C.secondary, lineHeight: 22 }}>
         You can update your private interests any time from your profile.
       </T>
@@ -524,7 +539,7 @@ function OnboardingWizard({
       <View style={{ gap: 18 }}>
         <View style={{ gap: 8 }}>
           <T style={s.eyebrow}>OPTIONAL SETUP · 1 OF 3</T>
-          <T style={s.title}>What are you into?</T>
+          <Heading style={s.title}>What are you into?</Heading>
           <T style={{ color: C.secondary, lineHeight: 22 }}>
             Pick up to six interests for optional suggestions. These choices are
             private to your account and never appear on your profile.
@@ -579,7 +594,7 @@ function OnboardingWizard({
       <View style={{ gap: 18 }}>
         <View style={{ gap: 8 }}>
           <T style={s.eyebrow}>OPTIONAL SETUP · 2 OF 3</T>
-          <T style={s.title}>A few public circles to explore.</T>
+          <Heading style={s.title}>A few public circles to explore.</Heading>
           <T style={{ color: C.secondary, lineHeight: 22 }}>
             Suggestions are based on your private choices. Join only the
             communities you actually want to be part of.
@@ -702,7 +717,7 @@ function OnboardingWizard({
     <View style={{ gap: 18 }}>
       <View style={{ gap: 8 }}>
         <T style={s.eyebrow}>OPTIONAL SETUP · 3 OF 3</T>
-        <T style={s.title}>A gentle first hello, if you’d like.</T>
+        <Heading style={s.title}>A gentle first hello, if you’d like.</Heading>
         <T style={{ color: C.secondary, lineHeight: 22 }}>
           A short introduction can help people know why you’re here. Keep it
           kind, share only what feels comfortable, and make room for a reply.
@@ -730,10 +745,13 @@ function OnboardingWizard({
               key={circle.id}
               accessibilityRole="radio"
               accessibilityLabel={`Introduce yourself in ${circle.name}`}
-              accessibilityState={{
-                selected: selectedCircleOption,
-                disabled: controlsBusy,
-              }}
+              {...controlAccessibilityProps(
+                {
+                  selected: selectedCircleOption,
+                  disabled: controlsBusy,
+                },
+                "radio",
+              )}
               disabled={controlsBusy}
               onPress={() => {
                 if (

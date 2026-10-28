@@ -1,0 +1,48 @@
+- generic: Theme Lab
+- generic: Preview palettes only within Theme Lab. Choosing a palette does not change the app theme.
+- radiogroup "Theme Lab preview palette":
+  - radio "Light preview palette" [checked]:
+    - generic: Light preview
+    - generic: Scoped token set
+  - radio "Dark preview palette":
+    - generic: Dark preview
+    - generic: Scoped token set
+- generic: Preview action tokens
+- generic: These controls use the selected scoped palette; they do not apply app-wide settings.
+- button "Preview Primary token":
+  - generic: Primary
+- button "Preview Surface token":
+  - generic: Surface
+- button "Preview Success token":
+  - generic: Success
+- button "Preview Warning token":
+  - generic: Warning
+- button "Preview Error token":
+  - generic: Error
+- generic: Scoped preview details
+- generic: "Preview interactions: 0"
+- generic: "Last action: No preview actions yet"
+- generic: Scoped palette values
+- generic: Live values for the selected Theme Lab preview.
+- generic: primary
+- generic: "#A53728"
+- generic: background
+- generic: "#F9F8F5"
+- generic: surface
+- generic: "#FFFFFF"
+- generic: foreground
+- generic: "#242825"
+- generic: muted
+- generic: "#4D5948"
+- generic: border
+- generic: "#D0D3C8"
+- generic: control Border
+- generic: "#6B7566"
+- generic: success
+- generic: "#3F6541"
+- generic: warning
+- generic: "#6C5100"
+- generic: error
+- generic: "#A53728"
+- generic: action Foreground
+- generic: "#FFFFFF"

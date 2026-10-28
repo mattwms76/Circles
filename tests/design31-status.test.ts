@@ -53,6 +53,7 @@ vi.mock("react-native", () => ({
 vi.mock("@/components/circles-ui", () => ({
   C: { action: "#A53728", secondary: "#4D5948" },
   T: "T",
+  Heading: "T",
 }));
 
 const { StatusMessage } = await import("../components/status-message");

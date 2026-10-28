@@ -1,5 +1,21 @@
 # Email/password sign-in — source rollout
 
+## Local preview activation — 28 October 2026
+
+The local preview enables the existing Supabase email provider and private identity bridge. The installed mapping and restricted runtime grants were verified with read-only checks. Local sessions use a stable private development signing secret and a separate local application identifier through the existing non-production aliases. Production identity, signing and media encryption keys are not replaced. Local values remain in the ignored `.env` file.
+
+Registration supports explicit native clients with the same origin/metadata protections as sign-in. Browser registration retains its original wire contract. Passwords require at least eight characters for new registrations; existing shorter passwords remain usable for sign-in. Rejected delivery, throttling and weak passwords produce bounded errors instead of incorrectly showing successful email delivery. Duplicate-account responses remain generic, and registration never creates an app session before confirmed password authentication.
+
+The `/account/confirmed` landing page clears provider fragments without using them as Circles credentials. Password sign-in validates the confirmed provider user and issues a durable, revocable Circles session. The server entry-point check now supports Windows paths. Start the configured local API with `node --env-file=.env --import tsx server/_core/index.ts`.
+
+### Preview email delivery
+
+The owner selected Gmail SMTP for preview use without buying a domain. The prepared Supabase SMTP form uses sender name `Circles`, host `smtp.gmail.com`, and port `465`. The owner must privately enter the same Gmail address as Sender email and Username, enter a dedicated Google app password, and save. Google requires 2-Step Verification for app passwords. Do not put Gmail credentials in the repository, chat, screenshots or app client.
+
+Set the Supabase Site URL to `http://localhost:8082/account/confirmed` for this local preview so confirmation links return to the app. Preserve existing redirect entries. Before release, use the real HTTPS app URL and an appropriate sending service. Gmail delivery and actual account signup/sign-in remain unverified until the owner completes the private sender setup and real-account email confirmation. Supabase's built-in sender remains limited to project-team addresses while custom SMTP is unsaved.
+
+References: [Supabase password auth](https://supabase.com/docs/guides/auth/passwords), [Supabase SMTP](https://supabase.com/docs/guides/auth/auth-smtp), [Google app passwords](https://support.google.com/accounts/answer/185833).
+
 Circles now prepares email/password sign-in and confirmation-only registration using the existing connected Supabase Email Auth provider. Google is deferred by the owner and is not a working button. Provider credentials/tokens are used only at the server’s pinned HTTPS Auth boundary; the app continues using its own durable, revocable sessions, HttpOnly web cookie and native SecureStore bearer.
 
 ## Existing ownership and permissions

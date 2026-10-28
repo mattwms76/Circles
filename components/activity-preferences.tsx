@@ -1,3 +1,4 @@
+import { controlAccessibilityProps } from "../lib/control-accessibility";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 import { trpc } from "@/lib/trpc";
@@ -9,7 +10,7 @@ import {
 } from "@/lib/activity-ui";
 import { ACTIVITY_PREFERENCES_LOAD_ERROR } from "@/lib/a26-activity-repairs";
 import { StatusMessage } from "@/components/status-message";
-import { Button, C, Empty, T } from "./circles-ui";
+import { Heading, Button, C, Empty, T } from "./circles-ui";
 
 type CategoryKey = "commentsEnabled" | "membershipApprovalsEnabled";
 type CategoryState = Record<CategoryKey, boolean>;
@@ -36,7 +37,10 @@ function ActivityToggle({
       accessibilityRole="switch"
       accessibilityLabel={label}
       accessibilityHint={description}
-      accessibilityState={{ checked: value, disabled, busy: pending }}
+      {...controlAccessibilityProps(
+        { checked: value, disabled, busy: pending },
+        "switch",
+      )}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
@@ -224,7 +228,9 @@ export function ActivityPreferencesPanel({ viewerId }: { viewerId: number }) {
   return (
     <View style={styles.panel}>
       <View style={{ gap: 5 }}>
-        <T style={styles.panelTitle}>Choose what’s new</T>
+        <Heading level={2} style={styles.panelTitle}>
+          Choose what’s new
+        </Heading>
         <T style={styles.muted}>
           These choices affect future Updates. Anything already in your inbox
           stays there.

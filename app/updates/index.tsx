@@ -1,3 +1,4 @@
+import { controlAccessibilityProps } from "../../lib/control-accessibility";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
@@ -19,6 +20,7 @@ import {
 } from "@/lib/activity-ui";
 import type { ActivityItem } from "@/shared/activity";
 import {
+  Heading,
   ago,
   Button,
   C,
@@ -78,7 +80,10 @@ export function ActivityRow({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={labels.markRead}
-      accessibilityState={{ disabled: disabled || marking, busy: marking }}
+      {...controlAccessibilityProps({
+        disabled: disabled || marking,
+        busy: marking,
+      })}
       disabled={disabled || marking}
       onPress={onMarkRead}
       style={({ pressed }) => [
@@ -127,7 +132,7 @@ export function ActivityRow({
         accessibilityRole="button"
         accessibilityLabel={labels.open}
         accessibilityHint="Opens the current update destination."
-        accessibilityState={{ disabled, busy: marking }}
+        {...controlAccessibilityProps({ disabled, busy: marking })}
         disabled={disabled}
         onPress={onOpen}
         style={({ pressed }) => [
@@ -356,7 +361,7 @@ export function ActivityInbox({ viewerId }: { viewerId: number }) {
       <View style={[s.between, { gap: 12, alignItems: "flex-start" }]}>
         <View style={{ flex: 1, minWidth: 0, gap: 5 }}>
           <T style={s.eyebrow}>YOUR ACTIVITY</T>
-          <T style={s.title}>Updates</T>
+          <Heading style={s.title}>Updates</Heading>
           <T style={styles.headingCopy}>
             A quiet place for new moments around your circles.
           </T>
@@ -385,6 +390,7 @@ export function ActivityInbox({ viewerId }: { viewerId: number }) {
         <Loading />
       ) : listState.isError ? (
         <Empty
+          headingLevel={2}
           icon="notifications-outline"
           title="We couldn’t load your Updates."
           text="Check your connection and try again."
@@ -393,6 +399,7 @@ export function ActivityInbox({ viewerId }: { viewerId: number }) {
         />
       ) : listState.items.length === 0 ? (
         <Empty
+          headingLevel={2}
           icon="notifications-outline"
           title="Nothing new yet."
           text="When someone comments on one of your moments or approves a circle request, it will appear here."
@@ -478,6 +485,7 @@ export default function UpdatesScreen() {
             style={styles.outcome}
           />
           <Empty
+            headingLevel={2}
             icon="alert-circle-outline"
             title="We couldn’t check your sign-in."
             text="Check your connection, then try again before opening Updates."
@@ -487,6 +495,7 @@ export default function UpdatesScreen() {
         </View>
       ) : routeGate === "guest" ? (
         <Empty
+          headingLevel={2}
           icon="notifications-outline"
           title="Updates are waiting for you."
           text="Sign in to see activity around your moments and circle requests."

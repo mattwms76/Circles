@@ -37,13 +37,16 @@ import {
   createBatch1OperationInstance,
   type Batch1OperationScope,
 } from "@/lib/batch1-mutation-feedback";
+import { ownProfileEditorScope } from "../lib/parity27-chat-editor-state";
 import { invalidateProfileViews } from "@/lib/source-query-invalidation";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppShell } from "./app-shell";
 import { PostCard } from "./post-card";
 import { StatusMessage } from "./status-message";
 import { UserAvatar } from "./user-avatar";
+import { countLabel, countNoun } from "../lib/count-copy";
 import {
+  Heading,
   Button,
   C,
   Empty,
@@ -105,7 +108,13 @@ function ProfileEditModal({
   }
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+    <Modal
+      accessibilityLabel="Edit profile"
+      visible
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -139,8 +148,14 @@ function ProfileEditModal({
             }}
           >
             <View style={s.between}>
-              <T style={{ fontWeight: "700", fontSize: 20 }}>Make it you.</T>
-              <IconButton icon="close" onPress={onClose} />
+              <Heading style={{ fontWeight: "700", fontSize: 20 }}>
+                Make it you.
+              </Heading>
+              <IconButton
+                icon="close"
+                label="Close profile editor"
+                onPress={onClose}
+              />
             </View>
             <Input
               label="YOUR NAME"
@@ -372,6 +387,186 @@ function ProfileFollowActions({
   );
 }
 
+function OwnProfileActions({
+  accountId,
+  profile,
+  profileEditorScope,
+  compactOwnProfileActions,
+  editorOuterPadding,
+  topInset,
+  bottomInset,
+  requireAuth,
+  notify,
+  refetchProfile,
+}: {
+  accountId: number;
+  profile: { id: number; name: string; handle: string; bio?: string | null };
+  profileEditorScope: string;
+  compactOwnProfileActions: boolean;
+  editorOuterPadding: number;
+  topInset: number;
+  bottomInset: number;
+  requireAuth: (action: () => void) => void;
+  notify: (message: string, tone?: StatusTone) => void;
+  refetchProfile: () => void;
+}) {
+  const router = useRouter();
+  const utils = trpc.useUtils();
+  const [editScope, setEditScope] = useState<string | null>(null);
+  const [profileUpdateError, setProfileUpdateError] = useState<{
+    scope: Batch1OperationScope;
+    message: string;
+  } | null>(null);
+  const [pendingProfileUpdateScope, setPendingProfileUpdateScope] =
+    useState<Batch1OperationScope | null>(null);
+  const [profileUpdateInstance] = useState(() =>
+    createBatch1OperationInstance(),
+  );
+  const [profileUpdateGuard] = useState(() => createBatch1OperationGuard());
+  const profileUpdateScopeRef = useRef<Batch1OperationScope | null>(null);
+  const profileUpdateIdentity = useMemo(
+    () =>
+      profileUpdateInstance.createIdentity(accountId, `profile:${profile.id}`),
+    [accountId, profile.id, profileUpdateInstance],
+  );
+  const updateMutation = trpc.social.updateProfile.useMutation();
+
+  function profileUpdateScopeIsCurrent(scope: Batch1OperationScope): boolean {
+    return profileUpdateInstance.isCurrent(scope);
+  }
+
+  useEffect(() => {
+    const scope = profileUpdateInstance.activate(profileUpdateIdentity);
+    profileUpdateScopeRef.current = scope;
+
+    return () => {
+      profileUpdateInstance.deactivate(scope);
+      if (
+        scope &&
+        profileUpdateScopeRef.current?.instanceId === scope.instanceId
+      ) {
+        profileUpdateScopeRef.current = null;
+      }
+    };
+  }, [profileUpdateIdentity, profileUpdateInstance]);
+
+  function saveOwnProfile(draft: {
+    name: string;
+    handle: string;
+    bio: string;
+  }) {
+    const scope = profileUpdateScopeRef.current;
+    if (!scope || !profileUpdateScopeIsCurrent(scope)) return;
+
+    void profileUpdateGuard.run(scope, async () => {
+      if (!profileUpdateScopeIsCurrent(scope)) return;
+      setPendingProfileUpdateScope(scope);
+      setProfileUpdateError(null);
+      try {
+        await updateMutation.mutateAsync(draft);
+        if (!profileUpdateScopeIsCurrent(scope)) return;
+        setEditScope(null);
+        setProfileUpdateError(null);
+        refetchProfile();
+        void invalidateProfileViews(utils);
+        notify("Your profile feels a little more you.", "success");
+      } catch (error) {
+        if (!profileUpdateScopeIsCurrent(scope)) return;
+        setProfileUpdateError({
+          scope,
+          message: a26ProfileUpdateErrorMessage(error),
+        });
+      } finally {
+        if (!profileUpdateScopeIsCurrent(scope)) return;
+        setPendingProfileUpdateScope((current) =>
+          current && batch1OperationKey(current) === batch1OperationKey(scope)
+            ? null
+            : current,
+        );
+      }
+    });
+  }
+
+  const editorOpen = editScope === profileEditorScope;
+  const profileUpdatePending =
+    pendingProfileUpdateScope !== null &&
+    batch1OperationIdentityMatches(
+      pendingProfileUpdateScope,
+      profileUpdateIdentity,
+    );
+  const visibleProfileUpdateError =
+    profileUpdateError &&
+    batch1OperationIdentityMatches(
+      profileUpdateError.scope,
+      profileUpdateIdentity,
+    )
+      ? profileUpdateError.message
+      : null;
+
+  return (
+    <>
+      <View
+        testID="profile-own-actions"
+        style={{
+          marginTop: compactOwnProfileActions ? 12 : 36,
+          gap: 7,
+          alignItems: compactOwnProfileActions ? "stretch" : "flex-end",
+          width: compactOwnProfileActions ? "100%" : undefined,
+          minWidth: 0,
+        }}
+      >
+        <Button
+          title="Edit profile"
+          secondary
+          onPress={() => {
+            setProfileUpdateError(null);
+            setEditScope(profileEditorScope);
+          }}
+          style={{
+            borderRadius: 9,
+            width: compactOwnProfileActions ? "100%" : undefined,
+          }}
+        />
+        <Button
+          title="Edit interests"
+          secondary
+          onPress={() => router.push("/onboarding?edit=1")}
+          style={{
+            borderRadius: 9,
+            width: compactOwnProfileActions ? "100%" : undefined,
+          }}
+        />
+        <Button
+          title="Connect email sign-in"
+          secondary
+          onPress={() => requireAuth(() => router.push("/account/email"))}
+          style={{
+            borderRadius: 9,
+            width: compactOwnProfileActions ? "100%" : undefined,
+          }}
+        />
+      </View>
+      {editorOpen && (
+        <ProfileEditModal
+          key={profileEditorScope}
+          profile={profile}
+          editorOuterPadding={editorOuterPadding}
+          topInset={topInset}
+          bottomInset={bottomInset}
+          saving={profileUpdatePending}
+          saveError={visibleProfileUpdateError}
+          onClose={() => {
+            setEditScope(null);
+            setProfileUpdateError(null);
+          }}
+          onSave={(draft) => requireAuth(() => saveOwnProfile(draft))}
+          onDraftChange={() => setProfileUpdateError(null)}
+        />
+      )}
+    </>
+  );
+}
+
 export default function ProfileScreen({
   personId,
   invalidPersonRoute = false,
@@ -409,24 +604,12 @@ export default function ProfileScreen({
       getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     },
   );
-  const [edit, setEdit] = useState(false);
-  const [profileUpdateError, setProfileUpdateError] = useState<string | null>(
-    null,
-  );
-  const utils = trpc.useUtils();
   const accountId = user?.id ?? null;
   const profileResourceId = p ? `profile:${p.id}` : null;
-
-  const update = trpc.social.updateProfile.useMutation({
-    onSuccess: () => {
-      setEdit(false);
-      setProfileUpdateError(null);
-      void profile.refetch();
-      void invalidateProfileViews(utils);
-      notify("Your profile feels a little more you.", "success");
-    },
-    onError: (error) =>
-      setProfileUpdateError(a26ProfileUpdateErrorMessage(error)),
+  const profileEditorScope = ownProfileEditorScope({
+    accountId,
+    profileId: p?.id,
+    ownsProfile: own,
   });
   const loadedPosts = flattenA26ProfilePages(feed.data?.pages);
   const posts = loadedPosts.filter(
@@ -450,7 +633,7 @@ export default function ProfileScreen({
   });
   const statsLayout = a26ProfileStatsLayout(width, fontScale);
   return (
-    <AppShell>
+    <AppShell title={p?.name ?? (personId ? "Profile" : "Your profile")}>
       {onBack && (
         <Button
           title="Back"
@@ -508,10 +691,8 @@ export default function ProfileScreen({
                     await logout();
                     notify("You’re signed out. See you soon.", "success");
                   } catch {
-                    notify(
-                      "Signed out locally, but remote session revocation could not be confirmed.",
-                      "error",
-                    );
+                    // CirclesProvider keeps the outcome-specific recovery UI
+                    // visible, including the only explicit retry action.
                   }
                 }}
                 label="Sign out"
@@ -557,56 +738,26 @@ export default function ProfileScreen({
                 userId={p.id}
               />
             </View>
-            {own && (
-              <View
-                testID="profile-own-actions"
-                style={{
-                  marginTop: compactOwnProfileActions ? 12 : 36,
-                  gap: 7,
-                  alignItems: compactOwnProfileActions ? "stretch" : "flex-end",
-                  width: compactOwnProfileActions ? "100%" : undefined,
-                  minWidth: 0,
-                }}
-              >
-                <Button
-                  title="Edit profile"
-                  secondary
-                  onPress={() => {
-                    setProfileUpdateError(null);
-                    setEdit(true);
-                  }}
-                  style={{
-                    borderRadius: 9,
-                    width: compactOwnProfileActions ? "100%" : undefined,
-                  }}
-                />
-                <Button
-                  title="Edit interests"
-                  secondary
-                  onPress={() => router.push("/onboarding?edit=1")}
-                  style={{
-                    borderRadius: 9,
-                    width: compactOwnProfileActions ? "100%" : undefined,
-                  }}
-                />
-                <Button
-                  title="Connect email sign-in"
-                  secondary
-                  onPress={() =>
-                    requireAuth(() => router.push("/account/email"))
-                  }
-                  style={{
-                    borderRadius: 9,
-                    width: compactOwnProfileActions ? "100%" : undefined,
-                  }}
-                />
-              </View>
+            {own && profileEditorScope && accountId !== null && (
+              <OwnProfileActions
+                key={profileEditorScope}
+                accountId={accountId}
+                profile={p}
+                profileEditorScope={profileEditorScope}
+                compactOwnProfileActions={compactOwnProfileActions}
+                editorOuterPadding={editorOuterPadding}
+                topInset={insets.top}
+                bottomInset={insets.bottom}
+                requireAuth={requireAuth}
+                notify={notify}
+                refetchProfile={() => void profile.refetch()}
+              />
             )}
           </View>
           <View style={{ paddingVertical: 16, gap: 10, minWidth: 0 }}>
-            <T testID="profile-name" style={[s.title, { flexShrink: 1 }]}>
+            <Heading testID="profile-name" style={[s.title, { flexShrink: 1 }]}>
               {p.name}
-            </T>
+            </Heading>
             <T style={{ color: C.muted, fontSize: 12 }}>@{p.handle}</T>
             <T style={{ color: C.muted, fontSize: 14, lineHeight: 21 }}>
               {p.bio || "A new face. A new connection."}
@@ -624,8 +775,8 @@ export default function ProfileScreen({
                 {
                   key: "followers",
                   displayValue: formatA26ProfileStatCount(p.followers),
-                  label: "followers",
-                  accessibilityLabel: `${p.followers} followers`,
+                  label: countNoun(p.followers, "follower"),
+                  accessibilityLabel: countLabel(p.followers, "follower"),
                 },
                 {
                   key: "following",
@@ -678,6 +829,7 @@ export default function ProfileScreen({
             <Loading />
           ) : feedDisplayState.kind === "error" ? (
             <Empty
+              headingLevel={2}
               icon="images-outline"
               title={
                 tab === "Saved"
@@ -690,6 +842,7 @@ export default function ProfileScreen({
             />
           ) : feedDisplayState.kind === "empty" ? (
             <Empty
+              headingLevel={2}
               icon="images-outline"
               title={
                 tab === "Saved"
@@ -700,7 +853,7 @@ export default function ProfileScreen({
               }
               text={
                 tab === "Saved"
-                  ? "Tap the bookmark on a post to keep it here."
+                  ? "Tap the bookmark on a moment to keep it here."
                   : "A photo, a thought, a small part of your day."
               }
               action={own && tab !== "Saved" ? "Share a moment" : undefined}
@@ -756,33 +909,17 @@ export default function ProfileScreen({
                 <View
                   testID="profile-feed-end"
                   accessible
-                  accessibilityLabel={`${posts.length} ${tab === "Saved" ? "saved moments" : "moments"} loaded. End of list.`}
+                  accessibilityLabel={`${posts.length} ${tab === "Saved" ? "saved " : ""}${countNoun(posts.length, "moment")} loaded. End of list.`}
                   style={{ alignItems: "center", paddingVertical: 14 }}
                 >
                   <T style={{ color: C.secondary, fontSize: 12 }}>
-                    {`All ${posts.length} ${tab === "Saved" ? "saved moments" : "moments"} loaded.`}
+                    {`All ${posts.length} ${tab === "Saved" ? "saved " : ""}${countNoun(posts.length, "moment")} loaded.`}
                   </T>
                 </View>
               )}
             </>
           )}
         </>
-      )}
-      {edit && p && (
-        <ProfileEditModal
-          profile={p}
-          editorOuterPadding={editorOuterPadding}
-          topInset={insets.top}
-          bottomInset={insets.bottom}
-          saving={update.isPending}
-          saveError={profileUpdateError}
-          onClose={() => {
-            setEdit(false);
-            setProfileUpdateError(null);
-          }}
-          onSave={(draft) => requireAuth(() => update.mutate(draft))}
-          onDraftChange={() => setProfileUpdateError(null)}
-        />
       )}
     </AppShell>
   );

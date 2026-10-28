@@ -9,7 +9,21 @@ import {
   inspectRecordedMp4,
   MAX_RECORDED_VIDEO_BYTES,
 } from "../shared/recorded-video";
-import { syntheticRecordedMp4, truncateFixture } from "./fixtures/recorded-mp4";
+import {
+  excessiveBrandsMp4,
+  excessiveChunkOffsetsMp4,
+  excessiveDescriptorsMp4,
+  excessiveMoovBytesMp4,
+  excessiveNestedBoxesMp4,
+  excessiveSampleDescriptionsMp4,
+  excessiveSttsSampleCountMp4,
+  excessiveTableEntriesMp4,
+  excessiveTopLevelBoxesMp4,
+  excessiveTotalBoxBudgetMp4,
+  excessiveTrackCountMp4,
+  syntheticRecordedMp4,
+  truncateFixture,
+} from "./fixtures/recorded-mp4";
 
 const mockedFileSystem = vi.hoisted(() => ({
   files: new Map<string, Uint8Array>(),
@@ -118,6 +132,8 @@ vi.mock("expo-file-system", () => {
 const twentyMiB = MAX_RECORDED_VIDEO_BYTES;
 const cameraUri = "file:///cache/Camera/camera-output.mp4";
 const ownedUri = "file:///cache/circles-recorded-videos/owned.mp4";
+const resourceLimitError =
+  "This MP4 file exceeds the recording metadata resource limit.";
 
 beforeEach(() => {
   mockedFileSystem.files.clear();
@@ -241,6 +257,26 @@ describe("inspectRecordedMp4", () => {
         maxBytes: twentyMiB,
       }),
     ).toThrow("Choose a 30- or 60-second recording length.");
+  });
+
+  it("rejects each bounded structural resource fixture before its attacker-controlled loop or collection", () => {
+    const fixtures = [
+      excessiveTopLevelBoxesMp4,
+      excessiveBrandsMp4,
+      excessiveMoovBytesMp4,
+      excessiveTrackCountMp4,
+      excessiveTableEntriesMp4,
+      excessiveSttsSampleCountMp4,
+      excessiveSampleDescriptionsMp4,
+      excessiveChunkOffsetsMp4,
+      excessiveDescriptorsMp4,
+      excessiveNestedBoxesMp4,
+      excessiveTotalBoxBudgetMp4,
+    ];
+
+    for (const fixture of fixtures) {
+      expect(() => inspect(fixture())).toThrow(resourceLimitError);
+    }
   });
 });
 

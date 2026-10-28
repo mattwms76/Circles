@@ -1,0 +1,17 @@
+- button "Circles home":
+  - generic: circles.
+- button "Search Circles"
+- button "Open messages"
+- generic: A space that’s all you.
+- generic: Sign in to create your profile, connect with people, and keep your favourite moments.
+- button "Make yourself at home":
+  - generic: Make yourself at home
+- tab "Home":
+  - generic: Home
+- tab "Discover":
+  - generic: Discover
+- button "Create a post or circle"
+- tab "Circles":
+  - generic: Circles
+- tab "You":
+  - generic: You

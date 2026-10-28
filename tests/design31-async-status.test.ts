@@ -1,4 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+vi.mock("@/components/screen-metadata", () => ({
+  ScreenMetadata: "ScreenMetadata",
+}));
+vi.mock("../components/screen-metadata", () => ({
+  ScreenMetadata: "ScreenMetadata",
+}));
 
 const runtime = vi.hoisted(() => ({
   effects: [] as (() => void | (() => void))[],
@@ -90,6 +96,7 @@ vi.mock("@/components/circles-ui", () => ({
   Loading: "Loading",
   s: { card: {}, eyebrow: {}, title: {} },
   T: "T",
+  Heading: "T",
 }));
 
 vi.mock("../components/circles-ui", () => ({
@@ -113,6 +120,7 @@ vi.mock("../components/circles-ui", () => ({
   Loading: "Loading",
   s: { card: {}, eyebrow: {}, title: {} },
   T: "T",
+  Heading: "T",
 }));
 
 vi.mock("@/components/post-card", () => ({ PostCard: "PostCard" }));

@@ -29,7 +29,11 @@ export const MAX_PASSWORD_LENGTH = 1_024;
 export const MAX_PROVIDER_RESPONSE_BYTES = 64 * 1_024;
 export const MAX_EMAIL_AUTH_BODY_BYTES = 4 * 1_024;
 export const EMAIL_AUTH_JSON_BODY_LIMIT = "4kb";
-export const EMAIL_AUTH_THROTTLE_LIMIT = 8;
+export const EMAIL_AUTH_ACCOUNT_THROTTLE_LIMIT = 8;
+export const EMAIL_AUTH_NETWORK_THROTTLE_LIMIT = 32;
+export const EMAIL_AUTH_GLOBAL_THROTTLE_LIMIT = 256;
+/** Historical export retained for focused callers; it is the account budget. */
+export const EMAIL_AUTH_THROTTLE_LIMIT = EMAIL_AUTH_ACCOUNT_THROTTLE_LIMIT;
 export const EMAIL_AUTH_THROTTLE_WINDOW_MS = 60_000;
 export const EMAIL_AUTH_THROTTLE_MAX_ENTRIES = 4_096;
 
@@ -66,6 +70,7 @@ type EmailAuthFailureCode =
   | "RATE_LIMITED"
   | "LINK_REQUIRED"
   | "UNAVAILABLE"
+  | "WEAK_PASSWORD"
   | "NOT_AUTHENTICATED";
 
 export type EmailAuthStatus = {
@@ -130,7 +135,7 @@ export type EmailAuthStatusDependencies = {
 
 export type EmailAuthRouteDependencies = EmailAuthStatusDependencies & {
   sdkServer?: EmailAuthSdk;
-  throttle?: EmailAuthThrottle;
+  throttle?: EmailAuthAdmission;
 };
 
 type ProviderAvailabilityCache = {
@@ -172,6 +177,12 @@ export function isEmailAuthEnabled(
 
 function emailError(code: EmailAuthFailureCode): EmailAuthRouteError {
   switch (code) {
+    case "WEAK_PASSWORD":
+      return new EmailAuthRouteError(
+        400,
+        code,
+        "Use at least 8 characters for your password",
+      );
     case "INVALID_CREDENTIALS":
       return new EmailAuthRouteError(401, code, "Invalid email or password");
     case "REQUEST_NOT_ACCEPTED":
@@ -570,15 +581,32 @@ async function requestSupabaseSignup(
   email: string,
   password: string,
 ): Promise<void> {
-  // Do not inspect or return the provider response. In particular, confirmation
-  // required means no session, auth code, provider identity, or token is minted here.
+  // Successful registration remains confirmation-only. Provider credentials,
+  // identities and sessions are never returned to the caller.
+  if (password.length < 8) throw emailError("WEAK_PASSWORD");
   const response = await providerRequest(fetchImpl, config, "/auth/v1/signup", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ email, password }),
   });
-  if (!response.ok && response.status >= 500)
-    throw new ProviderTransportError();
+  if (!response.ok) {
+    if (response.status === 429) throw emailError("RATE_LIMITED");
+    if (response.status >= 500) throw new ProviderTransportError();
+    const failure = (await boundedJson(response)) as {
+      code?: unknown;
+      message?: unknown;
+      msg?: unknown;
+    };
+    const duplicate =
+      failure.code === "user_already_exists" ||
+      failure.code === "email_exists" ||
+      failure.message === "User already registered" ||
+      failure.msg === "User already registered";
+    if (duplicate) return;
+    if (failure.code === "weak_password") throw emailError("WEAK_PASSWORD");
+    // Do not claim an email was sent when registration or delivery was rejected.
+    throw emailError("UNAVAILABLE");
+  }
   if (response.body) await response.body.cancel().catch(() => undefined);
 }
 
@@ -587,39 +615,145 @@ function clientAddress(req: Request): string {
   return address.slice(0, 128);
 }
 
+export type EmailAuthAdmissionKeys = {
+  accountKey: string;
+  networkKey: string;
+};
+
+function digestAdmissionValue(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function emailAdmissionKeys(
+  req: Request,
+  email: string,
+): EmailAuthAdmissionKeys {
+  return {
+    // Do not retain an email address or source address as a map key. Account
+    // and network budgets are intentionally independent so address rotation
+    // cannot bypass an account limit, and email rotation cannot bypass an
+    // abusive network limit.
+    accountKey: digestAdmissionValue(email),
+    networkKey: digestAdmissionValue(clientAddress(req)),
+  };
+}
+
+/** Legacy single-key helper retained for direct test callers. */
 function throttleKey(req: Request, email: string): string {
-  const emailHash = createHash("sha256").update(email, "utf8").digest("hex");
-  return `${clientAddress(req)}:${emailHash}`;
+  const keys = emailAdmissionKeys(req, email);
+  return `${keys.networkKey}:${keys.accountKey}`;
 }
 
 type ThrottleEntry = { startedAt: number; attempts: number };
 
-/** Bounded in-memory abuse throttle; it stores only IP + a SHA-256 email digest. */
-export class EmailAuthThrottle {
-  private readonly entries = new Map<string, ThrottleEntry>();
+export type EmailAuthAdmission = {
+  checkAndRecordAdmission(keys: EmailAuthAdmissionKeys, now: number): boolean;
+};
 
-  checkAndRecord(key: string, now: number): boolean {
-    for (const [storedKey, entry] of this.entries) {
+export type EmailAuthThrottleLimits = {
+  accountLimit: number;
+  networkLimit: number;
+  globalLimit: number;
+  maxEntries: number;
+};
+
+const defaultThrottleLimits: EmailAuthThrottleLimits = {
+  accountLimit: EMAIL_AUTH_ACCOUNT_THROTTLE_LIMIT,
+  networkLimit: EMAIL_AUTH_NETWORK_THROTTLE_LIMIT,
+  globalLimit: EMAIL_AUTH_GLOBAL_THROTTLE_LIMIT,
+  maxEntries: EMAIL_AUTH_THROTTLE_MAX_ENTRIES,
+};
+
+/**
+ * Finite process-local admission control. It never evicts an active budget to
+ * make room for a new key: capacity is a fail-closed rejection. This is a
+ * defense-in-depth gate only; enabled multi-instance deployments still require
+ * independently configured provider/edge and shared distributed controls.
+ */
+export class EmailAuthThrottle {
+  private readonly accountEntries = new Map<string, ThrottleEntry>();
+  private readonly networkEntries = new Map<string, ThrottleEntry>();
+  private globalStartedAt = 0;
+  private globalAttempts = 0;
+  private readonly limits: EmailAuthThrottleLimits;
+
+  constructor(limits: Partial<EmailAuthThrottleLimits> = {}) {
+    this.limits = { ...defaultThrottleLimits, ...limits };
+  }
+
+  private pruneExpired(entries: Map<string, ThrottleEntry>, now: number): void {
+    for (const [storedKey, entry] of entries) {
       if (now - entry.startedAt >= EMAIL_AUTH_THROTTLE_WINDOW_MS) {
-        this.entries.delete(storedKey);
+        entries.delete(storedKey);
       }
     }
-    const prior = this.entries.get(key);
-    if (prior && now - prior.startedAt < EMAIL_AUTH_THROTTLE_WINDOW_MS) {
-      if (prior.attempts >= EMAIL_AUTH_THROTTLE_LIMIT) return false;
-      prior.attempts += 1;
-      return true;
+  }
+
+  private resetExpiredGlobalBudget(now: number): void {
+    if (
+      this.globalAttempts > 0 &&
+      now - this.globalStartedAt >= EMAIL_AUTH_THROTTLE_WINDOW_MS
+    ) {
+      this.globalStartedAt = 0;
+      this.globalAttempts = 0;
     }
-    if (this.entries.size >= EMAIL_AUTH_THROTTLE_MAX_ENTRIES) {
-      const oldest = this.entries.keys().next().value;
-      if (oldest) this.entries.delete(oldest);
+  }
+
+  checkAndRecordAdmission(keys: EmailAuthAdmissionKeys, now: number): boolean {
+    if (
+      !Number.isFinite(now) ||
+      !keys.accountKey ||
+      !keys.networkKey ||
+      this.limits.accountLimit < 1 ||
+      this.limits.networkLimit < 1 ||
+      this.limits.globalLimit < 1 ||
+      this.limits.maxEntries < 1
+    ) {
+      return false;
     }
-    this.entries.set(key, { startedAt: now, attempts: 1 });
+    this.pruneExpired(this.accountEntries, now);
+    this.pruneExpired(this.networkEntries, now);
+    this.resetExpiredGlobalBudget(now);
+
+    const account = this.accountEntries.get(keys.accountKey);
+    const network = this.networkEntries.get(keys.networkKey);
+    const requiresAccountEntry = !account;
+    const requiresNetworkEntry = !network;
+    if (
+      (account?.attempts ?? 0) >= this.limits.accountLimit ||
+      (network?.attempts ?? 0) >= this.limits.networkLimit ||
+      this.globalAttempts >= this.limits.globalLimit ||
+      (requiresAccountEntry &&
+        this.accountEntries.size >= this.limits.maxEntries) ||
+      (requiresNetworkEntry &&
+        this.networkEntries.size >= this.limits.maxEntries)
+    ) {
+      return false;
+    }
+
+    if (requiresAccountEntry) {
+      this.accountEntries.set(keys.accountKey, { startedAt: now, attempts: 0 });
+    }
+    if (requiresNetworkEntry) {
+      this.networkEntries.set(keys.networkKey, { startedAt: now, attempts: 0 });
+    }
+    this.accountEntries.get(keys.accountKey)!.attempts += 1;
+    this.networkEntries.get(keys.networkKey)!.attempts += 1;
+    if (this.globalAttempts === 0) this.globalStartedAt = now;
+    this.globalAttempts += 1;
     return true;
   }
 
+  /** Compatibility for callers that have only one test key. */
+  checkAndRecord(key: string, now: number): boolean {
+    return this.checkAndRecordAdmission(
+      { accountKey: key, networkKey: key },
+      now,
+    );
+  }
+
   size(): number {
-    return this.entries.size;
+    return Math.max(this.accountEntries.size, this.networkEntries.size);
   }
 }
 
@@ -697,7 +831,10 @@ export function registerEmailAuthRoutes(
       const credentials = parseCredentialBody(req.body, true);
       enforceBrowserOrNativeRequest(req, credentials.client!);
       if (
-        !throttle.checkAndRecord(throttleKey(req, credentials.email), now())
+        !throttle.checkAndRecordAdmission(
+          emailAdmissionKeys(req, credentials.email),
+          now(),
+        )
       ) {
         throw emailError("RATE_LIMITED");
       }
@@ -725,12 +862,17 @@ export function registerEmailAuthRoutes(
     try {
       const config = configuredEmailAuth(environment);
       if (!config) throw emailError("UNAVAILABLE");
-      const credentials = parseCredentialBody(req.body, false);
-      // Sign-up has no client field in the fixed wire contract, so only the
-      // browser-origin/CSRF path is permitted. Native completion begins at sign-in.
-      enforceBrowserOrNativeRequest(req, "web");
+      // Preserve the original browser contract while admitting explicit native
+      // clients through the same metadata/origin checks used by sign-in.
+      const hasClient =
+        !!req.body && Object.prototype.hasOwnProperty.call(req.body, "client");
+      const credentials = parseCredentialBody(req.body, hasClient);
+      enforceBrowserOrNativeRequest(req, credentials.client ?? "web");
       if (
-        !throttle.checkAndRecord(throttleKey(req, credentials.email), now())
+        !throttle.checkAndRecordAdmission(
+          emailAdmissionKeys(req, credentials.email),
+          now(),
+        )
       ) {
         throw emailError("RATE_LIMITED");
       }
@@ -754,7 +896,10 @@ export function registerEmailAuthRoutes(
       const credentials = parseCredentialBody(req.body, true);
       enforceBrowserOrNativeRequest(req, credentials.client!);
       if (
-        !throttle.checkAndRecord(throttleKey(req, credentials.email), now())
+        !throttle.checkAndRecordAdmission(
+          emailAdmissionKeys(req, credentials.email),
+          now(),
+        )
       ) {
         throw emailError("RATE_LIMITED");
       }
@@ -804,5 +949,6 @@ export const emailAuthInternals = {
   authenticateSupabasePassword,
   requestSupabaseSignup,
   providerEmailAvailability,
+  emailAdmissionKeys,
   throttleKey,
 };

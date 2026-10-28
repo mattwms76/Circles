@@ -1,0 +1,39 @@
+- button "Circles home":
+  - generic: circles.
+- button "Search Circles":
+  - generic: 
+- button "Open messages":
+  - generic: 
+- generic: KEEP THE CONVERSATION GOING
+- generic: A little hello.
+- button "Find someone to message":
+  - generic: 
+- generic: The best connections happen one conversation at a time.
+- generic: 
+- textbox "Search conversations":
+  - /placeholder: Find a conversation
+- button "All":
+  - generic: All
+- button "Direct":
+  - generic: Direct
+- button "Circles":
+  - generic: Circles
+- generic: 
+- generic: Your conversations live here.
+- generic: Sign in to message your people and chat with your circles.
+- button "Sign in":
+  - generic: Sign in
+- tab " Home":
+  - generic: 
+  - generic: Home
+- tab " Discover":
+  - generic: 
+  - generic: Discover
+- button "Create a post or circle":
+  - generic: 
+- tab " Circles":
+  - generic: 
+  - generic: Circles
+- tab " You":
+  - generic: 
+  - generic: You

@@ -1,0 +1,113 @@
+- button "Circles home":
+  - generic: circles.
+- button "Search Circles":
+  - generic: 
+  - generic: Find your people, circles, and inspiration
+  - generic: ⌘ K
+- button "Open messages":
+  - generic: 
+- button "Open your profile":
+  - generic: "Y"
+- generic: YOUR SPACE
+- button "Open Home":
+  - generic: 
+  - generic: Home
+- button "Open Discover":
+  - generic: 
+  - generic: Discover
+- button "Open My circles":
+  - generic: 
+  - generic: My circles
+- button "Open Updates":
+  - generic: 
+  - generic: Updates
+- button "Open Messages":
+  - generic: 
+  - generic: Messages
+- button "Open Profile":
+  - generic: 
+  - generic: Profile
+- button "Open Live now":
+  - generic: 
+  - generic: Live now
+- button "Create a post":
+  - generic: 
+  - generic: Create a post
+- generic: Less scrolling. More belonging.
+- generic: © 2026 Circles
+- button "Go back from this profile":
+  - generic: 
+  - generic: Back
+- generic: MEET YOUR PEOPLE
+- generic: Jules Park
+- generic: "@jules-parks"
+- generic: Outside whenever possible.
+- generic "1 moments":
+  - generic: "1"
+  - generic: moments
+- generic "0 followers":
+  - generic: "0"
+  - generic: followers
+- generic "0 following":
+  - generic: "0"
+  - generic: following
+- button "Follow Jules Park":
+  - generic: Follow
+- button "Open a direct conversation with Jules Park":
+  - generic: 
+  - generic: Say hello
+- button "Moments":
+  - generic: Moments
+- button "Open Jules Park's profile":
+  - generic: Jules Park
+  - generic: 
+  - generic: · 556d
+  - generic: "@jules-parks"
+- button "Post options":
+  - generic: 
+- button "Open The Great Outdoors circle":
+  - generic: 
+  - generic: The Great Outdoors
+- button "Like post":
+  - generic: 
+  - generic: "0"
+- button "Open 0 comments":
+  - generic: 
+  - generic: "0"
+- button "Share post":
+  - generic: 
+- button "Save post":
+  - generic: 
+- generic: Jules
+- text: The trail began in a hush and ended above the weather. I love how a long climb gives every ordinary breath a little more meaning. What view has stayed with you lately?
+- generic "1 moments loaded. End of list.":
+  - generic: All 1 moments loaded.
+- generic: Find your circles
+- generic: 
+- generic: Small communities. Big connections.
+- button "Open Design People":
+  - generic: Design People
+  - generic: 1 member · design
+- button "Join Design People":
+  - generic: Join
+- button "Open Through the Lens":
+  - generic: Through the Lens
+  - generic: 1 member · photo
+- button "Join Through the Lens":
+  - generic: Join
+- button "Open Weekend Runners":
+  - generic: Weekend Runners
+  - generic: 1 member · running
+- button "Join Weekend Runners":
+  - generic: Join
+- button "Explore all circles ↗":
+  - generic: Explore all circles ↗
+- generic: 
+- generic: Good things start with a circle.
+- generic: A space for your people, your passions, and everything in between.
+- button "Make it yours":
+  - generic: 
+  - generic: Make it yours
+- generic: THE CIRCLES WAY
+- generic: Be yourself. Be kind. Make room for someone new.
+- generic: Community preview · Example creator profiles and curated starter posts.

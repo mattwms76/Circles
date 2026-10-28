@@ -1,5 +1,12 @@
 type VideoEntryType = "avc1" | "avc3" | "hvc1";
 
+type TrackPadding = {
+  trak?: Uint8Array[];
+  mdia?: Uint8Array[];
+  minf?: Uint8Array[];
+  stbl?: Uint8Array[];
+};
+
 export type SyntheticMp4Options = {
   durationMs?: number;
   movieDurationMs?: number;
@@ -152,7 +159,7 @@ function videoSampleEntry(
   return box(type, visualSampleEntry, avcConfiguration());
 }
 
-function esds(): Uint8Array {
+function esds(extraTopLevelDescriptors = 0): Uint8Array {
   const audioSpecificConfig = descriptor(0x05, bytes(0x12, 0x10)); // AAC LC, 44.1 kHz, stereo
   const decoderConfig = descriptor(
     0x04,
@@ -165,22 +172,27 @@ function esds(): Uint8Array {
     ),
   );
   const esDescriptor = descriptor(0x03, join(u16(1), bytes(0), decoderConfig));
-  return fullBox("esds", 0, 0, esDescriptor);
+  const extraDescriptors: Uint8Array[] = [];
+  for (let index = 0; index < extraTopLevelDescriptors; index += 1) {
+    extraDescriptors.push(descriptor(0x06, new Uint8Array()));
+  }
+  return fullBox("esds", 0, 0, esDescriptor, ...extraDescriptors);
 }
 
-function audioSampleEntry(): Uint8Array {
+function audioSampleEntry(extraTopLevelDescriptors = 0): Uint8Array {
   const audioSampleEntry = new Uint8Array(28);
   writeU16(audioSampleEntry, 6, 1);
   writeU16(audioSampleEntry, 16, 2);
   writeU16(audioSampleEntry, 18, 16);
   writeU32(audioSampleEntry, 24, 44_100 * 0x10000);
-  return box("mp4a", audioSampleEntry, esds());
+  return box("mp4a", audioSampleEntry, esds(extraTopLevelDescriptors));
 }
 
 function sampleTable(
   entry: Uint8Array,
   durationMs: number,
   chunkOffset: number,
+  padding: Uint8Array[] = [],
 ): Uint8Array {
   return box(
     "stbl",
@@ -189,6 +201,7 @@ function sampleTable(
     fullBox("stsc", 0, 0, u32(1), u32(1), u32(1), u32(1)),
     fullBox("stsz", 0, 0, u32(8), u32(1)),
     fullBox("stco", 0, 0, u32(1), u32(chunkOffset)),
+    ...padding,
   );
 }
 
@@ -201,8 +214,13 @@ function track(
   chunkOffset: number,
   width: number,
   height: number,
+  padding: TrackPadding = {},
 ): Uint8Array {
-  const minf = box("minf", sampleTable(entry, sampleDurationMs, chunkOffset));
+  const minf = box(
+    "minf",
+    ...(padding.minf ?? []),
+    sampleTable(entry, sampleDurationMs, chunkOffset, padding.stbl),
+  );
   return box(
     "trak",
     trackHeader(
@@ -210,7 +228,14 @@ function track(
       handlerType === "vide" ? width : 0,
       handlerType === "vide" ? height : 0,
     ),
-    box("mdia", mediaHeader(headerDurationMs), handler(handlerType), minf),
+    ...(padding.trak ?? []),
+    box(
+      "mdia",
+      mediaHeader(headerDurationMs),
+      handler(handlerType),
+      ...(padding.mdia ?? []),
+      minf,
+    ),
   );
 }
 
@@ -278,6 +303,333 @@ export function syntheticRecordedMp4(
     fragment,
     box("moov", movieHeader(movieDurationMs), ...tracks),
   );
+}
+
+const RESOURCE_TOP_LEVEL_BOXES = 16;
+const RESOURCE_MOOV_BYTES = 4 * 1024 * 1024;
+const RESOURCE_TRACKS = 4;
+const RESOURCE_TABLE_ENTRIES = 120_000;
+const RESOURCE_NESTED_BOXES = 64;
+const RESOURCE_BRANDS = 32;
+const RESOURCE_SAMPLE_DESCRIPTIONS = 16;
+
+function standardFtyp(): Uint8Array {
+  return box("ftyp", ascii("isom"), u32(0), ascii("isom"), ascii("mp42"));
+}
+
+function standardMdat(): Uint8Array {
+  return box("mdat", new Uint8Array(16).fill(1));
+}
+
+function ftypWithCompatibleBrands(compatibleBrandCount: number): Uint8Array {
+  const compatibleBrands: Uint8Array[] = [];
+  for (let index = 0; index < compatibleBrandCount; index += 1) {
+    compatibleBrands.push(ascii("isom"));
+  }
+  return box("ftyp", ascii("isom"), u32(0), ...compatibleBrands);
+}
+
+function freeBoxes(count: number): Uint8Array[] {
+  const result: Uint8Array[] = [];
+  for (let index = 0; index < count; index += 1) {
+    result.push(box("free", new Uint8Array()));
+  }
+  return result;
+}
+
+function recordingWithTracks(tracks: Uint8Array[]): Uint8Array {
+  const ftyp = standardFtyp();
+  const mdat = standardMdat();
+  return join(ftyp, mdat, box("moov", movieHeader(30_000), ...tracks));
+}
+
+function standardOffsets() {
+  const ftyp = standardFtyp();
+  return {
+    video: ftyp.length + 8,
+    audio: ftyp.length + 16,
+  };
+}
+
+function trackWithSampleTable(
+  trackId: number,
+  handlerType: "vide" | "soun",
+  table: Uint8Array,
+  width: number,
+  height: number,
+): Uint8Array {
+  const minf = box("minf", table);
+  return box(
+    "trak",
+    trackHeader(
+      trackId,
+      handlerType === "vide" ? width : 0,
+      handlerType === "vide" ? height : 0,
+    ),
+    box("mdia", mediaHeader(30_000), handler(handlerType), minf),
+  );
+}
+
+function stblWithSttsEntries(
+  entry: Uint8Array,
+  chunkOffset: number,
+  entryCount: number,
+): Uint8Array {
+  const entries = new Uint8Array(entryCount * 8);
+  for (let index = 0; index < entryCount; index += 1) {
+    writeU32(entries, index * 8, 1);
+    writeU32(entries, index * 8 + 4, 1);
+  }
+  return box(
+    "stbl",
+    fullBox("stsd", 0, 0, u32(1), entry),
+    fullBox("stts", 0, 0, u32(entryCount), entries),
+    fullBox("stsc", 0, 0, u32(1), u32(1), u32(1), u32(1)),
+    fullBox("stsz", 0, 0, u32(8), u32(1)),
+    fullBox("stco", 0, 0, u32(1), u32(chunkOffset)),
+  );
+}
+
+function stblWithChunkOffsets(
+  entry: Uint8Array,
+  chunkOffset: number,
+  offsetCount: number,
+): Uint8Array {
+  const offsets = new Uint8Array(offsetCount * 4);
+  for (let index = 0; index < offsetCount; index += 1) {
+    writeU32(offsets, index * 4, chunkOffset);
+  }
+  return box(
+    "stbl",
+    fullBox("stsd", 0, 0, u32(1), entry),
+    fullBox("stts", 0, 0, u32(1), u32(1), u32(30_000)),
+    fullBox("stsc", 0, 0, u32(1), u32(1), u32(1), u32(1)),
+    fullBox("stsz", 0, 0, u32(8), u32(1)),
+    fullBox("stco", 0, 0, u32(offsetCount), offsets),
+  );
+}
+
+function stblWithSttsSampleCount(
+  entry: Uint8Array,
+  chunkOffset: number,
+  sampleCount: number,
+): Uint8Array {
+  return box(
+    "stbl",
+    fullBox("stsd", 0, 0, u32(1), entry),
+    fullBox("stts", 0, 0, u32(1), u32(sampleCount), u32(1)),
+    fullBox("stsc", 0, 0, u32(1), u32(1), u32(sampleCount), u32(1)),
+    fullBox("stsz", 0, 0, u32(8), u32(sampleCount)),
+    fullBox("stco", 0, 0, u32(1), u32(chunkOffset)),
+  );
+}
+
+function stblWithSampleDescriptions(
+  entryCount: number,
+  chunkOffset: number,
+): Uint8Array {
+  const entries: Uint8Array[] = [];
+  for (let index = 0; index < entryCount; index += 1) {
+    entries.push(videoSampleEntry("avc1", 720, 1280));
+  }
+  return box(
+    "stbl",
+    fullBox("stsd", 0, 0, u32(entryCount), ...entries),
+    fullBox("stts", 0, 0, u32(1), u32(1), u32(30_000)),
+    fullBox("stsc", 0, 0, u32(1), u32(1), u32(1), u32(1)),
+    fullBox("stsz", 0, 0, u32(8), u32(1)),
+    fullBox("stco", 0, 0, u32(1), u32(chunkOffset)),
+  );
+}
+
+/** Top-level boxes are structurally complete but exceed the shared 16-box cap. */
+export function excessiveTopLevelBoxesMp4(): Uint8Array {
+  return join(
+    standardFtyp(),
+    ...freeBoxes(RESOURCE_TOP_LEVEL_BOXES - 2),
+    standardMdat(),
+    box("moov", movieHeader(30_000)),
+  );
+}
+
+/** A complete ftyp with too many compatible-brand entries exceeds the brand cap. */
+export function excessiveBrandsMp4(): Uint8Array {
+  return join(
+    ftypWithCompatibleBrands(RESOURCE_BRANDS),
+    standardMdat(),
+    box("moov", movieHeader(30_000)),
+  );
+}
+
+/** A valid top-level moov declaration whose metadata payload exceeds 4 MiB. */
+export function excessiveMoovBytesMp4(): Uint8Array {
+  return join(
+    standardFtyp(),
+    standardMdat(),
+    box("moov", box("free", new Uint8Array(RESOURCE_MOOV_BYTES))),
+  );
+}
+
+/** Five complete tracks exceed the shared four-track cap before track parsing begins. */
+export function excessiveTrackCountMp4(): Uint8Array {
+  const offsets = standardOffsets();
+  const tracks = [
+    track(
+      1,
+      "vide",
+      30_000,
+      30_000,
+      videoSampleEntry("avc1", 720, 1280),
+      offsets.video,
+      720,
+      1280,
+    ),
+  ];
+  for (let trackId = 2; trackId <= RESOURCE_TRACKS + 1; trackId += 1) {
+    tracks.push(
+      track(
+        trackId,
+        "soun",
+        30_000,
+        30_000,
+        audioSampleEntry(),
+        offsets.audio,
+        720,
+        1280,
+      ),
+    );
+  }
+  return recordingWithTracks(tracks);
+}
+
+/** A fully encoded stts table exceeds the per-track table-entry cap. */
+export function excessiveTableEntriesMp4(): Uint8Array {
+  const offsets = standardOffsets();
+  return recordingWithTracks([
+    trackWithSampleTable(
+      1,
+      "vide",
+      stblWithSttsEntries(
+        videoSampleEntry("avc1", 720, 1280),
+        offsets.video,
+        RESOURCE_TABLE_ENTRIES + 1,
+      ),
+      720,
+      1280,
+    ),
+  ]);
+}
+
+/** One stts entry claiming too many samples exercises the aggregate sample cap. */
+export function excessiveSttsSampleCountMp4(): Uint8Array {
+  const offsets = standardOffsets();
+  return recordingWithTracks([
+    trackWithSampleTable(
+      1,
+      "vide",
+      stblWithSttsSampleCount(
+        videoSampleEntry("avc1", 720, 1280),
+        offsets.video,
+        RESOURCE_TABLE_ENTRIES + 1,
+      ),
+      720,
+      1280,
+    ),
+  ]);
+}
+
+/** Fully encoded video sample descriptions exceed the stsd entry cap. */
+export function excessiveSampleDescriptionsMp4(): Uint8Array {
+  const offsets = standardOffsets();
+  return recordingWithTracks([
+    trackWithSampleTable(
+      1,
+      "vide",
+      stblWithSampleDescriptions(
+        RESOURCE_SAMPLE_DESCRIPTIONS + 1,
+        offsets.video,
+      ),
+      720,
+      1280,
+    ),
+  ]);
+}
+
+/** A fully encoded stco table exceeds the chunk-offset cap before offsets are allocated. */
+export function excessiveChunkOffsetsMp4(): Uint8Array {
+  const offsets = standardOffsets();
+  return recordingWithTracks([
+    trackWithSampleTable(
+      1,
+      "vide",
+      stblWithChunkOffsets(
+        videoSampleEntry("avc1", 720, 1280),
+        offsets.video,
+        RESOURCE_TABLE_ENTRIES + 1,
+      ),
+      720,
+      1280,
+    ),
+  ]);
+}
+
+/** Extra complete descriptors exceed the per-level descriptor cap. */
+export function excessiveDescriptorsMp4(): Uint8Array {
+  const offsets = standardOffsets();
+  return recordingWithTracks([
+    track(
+      1,
+      "vide",
+      30_000,
+      30_000,
+      videoSampleEntry("avc1", 720, 1280),
+      offsets.video,
+      720,
+      1280,
+    ),
+    track(
+      2,
+      "soun",
+      30_000,
+      30_000,
+      audioSampleEntry(RESOURCE_NESTED_BOXES / 4),
+      offsets.audio,
+      720,
+      1280,
+    ),
+  ]);
+}
+
+/** A 65-box moov child level exercises the nested-box cap. */
+export function excessiveNestedBoxesMp4(): Uint8Array {
+  return join(
+    standardFtyp(),
+    standardMdat(),
+    box("moov", movieHeader(30_000), ...freeBoxes(RESOURCE_NESTED_BOXES)),
+  );
+}
+
+/** Multiple individually valid nested levels exceed the aggregate parsed-box budget. */
+export function excessiveTotalBoxBudgetMp4(): Uint8Array {
+  const offsets = standardOffsets();
+  return recordingWithTracks([
+    track(
+      1,
+      "vide",
+      30_000,
+      30_000,
+      videoSampleEntry("avc1", 720, 1280),
+      offsets.video,
+      720,
+      1280,
+      {
+        trak: freeBoxes(RESOURCE_NESTED_BOXES - 2),
+        mdia: freeBoxes(RESOURCE_NESTED_BOXES - 3),
+        minf: freeBoxes(RESOURCE_NESTED_BOXES - 1),
+        stbl: freeBoxes(RESOURCE_NESTED_BOXES - 5),
+      },
+    ),
+  ]);
 }
 
 export function truncateFixture(bytesToTruncate: number): Uint8Array {

@@ -72,6 +72,28 @@ const AAC_AUDIO_OBJECT_TYPES = new Set([
 ]);
 
 const MAX_SAFE_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
+const MAX_TOP_LEVEL_BOXES = 16;
+const MAX_MOOV_BYTES = 4 * 1024 * 1024;
+const MAX_TRACKS = 4;
+const MAX_TRACK_SAMPLES = 120_000;
+const MAX_NESTED_BOXES_PER_LEVEL = 64;
+const MAX_TOTAL_PARSED_BOXES = 256;
+const MAX_SAMPLE_DESCRIPTIONS = 16;
+const MAX_TABLE_ENTRIES = MAX_TRACK_SAMPLES;
+const MAX_COMPATIBLE_BRANDS = 32;
+const MAX_DESCRIPTORS_PER_LEVEL = 16;
+const MAX_TOTAL_DESCRIPTORS = 32;
+const MAX_PARAMETER_SETS = 32;
+const MAX_ITERATION_WORK = 1_000_000;
+const MAX_TRACK_SAMPLES_BIGINT = BigInt(MAX_TRACK_SAMPLES);
+const RECORDED_MP4_RESOURCE_ERROR =
+  "This MP4 file exceeds the recording metadata resource limit.";
+
+type ParseBudget = {
+  parsedBoxes: number;
+  descriptors: number;
+  iterationWork: number;
+};
 
 function fail(message: string): never {
   throw new Error(message);
@@ -95,6 +117,30 @@ function unsupportedCodec(): never {
 
 function missingMetadata(): never {
   return fail("This video is missing the metadata needed to publish it.");
+}
+
+function resourceLimit(): never {
+  return fail(RECORDED_MP4_RESOURCE_ERROR);
+}
+
+function createParseBudget(): ParseBudget {
+  return { parsedBoxes: 0, descriptors: 0, iterationWork: 0 };
+}
+
+function consumeParsedBox(budget: ParseBudget) {
+  if (budget.parsedBoxes >= MAX_TOTAL_PARSED_BOXES) resourceLimit();
+  budget.parsedBoxes += 1;
+}
+
+function consumeDescriptor(budget: ParseBudget) {
+  if (budget.descriptors >= MAX_TOTAL_DESCRIPTORS) resourceLimit();
+  budget.descriptors += 1;
+}
+
+function consumeIterationWork(budget: ParseBudget, work: number) {
+  if (!Number.isSafeInteger(work) || work < 0) resourceLimit();
+  if (budget.iterationWork > MAX_ITERATION_WORK - work) resourceLimit();
+  budget.iterationWork += work;
 }
 
 function readU16(bytes: Uint8Array, offset: number): number {
@@ -133,8 +179,14 @@ function asSafeNumber(value: bigint): number {
   return Number(value);
 }
 
-/** Parses an ISO-BMFF box sequence and verifies that every box stays in bounds. */
-function parseBoxes(bytes: Uint8Array, start: number, end: number): Box[] {
+/** Parses one bounded, non-recursive ISO-BMFF box sequence. */
+function parseBoxes(
+  bytes: Uint8Array,
+  start: number,
+  end: number,
+  budget: ParseBudget,
+  maxBoxes: number,
+): Box[] {
   if (
     !Number.isSafeInteger(start) ||
     !Number.isSafeInteger(end) ||
@@ -148,6 +200,8 @@ function parseBoxes(bytes: Uint8Array, start: number, end: number): Box[] {
   const boxes: Box[] = [];
   let offset = start;
   while (offset < end) {
+    if (boxes.length >= maxBoxes) resourceLimit();
+    consumeIterationWork(budget, 1);
     if (end - offset < 8) malformed();
 
     const size32 = readU32(bytes, offset);
@@ -176,6 +230,7 @@ function parseBoxes(bytes: Uint8Array, start: number, end: number): Box[] {
       end: offset + size,
       headerSize,
     };
+    consumeParsedBox(budget);
     boxes.push(box);
     offset = box.end;
   }
@@ -184,10 +239,21 @@ function parseBoxes(bytes: Uint8Array, start: number, end: number): Box[] {
   return boxes;
 }
 
-function exactlyOne(boxes: Box[], type: string, onMissing: () => never): Box {
-  const matches = boxes.filter((box) => box.type === type);
-  if (matches.length !== 1) onMissing();
-  return matches[0];
+function exactlyOne(
+  boxes: readonly Box[],
+  type: string,
+  onMissing: () => never,
+  budget: ParseBudget,
+): Box {
+  consumeIterationWork(budget, boxes.length);
+  let match: Box | undefined;
+  for (const box of boxes) {
+    if (box.type !== type) continue;
+    if (match) onMissing();
+    match = box;
+  }
+  if (!match) onMissing();
+  return match;
 }
 
 function requireFullBoxVersion(
@@ -211,7 +277,7 @@ function checkedTableLength(
   return length;
 }
 
-function inspectFtyp(bytes: Uint8Array, ftyp: Box) {
+function inspectFtyp(bytes: Uint8Array, ftyp: Box, budget: ParseBudget) {
   if (
     ftyp.end - ftyp.dataStart < 8 ||
     (ftyp.end - ftyp.dataStart - 8) % 4 !== 0
@@ -219,20 +285,25 @@ function inspectFtyp(bytes: Uint8Array, ftyp: Box) {
     malformed();
   }
 
-  const brands = [readType(bytes, ftyp.dataStart)];
+  const compatibleBrandCount = (ftyp.end - ftyp.dataStart - 8) / 4;
+  const brandCount = compatibleBrandCount + 1;
+  if (brandCount > MAX_COMPATIBLE_BRANDS) resourceLimit();
+  consumeIterationWork(budget, brandCount);
+
+  let supportsStandardMp4 = false;
+  const inspectBrand = (brand: string) => {
+    if (brand === "qt  " || brand === "hvc1" || brand === "hev1") {
+      unsupportedContainer();
+    }
+    if (SUPPORTED_BRANDS.has(brand)) supportsStandardMp4 = true;
+  };
+
+  inspectBrand(readType(bytes, ftyp.dataStart));
   for (let offset = ftyp.dataStart + 8; offset < ftyp.end; offset += 4) {
-    brands.push(readType(bytes, offset));
+    inspectBrand(readType(bytes, offset));
   }
 
-  if (
-    brands.includes("qt  ") ||
-    brands.includes("hvc1") ||
-    brands.includes("hev1")
-  ) {
-    unsupportedContainer();
-  }
-  if (!brands.some((brand) => SUPPORTED_BRANDS.has(brand)))
-    unsupportedContainer();
+  if (!supportsStandardMp4) unsupportedContainer();
 }
 
 function parseTiming(bytes: Uint8Array, box: Box): Timing {
@@ -276,16 +347,19 @@ function parseHandlerType(bytes: Uint8Array, hdlr: Box): string {
 function parseStts(
   bytes: Uint8Array,
   stts: Box,
+  budget: ParseBudget,
 ): { sampleCount: bigint; duration: bigint } {
   requireFullBoxVersion(bytes, stts, [0]);
   if (stts.end - stts.dataStart < 8) malformed();
   const entryCount = readU32(bytes, stts.dataStart + 4);
+  if (entryCount > MAX_TABLE_ENTRIES) resourceLimit();
   if (
     entryCount === 0 ||
     stts.end - stts.dataStart !== checkedTableLength(8, entryCount, 8)
   ) {
     malformed();
   }
+  consumeIterationWork(budget, entryCount);
 
   let sampleCount = 0n;
   let duration = 0n;
@@ -294,6 +368,9 @@ function parseStts(
     const count = readU32(bytes, offset);
     const delta = readU32(bytes, offset + 4);
     if (count === 0 || delta === 0) malformed();
+    if (sampleCount + BigInt(count) > MAX_TRACK_SAMPLES_BIGINT) {
+      resourceLimit();
+    }
     sampleCount += BigInt(count);
     duration += BigInt(count) * BigInt(delta);
     offset += 8;
@@ -304,17 +381,20 @@ function parseStts(
 function parseStsz(
   bytes: Uint8Array,
   stsz: Box,
+  budget: ParseBudget,
 ): { sampleCount: bigint; totalBytes: bigint } {
   requireFullBoxVersion(bytes, stsz, [0]);
   if (stsz.end - stsz.dataStart < 12) malformed();
   const sampleSize = readU32(bytes, stsz.dataStart + 4);
   const sampleCount = readU32(bytes, stsz.dataStart + 8);
+  if (sampleCount > MAX_TRACK_SAMPLES) resourceLimit();
   if (sampleCount === 0) malformed();
 
   let totalBytes = 0n;
   if (sampleSize === 0) {
     if (stsz.end - stsz.dataStart !== checkedTableLength(12, sampleCount, 4))
       malformed();
+    consumeIterationWork(budget, sampleCount);
     let offset = stsz.dataStart + 12;
     for (let index = 0; index < sampleCount; index += 1) {
       const entrySize = readU32(bytes, offset);
@@ -334,10 +414,12 @@ function parseStsc(
   bytes: Uint8Array,
   stsc: Box,
   entryCount: number,
+  budget: ParseBudget,
 ): SampleToChunk[] {
   requireFullBoxVersion(bytes, stsc, [0]);
   if (stsc.end - stsc.dataStart < 8) malformed();
   const count = readU32(bytes, stsc.dataStart + 4);
+  if (count > MAX_TABLE_ENTRIES) resourceLimit();
   if (
     count === 0 ||
     stsc.end - stsc.dataStart !== checkedTableLength(8, count, 12)
@@ -345,6 +427,7 @@ function parseStsc(
     malformed();
   }
 
+  consumeIterationWork(budget, count);
   const entries: SampleToChunk[] = [];
   let previousFirstChunk = 0;
   let offset = stsc.dataStart + 8;
@@ -369,21 +452,26 @@ function parseStsc(
 }
 
 function offsetIsInMdat(offset: bigint, ranges: readonly MdatRange[]): boolean {
-  return ranges.some(
-    (range) => offset >= BigInt(range.dataStart) && offset < BigInt(range.end),
-  );
+  for (const range of ranges) {
+    if (offset >= BigInt(range.dataStart) && offset < BigInt(range.end)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function parseChunkOffsets(
   bytes: Uint8Array,
   stco: Box,
   mdatRanges: readonly MdatRange[],
+  budget: ParseBudget,
 ): bigint[] {
   const is64Bit = stco.type === "co64";
   requireFullBoxVersion(bytes, stco, [0]);
   if (stco.end - stco.dataStart < 8) malformed();
   const count = readU32(bytes, stco.dataStart + 4);
   const entrySize = is64Bit ? 8 : 4;
+  if (count > MAX_TRACK_SAMPLES) resourceLimit();
   if (
     count === 0 ||
     stco.end - stco.dataStart !== checkedTableLength(8, count, entrySize)
@@ -391,6 +479,8 @@ function parseChunkOffsets(
     malformed();
   }
 
+  // Account for every mdat lookup before materializing any attacker-sized offsets array.
+  consumeIterationWork(budget, count * mdatRanges.length);
   const offsets: bigint[] = [];
   let offset = stco.dataStart + 8;
   for (let index = 0; index < count; index += 1) {
@@ -408,9 +498,11 @@ function validateSampleToChunkCoverage(
   entries: readonly SampleToChunk[],
   chunkOffsets: readonly bigint[],
   sampleCount: bigint,
+  budget: ParseBudget,
 ) {
   if (entries[0]?.firstChunk !== 1) malformed();
 
+  consumeIterationWork(budget, entries.length);
   let representedSamples = 0n;
   for (let index = 0; index < entries.length; index += 1) {
     const firstChunk = entries[index].firstChunk;
@@ -419,9 +511,16 @@ function validateSampleToChunkCoverage(
       ? followingFirstChunk - 1
       : chunkOffsets.length;
     if (firstChunk > chunkOffsets.length || lastChunk < firstChunk) malformed();
-    representedSamples +=
+    const samplesInEntry =
       BigInt(lastChunk - firstChunk + 1) *
       BigInt(entries[index].samplesPerChunk);
+    if (
+      samplesInEntry > MAX_TRACK_SAMPLES_BIGINT ||
+      representedSamples > MAX_TRACK_SAMPLES_BIGINT - samplesInEntry
+    ) {
+      resourceLimit();
+    }
+    representedSamples += samplesInEntry;
   }
   if (representedSamples !== sampleCount) malformed();
 }
@@ -454,14 +553,18 @@ function parseDescriptors(
   bytes: Uint8Array,
   start: number,
   end: number,
+  budget: ParseBudget,
 ): Descriptor[] {
   const descriptors: Descriptor[] = [];
   let offset = start;
   while (offset < end) {
+    if (descriptors.length >= MAX_DESCRIPTORS_PER_LEVEL) resourceLimit();
+    consumeIterationWork(budget, 1);
     const tag = bytes[offset];
     offset += 1;
     const length = readDescriptorLength(bytes, offset, end);
     if (length.length > end - length.nextOffset) malformed();
+    consumeDescriptor(budget);
     descriptors.push({
       tag,
       dataStart: length.nextOffset,
@@ -474,12 +577,19 @@ function parseDescriptors(
 }
 
 function descriptorExactlyOne(
-  descriptors: Descriptor[],
+  descriptors: readonly Descriptor[],
   tag: number,
+  budget: ParseBudget,
 ): Descriptor {
-  const matches = descriptors.filter((descriptor) => descriptor.tag === tag);
-  if (matches.length !== 1) unsupportedCodec();
-  return matches[0];
+  consumeIterationWork(budget, descriptors.length);
+  let match: Descriptor | undefined;
+  for (const descriptor of descriptors) {
+    if (descriptor.tag !== tag) continue;
+    if (match) unsupportedCodec();
+    match = descriptor;
+  }
+  if (!match) unsupportedCodec();
+  return match;
 }
 
 function parseAudioSpecificConfig(
@@ -526,11 +636,16 @@ function parseAudioSpecificConfig(
   if (!AAC_AUDIO_OBJECT_TYPES.has(audioObjectType)) unsupportedCodec();
 }
 
-function parseEsds(bytes: Uint8Array, esds: Box) {
+function parseEsds(bytes: Uint8Array, esds: Box, budget: ParseBudget) {
   requireFullBoxVersion(bytes, esds, [0]);
   if (esds.end - esds.dataStart < 5) malformed();
-  const topLevel = parseDescriptors(bytes, esds.dataStart + 4, esds.end);
-  const esDescriptor = descriptorExactlyOne(topLevel, 0x03);
+  const topLevel = parseDescriptors(
+    bytes,
+    esds.dataStart + 4,
+    esds.end,
+    budget,
+  );
+  const esDescriptor = descriptorExactlyOne(topLevel, 0x03, budget);
   if (esDescriptor.end - esDescriptor.dataStart < 3) malformed();
 
   let offset = esDescriptor.dataStart + 2;
@@ -545,8 +660,8 @@ function parseEsds(bytes: Uint8Array, esds: Box) {
   if ((flags & 0x20) !== 0) offset += 2;
   if (offset > esDescriptor.end) malformed();
 
-  const esChildren = parseDescriptors(bytes, offset, esDescriptor.end);
-  const decoderConfig = descriptorExactlyOne(esChildren, 0x04);
+  const esChildren = parseDescriptors(bytes, offset, esDescriptor.end, budget);
+  const decoderConfig = descriptorExactlyOne(esChildren, 0x04, budget);
   if (decoderConfig.end - decoderConfig.dataStart < 13) malformed();
   if (bytes[decoderConfig.dataStart] !== 0x40) unsupportedCodec();
   const streamType = (bytes[decoderConfig.dataStart + 1] >> 2) & 0x3f;
@@ -556,8 +671,9 @@ function parseEsds(bytes: Uint8Array, esds: Box) {
     bytes,
     decoderConfig.dataStart + 13,
     decoderConfig.end,
+    budget,
   );
-  const audioConfig = descriptorExactlyOne(decoderChildren, 0x05);
+  const audioConfig = descriptorExactlyOne(decoderChildren, 0x05, budget);
   if (audioConfig.dataStart === audioConfig.end) malformed();
   parseAudioSpecificConfig(bytes, audioConfig.dataStart, audioConfig.end);
 }
@@ -565,6 +681,7 @@ function parseEsds(bytes: Uint8Array, esds: Box) {
 function parseVideoSampleEntry(
   bytes: Uint8Array,
   entry: Box,
+  budget: ParseBudget,
 ): SampleDescription {
   if (entry.type !== "avc1" && entry.type !== "avc3") unsupportedCodec();
   // ISO VisualSampleEntry fields are 78 bytes after the ordinary 8-byte box header.
@@ -573,8 +690,14 @@ function parseVideoSampleEntry(
   const height = readU16(bytes, entry.start + 34);
   if (width === 0 || height === 0) missingMetadata();
 
-  const children = parseBoxes(bytes, entry.start + 86, entry.end);
-  const avcC = exactlyOne(children, "avcC", unsupportedCodec);
+  const children = parseBoxes(
+    bytes,
+    entry.start + 86,
+    entry.end,
+    budget,
+    MAX_NESTED_BOXES_PER_LEVEL,
+  );
+  const avcC = exactlyOne(children, "avcC", unsupportedCodec, budget);
   if (avcC.end - avcC.dataStart < 7 || bytes[avcC.dataStart] !== 1) {
     unsupportedCodec();
   }
@@ -582,6 +705,8 @@ function parseVideoSampleEntry(
   let offset = avcC.dataStart + 6;
   const sequenceParameterSetCount = bytes[avcC.dataStart + 5] & 0x1f;
   if (sequenceParameterSetCount === 0) unsupportedCodec();
+  if (sequenceParameterSetCount > MAX_PARAMETER_SETS) resourceLimit();
+  consumeIterationWork(budget, sequenceParameterSetCount);
   for (let index = 0; index < sequenceParameterSetCount; index += 1) {
     if (offset + 2 > avcC.end) malformed();
     const length = readU16(bytes, offset);
@@ -593,6 +718,8 @@ function parseVideoSampleEntry(
   const pictureParameterSetCount = bytes[offset];
   offset += 1;
   if (pictureParameterSetCount === 0) unsupportedCodec();
+  if (pictureParameterSetCount > MAX_PARAMETER_SETS) resourceLimit();
+  consumeIterationWork(budget, pictureParameterSetCount);
   for (let index = 0; index < pictureParameterSetCount; index += 1) {
     if (offset + 2 > avcC.end) malformed();
     const length = readU16(bytes, offset);
@@ -608,6 +735,7 @@ function parseVideoSampleEntry(
 function parseAudioSampleEntry(
   bytes: Uint8Array,
   entry: Box,
+  budget: ParseBudget,
 ): SampleDescription {
   if (entry.type !== "mp4a") unsupportedCodec();
   if (entry.headerSize !== 8 || entry.end - entry.start < 36) malformed();
@@ -618,8 +746,18 @@ function parseAudioSampleEntry(
     unsupportedCodec();
   if (childrenStart > entry.end) malformed();
 
-  const children = parseBoxes(bytes, childrenStart, entry.end);
-  parseEsds(bytes, exactlyOne(children, "esds", unsupportedCodec));
+  const children = parseBoxes(
+    bytes,
+    childrenStart,
+    entry.end,
+    budget,
+    MAX_NESTED_BOXES_PER_LEVEL,
+  );
+  parseEsds(
+    bytes,
+    exactlyOne(children, "esds", unsupportedCodec, budget),
+    budget,
+  );
   return { entryCount: 1 };
 }
 
@@ -627,21 +765,30 @@ function parseStsd(
   bytes: Uint8Array,
   stsd: Box,
   handlerType: string,
+  budget: ParseBudget,
 ): SampleDescription {
   requireFullBoxVersion(bytes, stsd, [0]);
   if (stsd.end - stsd.dataStart < 8) malformed();
   const entryCount = readU32(bytes, stsd.dataStart + 4);
+  if (entryCount > MAX_SAMPLE_DESCRIPTIONS) resourceLimit();
   if (entryCount === 0) missingMetadata();
-  const entries = parseBoxes(bytes, stsd.dataStart + 8, stsd.end);
+  const entries = parseBoxes(
+    bytes,
+    stsd.dataStart + 8,
+    stsd.end,
+    budget,
+    MAX_SAMPLE_DESCRIPTIONS,
+  );
   if (entries.length !== entryCount) malformed();
 
+  consumeIterationWork(budget, entryCount);
   let width: number | undefined;
   let height: number | undefined;
   for (const entry of entries) {
     const parsed =
       handlerType === "vide"
-        ? parseVideoSampleEntry(bytes, entry)
-        : parseAudioSampleEntry(bytes, entry);
+        ? parseVideoSampleEntry(bytes, entry, budget)
+        : parseAudioSampleEntry(bytes, entry, budget);
     if (handlerType === "vide") {
       if (width !== undefined || height !== undefined) unsupportedCodec();
       width = parsed.width;
@@ -657,47 +804,65 @@ function parseSampleTable(
   stbl: Box,
   handlerType: "vide" | "soun",
   mdatRanges: readonly MdatRange[],
+  budget: ParseBudget,
 ) {
-  const boxes = parseBoxes(bytes, stbl.dataStart, stbl.end);
+  const boxes = parseBoxes(
+    bytes,
+    stbl.dataStart,
+    stbl.end,
+    budget,
+    MAX_NESTED_BOXES_PER_LEVEL,
+  );
   const stsd = parseStsd(
     bytes,
-    exactlyOne(boxes, "stsd", missingMetadata),
+    exactlyOne(boxes, "stsd", missingMetadata, budget),
     handlerType,
+    budget,
   );
   const sampleTiming = parseStts(
     bytes,
-    exactlyOne(boxes, "stts", missingMetadata),
+    exactlyOne(boxes, "stts", missingMetadata, budget),
+    budget,
   );
   const sampleSizes = parseStsz(
     bytes,
-    exactlyOne(boxes, "stsz", missingMetadata),
+    exactlyOne(boxes, "stsz", missingMetadata, budget),
+    budget,
   );
   if (sampleTiming.sampleCount !== sampleSizes.sampleCount) malformed();
   const sampleToChunk = parseStsc(
     bytes,
-    exactlyOne(boxes, "stsc", missingMetadata),
+    exactlyOne(boxes, "stsc", missingMetadata, budget),
     stsd.entryCount,
+    budget,
   );
 
-  const chunkOffsetBoxes = boxes.filter(
-    (box) => box.type === "stco" || box.type === "co64",
-  );
-  if (chunkOffsetBoxes.length !== 1) missingMetadata();
+  consumeIterationWork(budget, boxes.length);
+  let chunkOffsetBox: Box | undefined;
+  for (const box of boxes) {
+    if (box.type !== "stco" && box.type !== "co64") continue;
+    if (chunkOffsetBox) missingMetadata();
+    chunkOffsetBox = box;
+  }
+  if (!chunkOffsetBox) missingMetadata();
   const chunkOffsets = parseChunkOffsets(
     bytes,
-    chunkOffsetBoxes[0],
+    chunkOffsetBox,
     mdatRanges,
+    budget,
   );
   validateSampleToChunkCoverage(
     sampleToChunk,
     chunkOffsets,
     sampleTiming.sampleCount,
+    budget,
   );
 
-  const totalMdatBytes = mdatRanges.reduce(
-    (total, range) => total + BigInt(range.end - range.dataStart),
-    0n,
-  );
+  consumeIterationWork(budget, mdatRanges.length);
+  let totalMdatBytes = 0n;
+  for (const range of mdatRanges) {
+    totalMdatBytes += BigInt(range.end - range.dataStart);
+  }
   if (sampleSizes.totalBytes > totalMdatBytes) malformed();
 
   return { sampleDescription: stsd, sampleDuration: sampleTiming.duration };
@@ -707,13 +872,26 @@ function parseTrack(
   bytes: Uint8Array,
   trak: Box,
   mdatRanges: readonly MdatRange[],
+  budget: ParseBudget,
 ): ParsedTrack {
-  const trakChildren = parseBoxes(bytes, trak.dataStart, trak.end);
-  const tkhd = exactlyOne(trakChildren, "tkhd", missingMetadata);
-  const mdia = exactlyOne(trakChildren, "mdia", missingMetadata);
-  const mdiaChildren = parseBoxes(bytes, mdia.dataStart, mdia.end);
-  const mdhd = exactlyOne(mdiaChildren, "mdhd", missingMetadata);
-  const hdlr = exactlyOne(mdiaChildren, "hdlr", missingMetadata);
+  const trakChildren = parseBoxes(
+    bytes,
+    trak.dataStart,
+    trak.end,
+    budget,
+    MAX_NESTED_BOXES_PER_LEVEL,
+  );
+  const tkhd = exactlyOne(trakChildren, "tkhd", missingMetadata, budget);
+  const mdia = exactlyOne(trakChildren, "mdia", missingMetadata, budget);
+  const mdiaChildren = parseBoxes(
+    bytes,
+    mdia.dataStart,
+    mdia.end,
+    budget,
+    MAX_NESTED_BOXES_PER_LEVEL,
+  );
+  const mdhd = exactlyOne(mdiaChildren, "mdhd", missingMetadata, budget);
+  const hdlr = exactlyOne(mdiaChildren, "hdlr", missingMetadata, budget);
   const handlerType = parseHandlerType(bytes, hdlr);
 
   const timing = parseTiming(bytes, mdhd);
@@ -722,10 +900,22 @@ function parseTrack(
   }
 
   parseTkhd(bytes, tkhd, handlerType === "vide");
-  const minf = exactlyOne(mdiaChildren, "minf", missingMetadata);
-  const minfChildren = parseBoxes(bytes, minf.dataStart, minf.end);
-  const stbl = exactlyOne(minfChildren, "stbl", missingMetadata);
-  const sampleTable = parseSampleTable(bytes, stbl, handlerType, mdatRanges);
+  const minf = exactlyOne(mdiaChildren, "minf", missingMetadata, budget);
+  const minfChildren = parseBoxes(
+    bytes,
+    minf.dataStart,
+    minf.end,
+    budget,
+    MAX_NESTED_BOXES_PER_LEVEL,
+  );
+  const stbl = exactlyOne(minfChildren, "stbl", missingMetadata, budget);
+  const sampleTable = parseSampleTable(
+    bytes,
+    stbl,
+    handlerType,
+    mdatRanges,
+    budget,
+  );
   return {
     handlerType,
     timing: laterTiming(timing, {
@@ -783,45 +973,101 @@ export function inspectRecordedMp4(
     return fail("Keep your recorded video under the allowed size.");
   }
 
-  const topLevel = parseBoxes(bytes, 0, bytes.length);
+  const budget = createParseBudget();
+  const topLevel = parseBoxes(
+    bytes,
+    0,
+    bytes.length,
+    budget,
+    MAX_TOP_LEVEL_BOXES,
+  );
   if (topLevel.length < 3 || topLevel[0].type !== "ftyp")
     unsupportedContainer();
-  inspectFtyp(bytes, topLevel[0]);
-  if (topLevel.some((box) => box.type === "moof")) {
-    return fail("This fragmented MP4 recording is not supported.");
-  }
+  inspectFtyp(bytes, topLevel[0], budget);
 
-  const moov = exactlyOne(topLevel, "moov", missingMetadata);
-  const mdatRanges = topLevel
-    .filter((box) => box.type === "mdat")
-    .map((box) => ({ dataStart: box.dataStart, end: box.end }));
-  if (
-    mdatRanges.length === 0 ||
-    mdatRanges.some((range) => range.dataStart === range.end)
-  ) {
-    missingMetadata();
+  consumeIterationWork(budget, topLevel.length);
+  let moov: Box | undefined;
+  let moovCount = 0;
+  const mdatRanges: MdatRange[] = [];
+  for (const box of topLevel) {
+    if (box.type === "moof") {
+      return fail("This fragmented MP4 recording is not supported.");
+    }
+    if (box.type === "moov") {
+      moovCount += 1;
+      moov = box;
+      continue;
+    }
+    if (box.type === "mdat") {
+      if (box.dataStart === box.end) missingMetadata();
+      mdatRanges.push({ dataStart: box.dataStart, end: box.end });
+    }
   }
+  if (moovCount !== 1 || !moov) missingMetadata();
+  if (moov.end - moov.start > MAX_MOOV_BYTES) resourceLimit();
+  if (mdatRanges.length === 0) missingMetadata();
 
-  const moovChildren = parseBoxes(bytes, moov.dataStart, moov.end);
-  if (moovChildren.some((box) => box.type === "mvex")) {
-    return fail("This fragmented MP4 recording is not supported.");
-  }
-  const movieTiming = parseTiming(
+  const moovChildren = parseBoxes(
     bytes,
-    exactlyOne(moovChildren, "mvhd", missingMetadata),
+    moov.dataStart,
+    moov.end,
+    budget,
+    MAX_NESTED_BOXES_PER_LEVEL,
   );
-  const tracks = moovChildren
-    .filter((box) => box.type === "trak")
-    .map((track) => parseTrack(bytes, track, mdatRanges));
-  const videoTracks = tracks.filter((track) => track.handlerType === "vide");
-  const audioTracks = tracks.filter((track) => track.handlerType === "soun");
-  if (videoTracks.length !== 1 || audioTracks.length !== 1) unsupportedCodec();
+  consumeIterationWork(budget, moovChildren.length);
+  let mvhd: Box | undefined;
+  let mvhdCount = 0;
+  const trackBoxes: Box[] = [];
+  for (const box of moovChildren) {
+    if (box.type === "mvex") {
+      return fail("This fragmented MP4 recording is not supported.");
+    }
+    if (box.type === "mvhd") {
+      mvhdCount += 1;
+      mvhd = box;
+      continue;
+    }
+    if (box.type === "trak") {
+      if (trackBoxes.length >= MAX_TRACKS) resourceLimit();
+      trackBoxes.push(box);
+    }
+  }
+  if (mvhdCount !== 1 || !mvhd) missingMetadata();
+  const movieTiming = parseTiming(bytes, mvhd);
 
-  const videoTrack = videoTracks[0];
+  const tracks: ParsedTrack[] = [];
+  consumeIterationWork(budget, trackBoxes.length);
+  for (const trackBox of trackBoxes) {
+    tracks.push(parseTrack(bytes, trackBox, mdatRanges, budget));
+  }
+
+  let videoTrack: ParsedTrack | undefined;
+  let audioTrack: ParsedTrack | undefined;
+  let videoTrackCount = 0;
+  let audioTrackCount = 0;
+  consumeIterationWork(budget, tracks.length);
+  for (const track of tracks) {
+    if (track.handlerType === "vide") {
+      videoTrackCount += 1;
+      videoTrack = track;
+    } else if (track.handlerType === "soun") {
+      audioTrackCount += 1;
+      audioTrack = track;
+    }
+  }
+  if (
+    videoTrackCount !== 1 ||
+    audioTrackCount !== 1 ||
+    !videoTrack ||
+    !audioTrack
+  ) {
+    unsupportedCodec();
+  }
+
   if (!videoTrack.width || !videoTrack.height) missingMetadata();
   const completeTiming = laterTiming(
     laterTiming(movieTiming, videoTrack.timing),
-    audioTracks[0].timing,
+    audioTrack.timing,
   );
   if (
     completeTiming.duration >

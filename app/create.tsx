@@ -1,3 +1,5 @@
+import { ScreenMetadata } from "@/components/screen-metadata";
+import { controlAccessibilityProps } from "../lib/control-accessibility";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AppState,
@@ -43,6 +45,7 @@ import {
   resolveCreateRecipient,
 } from "@/lib/design31-create";
 import {
+  Heading,
   Button,
   C,
   Empty,
@@ -66,6 +69,7 @@ import {
   platformCreationIssue,
   platformUploadLimitMb,
 } from "@/lib/platform-feature-ui";
+import { useForegroundState } from "@/hooks/use-foreground-state";
 import { VideoRecorder } from "@/components/video-recorder";
 import { RecordedVideoPreview } from "@/components/recorded-video-preview";
 import type { RecordedVideoDraft } from "@/shared/recorded-video";
@@ -75,7 +79,7 @@ import {
 } from "@/lib/recorded-video-files";
 import {
   createPostPublishAttemptTracker,
-  isDefinitivePostPublishError,
+  shouldKeepPostPublishAttemptUnsettled,
 } from "@/lib/post-publish-attempt";
 import { postPublishErrorMessage } from "@/lib/post-publish-error";
 
@@ -118,7 +122,7 @@ function ComposerPill({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={title}
-      accessibilityState={{ selected, disabled }}
+      {...controlAccessibilityProps({ selected, disabled })}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
@@ -208,7 +212,7 @@ function CreateScreenForAccount() {
   const text =
     !textEdited && verifiedIntroduction ? INTRODUCTION_DRAFT : draftText;
   function setText(value: string) {
-    if (draftEditingLocked()) return;
+    if (!canEditDraft()) return;
     setTextEdited(true);
     setDraftText(value);
   }
@@ -222,8 +226,10 @@ function CreateScreenForAccount() {
   const recordedDraftRef = useRef<RecordedVideoDraft | null>(null);
   const [recorderScope, setRecorderScope] =
     useState<Batch1OperationScope | null>(null);
+  const recorderScopeRef = useRef<Batch1OperationScope | null>(null);
   const focusedRef = useRef(false);
-  const foregroundRef = useRef(AppState.currentState === "active");
+  const foreground = useForegroundState();
+  const foregroundRef = useRef(foreground);
   const [postAttempt] = useState(() => createPostPublishAttemptTracker());
   const [publishUncertain, setPublishUncertain] = useState(false);
   const [publishStage, setPublishStage] = useState<
@@ -279,15 +285,22 @@ function CreateScreenForAccount() {
           void deleteRecordedVideo(owned.localUri).catch(() => undefined);
         setRecordedDraft(null);
         setAsset((current) => (owned ? null : current));
+        recorderScopeRef.current = null;
         setRecorderScope(null);
       };
-    }, [composerIdentity, operationInstance, setRecorderScope]),
+    }, [composerIdentity, operationInstance]),
   );
 
   useEffect(() => {
+    foregroundRef.current = foreground;
+  }, [foreground]);
+
+  useEffect(() => {
     const subscription = AppState.addEventListener("change", (state) => {
-      foregroundRef.current = state === "active";
-      if (state !== "active") setRecorderScope(null);
+      if (state === "active") return;
+      foregroundRef.current = false;
+      recorderScopeRef.current = null;
+      setRecorderScope(null);
     });
     return () => subscription.remove();
   }, []);
@@ -351,31 +364,61 @@ function CreateScreenForAccount() {
     );
   }
 
-  function changeText(value: string) {
-    if (draftEditingLocked()) return;
-    setText(value);
+  function canEditDraft(): boolean {
+    const scope = scopeRef.current;
+    return (
+      foregroundRef.current &&
+      !!scope &&
+      publishScopeIsCurrent(scope) &&
+      !draftEditingLocked()
+    );
+  }
+
+  function recorderScopeMatches(scope: Batch1OperationScope): boolean {
+    const current = recorderScopeRef.current;
+    return (
+      !!current &&
+      batch1OperationKey(current) === batch1OperationKey(scope) &&
+      publishScopeIsCurrent(scope)
+    );
+  }
+
+  function closeRecorder(scope?: Batch1OperationScope) {
+    const current = recorderScopeRef.current;
+    if (
+      !current ||
+      (scope && batch1OperationKey(current) !== batch1OperationKey(scope))
+    ) {
+      return;
+    }
+    recorderScopeRef.current = null;
+    setRecorderScope((active) =>
+      active && batch1OperationKey(active) === batch1OperationKey(current)
+        ? null
+        : active,
+    );
   }
 
   function changeName(value: string) {
-    if (draftEditingLocked()) return;
+    if (!canEditDraft()) return;
     setName(value);
   }
 
   function changeCategory(value: string) {
-    if (draftEditingLocked()) return;
+    if (!canEditDraft()) return;
     setCategory(value);
   }
 
   function changePrivacy(value: "public" | "private") {
-    if (draftEditingLocked()) return;
+    if (!canEditDraft()) return;
     setPrivacy(value);
   }
 
   function changeCircleId(value: number | undefined) {
-    if (draftEditingLocked()) return;
+    if (!canEditDraft()) return;
     if (value !== circleId) {
       clearSelectedMedia();
-      setRecorderScope(null);
+      closeRecorder();
       setComposerRevision((current) => current + 1);
     }
     setCircleId(value);
@@ -393,9 +436,10 @@ function CreateScreenForAccount() {
 
   function recordVideo() {
     if (
-      draftEditingLocked() ||
+      !canEditDraft() ||
       mode !== "post" ||
-      authState !== "authenticated"
+      authState !== "authenticated" ||
+      recorderScopeRef.current !== null
     )
       return;
     const scope = scopeRef.current;
@@ -406,18 +450,21 @@ function CreateScreenForAccount() {
       notify(issue, "error");
       return;
     }
+    recorderScopeRef.current = scope;
     setRecorderScope(scope);
+  }
+
+  function retakeRecordedVideo() {
+    if (!canEditDraft()) return;
+    clearSelectedMedia();
+    recordVideo();
   }
 
   function acceptRecording(
     draft: RecordedVideoDraft,
     scope: Batch1OperationScope,
   ) {
-    if (
-      !foregroundRef.current ||
-      !publishScopeIsCurrent(scope) ||
-      draftEditingLocked()
-    ) {
+    if (!recorderScopeMatches(scope) || !canEditDraft()) {
       void deleteRecordedVideo(draft.localUri).catch(() => undefined);
       return;
     }
@@ -433,11 +480,11 @@ function CreateScreenForAccount() {
       width: draft.width,
       height: draft.height,
     });
-    setRecorderScope(null);
+    closeRecorder(scope);
   }
 
   function selectMode(nextMode: CreateMode) {
-    if (draftEditingLocked()) return;
+    if (!canEditDraft()) return;
     const issue = platformCreationIssue(
       visiblePlatformStatus,
       nextMode,
@@ -463,14 +510,14 @@ function CreateScreenForAccount() {
     }
     if (nextMode !== mode) {
       if (recordedDraftRef.current) clearSelectedMedia();
-      setRecorderScope(null);
+      closeRecorder();
       setComposerRevision((current) => current + 1);
     }
     setMode(nextMode);
   }
 
   async function pickMedia() {
-    if (draftEditingLocked()) return;
+    if (!canEditDraft()) return;
     const issue = platformCreationIssue(visiblePlatformStatus, mode, true);
     if (issue) {
       notify(issue, "error");
@@ -500,7 +547,12 @@ function CreateScreenForAccount() {
       return;
     }
 
-    if (!publishScopeIsCurrent(pickerSnapshot.scope)) return;
+    if (
+      !foregroundRef.current ||
+      !publishScopeIsCurrent(pickerSnapshot.scope) ||
+      !canEditDraft()
+    )
+      return;
     if (!result.canceled) {
       const nextAsset = result.assets[0];
       const validation = validateA26PickedComposerMedia({
@@ -524,6 +576,18 @@ function CreateScreenForAccount() {
   ): Promise<string | undefined | null> {
     if (!snapshot.asset) return undefined;
     const mimeType = supportedMime(snapshot.asset);
+    const recorded = snapshot.recordedDraft;
+    if (
+      recorded &&
+      (snapshot.asset.type !== "video" ||
+        snapshot.asset.uri !== recorded.localUri ||
+        mimeType !== recorded.mimeType ||
+        snapshot.asset.fileSize !== recorded.fileSize)
+    ) {
+      throw new Error(
+        "This recording is no longer available. Record it again and try again.",
+      );
+    }
     if (snapshot.mode === "circle" && !isCircleCoverMime(mimeType)) {
       throw new Error("Circle covers need a JPEG, PNG, or WebP photo.");
     }
@@ -535,20 +599,17 @@ function CreateScreenForAccount() {
     const previousUrl = reusableUploadUrl(snapshot.reusableUpload, key);
     if (previousUrl) return previousUrl;
 
-    const base64 = snapshot.recordedDraft
-      ? await recordedVideoBase64(
-          snapshot.recordedDraft,
-          maxUploadMb * 1024 * 1024,
-        )
+    const base64 = recorded
+      ? await recordedVideoBase64(recorded, maxUploadMb * 1024 * 1024)
       : await assetBase64(snapshot.asset);
     if (!publishScopeIsCurrent(scope)) return null;
     const result = await upload.mutateAsync({
       base64,
       mimeType,
-      ...(snapshot.recordedDraft
+      ...(recorded
         ? {
             recording: {
-              maxDurationSeconds: snapshot.recordedDraft.maxDurationSeconds,
+              maxDurationSeconds: recorded.maxDurationSeconds,
             },
           }
         : {}),
@@ -565,6 +626,7 @@ function CreateScreenForAccount() {
     scope: Batch1OperationScope,
     snapshot: ComposerPublishSnapshot,
   ) {
+    let postRequestStarted = false;
     const validationError = validateComposerDraft({
       mode: snapshot.mode,
       text: snapshot.text,
@@ -630,6 +692,7 @@ function CreateScreenForAccount() {
         postAttempt.markSubmitted();
         setPublishUncertain(true);
         setPublishStage("publishing");
+        postRequestStarted = true;
         await post.mutateAsync(attempt);
         if (!publishScopeIsCurrent(scope)) return;
         postAttempt.clear();
@@ -664,11 +727,13 @@ function CreateScreenForAccount() {
       }
     } catch (error) {
       if (!publishScopeIsCurrent(scope)) return;
-      const uncertain =
-        snapshot.mode === "post" &&
-        postAttempt.isUnsettled() &&
-        !isDefinitivePostPublishError(error);
-      if (!uncertain) postAttempt.reject();
+      const uncertain = shouldKeepPostPublishAttemptUnsettled({
+        isPost: snapshot.mode === "post",
+        hasUnsettledAttempt: postAttempt.isUnsettled(),
+        postRequestStarted,
+        error,
+      });
+      if (!uncertain && postRequestStarted) postAttempt.reject();
       setPublishUncertain(uncertain);
       const message = uncertain
         ? "Publication hasn't been confirmed. Your draft is locked so Retry checks the same publication without creating another post."
@@ -679,11 +744,11 @@ function CreateScreenForAccount() {
   }
 
   function publish() {
-    if (!recipientAllowsPublish) return;
+    if (!foregroundRef.current || !recipientAllowsPublish) return;
 
     const startPublish = () => {
       const scope = scopeRef.current;
-      if (!scope) return;
+      if (!scope || !publishScopeIsCurrent(scope)) return;
       const snapshot: ComposerPublishSnapshot = {
         mode,
         text,
@@ -720,6 +785,12 @@ function CreateScreenForAccount() {
     };
     requireAuth(startPublish);
   }
+
+  const recorderVisible =
+    foreground &&
+    recorderScope !== null &&
+    batch1OperationIdentityMatches(recorderScope, composerIdentity);
+
   return (
     <View
       style={[
@@ -727,6 +798,15 @@ function CreateScreenForAccount() {
         createRootSafeAreaInsets(insets),
       ]}
     >
+      <ScreenMetadata
+        title={
+          mode === "circle"
+            ? "Create a circle"
+            : mode === "live"
+              ? "Start a live conversation"
+              : "Share a moment"
+        }
+      />
       <View
         style={[
           s.between,
@@ -768,16 +848,16 @@ function CreateScreenForAccount() {
           }}
         >
           <T style={s.eyebrow}>MAKE A LITTLE CONNECTION</T>
-          <T style={s.title}>
+          <Heading style={s.title}>
             {mode === "circle"
               ? "Bring your people together."
               : mode === "live"
                 ? "A moment, in real time."
                 : "What’s your world today?"}
-          </T>
+          </Heading>
           <View style={[s.row, { gap: 8, flexWrap: "wrap" }]}>
             <ComposerPill
-              title="Post"
+              title="Moment"
               icon="image-outline"
               selected={mode === "post"}
               onPress={() => selectMode("post")}
@@ -835,6 +915,7 @@ function CreateScreenForAccount() {
           )}
           {!user ? (
             <Empty
+              headingLevel={2}
               icon="person-outline"
               title="Make yourself at home."
               text="Sign in to share something, create your own community, or go live."
@@ -875,12 +956,12 @@ function CreateScreenForAccount() {
                       : "What are we talking about?"
                   }
                   editable={!isDraftLocked}
-                  accessibilityState={{ disabled: isDraftLocked }}
+                  {...controlAccessibilityProps({ disabled: isDraftLocked })}
                 />
               )}
               <Input
                 value={text}
-                onChangeText={changeText}
+                onChangeText={setText}
                 multiline
                 label={
                   mode === "circle"
@@ -895,7 +976,7 @@ function CreateScreenForAccount() {
                     : "A thought, a story, something worth sharing…"
                 }
                 editable={!isDraftLocked}
-                accessibilityState={{ disabled: isDraftLocked }}
+                {...controlAccessibilityProps({ disabled: isDraftLocked })}
               />
               {mode === "circle" ? (
                 <>
@@ -1009,7 +1090,7 @@ function CreateScreenForAccount() {
                       title="Record video"
                       icon="videocam-outline"
                       secondary
-                      disabled={isDraftLocked || !!creationIssue}
+                      disabled={isDraftLocked || !!creationIssue || !foreground}
                       onPress={recordVideo}
                     />
                   ) : (
@@ -1053,11 +1134,7 @@ function CreateScreenForAccount() {
                         title="Retake video"
                         secondary
                         disabled={isDraftLocked}
-                        onPress={() => {
-                          if (draftEditingLocked()) return;
-                          clearSelectedMedia();
-                          recordVideo();
-                        }}
+                        onPress={retakeRecordedVideo}
                       />
                     )}
                     <Button
@@ -1080,7 +1157,7 @@ function CreateScreenForAccount() {
                       ? "Change selected photo"
                       : `Add ${mode === "circle" ? "a cover photo" : "a photo or video"}`
                   }
-                  accessibilityState={{ disabled: isDraftLocked }}
+                  {...controlAccessibilityProps({ disabled: isDraftLocked })}
                   disabled={isDraftLocked}
                   style={{
                     backgroundColor: C.paper,
@@ -1204,44 +1281,43 @@ function CreateScreenForAccount() {
         </ScrollView>
       </KeyboardAvoidingView>
       <Modal
-        visible={
-          recorderScope !== null &&
-          batch1OperationIdentityMatches(recorderScope, composerIdentity)
-        }
+        accessibilityLabel="Record a video"
+        visible={recorderVisible}
         animationType="slide"
-        onRequestClose={() => setRecorderScope(null)}
+        onRequestClose={() => {
+          if (recorderScope) closeRecorder(recorderScope);
+        }}
       >
-        {recorderScope &&
-          batch1OperationIdentityMatches(recorderScope, composerIdentity) && (
-            <View
-              style={{
-                flex: 1,
-                backgroundColor: C.bg,
-                paddingTop: insets.top,
-                paddingBottom: insets.bottom,
-                paddingLeft: insets.left,
-                paddingRight: insets.right,
+        {recorderVisible && recorderScope && (
+          <View
+            style={{
+              flex: 1,
+              backgroundColor: C.bg,
+              paddingTop: insets.top,
+              paddingBottom: insets.bottom,
+              paddingLeft: insets.left,
+              paddingRight: insets.right,
+            }}
+          >
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{
+                padding: 14,
+                maxWidth: 620,
+                width: "100%",
+                alignSelf: "center",
               }}
             >
-              <ScrollView
-                showsVerticalScrollIndicator={false}
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{
-                  padding: 14,
-                  maxWidth: 620,
-                  width: "100%",
-                  alignSelf: "center",
-                }}
-              >
-                <VideoRecorder
-                  key={batch1OperationKey(recorderScope)}
-                  maxBytes={Math.min(20, maxUploadMb) * 1024 * 1024}
-                  onUse={(draft) => acceptRecording(draft, recorderScope)}
-                  onClose={() => setRecorderScope(null)}
-                />
-              </ScrollView>
-            </View>
-          )}
+              <VideoRecorder
+                key={batch1OperationKey(recorderScope)}
+                maxBytes={Math.min(20, maxUploadMb) * 1024 * 1024}
+                onUse={(draft) => acceptRecording(draft, recorderScope)}
+                onClose={() => closeRecorder(recorderScope)}
+              />
+            </ScrollView>
+          </View>
+        )}
       </Modal>
     </View>
   );

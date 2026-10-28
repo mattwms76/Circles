@@ -1,3 +1,4 @@
+import { controlAccessibilityProps } from "../lib/control-accessibility";
 import {
   type ReactNode,
   useCallback,
@@ -30,6 +31,10 @@ import {
   type EmailAuthDialogMode,
 } from "@/lib/email-auth-ui";
 import type { CurrentAuthOperation } from "../lib/a26-auth-operation";
+import {
+  emailAuthFormFailure,
+  emailAuthInputError,
+} from "../lib/email-auth-feedback";
 
 type EmailFormMode = "signIn" | "signUp";
 
@@ -358,11 +363,21 @@ function EmailAuthDialog({
       return;
     if (!isAvailable) return;
 
+    const emailToSubmit = email.trim();
+    const passwordToSubmit = passwordRef.current;
+    const inputError = emailAuthInputError(
+      emailToSubmit,
+      passwordToSubmit,
+      formMode === "signUp",
+    );
+    if (inputError) {
+      setFormError(inputError);
+      return;
+    }
+
     const scope = submissionGuard.begin(mode);
     const controller = new AbortController();
     submissionFlightRef.current = { scope, controller };
-    const emailToSubmit = email.trim();
-    const passwordToSubmit = passwordRef.current;
     const requestOptions = {
       signal: controller.signal,
       isCurrent: () => isCurrent(submissionGuard, scope),
@@ -372,13 +387,6 @@ function EmailAuthDialog({
     setSignUpConfirmed(false);
 
     try {
-      if (!emailToSubmit || !passwordToSubmit) {
-        if (isCurrent(submissionGuard, scope)) {
-          setFormError("Enter your email address and password to continue.");
-        }
-        return;
-      }
-
       if (formMode === "signUp") {
         await signUpWithEmailPassword(
           emailToSubmit,
@@ -416,13 +424,9 @@ function EmailAuthDialog({
           "We couldn't confirm your sign-in. Check your connection and try again.",
         );
       }
-    } catch {
+    } catch (error) {
       if (!isCurrent(submissionGuard, scope)) return;
-      setFormError(
-        formMode === "signUp"
-          ? "We couldn't create that account. Please try again."
-          : "Email or password is incorrect, or sign-in is unavailable. Please try again.",
-      );
+      setFormError(emailAuthFormFailure(error, formMode === "signUp"));
     } finally {
       if (submissionFlightRef.current?.scope.sequence === scope.sequence) {
         submissionFlightRef.current = null;
@@ -476,6 +480,7 @@ function EmailAuthDialog({
           <View style={{ flex: 1, gap: 5 }}>
             <T
               accessibilityRole="header"
+              {...{ "aria-level": isStandalone ? 1 : 2 }}
               style={{ fontSize: 25, fontWeight: "800" }}
             >
               {dialogTitle(mode, formMode)}
@@ -485,7 +490,9 @@ function EmailAuthDialog({
                 ? formMode === "signUp"
                   ? "Create credentials, confirm the email, then return here to add them to your Circles account."
                   : "Use an email address you have already verified with Supabase."
-                : "Use your email and password to continue to Circles."}
+                : formMode === "signUp"
+                  ? "Make your Circles account. We’ll email you a confirmation link."
+                  : "Use your email and password to continue to Circles."}
             </T>
           </View>
           {isStandalone && (
@@ -615,6 +622,12 @@ function EmailAuthDialog({
               }
               value={password}
             />
+            {formMode === "signUp" && (
+              <T style={{ color: C.secondary, fontSize: 12 }}>
+                Use at least 8 characters. You’ll confirm your email before
+                signing in.
+              </T>
+            )}
             {formError && (
               <StatusMessage
                 message={formError}
@@ -637,7 +650,9 @@ function EmailAuthDialog({
                     ? "Create email credentials"
                     : "Create an account with email"
                 }
-                accessibilityState={{ disabled: hasPendingOperation }}
+                {...controlAccessibilityProps({
+                  disabled: hasPendingOperation,
+                })}
                 disabled={hasPendingOperation}
                 onPress={showSignUp}
                 style={{
@@ -661,7 +676,9 @@ function EmailAuthDialog({
                     ? "Back to add email sign-in"
                     : "Back to email sign in"
                 }
-                accessibilityState={{ disabled: hasPendingOperation }}
+                {...controlAccessibilityProps({
+                  disabled: hasPendingOperation,
+                })}
                 disabled={hasPendingOperation}
                 onPress={showSignIn}
                 style={{
@@ -685,7 +702,9 @@ function EmailAuthDialog({
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Connect existing Circles account"
-                accessibilityState={{ disabled: hasPendingOperation }}
+                {...controlAccessibilityProps({
+                  disabled: hasPendingOperation,
+                })}
                 disabled={hasPendingOperation}
                 onPress={connectExistingCirclesAccount}
                 style={{
@@ -701,10 +720,6 @@ function EmailAuthDialog({
             )}
           </View>
         )}
-
-        <T style={{ color: C.muted, fontSize: 12, textAlign: "center" }}>
-          Google sign-in is planned for a later release.
-        </T>
       </View>
     </EmailAuthFormFrame>
   );

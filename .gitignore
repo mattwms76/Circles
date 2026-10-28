@@ -80,3 +80,6 @@ Thumbs.db
 /design-audit/before/
 /design-audit/after/
 /design-audit/verification/
+
+# Local agent scratch files, preview processes and test-run outputs
+/work/

@@ -1,0 +1,34 @@
+- button "Circles home":
+  - generic: circles.
+- button "Search Circles":
+  - generic: 
+- button "Open messages":
+  - generic: 
+- button "Back to your people":
+  - generic: 
+  - generic: Back to your people
+- generic: CIRCLE SPACE
+- generic: MOUNTAINS
+- generic: The Great Outdoors
+- generic: 
+- generic: 
+- generic: Public circle · 1 members
+- generic: Trail notes, wide skies, and invitations to step outside.
+- button "Join this circle" [disabled]:
+  - progressbar:
+- generic "Circle sections":
+  - button "Home":
+    - generic: Home
+  - button "Feed":
+    - generic: Feed
+  - button "Members":
+    - generic: Members
+  - button "About":
+    - generic: About
+- generic: A NOTE FROM YOUR CIRCLE
+- generic: No welcome message has been set yet.
+- generic: CIRCLE GUIDELINES
+- generic: This circle hasn’t configured any circle guidelines yet.
+- generic: 
+- generic: PINNED MOMENT
+- generic: No post is pinned right now.

@@ -1,0 +1,11 @@
+- button "Circles home":
+  - generic: circles.
+- button "Search Circles":
+  - generic: 
+- button "Open messages":
+  - generic: 
+- generic: 
+- generic: Reports are for circle managers.
+- generic: Sign in with an owner or moderator account to review this circle’s reports.
+- button "Sign in":
+  - generic: Sign in

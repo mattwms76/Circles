@@ -53,11 +53,13 @@ POST_PUBLICATION_MIGRATIONS = (
     "operations/migrations/0014_circles_email_identity.sql",
     "operations/migrations/0015_circles_publish_post_receipts.sql",
 )
+# Fixed test names only: this runner never accepts a caller-supplied config, DSN, port, or URL.
 SUITES = (
     "circle-home",
     "activity",
     "moderation",
     "a26-authority",
+    "sec27-security",
     "post-publish-idempotency",
 )
 
@@ -126,6 +128,8 @@ def fixture_migrations(suite: str) -> tuple[str, ...]:
 def suite_config(suite: str) -> str:
     if suite == "a26-authority":
         return "e2e/a26-authority.e2e.config.ts"
+    if suite == "sec27-security":
+        return "e2e/sec27-security.e2e.config.ts"
     if suite == "activity":
         return "e2e/activity.e2e.config.ts"
     if suite == "moderation":

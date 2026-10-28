@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { randomUUID } from "node:crypto";
+import sharp from "sharp";
 import { z } from "zod";
 import { isAllowedMediaAttachmentReference } from "../shared/media";
 import { inspectRecordedMp4 } from "../shared/recorded-video";
@@ -19,7 +20,14 @@ import {
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { requestCancellation } from "./_core/bounded-network";
 import { getDb } from "./db";
-import { assertPlatformUploadSizeWithLimit } from "./platform-settings";
+import {
+  assertPlatformUploadSize,
+  assertPlatformUploadSizeWithLimit,
+} from "./platform-settings";
+import {
+  Mp4ValidationError,
+  validateMp4Upload,
+} from "./sec27-video-validation";
 import { storagePut } from "./storage";
 import {
   approveMember,
@@ -160,6 +168,23 @@ const mimeType = z
   );
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 const MAX_BASE64_CHARACTERS = Math.ceil((MAX_UPLOAD_BYTES * 4) / 3) + 4;
+const MAX_RASTER_PIXELS = 16 * 1024 * 1024;
+const MAX_RASTER_OUTPUT_BYTES = MAX_UPLOAD_BYTES;
+const RASTER_PROCESSING_TIMEOUT_SECONDS = 5;
+const RASTER_FORMAT_BY_MIME = {
+  "image/jpeg": "jpeg",
+  "image/png": "png",
+  "image/webp": "webp",
+} as const;
+
+type RasterMimeType = keyof typeof RASTER_FORMAT_BY_MIME;
+type VerifiedMediaMimeType = RasterMimeType | "video/mp4";
+
+export type VerifiedMediaUpload = {
+  bytes: Buffer;
+  mimeType: VerifiedMediaMimeType;
+};
+
 const clientPublishId = z
   .string()
   .min(16)
@@ -237,33 +262,86 @@ function decodeBase64(base64: string): Buffer {
   return decoded;
 }
 
-function bytesMatchMime(bytes: Buffer, type: string): boolean {
-  if (type === "image/jpeg")
-    return (
-      bytes.length >= 3 &&
-      bytes[0] === 0xff &&
-      bytes[1] === 0xd8 &&
-      bytes[2] === 0xff
-    );
-  if (type === "image/png") {
-    return (
-      bytes.length >= 8 &&
-      bytes
-        .subarray(0, 8)
-        .equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+function mediaValidationError(message: string): TRPCError {
+  return new TRPCError({ code: "BAD_REQUEST", message });
+}
+
+/**
+ * Performs the only accepted image admission path. Sharp fully decodes untrusted raster input,
+ * rejects warnings/truncation, caps source pixels/channels and processing time, then emits a fresh
+ * JPEG, PNG, or WebP buffer without caller-supplied metadata. The persisted MIME comes from this
+ * verified exact-format result, never an untrusted file prefix.
+ */
+export async function validateMediaUpload(
+  bytes: Buffer,
+  declaredMimeType: string,
+): Promise<VerifiedMediaUpload> {
+  if (declaredMimeType === "video/mp4") {
+    try {
+      await validateMp4Upload(bytes);
+      return { bytes, mimeType: "video/mp4" };
+    } catch (error) {
+      if (error instanceof Mp4ValidationError) {
+        throw mediaValidationError(error.message);
+      }
+      throw mediaValidationError("MP4 upload could not be structurally parsed");
+    }
+  }
+
+  if (!(declaredMimeType in RASTER_FORMAT_BY_MIME)) {
+    throw mediaValidationError(
+      "Only JPEG, PNG, WEBP, and MP4 uploads are allowed",
     );
   }
-  if (type === "image/webp") {
-    return (
-      bytes.length >= 12 &&
-      bytes.subarray(0, 4).toString("ascii") === "RIFF" &&
-      bytes.subarray(8, 12).toString("ascii") === "WEBP"
-    );
+  const mimeType = declaredMimeType as RasterMimeType;
+  const expectedFormat = RASTER_FORMAT_BY_MIME[mimeType];
+
+  try {
+    const image = sharp(bytes, {
+      failOn: "warning",
+      limitInputPixels: MAX_RASTER_PIXELS,
+      limitInputChannels: 4,
+      pages: 1,
+      sequentialRead: true,
+      unlimited: false,
+    })
+      .rotate()
+      .timeout({ seconds: RASTER_PROCESSING_TIMEOUT_SECONDS });
+    const metadata = await image.metadata();
+    if (
+      metadata.format !== expectedFormat ||
+      !metadata.width ||
+      !metadata.height ||
+      metadata.width * metadata.height > MAX_RASTER_PIXELS
+    ) {
+      throw mediaValidationError(
+        "Upload bytes do not match the declared MIME type",
+      );
+    }
+
+    const normalized = await image
+      .toFormat(
+        expectedFormat,
+        expectedFormat === "jpeg"
+          ? { quality: 85, mozjpeg: true }
+          : expectedFormat === "png"
+            ? { adaptiveFiltering: true, compressionLevel: 9 }
+            : { quality: 85, smartSubsample: true },
+      )
+      .toBuffer({ resolveWithObject: true });
+    if (
+      normalized.info.format !== expectedFormat ||
+      !normalized.data.length ||
+      normalized.data.length > MAX_RASTER_OUTPUT_BYTES
+    ) {
+      throw mediaValidationError("Normalized media exceeds the 20 MB limit");
+    }
+
+    return { bytes: normalized.data, mimeType };
+  } catch (error) {
+    if (error instanceof TRPCError) throw error;
+    throw mediaValidationError("Upload is not a valid supported raster image");
   }
-  // ISO base media files, including ordinary MP4, identify their first box as `ftyp`.
-  return (
-    bytes.length >= 12 && bytes.subarray(4, 8).toString("ascii") === "ftyp"
-  );
 }
 
 /**
@@ -526,7 +604,8 @@ export const socialRouter = router({
     .input(
       z.object({
         circleId: id,
-        cursor: dateIdCursor.optional(),
+        // JS Date truncates PostgreSQL microseconds; accept the exact companion when supplied.
+        cursor: feedPageCursor.optional(),
         limit: pageLimit,
       }),
     )
@@ -537,6 +616,7 @@ export const socialRouter = router({
               cursor: {
                 createdAt: new Date(input.cursor.createdAt),
                 id: input.cursor.id,
+                createdAtExact: input.cursor.createdAtExact,
               },
             }
           : {}),
@@ -548,6 +628,7 @@ export const socialRouter = router({
           ? {
               createdAt: page.nextCursor.createdAt.toISOString(),
               id: page.nextCursor.id,
+              createdAtExact: page.nextCursor.createdAtExact,
             }
           : null,
       };
@@ -685,12 +766,6 @@ export const socialRouter = router({
       const cancellation = requestCancellation(ctx.req, ctx.res);
       try {
         const bytes = decodeBase64(input.base64);
-        if (!bytesMatchMime(bytes, input.mimeType)) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Upload bytes do not match the declared MIME type",
-          });
-        }
         const db = await getDb().catch(() => null);
         let effectiveMaxBytes = MAX_UPLOAD_BYTES;
         if (!db) {
@@ -728,17 +803,21 @@ export const socialRouter = router({
             });
           }
         }
+        const verified = await validateMediaUpload(bytes, input.mimeType);
+        if (db && verified.bytes.length !== bytes.length) {
+          await assertPlatformUploadSize(db, verified.bytes.length);
+        }
         const extension =
-          input.mimeType === "image/jpeg"
+          verified.mimeType === "image/jpeg"
             ? "jpg"
-            : input.mimeType === "image/png"
+            : verified.mimeType === "image/png"
               ? "png"
-              : input.mimeType === "image/webp"
+              : verified.mimeType === "image/webp"
                 ? "webp"
                 : "mp4";
         let encrypted: Buffer;
         try {
-          encrypted = encryptSocialMedia(bytes);
+          encrypted = encryptSocialMedia(verified.bytes);
         } catch {
           throw new TRPCError({
             code: "PRECONDITION_FAILED",
@@ -758,8 +837,8 @@ export const socialRouter = router({
         return recordUpload(ctx.user.id, {
           key: uploaded.key,
           url: uploaded.url,
-          mimeType: input.mimeType,
-          bytes: bytes.length,
+          mimeType: verified.mimeType,
+          bytes: verified.bytes.length,
         });
       } finally {
         cancellation.dispose();

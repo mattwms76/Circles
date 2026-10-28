@@ -1,9 +1,11 @@
 import Constants from "expo-constants";
 import React, { useEffect, useRef, useState } from "react";
 import {
+  AppState,
   StyleSheet,
   Text,
   View,
+  type AppStateStatus,
   type StyleProp,
   type ViewStyle,
 } from "react-native";
@@ -21,6 +23,7 @@ import {
   type LiveOfferEpoch,
   withLiveOfferEpoch,
 } from "@/lib/live-ice";
+import { shouldPreserveLiveParticipantReadiness } from "@/lib/parity27-live-media-recovery";
 import { createTRPCClient } from "@/lib/trpc";
 import type {
   A26LiveMediaPhase,
@@ -34,6 +37,7 @@ import {
   type LiveHostLease,
 } from "./design31-live-ui";
 import { terminateLiveTransportForError } from "./live-media-terminal";
+import { createSec27CaptureLifecycle } from "./sec27-capture-lifecycle";
 
 export type LiveMediaProps = {
   streamId: number;
@@ -406,6 +410,15 @@ export default function LiveMedia({
       if (terminateLiveTransportForError(error, terminate)) return;
       const message = messageFor(error);
       setStatus(message);
+      if (
+        shouldPreserveLiveParticipantReadiness({
+          host,
+          hostMediaReady,
+          viewerMediaReady,
+        })
+      ) {
+        return;
+      }
       emitMediaPhase("error", message);
       callbackRef.current.onError?.(message);
     };
@@ -773,6 +786,7 @@ export default function LiveMedia({
         hostId = session.hostId;
         hostGeneration = session.hostGeneration;
         cursor = session.signalCursor;
+        emitMediaPhase("admitted");
         await applyRelayCredentials(session.ice, false);
       } catch {
         const nextRecoveryPlan = recoveringFailedPeer
@@ -918,6 +932,15 @@ export default function LiveMedia({
           }
           cursor = Math.max(cursor, signal.id);
         }
+        if (
+          shouldPreserveLiveParticipantReadiness({
+            host,
+            hostMediaReady,
+            viewerMediaReady,
+          })
+        ) {
+          setStatus("Live");
+        }
       } catch (error) {
         report(error);
       } finally {
@@ -938,6 +961,45 @@ export default function LiveMedia({
       return ending;
     };
 
+    const captureLifecycle = createSec27CaptureLifecycle({
+      stopLocalCapture: () => {
+        terminal = true;
+        active = false;
+        stopTransport();
+      },
+      notifyTerminal: () => {
+        const message =
+          "Live video was disconnected while the app was not active. Rejoin live video to continue.";
+        setStatus(message);
+        callbackRef.current.onMediaPhaseChange?.({
+          phase: "error",
+          generation,
+          message,
+        });
+        callbackRef.current.onError?.(message);
+      },
+      sendGenerationTerminal: (ownedGeneration) =>
+        host
+          ? endHostedStream(ownedGeneration)
+          : api.live.leave.mutate({
+              streamId,
+              generation: ownedGeneration,
+            }),
+    });
+    const terminateForAppState = (nextAppState: AppStateStatus) => {
+      if (nextAppState === "inactive" || nextAppState === "background") {
+        captureLifecycle.terminate(
+          nextAppState === "inactive" ? "native-inactive" : "native-background",
+          generation,
+        );
+      }
+    };
+    const appStateSubscription = AppState.addEventListener(
+      "change",
+      terminateForAppState,
+    );
+    terminateForAppState(AppState.currentState);
+
     const initialise = async (): Promise<number | null> => {
       let ownedHostGeneration: number | null = null;
       try {
@@ -948,7 +1010,10 @@ export default function LiveMedia({
         cursor = session.signalCursor;
         joined = true;
         ownedHostGeneration = host ? session.generation : null;
-        if (!active) return ownedHostGeneration;
+        if (!active) {
+          captureLifecycle.bindGenerationAfterTerminal(session.generation);
+          return ownedHostGeneration;
+        }
         emitMediaPhase("admitted");
         const hostLease = liveHostLeaseFromJoin({
           host,
@@ -1067,6 +1132,7 @@ export default function LiveMedia({
       }
     })();
     return () => {
+      appStateSubscription.remove();
       active = false;
       stopTransport();
 

@@ -1,0 +1,102 @@
+- button "Circles home":
+  - generic: circles.
+- button "Search Circles":
+  - generic: 
+- button "Open messages":
+  - generic: 
+- generic: A PLACE TO BELONG
+- generic: Find your people.
+- button "Create a circle":
+  - generic: 
+- generic: LIFE IS BETTER TOGETHER
+- generic: Big passions. Your kind of people.
+- button "Explore outdoor circles":
+  - generic: Explore the outdoors ↗
+- generic: 
+- textbox "Search circles":
+  - /placeholder: Find a circle for your thing…
+- generic "Circle categories":
+  - button "All":
+    - generic: All
+  - button "Lifestyle":
+    - generic: Lifestyle
+  - button "Outdoors":
+    - generic: Outdoors
+  - button "Design":
+    - generic: Design
+  - button "Photography":
+    - generic: Photography
+  - button "Fitness":
+    - generic: Fitness
+  - button "Music":
+    - generic: Music
+- tab "Discover circles":
+  - generic: Discover circles
+- tab "Your circles":
+  - generic: Your circles
+- generic: 5 circles
+- button "Open Weekend Runners":
+  - generic: 
+  - generic: running
+- button "Open Weekend Runners":
+  - generic: Weekend Runners
+- generic: Easy miles, local routes, and a friendly reason to lace up.
+- generic: 
+- generic: 1 members · public
+- button "Join circle" [disabled]:
+  - progressbar:
+- button "Open Through the Lens":
+  - generic: 
+  - generic: photo
+- button "Open Through the Lens":
+  - generic: Through the Lens
+- generic: Photographs with a point of view and the stories just outside the frame.
+- generic: 
+- generic: 1 members · public
+- button "Join circle" [disabled]:
+  - progressbar:
+- button "Open Design People":
+  - generic: 
+  - generic: design
+- button "Open Design People":
+  - generic: Design People
+- generic: Thoughtful process, useful critique, and kind creative company.
+- generic: 
+- generic: 1 members · public
+- button "Join circle" [disabled]:
+  - progressbar:
+- button "Open The Great Outdoors":
+  - generic: 
+  - generic: mountains
+- button "Open The Great Outdoors":
+  - generic: The Great Outdoors
+- generic: Trail notes, wide skies, and invitations to step outside.
+- generic: 
+- generic: 1 members · public
+- button "Join circle" [disabled]:
+  - progressbar:
+- button "Open Slow Living":
+  - generic: 
+  - generic: coffee
+- button "Open Slow Living":
+  - generic: Slow Living
+- generic: Small rituals, unhurried tables, and room to notice what matters.
+- generic: 
+- generic: 1 members · public
+- button "Join circle" [disabled]:
+  - progressbar:
+- generic: You’ve reached the end of these circles.
+- tab " Home":
+  - generic: 
+  - generic: Home
+- tab " Discover":
+  - generic: 
+  - generic: Discover
+- button "Create a post or circle":
+  - generic: 
+- tab " Circles":
+  - generic: 
+  - generic: Circles
+- tab " You":
+  - generic: 
+  - generic: You

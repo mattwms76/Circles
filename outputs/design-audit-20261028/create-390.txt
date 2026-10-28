@@ -1,0 +1,14 @@
+- generic: circles.
+- button "Close composer"
+- generic: MAKE A LITTLE CONNECTION
+- generic: What’s your world today?
+- button "Post":
+  - generic: Post
+- button "Circle":
+  - generic: Circle
+- button "Go live":
+  - generic: Go live
+- generic: Make yourself at home.
+- generic: Sign in to share something, create your own community, or go live.
+- button "Sign in":
+  - generic: Sign in

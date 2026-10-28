@@ -4,7 +4,12 @@ import { fetchBoundedEncryptedMedia } from "../server/_core/storageProxy";
 import { RequestAbortedError } from "../server/_core/bounded-network";
 
 vi.mock("../server/db", () => ({ getDb: vi.fn() }));
-vi.mock("../server/storage", () => ({ storageGetSignedUrl: vi.fn() }));
+const storageMocks = vi.hoisted(() => ({
+  storageGetSignedUrl: vi.fn(),
+  storageFetchSignedObject: vi.fn(),
+  StorageOperationTimeoutError: class StorageOperationTimeoutError extends Error {},
+}));
+vi.mock("../server/storage", () => storageMocks);
 vi.mock("../server/social-service", () => ({
   decryptSocialMedia: vi.fn(),
   SOCIAL_MEDIA_FRAME_OVERHEAD: 28,
@@ -17,8 +22,6 @@ describe("protected media download cancellation", () => {
   it("refuses an already disconnected request before remote work", async () => {
     const controller = new AbortController();
     controller.abort();
-    const fetch = vi.fn();
-    vi.stubGlobal("fetch", fetch);
     await expect(
       fetchBoundedEncryptedMedia(
         "https://storage.example.invalid/file",
@@ -26,23 +29,24 @@ describe("protected media download cancellation", () => {
         controller.signal,
       ),
     ).rejects.toBeInstanceOf(RequestAbortedError);
-    expect(fetch).not.toHaveBeenCalled();
+    expect(storageMocks.storageFetchSignedObject).not.toHaveBeenCalled();
   });
 
   it("aborts a pending transport when the owning request disconnects", async () => {
     const controller = new AbortController();
     let transportSignal: AbortSignal | undefined;
-    const fetch = vi.fn((_url: string, options: RequestInit) => {
-      transportSignal = options.signal as AbortSignal;
-      return new Promise<Response>((_resolve, reject) => {
-        transportSignal?.addEventListener(
-          "abort",
-          () => reject(new Error("synthetic aborted transport")),
-          { once: true },
-        );
-      });
-    });
-    vi.stubGlobal("fetch", fetch);
+    storageMocks.storageFetchSignedObject.mockImplementation(
+      (_url: string, options: { signal?: AbortSignal }) => {
+        transportSignal = options.signal as AbortSignal;
+        return new Promise<Response>((_resolve, reject) => {
+          transportSignal?.addEventListener(
+            "abort",
+            () => reject(new Error("synthetic aborted transport")),
+            { once: true },
+          );
+        });
+      },
+    );
     const result = fetchBoundedEncryptedMedia(
       "https://storage.example.invalid/file",
       28,

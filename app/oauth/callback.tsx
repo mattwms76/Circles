@@ -1,3 +1,4 @@
+import { ScreenMetadata } from "@/components/screen-metadata";
 import { Button, C, T } from "@/components/circles-ui";
 import { StatusMessage } from "@/components/status-message";
 import * as OAuth from "@/constants/oauth";
@@ -255,6 +256,15 @@ export default function OAuthCallback() {
       style={{ flex: 1, backgroundColor: C.bg }}
       edges={["top", "bottom", "left", "right"]}
     >
+      <ScreenMetadata
+        title={
+          status === "error"
+            ? "Sign-in problem"
+            : status === "success"
+              ? "Signed in"
+              : "Secure sign-in"
+        }
+      />
       <ScrollView
         contentContainerStyle={{
           flexGrow: 1,

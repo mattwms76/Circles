@@ -1,3 +1,4 @@
+import { controlAccessibilityProps } from "../lib/control-accessibility";
 import React, { useEffect, useMemo, useState } from "react";
 import { Image as ExpoImage, type ImageProps } from "expo-image";
 import {
@@ -233,7 +234,7 @@ function ImageRenderer({
         accessibilityLabel={props.accessibilityLabel}
         accessibilityHint={props.accessibilityHint}
         accessibilityRole={props.accessibilityRole}
-        accessibilityState={props.accessibilityState}
+        {...controlAccessibilityProps(props.accessibilityState)}
         accessibilityValue={props.accessibilityValue}
         importantForAccessibility={props.importantForAccessibility}
         nativeID={props.nativeID}
@@ -267,7 +268,7 @@ function ImageRenderer({
         accessibilityLabel={props.accessibilityLabel}
         accessibilityHint={props.accessibilityHint}
         accessibilityRole={props.accessibilityRole}
-        accessibilityState={props.accessibilityState}
+        {...controlAccessibilityProps(props.accessibilityState)}
         accessibilityValue={props.accessibilityValue}
         importantForAccessibility={props.importantForAccessibility}
         nativeID={props.nativeID}

@@ -7,6 +7,7 @@ import {
   gt,
   ilike,
   inArray,
+  isNull,
   lt,
   ne,
   or,
@@ -457,6 +458,25 @@ async function lockCircleForProtectedMutation(
   return rows[0];
 }
 
+/**
+ * Private DTO readers share this parent-row lock with membership removal. `FOR SHARE` permits
+ * concurrent readers but conflicts with the remover's `FOR UPDATE`, so a projection is either
+ * the final one for an approved role or it rechecks the already-revoked role before mapping.
+ */
+async function lockCircleForProtectedRead(
+  tx: SocialTransaction,
+  circleId: number,
+) {
+  const rows = await tx
+    .select()
+    .from(circles)
+    .where(eq(circles.id, circleId))
+    .limit(1)
+    .for("share");
+  if (!rows[0]) socialError("NOT_FOUND", "Circle not found");
+  return rows[0];
+}
+
 async function lockCircleAccessForProtectedMutation(
   tx: SocialTransaction,
   userId: number,
@@ -465,6 +485,35 @@ async function lockCircleAccessForProtectedMutation(
   const circle = await lockCircleForProtectedMutation(tx, circleId);
   const role = await membershipRoleWithDb(tx, userId, circleId);
   return { circle, role };
+}
+
+async function lockCircleAccessForProtectedRead(
+  tx: SocialTransaction,
+  userId: number | null,
+  circleId: number,
+) {
+  const circle = await lockCircleForProtectedRead(tx, circleId);
+  const role = await membershipRoleWithDb(tx, userId, circleId);
+  return { circle, role };
+}
+
+/**
+ * Reads current circle-content authority under the same parent SHARE lock used by every private
+ * DTO projection. A removal that already holds the parent UPDATE lock wins and is rechecked as a
+ * denial; a read that acquired SHARE first completes its DTO before the remover can commit.
+ */
+export async function getCircleContentAccessForProtectedRead(
+  tx: SocialTransaction,
+  userId: number | null,
+  circleId: number,
+): Promise<{ privacy: "public" | "private"; role: CircleRole | null } | null> {
+  const { circle, role } = await lockCircleAccessForProtectedRead(
+    tx,
+    userId,
+    circleId,
+  );
+  if (!canReadCircleContent(circle.privacy, role)) return null;
+  return { privacy: circle.privacy, role };
 }
 
 async function postRowOrThrow(
@@ -595,6 +644,17 @@ async function displayProfileWithDb(
  */
 export async function getDisplayProfile(userId: number): Promise<Profile> {
   const db = await requireDb();
+  return displayProfileWithDb(db, userId);
+}
+
+/**
+ * Read-only formatters that already own a protected transaction use this instead of reopening an
+ * unlocked database read. It deliberately never materializes a profile row.
+ */
+export async function getDisplayProfileWithDb(
+  db: Database | SocialTransaction,
+  userId: number,
+): Promise<Profile> {
   return displayProfileWithDb(db, userId);
 }
 
@@ -921,6 +981,56 @@ async function assertPostAccessForProtectedMutation(
   return { post, circle, role };
 }
 
+/** Locks a post's exact parent before private content or related metadata is projected. */
+async function assertPostAccessForProtectedRead(
+  tx: SocialTransaction,
+  userId: number | null,
+  postId: number,
+) {
+  const post = await postRowOrThrow(tx, postId);
+  if (!post.circleId) {
+    return { post, circle: null, role: null as CircleRole | null };
+  }
+  const { circle, role } = await lockCircleAccessForProtectedRead(
+    tx,
+    userId,
+    post.circleId,
+  );
+  if (!canReadCircleContent(circle.privacy, role)) {
+    socialError(
+      "FORBIDDEN",
+      "You must be an approved member to access this private circle",
+    );
+  }
+  return { post, circle, role };
+}
+
+/**
+ * A feed candidate is not safe to serialize merely because its earlier scan saw membership.
+ * Re-read it and map it under the parent shared lock; a concurrent revocation simply omits that
+ * candidate without turning unrelated public feed rows into an authorization error.
+ */
+async function postOutputForProtectedRead(
+  db: Database,
+  viewerId: number | null,
+  postId: number,
+): Promise<Post | null> {
+  try {
+    return await db.transaction(async (tx) => {
+      await assertPostAccessForProtectedRead(tx, viewerId, postId);
+      return postOutputWithDb(tx, postId, viewerId);
+    });
+  } catch (error) {
+    if (
+      error instanceof TRPCError &&
+      (error.code === "NOT_FOUND" || error.code === "FORBIDDEN")
+    ) {
+      return null;
+    }
+    throw error;
+  }
+}
+
 async function postOutputWithDb(
   db: Database | SocialTransaction,
   postId: number,
@@ -998,19 +1108,31 @@ export async function getActivityPostTarget(
 ): Promise<Post | null> {
   const db = await requireDb();
   return db.transaction(async (tx) => {
-    const rows = await tx
-      .select({ circleId: posts.circleId })
-      .from(posts)
-      .where(eq(posts.id, postId))
-      .limit(1);
-    const post = rows[0];
-    if (!post || post.circleId !== expectedCircleId) return null;
-    if (expectedCircleId !== null) {
-      const role = await membershipRoleWithDb(tx, viewerId, expectedCircleId);
-      if (!isApprovedCircleRole(role)) return null;
-    }
     try {
-      await assertPostAccess(tx, viewerId, postId);
+      if (expectedCircleId === null) {
+        const rows = await tx
+          .select({ id: posts.id, circleId: posts.circleId })
+          .from(posts)
+          .where(and(eq(posts.id, postId), isNull(posts.circleId)))
+          .limit(1);
+        if (!rows[0] || rows[0].circleId !== null) return null;
+        return await postOutputWithDb(tx, postId, viewerId);
+      }
+
+      // Lock the expected parent before the protected target lookup. This keeps a former
+      // circle item from being projected after the removal transaction commits.
+      const { circle, role } = await lockCircleAccessForProtectedRead(
+        tx,
+        viewerId,
+        expectedCircleId,
+      );
+      if (!canReadCircleContent(circle.privacy, role)) return null;
+      const rows = await tx
+        .select({ id: posts.id, circleId: posts.circleId })
+        .from(posts)
+        .where(and(eq(posts.id, postId), eq(posts.circleId, expectedCircleId)))
+        .limit(1);
+      if (!rows[0] || rows[0].circleId !== expectedCircleId) return null;
       return await postOutputWithDb(tx, postId, viewerId);
     } catch (error) {
       // A deletion/revocation may win after the verified lookup. Do not sanitize operational errors.
@@ -1057,12 +1179,15 @@ export async function getModerationPostTarget(
 }
 
 async function circleHomeOutputWithDb(
-  db: Database | SocialTransaction,
+  db: SocialTransaction,
   viewerId: number | null,
   circleId: number,
 ): Promise<CircleHome> {
-  const circle = await circleRowOrThrow(db, circleId);
-  const role = await membershipRoleWithDb(db, viewerId, circleId);
+  const { circle, role } = await lockCircleAccessForProtectedRead(
+    db,
+    viewerId,
+    circleId,
+  );
   if (!canReadCircleContent(circle.privacy, role)) {
     socialError(
       "FORBIDDEN",
@@ -1075,13 +1200,13 @@ async function circleHomeOutputWithDb(
     // Bind the target lookup to this circle before mapping. This safely hides legacy/corrupt
     // foreign metadata even before the FK has been validated against historic rows.
     const pinnedRows = await db
-      .select({ id: posts.id })
+      .select({ id: posts.id, circleId: posts.circleId })
       .from(posts)
       .where(
         and(eq(posts.id, circle.pinnedPostId), eq(posts.circleId, circle.id)),
       )
       .limit(1);
-    if (pinnedRows[0]) {
+    if (pinnedRows[0]?.circleId === circle.id) {
       try {
         pinnedPost = await postOutputWithDb(db, pinnedRows[0].id, viewerId);
       } catch (error) {
@@ -1305,6 +1430,89 @@ export async function collectEligibleFeedPage(
   };
 }
 
+type AuthorizedFeedItem<Item> = {
+  item: Item;
+  cursor: FeedScanCursor;
+};
+
+/**
+ * Maps only candidates that remain authorized under their protected parent read lock. Scan
+ * cursors may cross a candidate that loses access while mapping, but that transient cursor stays
+ * internal: callers receive a continuation only from the final serialized item. This continues
+ * through removals rather than returning a false empty/end page.
+ */
+export async function collectAuthorizedFeedPage<Item>(
+  readPage: (cursor: FeedScanCursor | null) => Promise<FeedScanCandidate[]>,
+  mapAuthorizedCandidate: (
+    candidate: FeedScanCandidate,
+  ) => Promise<Item | null>,
+  options: FeedPageOptions = {},
+): Promise<CursorPage<Item, FeedScanCursor>> {
+  const pageSize = Math.min(
+    Math.max(Math.floor(options.limit ?? FEED_PAGE_SIZE), 1),
+    FEED_PAGE_SIZE,
+  );
+  const authorized: AuthorizedFeedItem<Item>[] = [];
+  let scanCursor: FeedScanCursor | null = options.cursor ?? null;
+
+  // SQL visibility filtering limits ordinary scans to public/currently-authorized rows. Keep
+  // scanning only when a concurrent removal invalidates one between that selection and its
+  // parent-lock recheck, so an invalidated row never becomes a continuation boundary.
+  while (authorized.length < pageSize + 1) {
+    const candidates = await readPage(scanCursor);
+    if (!candidates.length) break;
+
+    for (const candidate of candidates) {
+      scanCursor = feedScanCursorFromCandidate(candidate);
+      const item = await mapAuthorizedCandidate(candidate);
+      if (item !== null) {
+        authorized.push({
+          item,
+          cursor: feedScanCursorFromCandidate(candidate),
+        });
+        if (authorized.length === pageSize + 1) break;
+      }
+    }
+
+    if (authorized.length === pageSize + 1) break;
+    if (candidates.length < FEED_SCAN_BATCH_SIZE) break;
+  }
+
+  const page = authorized.slice(0, pageSize);
+  const hasMore = authorized.length > pageSize;
+  const last = page[page.length - 1];
+  return {
+    items: page.map(({ item }) => item),
+    nextCursor: hasMore && last ? last.cursor : null,
+    hasMore,
+  };
+}
+
+/**
+ * The feed query itself excludes private-circle posts unless the request actor is currently an
+ * approved member. The post mapper repeats that decision under the parent SHARE lock because a
+ * membership may be removed after SQL selection and before serialization.
+ */
+function visibleFeedPostCondition(viewerId: number | null): SQL {
+  const approvedMembership =
+    viewerId === null
+      ? sql`false`
+      : sql`exists (
+          select 1 from ${memberships}
+          where ${memberships.circleId} = ${posts.circleId}
+            and ${memberships.userId} = ${viewerId}
+            and ${memberships.role} in ('owner', 'moderator', 'member')
+        )`;
+  return or(
+    isNull(posts.circleId),
+    sql`exists (
+      select 1 from ${circles}
+      where ${circles.id} = ${posts.circleId}
+        and (${circles.privacy} = 'public' or ${approvedMembership})
+    )`,
+  )!;
+}
+
 export async function feed(
   viewerId: number | null,
   filter: FeedFilter,
@@ -1413,9 +1621,11 @@ export async function feed(
   );
 
   const output = await Promise.all(
-    visiblePostIds.map((postId) => postOutputWithDb(db, postId, viewerId)),
+    visiblePostIds.map((postId) =>
+      postOutputForProtectedRead(db, viewerId, postId),
+    ),
   );
-  return output;
+  return output.filter((post): post is Post => post !== null);
 }
 
 export async function feedPage(
@@ -1433,6 +1643,7 @@ export async function feedPage(
   if (search) {
     clauses.push(ilike(posts.text, `%${escapePostSearchLikePattern(search)}%`));
   }
+  clauses.push(visibleFeedPostCondition(viewerId));
 
   if (filter === "following") {
     if (!viewerId) return { items: [], nextCursor: null, hasMore: false };
@@ -1485,7 +1696,9 @@ export async function feedPage(
     );
   }
 
-  const page = await collectEligibleFeedPage(
+  // Unlike the legacy collectEligibleFeedPage array helper, this paged route selects only
+  // visible candidates in SQL and keeps any cursor from a removal-raced candidate internal.
+  const page = await collectAuthorizedFeedPage(
     async (cursor) => {
       const cursorClause = cursor
         ? cursor.createdAtExact
@@ -1519,29 +1732,10 @@ export async function feedPage(
         ...(preciseCreatedAt ? { createdAtExact: preciseCreatedAt } : {}),
       }));
     },
-    async (post) => {
-      if (!post.circleId) return true;
-      const circleRows = await db
-        .select({ id: circles.id, privacy: circles.privacy })
-        .from(circles)
-        .where(eq(circles.id, post.circleId))
-        .limit(1);
-      const circle = circleRows[0];
-      if (!circle) return false;
-      if (circle.privacy === "public") return true;
-      return isApprovedCircleRole(
-        await membershipRoleWithDb(db, viewerId, post.circleId),
-      );
-    },
+    async (post) => postOutputForProtectedRead(db, viewerId, post.id),
     { ...options, limit: socialPageLimit(options.limit) },
   );
-  return {
-    items: await Promise.all(
-      page.items.map((postId) => postOutputWithDb(db, postId, viewerId)),
-    ),
-    nextCursor: page.nextCursor,
-    hasMore: page.hasMore,
-  };
+  return page;
 }
 
 async function assertMediaOwnership(
@@ -2021,96 +2215,111 @@ export async function listMembers(
   circleId: number,
 ): Promise<Member[]> {
   const db = await requireDb();
-  const circle = await circleRowOrThrow(db, circleId);
-  const viewerRole = await membershipRoleWithDb(db, userId, circleId);
-  if (
-    circle.privacy === "private" &&
-    !canReadCircleContent(circle.privacy, viewerRole)
-  ) {
-    socialError(
-      "FORBIDDEN",
-      "You must be an approved member to access this private circle",
+  return db.transaction(async (tx) => {
+    const { circle, role: viewerRole } = await lockCircleAccessForProtectedRead(
+      tx,
+      userId,
+      circleId,
     );
-  }
-  const rows = await db
-    .select({ userId: memberships.userId, role: memberships.role })
-    .from(memberships)
-    .where(
-      canViewPendingMembers(viewerRole)
-        ? eq(memberships.circleId, circleId)
-        : and(
-            eq(memberships.circleId, circleId),
-            ne(memberships.role, "pending"),
-          ),
-    )
-    .orderBy(asc(memberships.createdAt));
-  const output = await Promise.all(
-    rows.map(async (row) => {
-      const user = await displayProfileWithDb(db, row.userId, userId);
-      return { user, role: row.role as CircleRole };
-    }),
-  );
-  return output;
+    if (!canReadCircleContent(circle.privacy, viewerRole)) {
+      socialError(
+        "FORBIDDEN",
+        "You must be an approved member to access this private circle",
+      );
+    }
+    const rows = await tx
+      .select({ userId: memberships.userId, role: memberships.role })
+      .from(memberships)
+      .where(
+        canViewPendingMembers(viewerRole)
+          ? eq(memberships.circleId, circleId)
+          : and(
+              eq(memberships.circleId, circleId),
+              ne(memberships.role, "pending"),
+            ),
+      )
+      .orderBy(asc(memberships.createdAt));
+    return Promise.all(
+      rows.map(async (row) => ({
+        user: await displayProfileWithDb(tx, row.userId, userId),
+        role: row.role as CircleRole,
+      })),
+    );
+  });
 }
 
 export async function listMembersPage(
   userId: number | null,
   circleId: number,
-  options: { cursor?: DateIdCursor; limit?: number } = {},
-): Promise<CursorPage<Member, DateIdCursor>> {
+  options: { cursor?: CircleDateIdCursor; limit?: number } = {},
+): Promise<CursorPage<Member, CircleDateIdCursor>> {
   const db = await requireDb();
-  const circle = await circleRowOrThrow(db, circleId);
-  const viewerRole = await membershipRoleWithDb(db, userId, circleId);
-  if (
-    circle.privacy === "private" &&
-    !canReadCircleContent(circle.privacy, viewerRole)
-  ) {
-    socialError(
-      "FORBIDDEN",
-      "You must be an approved member to access this private circle",
+  return db.transaction(async (tx) => {
+    const { circle, role: viewerRole } = await lockCircleAccessForProtectedRead(
+      tx,
+      userId,
+      circleId,
     );
-  }
-  const clauses: SQL[] = [eq(memberships.circleId, circleId)];
-  if (!canViewPendingMembers(viewerRole)) {
-    clauses.push(ne(memberships.role, "pending"));
-  }
-  if (options.cursor) {
-    clauses.push(
-      or(
-        gt(memberships.createdAt, options.cursor.createdAt),
-        and(
-          eq(memberships.createdAt, options.cursor.createdAt),
-          gt(memberships.id, options.cursor.id),
-        ),
-      )!,
-    );
-  }
-  const limit = socialPageLimit(options.limit);
-  const rows = await db
-    .select({
-      id: memberships.id,
-      userId: memberships.userId,
-      role: memberships.role,
-      createdAt: memberships.createdAt,
-    })
-    .from(memberships)
-    .where(and(...clauses))
-    .orderBy(asc(memberships.createdAt), asc(memberships.id))
-    .limit(limit + 1);
-  const pageRows = rows.slice(0, limit);
-  const hasMore = rows.length > limit;
-  const last = pageRows[pageRows.length - 1];
-  return {
-    items: await Promise.all(
-      pageRows.map(async (row) => ({
-        user: await displayProfileWithDb(db, row.userId, userId),
-        role: row.role as CircleRole,
-      })),
-    ),
-    nextCursor:
-      hasMore && last ? { createdAt: last.createdAt, id: last.id } : null,
-    hasMore,
-  };
+    if (!canReadCircleContent(circle.privacy, viewerRole)) {
+      socialError(
+        "FORBIDDEN",
+        "You must be an approved member to access this private circle",
+      );
+    }
+    const clauses: SQL[] = [eq(memberships.circleId, circleId)];
+    if (!canViewPendingMembers(viewerRole)) {
+      clauses.push(ne(memberships.role, "pending"));
+    }
+    if (options.cursor) {
+      const cursorCreatedAt = options.cursor.createdAtExact
+        ? sql`${options.cursor.createdAtExact}::timestamptz`
+        : options.cursor.createdAt;
+      clauses.push(
+        or(
+          gt(memberships.createdAt, cursorCreatedAt),
+          and(
+            eq(memberships.createdAt, cursorCreatedAt),
+            gt(memberships.id, options.cursor.id),
+          ),
+        )!,
+      );
+    }
+    const limit = socialPageLimit(options.limit);
+    const rows = await tx
+      .select({
+        id: memberships.id,
+        userId: memberships.userId,
+        role: memberships.role,
+        createdAt: memberships.createdAt,
+        preciseCreatedAt: sql<string>`to_char(${memberships.createdAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
+      })
+      .from(memberships)
+      .where(and(...clauses))
+      .orderBy(asc(memberships.createdAt), asc(memberships.id))
+      .limit(limit + 1);
+    const pageRows = rows.slice(0, limit);
+    const hasMore = rows.length > limit;
+    const last = pageRows[pageRows.length - 1];
+    return {
+      items: await Promise.all(
+        pageRows.map(async (row) => ({
+          user: await displayProfileWithDb(tx, row.userId, userId),
+          role: row.role as CircleRole,
+        })),
+      ),
+      nextCursor:
+        hasMore && last
+          ? {
+              createdAt: last.createdAt,
+              id: last.id,
+              ...(last.preciseCreatedAt
+                ? { createdAtExact: last.preciseCreatedAt }
+                : {}),
+            }
+          : null,
+      hasMore,
+    };
+  });
 }
 
 async function getActorAndTargetRoles(
@@ -2445,20 +2654,22 @@ export async function listComments(
   postId: number,
 ): Promise<Comment[]> {
   const db = await requireDb();
-  await assertPostAccess(db, userId, postId);
-  const rows = await db
-    .select()
-    .from(comments)
-    .where(eq(comments.postId, postId))
-    .orderBy(asc(comments.createdAt), asc(comments.id));
-  return Promise.all(
-    rows.map(async (row) => ({
-      id: row.id,
-      author: await displayProfileWithDb(db, row.authorId, userId),
-      text: row.text,
-      createdAt: toIso(row.createdAt),
-    })),
-  );
+  return db.transaction(async (tx) => {
+    await assertPostAccessForProtectedRead(tx, userId, postId);
+    const rows = await tx
+      .select()
+      .from(comments)
+      .where(eq(comments.postId, postId))
+      .orderBy(asc(comments.createdAt), asc(comments.id));
+    return Promise.all(
+      rows.map(async (row) => ({
+        id: row.id,
+        author: await displayProfileWithDb(tx, row.authorId, userId),
+        text: row.text,
+        createdAt: toIso(row.createdAt),
+      })),
+    );
+  });
 }
 
 export async function createComment(

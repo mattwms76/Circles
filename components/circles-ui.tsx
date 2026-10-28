@@ -1,3 +1,4 @@
+import { controlAccessibilityProps } from "../lib/control-accessibility";
 import React from "react";
 import {
   ActivityIndicator,
@@ -59,6 +60,15 @@ export function T({ style, ...props }: TextProps) {
       {...props}
       style={[{ color: C.ink, flexShrink: 1 }, style, { fontSize, lineHeight }]}
     />
+  );
+}
+
+export function Heading({
+  level = 1,
+  ...props
+}: TextProps & { level?: 1 | 2 | 3 }) {
+  return (
+    <T {...props} accessibilityRole="header" {...{ "aria-level": level }} />
   );
 }
 export function Logo({
@@ -229,7 +239,7 @@ export function Button({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? title}
-      accessibilityState={{ disabled: isDisabled, busy: loading }}
+      {...controlAccessibilityProps({ disabled: isDisabled, busy: loading })}
       disabled={isDisabled}
       onPress={() => {
         if (!isDisabled) onPress();
@@ -303,7 +313,7 @@ export function IconButton({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label || icon}
-      accessibilityState={{ disabled: isDisabled, busy: loading }}
+      {...controlAccessibilityProps({ disabled: isDisabled, busy: loading })}
       disabled={isDisabled}
       onPress={onPress}
       hitSlop={8}
@@ -357,7 +367,7 @@ export function Pill({
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityState={{ selected: !!selected }}
+      {...controlAccessibilityProps({ selected: !!selected })}
       style={({ pressed }) => [
         {
           paddingHorizontal: 15,
@@ -468,12 +478,14 @@ export function Empty({
   text,
   action,
   onAction,
+  headingLevel = 1,
 }: {
   icon?: IconName;
   title: string;
   text: string;
   action?: string;
   onAction?: () => void;
+  headingLevel?: 1 | 2 | 3;
 }) {
   return (
     <View
@@ -496,9 +508,12 @@ export function Empty({
       >
         <Icon name={icon} size={28} color={C.coral} />
       </View>
-      <T style={{ fontSize: 19, fontWeight: "700", textAlign: "center" }}>
+      <Heading
+        level={headingLevel}
+        style={{ fontSize: 19, fontWeight: "700", textAlign: "center" }}
+      >
         {title}
-      </T>
+      </Heading>
       <T style={{ color: C.secondary, textAlign: "center", maxWidth: 330 }}>
         {text}
       </T>

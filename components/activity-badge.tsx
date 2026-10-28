@@ -1,3 +1,4 @@
+import { controlAccessibilityProps } from "../lib/control-accessibility";
 import { Pressable, StyleSheet, View } from "react-native";
 import { trpc } from "@/lib/trpc";
 import {
@@ -42,7 +43,7 @@ export function ActivityBadge({ viewerId, onPress }: ActivityBadgeProps) {
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
-      accessibilityState={{ busy: unread.isFetching }}
+      {...controlAccessibilityProps({ busy: unread.isFetching })}
       onPress={onPress}
       style={({ pressed }) => [styles.button, pressed && styles.pressed]}
     >

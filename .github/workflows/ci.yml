@@ -79,10 +79,24 @@ jobs:
       - name: Install isolated Circle Home PostgreSQL 17 test tools
         run: |
           if ! test -x /usr/lib/postgresql/17/bin/initdb; then
-            sudo install -d /usr/share/postgresql-common/pgdg
-            sudo curl --fail --silent --show-error --location \
+            expected_pgdg_primary_fingerprint='B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8'
+            key_file="$(mktemp)"
+            gnupg_home="$(mktemp -d)"
+            cleanup_pgdg_key() {
+              rm -f "$key_file"
+              rm -rf "$gnupg_home"
+            }
+            trap cleanup_pgdg_key EXIT
+            curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
               https://www.postgresql.org/media/keys/ACCC4CF8.asc \
-              --output /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+              --output "$key_file"
+            actual_pgdg_primary_fingerprint="$(
+              gpg --batch --homedir "$gnupg_home" --show-keys --with-colons "$key_file" \
+                | awk -F: '$1 == "pub" { primary = 1; next } primary && $1 == "fpr" { print $10; exit }'
+            )"
+            test "$actual_pgdg_primary_fingerprint" = "$expected_pgdg_primary_fingerprint"
+            sudo install -d /usr/share/postgresql-common/pgdg
+            sudo install --mode=0644 "$key_file" /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
             printf '%s\n' \
               'Types: deb' \
               'URIs: https://apt.postgresql.org/pub/repos/apt' \
@@ -108,6 +122,9 @@ jobs:
 
       - name: Run isolated A26 conversation authority and pagination HTTP E2E
         run: /usr/bin/python3 -B scripts/run-circle-home-e2e.py --suite a26-authority
+
+      - name: Run isolated security media-release and atomic-transport PostgreSQL E2E
+        run: /usr/bin/python3 -B scripts/run-circle-home-e2e.py --suite sec27-security
 
       - name: Run isolated retry-safe publication HTTP and PostgreSQL E2E
         run: pnpm test:e2e:post-publish

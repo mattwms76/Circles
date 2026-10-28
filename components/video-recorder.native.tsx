@@ -1,3 +1,4 @@
+import { controlAccessibilityProps } from "../lib/control-accessibility";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -106,7 +107,7 @@ function DurationChoice({
     <Pressable
       accessibilityRole="radio"
       accessibilityLabel={`${duration} second maximum recording length`}
-      accessibilityState={{ selected, disabled }}
+      {...controlAccessibilityProps({ selected, disabled }, "radio")}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
@@ -151,6 +152,7 @@ export function VideoRecorder({
   const fenceRef = useRef(createRecordingOperationFence());
   const flightRef = useRef<RecorderFlight>("idle");
   const ownedDraftRef = useRef<RecordedVideoDraft | null>(null);
+  const foregroundRef = useRef(AppState.currentState === "active");
 
   const effectiveMaxBytes = useMemo(
     () => effectiveRecordingByteLimit(maxBytes, MAX_RECORDED_VIDEO_BYTES),
@@ -231,6 +233,7 @@ export function VideoRecorder({
 
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (nextState) => {
+      foregroundRef.current = nextState === "active";
       if (nextState === "active") return;
       const current = lifecycleRef.current;
       if (current.phase === "idle" || current.phase === "transferred") return;
@@ -242,6 +245,7 @@ export function VideoRecorder({
   const requestPermissions = useCallback(async () => {
     const current = lifecycleRef.current;
     if (
+      !foregroundRef.current ||
       (current.phase !== "idle" &&
         current.phase !== "permission-denied" &&
         current.phase !== "error") ||
@@ -265,7 +269,12 @@ export function VideoRecorder({
       // No permission request occurs on mount: both prompts begin only after the
       // member deliberately starts native recording.
       const cameraPermission = await Camera.requestCameraPermissionsAsync();
-      if (!mountedRef.current || !fenceRef.current.isCurrent(token)) return;
+      if (
+        !mountedRef.current ||
+        !foregroundRef.current ||
+        !fenceRef.current.isCurrent(token)
+      )
+        return;
       if (!cameraPermission.granted) {
         transition({
           type: "permissions-denied",
@@ -276,7 +285,12 @@ export function VideoRecorder({
 
       const microphonePermission =
         await Camera.requestMicrophonePermissionsAsync();
-      if (!mountedRef.current || !fenceRef.current.isCurrent(token)) return;
+      if (
+        !mountedRef.current ||
+        !foregroundRef.current ||
+        !fenceRef.current.isCurrent(token)
+      )
+        return;
       if (!microphonePermission.granted) {
         transition({
           type: "permissions-denied",
@@ -287,7 +301,12 @@ export function VideoRecorder({
       }
       transition({ type: "permissions-granted" });
     } catch {
-      if (!mountedRef.current || !fenceRef.current.isCurrent(token)) return;
+      if (
+        !mountedRef.current ||
+        !foregroundRef.current ||
+        !fenceRef.current.isCurrent(token)
+      )
+        return;
       transition({
         type: "failure",
         message:
@@ -301,6 +320,7 @@ export function VideoRecorder({
   const startRecording = useCallback(async () => {
     const current = lifecycleRef.current;
     if (
+      !foregroundRef.current ||
       current.phase !== "camera-ready" ||
       flightRef.current !== "idle" ||
       !cameraRef.current
@@ -328,7 +348,11 @@ export function VideoRecorder({
       if (!result?.uri)
         throw new Error("The camera did not return a video file.");
 
-      if (mountedRef.current && fenceRef.current.isCurrent(token)) {
+      if (
+        mountedRef.current &&
+        foregroundRef.current &&
+        fenceRef.current.isCurrent(token)
+      ) {
         flightRef.current = "preparing";
         preparing = true;
         transition({ type: "capture-received" });
@@ -343,14 +367,24 @@ export function VideoRecorder({
         prepare: prepareRecordedVideo,
         deleteOwned: deleteRecordedVideo,
       });
-      if (!draft || !mountedRef.current || !fenceRef.current.isCurrent(token)) {
+      if (
+        !draft ||
+        !mountedRef.current ||
+        !foregroundRef.current ||
+        !fenceRef.current.isCurrent(token)
+      ) {
         return;
       }
       ownedDraftRef.current = draft;
       setPreviewDraft(draft);
       transition({ type: "capture-prepared" });
     } catch (error) {
-      if (!mountedRef.current || !fenceRef.current.isCurrent(token)) return;
+      if (
+        !mountedRef.current ||
+        !foregroundRef.current ||
+        !fenceRef.current.isCurrent(token)
+      )
+        return;
       handleCameraFailure(
         preparing
           ? safePreparedVideoError(error)
@@ -396,6 +430,7 @@ export function VideoRecorder({
 
   const retake = useCallback(() => {
     if (
+      !foregroundRef.current ||
       lifecycleRef.current.phase !== "preview" ||
       flightRef.current !== "idle"
     ) {
@@ -411,6 +446,7 @@ export function VideoRecorder({
   const useDraft = useCallback(() => {
     const draft = ownedDraftRef.current;
     if (
+      !foregroundRef.current ||
       lifecycleRef.current.phase !== "preview" ||
       flightRef.current !== "idle" ||
       !draft
@@ -426,14 +462,28 @@ export function VideoRecorder({
   }, [onUse, transition]);
 
   const openSettings = useCallback(() => {
+    if (!foregroundRef.current) return;
     void Linking.openSettings().catch(() => {
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || !foregroundRef.current) return;
       transition({
         type: "failure",
         message:
           "We couldn’t open device settings. You can change camera and microphone access there, then try again.",
       });
     });
+  }, [transition]);
+
+  const selectDuration = useCallback(
+    (duration: RecordingDuration) => {
+      if (!foregroundRef.current) return;
+      transition({ type: "select-duration", duration });
+    },
+    [transition],
+  );
+
+  const switchCamera = useCallback(() => {
+    if (!foregroundRef.current) return;
+    transition({ type: "switch-camera" });
   }, [transition]);
 
   const cameraInstance = lifecycle.cameraInstance;
@@ -492,9 +542,7 @@ export function VideoRecorder({
                 duration={duration}
                 selected={lifecycle.maxDurationSeconds === duration}
                 disabled={!durationChangeAllowed}
-                onPress={() =>
-                  transition({ type: "select-duration", duration })
-                }
+                onPress={() => selectDuration(duration)}
               />
             ))}
           </View>
@@ -531,10 +579,14 @@ export function VideoRecorder({
             videoQuality="720p"
             videoBitrate={videoBitrate}
             onCameraReady={() => {
+              if (!foregroundRef.current) return;
               transition({ type: "camera-ready", cameraInstance });
             }}
             onMountError={({ message }) => {
-              if (lifecycleRef.current.cameraInstance !== cameraInstance)
+              if (
+                !foregroundRef.current ||
+                lifecycleRef.current.cameraInstance !== cameraInstance
+              )
                 return;
               // Native messages can include device/provider details; show only
               // the recoverable product message.
@@ -559,7 +611,7 @@ export function VideoRecorder({
               color="#fff"
               label="Switch camera"
               disabled={!canSwitchRecorderCamera(lifecycle)}
-              onPress={() => transition({ type: "switch-camera" })}
+              onPress={switchCamera}
               style={styles.cameraIconButton}
             />
           </View>
@@ -590,9 +642,7 @@ export function VideoRecorder({
                     duration={duration}
                     selected={lifecycle.maxDurationSeconds === duration}
                     disabled={false}
-                    onPress={() =>
-                      transition({ type: "select-duration", duration })
-                    }
+                    onPress={() => selectDuration(duration)}
                   />
                 ))}
               </View>

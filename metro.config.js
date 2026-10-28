@@ -1,3 +1,6 @@
+const { createHash } = require("node:crypto");
+const { readFileSync } = require("node:fs");
+const { join } = require("node:path");
 const { getDefaultConfig } = require("expo/metro-config");
 const { withNativeWind } = require("nativewind/metro");
 const { createPreviewApiProxy } = require("./scripts/preview-api-proxy.cjs");
@@ -9,6 +12,17 @@ const {
 prepareNativeWindWebCache();
 
 const config = getDefaultConfig(__dirname);
+
+// A new Metro start must not reuse transforms from an older scope-helper API.
+// This is read at startup; a stale running file map still needs a --clear restart.
+const scopeHelperSource = readFileSync(
+  join(__dirname, "lib", "batch3-account-resource-scope.ts"),
+);
+const scopeHelperHash = createHash("sha256")
+  .update(scopeHelperSource)
+  .digest("hex");
+config.cacheVersion = `${config.cacheVersion ?? ""}:account-resource-scope:${scopeHelperHash}`;
+
 const previousEnhanceMiddleware = config.server.enhanceMiddleware;
 const proxyApi = createPreviewApiProxy();
 

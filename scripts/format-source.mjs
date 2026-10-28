@@ -23,6 +23,7 @@ const ROOT_CONFIGURATION = new Set([
   "babel.config.js",
   "metro.config.js",
   "eslint.config.js",
+  "eslint.config.mjs",
   "tailwind.config.js",
   "drizzle.config.ts",
   "eas.json",

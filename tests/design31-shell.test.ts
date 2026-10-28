@@ -6,6 +6,12 @@ import {
 } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { resolveAppNavigationSection } from "../lib/app-navigation-state";
+vi.mock("../components/screen-metadata", () => ({
+  ScreenMetadata: "ScreenMetadata",
+}));
+vi.mock("@/components/screen-metadata", () => ({
+  ScreenMetadata: "ScreenMetadata",
+}));
 
 type SidebarCircle = {
   id: number;
@@ -60,6 +66,8 @@ vi.mock("react", async (importOriginal) => {
     useMemo,
     useRef,
     useState,
+    useSyncExternalStore: (_subscribe: unknown, getSnapshot: () => string) =>
+      getSnapshot(),
   };
 });
 
@@ -177,6 +185,7 @@ vi.mock("@/components/circles-ui", () => ({
     green: "#718569",
   },
   Empty: "Empty",
+  Heading: "Heading",
   Icon: "Icon",
   IconButton: "IconButton",
   Loading: "Loading",

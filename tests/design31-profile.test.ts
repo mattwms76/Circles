@@ -200,6 +200,7 @@ vi.mock("../components/circles-ui", () => ({
     eyebrow: { fontSize: 12 },
   },
   T: "T",
+  Heading: "T",
 }));
 vi.mock("@/hooks/circles-context", () => ({
   useCircles: () => ({
@@ -262,6 +263,21 @@ function elements(node: ReactNode): Element[] {
     result.push(...elements(child.props.children as ReactNode));
   }
   return result;
+}
+
+function ownActions(node: ReactNode): ReactNode {
+  const action = elements(node).find(
+    (element) =>
+      typeof element.type === "function" &&
+      "profileEditorScope" in element.props,
+  );
+  if (!action || typeof action.type !== "function")
+    throw new Error("Expected actual scoped own-profile actions");
+  hookRuntime.reset();
+  hookRuntime.beginRender();
+  return (action.type as (props: Record<string, unknown>) => ReactNode)(
+    action.props,
+  );
 }
 
 function byTestId(node: ReactNode, testID: string): Element {
@@ -409,7 +425,7 @@ describe("D26 Profile name and own-action reflow", () => {
       hookRuntime.beginRender();
       const profile = ProfileScreen({});
       const hero = byTestId(profile, "profile-hero");
-      const actions = byTestId(profile, "profile-own-actions");
+      const actions = byTestId(ownActions(profile), "profile-own-actions");
       const name = byTestId(profile, "profile-name");
       const connectEmail = buttonByTitle(actions, "Connect email sign-in");
       const avatar = elements(hero).find(
@@ -457,7 +473,7 @@ describe("D26 Profile name and own-action reflow", () => {
     hookRuntime.beginRender();
     const profile = ProfileScreen({});
     const hero = byTestId(profile, "profile-hero");
-    const actions = byTestId(profile, "profile-own-actions");
+    const actions = byTestId(ownActions(profile), "profile-own-actions");
     const connectEmail = buttonByTitle(actions, "Connect email sign-in");
 
     expect(flattenedStyle(hero.props.style)).toMatchObject({

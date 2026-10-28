@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createPostPublishAttemptTracker,
   isDefinitivePostPublishError,
+  shouldKeepPostPublishAttemptUnsettled,
 } from "../lib/post-publish-attempt";
 const payload = {
   text: " caption ",
@@ -83,5 +84,34 @@ describe("composer post publication attempts", () => {
     expect(isDefinitivePostPublishError(new Error("network timeout"))).toBe(
       false,
     );
+  });
+  it("keeps a prior ambiguous ID and payload frozen when retry preflight fails before createPost", () => {
+    const preflightUnavailable = {
+      data: { code: "PRECONDITION_FAILED" },
+    };
+    expect(
+      shouldKeepPostPublishAttemptUnsettled({
+        isPost: true,
+        hasUnsettledAttempt: true,
+        postRequestStarted: false,
+        error: preflightUnavailable,
+      }),
+    ).toBe(true);
+    expect(
+      shouldKeepPostPublishAttemptUnsettled({
+        isPost: true,
+        hasUnsettledAttempt: true,
+        postRequestStarted: true,
+        error: preflightUnavailable,
+      }),
+    ).toBe(false);
+    expect(
+      shouldKeepPostPublishAttemptUnsettled({
+        isPost: true,
+        hasUnsettledAttempt: true,
+        postRequestStarted: true,
+        error: new Error("network timeout"),
+      }),
+    ).toBe(true);
   });
 });

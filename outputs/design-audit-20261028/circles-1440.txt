@@ -1,0 +1,148 @@
+- button "Circles home":
+  - generic: circles.
+- button "Search Circles":
+  - generic: 
+  - generic: Find your people, circles, and inspiration
+  - generic: ⌘ K
+- button "Open messages":
+  - generic: 
+- button "Open your profile":
+  - generic: "Y"
+- generic: YOUR SPACE
+- button "Open Home":
+  - generic: 
+  - generic: Home
+- button "Open Discover":
+  - generic: 
+  - generic: Discover
+- button "Open My circles":
+  - generic: 
+  - generic: My circles
+- button "Open Updates":
+  - generic: 
+  - generic: Updates
+- button "Open Messages":
+  - generic: 
+  - generic: Messages
+- button "Open Profile":
+  - generic: 
+  - generic: Profile
+- button "Open Live now":
+  - generic: 
+  - generic: Live now
+- button "Create a post":
+  - generic: 
+  - generic: Create a post
+- generic: Less scrolling. More belonging.
+- generic: © 2026 Circles
+- generic: A PLACE TO BELONG
+- generic: Find your people.
+- button "Create a circle":
+  - generic: 
+- generic: LIFE IS BETTER TOGETHER
+- generic: Big passions. Your kind of people.
+- button "Explore outdoor circles":
+  - generic: Explore the outdoors ↗
+- generic: 
+- textbox "Search circles":
+  - /placeholder: Find a circle for your thing…
+- generic "Circle categories":
+  - button "All":
+    - generic: All
+  - button "Lifestyle":
+    - generic: Lifestyle
+  - button "Outdoors":
+    - generic: Outdoors
+  - button "Design":
+    - generic: Design
+  - button "Photography":
+    - generic: Photography
+  - button "Fitness":
+    - generic: Fitness
+  - button "Music":
+    - generic: Music
+- tab "Discover circles":
+  - generic: Discover circles
+- tab "Your circles":
+  - generic: Your circles
+- generic: 5 circles
+- button "Open Weekend Runners":
+  - generic: 
+  - generic: running
+- button "Open Weekend Runners":
+  - generic: Weekend Runners
+- generic: Easy miles, local routes, and a friendly reason to lace up.
+- generic: 
+- generic: 1 members · public
+- button "Join circle" [disabled]:
+  - progressbar:
+- button "Open Through the Lens":
+  - generic: 
+  - generic: photo
+- button "Open Through the Lens":
+  - generic: Through the Lens
+- generic: Photographs with a point of view and the stories just outside the frame.
+- generic: 
+- generic: 1 members · public
+- button "Join circle" [disabled]:
+  - progressbar:
+- button "Open Design People":
+  - generic: 
+  - generic: design
+- button "Open Design People":
+  - generic: Design People
+- generic: Thoughtful process, useful critique, and kind creative company.
+- generic: 
+- generic: 1 members · public
+- button "Join circle" [disabled]:
+  - progressbar:
+- button "Open The Great Outdoors":
+  - generic: 
+  - generic: mountains
+- button "Open The Great Outdoors":
+  - generic: The Great Outdoors
+- generic: Trail notes, wide skies, and invitations to step outside.
+- generic: 
+- generic: 1 members · public
+- button "Join circle" [disabled]:
+  - progressbar:
+- button "Open Slow Living":
+  - generic: 
+  - generic: coffee
+- button "Open Slow Living":
+  - generic: Slow Living
+- generic: Small rituals, unhurried tables, and room to notice what matters.
+- generic: 
+- generic: 1 members · public
+- button "Join circle" [disabled]:
+  - progressbar:
+- generic: You’ve reached the end of these circles.
+- generic: Find your circles
+- generic: 
+- generic: Small communities. Big connections.
+- button "Open Design People":
+  - generic: Design People
+  - generic: 1 member · design
+- button "Join Design People":
+  - generic: Join
+- button "Open Through the Lens":
+  - generic: Through the Lens
+  - generic: 1 member · photo
+- button "Join Through the Lens":
+  - generic: Join
+- button "Open Weekend Runners":
+  - generic: Weekend Runners
+  - generic: 1 member · running
+- button "Join Weekend Runners":
+  - generic: Join
+- button "Explore all circles ↗":
+  - generic: Explore all circles ↗
+- generic: 
+- generic: Good things start with a circle.
+- generic: A space for your people, your passions, and everything in between.
+- button "Make it yours":
+  - generic: 
+  - generic: Make it yours
+- generic: THE CIRCLES WAY
+- generic: Be yourself. Be kind. Make room for someone new.
+- generic: Community preview · Example creator profiles and curated starter posts.

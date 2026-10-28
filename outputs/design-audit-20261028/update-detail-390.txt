@@ -1,0 +1,11 @@
+- button "Circles home":
+  - generic: circles.
+- button "Search Circles":
+  - generic: 
+- button "Open messages":
+  - generic: 
+- generic: 
+- generic: Updates are waiting for you.
+- generic: Sign in to safely open your Activity.
+- button "Sign in":
+  - generic: Sign in

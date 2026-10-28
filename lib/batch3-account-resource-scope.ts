@@ -13,6 +13,18 @@ export function batch3AccountResourceScope(
   return `${accountId}:${resource}`;
 }
 
+/** An absent account/resource is never an in-flight operation. */
+export function isPendingAccountResourceScope(
+  pendingScope: string | null,
+  currentScope: string | null,
+): boolean {
+  return (
+    pendingScope !== null &&
+    currentScope !== null &&
+    pendingScope === currentScope
+  );
+}
+
 export type Batch3AccountResourceOperation = {
   scope: string;
   generation: number;

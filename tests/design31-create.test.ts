@@ -11,6 +11,12 @@ import {
   createRootSafeAreaInsets,
   resolveCreateRecipient,
 } from "../lib/design31-create";
+vi.mock("@/components/screen-metadata", () => ({
+  ScreenMetadata: "ScreenMetadata",
+}));
+vi.mock("../components/screen-metadata", () => ({
+  ScreenMetadata: "ScreenMetadata",
+}));
 
 const fixture = vi.hoisted(() => ({
   params: {
@@ -29,6 +35,8 @@ const fixture = vi.hoisted(() => ({
     isError: false,
     refetch: vi.fn(),
   },
+  foreground: true,
+  platformOS: "web" as "ios" | "web",
 }));
 
 vi.mock("react", async (importOriginal) => {
@@ -52,7 +60,11 @@ vi.mock("react-native", () => ({
   AppState: { currentState: "active", addEventListener: vi.fn() },
   KeyboardAvoidingView: "KeyboardAvoidingView",
   Modal: "Modal",
-  Platform: { OS: "web" },
+  Platform: {
+    get OS() {
+      return fixture.platformOS;
+    },
+  },
   Pressable: "Pressable",
   ScrollView: "ScrollView",
   View: "View",
@@ -126,6 +138,7 @@ vi.mock("@/components/circles-ui", () => ({
     title: {},
   },
   T: "T",
+  Heading: "T",
   Wordmark: "Wordmark",
 }));
 vi.mock("@/hooks/circles-context", () => ({
@@ -139,6 +152,9 @@ vi.mock("@/hooks/circles-context", () => ({
     showLogin: vi.fn(),
     user: { id: 71, name: "Ari" },
   }),
+}));
+vi.mock("@/hooks/use-foreground-state", () => ({
+  useForegroundState: () => fixture.foreground,
 }));
 vi.mock("@/lib/batch1-mutation-feedback", () => ({
   batch1OperationIdentityMatches: () => false,
@@ -278,6 +294,8 @@ beforeEach(() => {
   fixture.params.mode = "post";
   fixture.params.circleId = "12";
   fixture.params.intro = undefined;
+  fixture.foreground = true;
+  fixture.platformOS = "web";
   fixture.publicationReady = true;
   fixture.publicationFetched = true;
   fixture.circles.data = undefined;
@@ -326,6 +344,13 @@ describe("Record–Preview–Publish receipt readiness", () => {
           element.props.tone === "info",
       ),
     ).toBeDefined();
+  });
+  it("does not leave a native record action enabled while foreground authority is absent", () => {
+    fixture.params.circleId = undefined;
+    fixture.platformOS = "ios";
+    fixture.foreground = false;
+    const rendered = renderCreateScreen();
+    expect(findButton(rendered, "Record video")?.props.disabled).toBe(true);
   });
 });
 

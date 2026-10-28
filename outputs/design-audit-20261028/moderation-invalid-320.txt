@@ -1,0 +1,8 @@
+- button "Circles home":
+  - generic: circles.
+- button "Search Circles"
+- button "Open messages"
+- generic: This Reports link isn’t valid.
+- generic: Return to a circle to review its reports.
+- button "Find circles":
+  - generic: Find circles

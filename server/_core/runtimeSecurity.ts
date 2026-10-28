@@ -6,8 +6,10 @@ import { configuredFrontendOrigins } from "./frontend-origins";
 
 export const PREVIEW_LIMITER_HEADER = "x-manus-preview-limiter";
 export const PREVIEW_PROXY_HEADER = "x-manus-preview-proxy";
+export const TRUSTED_PROXY_CIDRS_ENV = "CIRCLES_TRUSTED_PROXY_CIDRS";
 export const PREVIEW_LIMITER_TTL_SECONDS = 24 * 60 * 60;
 export const OUTBOUND_FETCH_TIMEOUT_MS = 15_000;
+export const MAX_TRUSTED_PROXY_CIDRS = 4;
 
 const LIMITER_TOKEN_PATTERN =
   /^v1\.([A-Za-z0-9_-]{16,64})\.(\d{10})\.([A-Za-z0-9_-]{43})$/;
@@ -89,6 +91,28 @@ function loopbackAddress(address: string | undefined): boolean {
   );
 }
 
+type ParsedIpAddress = {
+  address: bigint;
+  bits: 32 | 128;
+};
+
+type TrustedProxyCidr = ParsedIpAddress & {
+  prefix: number;
+};
+
+const IPV6_LOOPBACK: ParsedIpAddress = { address: 1n, bits: 128 };
+const IPV4_MAPPED_LOOPBACK: ParsedIpAddress = {
+  address: (0xffffn << 32n) + 0x7f00_0001n,
+  bits: 128,
+};
+
+export type TrustedProxyPolicy = {
+  /** Exact, normalized CIDRs intended for operator review; no proxy aliases are accepted. */
+  cidrs: readonly string[];
+  /** Express calls this with the socket peer at hop zero and forwarded peers after it. */
+  trustsAddress(address: string | undefined): boolean;
+};
+
 function parseIpv4Address(value: string): number | null {
   const octets = value.split(".");
   if (octets.length !== 4) return null;
@@ -101,6 +125,125 @@ function parseIpv4Address(value: string): number | null {
     address = address * 256 + number;
   }
   return address;
+}
+
+function parseIpAddress(value: string): ParsedIpAddress | null {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/^::ffff:/, "");
+  const family = isIP(normalized);
+  if (family === 4) {
+    const address = parseIpv4Address(normalized);
+    return address === null ? null : { address: BigInt(address), bits: 32 };
+  }
+  if (family !== 6) return null;
+  const address = parseIpv6Address(normalized);
+  return address === null ? null : { address, bits: 128 };
+}
+
+function cidrMask(bits: 32 | 128, prefix: number): bigint {
+  if (prefix === 0) return 0n;
+  return ((1n << BigInt(prefix)) - 1n) << BigInt(bits - prefix);
+}
+
+function addressMatchesCidr(address: ParsedIpAddress, cidr: TrustedProxyCidr) {
+  if (address.bits !== cidr.bits) return false;
+  const mask = cidrMask(cidr.bits, cidr.prefix);
+  return (address.address & mask) === cidr.address;
+}
+
+function isLoopbackIpAddress(address: ParsedIpAddress): boolean {
+  if (address.bits === 32) return Number(address.address >> 24n) === 127;
+  if (address.address === IPV6_LOOPBACK.address) return true;
+  return (
+    address.address >> 32n === 0xffffn &&
+    Number((address.address & 0xffff_ffffn) >> 24n) === 127
+  );
+}
+
+/**
+ * Parses a deliberately small proxy allowlist. The process does not infer a proxy from forwarded
+ * headers: an operator must supply one to four canonical, non-loopback CIDRs no broader than /24
+ * (IPv4) or /64 (IPv6). A caller cannot opt into broad trust with a hostname, alias, or /0 range.
+ */
+export function parseTrustedProxyPolicy(
+  configuredCidrs: string | undefined,
+): TrustedProxyPolicy | null {
+  if (!configuredCidrs?.trim()) return null;
+
+  const values = configuredCidrs.split(",").map((value) => value.trim());
+  if (
+    values.length === 0 ||
+    values.length > MAX_TRUSTED_PROXY_CIDRS ||
+    values.some((value) => !value)
+  ) {
+    throw new Error("Trusted proxy policy is invalid");
+  }
+
+  const cidrs = values.map((value) => {
+    const match = /^([^/]+)\/(\d{1,3})$/.exec(value);
+    if (!match) throw new Error("Trusted proxy policy is invalid");
+    const parsed = parseIpAddress(match[1]);
+    const prefix = Number(match[2]);
+    if (!parsed || !Number.isSafeInteger(prefix) || prefix > parsed.bits) {
+      throw new Error("Trusted proxy policy is invalid");
+    }
+    const narrowestAllowedPrefix = parsed.bits === 32 ? 24 : 64;
+    const cidr = { ...parsed, prefix };
+    const includesIpv6Loopback =
+      parsed.bits === 128 &&
+      (addressMatchesCidr(IPV6_LOOPBACK, cidr) ||
+        addressMatchesCidr(IPV4_MAPPED_LOOPBACK, cidr));
+    if (
+      prefix < narrowestAllowedPrefix ||
+      loopbackAddress(match[1]) ||
+      isLoopbackIpAddress(parsed) ||
+      includesIpv6Loopback
+    ) {
+      throw new Error("Trusted proxy policy is invalid");
+    }
+    const mask = cidrMask(parsed.bits, prefix);
+    if ((parsed.address & mask) !== parsed.address) {
+      throw new Error("Trusted proxy policy is invalid");
+    }
+    return cidr;
+  });
+
+  if (
+    new Set(values.map((value) => value.toLowerCase())).size !== values.length
+  ) {
+    throw new Error("Trusted proxy policy is invalid");
+  }
+
+  return {
+    cidrs: Object.freeze([...values]),
+    trustsAddress(address) {
+      const parsed = address ? parseIpAddress(address) : null;
+      return (
+        parsed !== null &&
+        cidrs.some((cidr) => addressMatchesCidr(parsed, cidr))
+      );
+    },
+  };
+}
+
+/**
+ * Missing configuration means no generic proxy trust. Invalid configured values are a startup
+ * failure rather than a fallback to forwarded headers.
+ */
+export function configuredTrustedProxyPolicy(): TrustedProxyPolicy | null {
+  return parseTrustedProxyPolicy(process.env[TRUSTED_PROXY_CIDRS_ENV]);
+}
+
+function singleForwardedAddress(
+  header: string | string[] | undefined,
+): boolean {
+  return (
+    typeof header === "string" &&
+    !header.includes(",") &&
+    parseIpAddress(header) !== null
+  );
 }
 
 function isPublicIpv4Address(address: number): boolean {
@@ -217,6 +360,27 @@ export function isTrustedPreviewProxyRequest(
     typeof forwardedProto === "string" &&
     forwardedProto === protocol &&
     configuredPublicProtocol(protocol)
+  );
+}
+
+/**
+ * A generic TLS terminator is trusted only when its immediate socket address matches the reviewed
+ * CIDR policy and it supplies one, syntactically valid client hop. This is deliberately separate
+ * from the owned Preview marker: no loopback CIDR can promote arbitrary forwarded headers.
+ */
+export function isTrustedExternalProxyRequest(
+  req: Pick<Request, "headers" | "socket">,
+  protocol: "http" | "https",
+  policy = configuredTrustedProxyPolicy(),
+): boolean {
+  const forwardedProto = req.headers["x-forwarded-proto"];
+  return (
+    policy !== null &&
+    policy.trustsAddress(req.socket?.remoteAddress) &&
+    typeof forwardedProto === "string" &&
+    forwardedProto === protocol &&
+    !forwardedProto.includes(",") &&
+    singleForwardedAddress(req.headers["x-forwarded-for"])
   );
 }
 

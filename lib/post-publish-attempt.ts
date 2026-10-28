@@ -72,3 +72,28 @@ export function isDefinitivePostPublishError(error: unknown): boolean {
     "PAYLOAD_TOO_LARGE",
   ].includes(String(data.code));
 }
+
+/**
+ * A readiness/upload retry can fail before this invocation reaches createPost.
+ * If a prior createPost response was ambiguous, that preflight failure says
+ * nothing about whether the original operation committed, so its exact ID and
+ * payload must remain frozen. Definitive errors settle only the request that
+ * actually reached createPost during this invocation.
+ */
+export function shouldKeepPostPublishAttemptUnsettled({
+  isPost,
+  hasUnsettledAttempt,
+  postRequestStarted,
+  error,
+}: {
+  isPost: boolean;
+  hasUnsettledAttempt: boolean;
+  postRequestStarted: boolean;
+  error: unknown;
+}): boolean {
+  return (
+    isPost &&
+    hasUnsettledAttempt &&
+    (!postRequestStarted || !isDefinitivePostPublishError(error))
+  );
+}

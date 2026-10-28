@@ -279,12 +279,15 @@ function isCommonShellQuery(
   descriptor: SourceQueryDescriptor,
   accountId: number,
 ): boolean {
-  // AppShell's avatar is the signed-in caller's own profile. The activity
-  // badge is protected by its explicit viewer-affinity input.
+  // AppShell's avatar and circles sidebar are signed-in caller projections.
+  // The activity badge is protected by its explicit viewer-affinity input.
   return (
     (descriptor.router === "social" &&
       descriptor.procedure === "profile" &&
       hasNoInputId(descriptor.input)) ||
+    (descriptor.router === "social" &&
+      descriptor.procedure === "circles" &&
+      hasNoCircleScope(descriptor.input)) ||
     (descriptor.router === "activity" &&
       descriptor.procedure === "unreadCount" &&
       hasCurrentViewerScope(descriptor.input, accountId))

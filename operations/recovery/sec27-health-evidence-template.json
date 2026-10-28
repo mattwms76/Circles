@@ -1,0 +1,62 @@
+{
+  "format": "circles-sec27-health-evidence-v1",
+  "template_only": true,
+  "contains_live_rows": false,
+  "contains_credentials": false,
+  "contains_external_alert_configuration": false,
+  "schedule_change": "none",
+  "existing_scheduler_boundary": {
+    "health_job": "preserve-existing-one-active-job",
+    "watchdog": "preserve-existing-private-watchdog",
+    "duplicate_cron_or_watchdog": false
+  },
+  "freshness_attestation": {
+    "result": "not_collected",
+    "allowed_results": ["fresh", "stale", "unavailable"],
+    "permitted_fields": ["result", "age_bucket", "aggregate_health_state"],
+    "prohibited_fields": [
+      "run_payload",
+      "application_rows",
+      "connection_string",
+      "raw_error"
+    ]
+  },
+  "alert_path_attestation": {
+    "result": "not_collected",
+    "allowed_results": [
+      "condition_open",
+      "condition_recovered",
+      "delivery_unverified",
+      "unavailable"
+    ],
+    "permitted_fields": [
+      "result",
+      "owned_incident_state",
+      "recovery_transition"
+    ],
+    "prohibited_fields": [
+      "destination",
+      "token",
+      "issue_body",
+      "external_response"
+    ]
+  },
+  "synthetic_cases": [
+    {
+      "name": "stale-run",
+      "expected": "condition_open",
+      "uses_real_scheduler": false
+    },
+    {
+      "name": "unhealthy-run",
+      "expected": "condition_open",
+      "uses_real_scheduler": false
+    },
+    {
+      "name": "fresh-recovery",
+      "expected": "condition_recovered",
+      "uses_real_scheduler": false
+    }
+  ],
+  "remaining_gate": "owner-approved read-only freshness observation and private watchdog delivery/recovery verification"
+}

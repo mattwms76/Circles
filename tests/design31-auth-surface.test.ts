@@ -47,7 +47,11 @@ vi.mock("react", async (importOriginal) => {
   return {
     ...actual,
     useCallback: <T>(callback: T) => callback,
+    useMemo: <T>(factory: () => T) => factory(),
     useEffect: (effect: HookEffect) => {
+      hookStore.effects.push(effect);
+    },
+    useLayoutEffect: (effect: HookEffect) => {
       hookStore.effects.push(effect);
     },
     useRef: <T>(initialValue: T) => {
@@ -109,6 +113,7 @@ vi.mock("@/components/circles-ui", () => ({
   Input: "Input",
   Logo: "Logo",
   T: "T",
+  Heading: "T",
 }));
 vi.mock("@/components/status-message", () => ({
   StatusMessage: "StatusMessage",

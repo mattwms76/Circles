@@ -1,0 +1,384 @@
+{
+  "date": "2026-10-28",
+  "source": "db15a9a",
+  "issues": [
+    {
+      "id": "A01",
+      "priority": "High",
+      "kind": "Confirmed defect",
+      "title": "Guests cannot use Join: the button spins indefinitely",
+      "screens": "Circles, Discover circle cards, Circle detail",
+      "evidence": "Rendered at 320 and 390 pixels; also reproduced in tablet/desktop public views. Join is disabled and busy before any action. For a guest, both pendingJoinScope and circleScope are null, so their equality incorrectly reports an active request. Circle detail repeats the same comparison.",
+      "fix": "Require a non-null pending scope before treating the operation as busy. Keep the guest Join action available so it can open sign-in. Check the related chat pending comparison without relaxing account-scoping safeguards.",
+      "accept": "As a signed-out visitor, Join has a readable label, no spinner, and opens sign-in. As a signed-in member, only a real in-flight operation disables it. Test account changes and late responses.",
+      "sources": [
+        [
+          "components/circle-card.tsx",
+          78
+        ],
+        [
+          "app/circle/[id].tsx",
+          233
+        ],
+        [
+          "lib/batch3-account-resource-scope.ts",
+          1
+        ]
+      ],
+      "image": "circles-join-disabled-320"
+    },
+    {
+      "id": "A02",
+      "priority": "Medium",
+      "kind": "Confirmed accessibility gap",
+      "title": "Selected tabs and filters are visual only in the web preview",
+      "screens": "Bottom navigation, feed filters, Discover categories, circle sections; other accessibilityState consumers need the same compatibility check",
+      "evidence": "On Home, the selected Home tab and For you filter have no aria-selected, aria-pressed or aria-current attribute. The accessibility tree does not expose a selected item. Source supplies accessibilityState, but the installed react-native-web mapping reads separate ARIA/accessibility props instead of that object.",
+      "fix": "Add a cross-platform control contract that actually exposes selected/pressed/current state on web while retaining native semantics. Use tab selection for real tabs and pressed state for toggle buttons. Audit busy/checked state through the same adapter.",
+      "accept": "DOM and accessibility-tree checks identify exactly one current navigation tab and the selected filter. Verify changes after keyboard activation; check VoiceOver/TalkBack separately.",
+      "sources": [
+        [
+          "app/(tabs)/_layout.tsx",
+          68
+        ],
+        [
+          "components/circles-ui.tsx",
+          360
+        ],
+        [
+          "components/app-shell.tsx",
+          292
+        ]
+      ],
+      "image": "home-390"
+    },
+    {
+      "id": "A03",
+      "priority": "Medium",
+      "kind": "Confirmed accessibility gap",
+      "title": "Most visual screen titles are not semantic headings",
+      "screens": "Home, Discover, Circles, circle/profile detail, Messages, Create, onboarding and most guest gates",
+      "evidence": "The 390-pixel DOM captures contain zero headings on these screens despite prominent visual titles. Account Email and the OAuth error screen provide working counterexamples with heading roles.",
+      "fix": "Introduce a shared screen-title component with native header semantics and web heading levels. Give major sections a logical hierarchy, without making the wordmark another page heading.",
+      "accept": "Each screen has a useful primary heading and logical section headings. Screen-reader heading navigation reaches the screen title, main content sections and dialog title.",
+      "sources": [
+        [
+          "components/circles-ui.tsx",
+          50
+        ],
+        [
+          "app/(tabs)/discover.tsx",
+          316
+        ],
+        [
+          "app/(tabs)/circles.tsx",
+          58
+        ]
+      ],
+      "image": "discover-390"
+    },
+    {
+      "id": "A04",
+      "priority": "Medium",
+      "kind": "Confirmed accessibility gap",
+      "title": "Browser pages have no human-readable document title",
+      "screens": "Web preview: Home and public profile directly checked; route metadata needs app-wide coverage",
+      "evidence": "document.title is an empty string on Home and /person/2. Browser tab labels fall back to localhost URLs. Existing tab navigation options do not provide meaningful document titles for these rendered pages.",
+      "fix": "Set page titles such as Home · Circles, Discover · Circles and Jules Park · Circles through the supported Expo Router head/metadata path. Include useful titles for loading, error and private screens.",
+      "accept": "Titles change correctly on direct links and client navigation and remain meaningful in browser history and assistive technology.",
+      "sources": [
+        [
+          "app/_layout.tsx",
+          118
+        ],
+        [
+          "app/(tabs)/_layout.tsx",
+          96
+        ]
+      ],
+      "image": "person-390"
+    },
+    {
+      "id": "A05",
+      "priority": "Medium",
+      "kind": "Confirmed accessibility gap",
+      "title": "Dialogs lack an accessible name",
+      "screens": "Comment sheet directly inspected; sign-in dialog also needs an explicit title association",
+      "evidence": "The rendered comments modal has role=dialog and aria-modal=true, but neither aria-label nor aria-labelledby. Its visible title The conversation is plain text. Its close control is announced simply as close. Sign-in has a visible heading but the outer Modal has no explicit title association.",
+      "fix": "Name each dialog from its visible title and give close controls contextual names such as Close comments. Preserve the observed focus containment and keyboard focus indicator.",
+      "accept": "The accessibility tree announces Comments or Sign in as the dialog name. Keyboard focus enters, stays within the dialog and returns sensibly when dismissed. Recheck on both native platforms.",
+      "sources": [
+        [
+          "components/post-card.tsx",
+          671
+        ],
+        [
+          "components/post-card.tsx",
+          705
+        ],
+        [
+          "hooks/circles-context.tsx",
+          512
+        ]
+      ],
+      "image": "comments-390"
+    },
+    {
+      "id": "A06",
+      "priority": "Low",
+      "kind": "Source-confirmed affordance mismatch",
+      "title": "The desktop search advertises an unimplemented shortcut",
+      "screens": "Wide shared header",
+      "evidence": "The search button displays ⌘ K. No app keydown/shortcut listener was found in app, components, lib or hooks. This audit did not claim a browser-level shortcut test.",
+      "fix": "Implement and test the advertised shortcut with the platform-appropriate label, or remove the badge. Keep click/tap search working.",
+      "accept": "The displayed shortcut opens and focuses Discover search on the relevant platform, and does not conflict with editable fields.",
+      "sources": [
+        [
+          "components/app-shell.tsx",
+          192
+        ]
+      ],
+      "image": "home-1440"
+    },
+    {
+      "id": "A07",
+      "priority": "Low",
+      "kind": "Confirmed copy defect",
+      "title": "Single-item counts use plural copy",
+      "screens": "Circle cards, Circle detail, public profile statistics/end-of-list",
+      "evidence": "Existing records render 1 members, 1 moments and All 1 moments loaded. The desktop recommendation row already uses a singular/plural distinction, so the same data is described inconsistently.",
+      "fix": "Use shared count formatting for member/members and moment/moments, including zero, one and larger counts. Use the same helper in visible and accessible labels.",
+      "accept": "Counts of 0, 1 and 2 read naturally across cards, profiles, detail pages and accessible labels.",
+      "sources": [
+        [
+          "components/circle-card.tsx",
+          215
+        ],
+        [
+          "app/circle/[id].tsx",
+          645
+        ],
+        [
+          "components/app-shell.tsx",
+          587
+        ]
+      ],
+      "image": "circle-320"
+    },
+    {
+      "id": "R01",
+      "priority": "Medium",
+      "kind": "Design recommendation",
+      "title": "Bring actual communities higher on small phones",
+      "screens": "Circles browsing; Home header can receive the same density review",
+      "evidence": "At 320 × 740, the circle banner, search, category rail and directory tabs leave only a small sliver of the first circle image above the bottom bar. This is content prioritisation, not document overflow or a navigation overlap defect.",
+      "fix": "Reduce the banner height on narrow phones or make it dismissible after the first visit. Retain the identity and editorial copy while giving the directory and its first community more room.",
+      "accept": "The initial phone view shows enough of a real circle card to communicate what can be browsed, while search and navigation remain easy to use.",
+      "sources": [
+        [
+          "app/(tabs)/circles.tsx",
+          58
+        ]
+      ],
+      "image": "circles-320"
+    },
+    {
+      "id": "R02",
+      "priority": "Low",
+      "kind": "Design recommendation",
+      "title": "Use consistent names for communities and content",
+      "screens": "Desktop navigation, Circles directory, Discover, composer, profiles",
+      "evidence": "Desktop says My circles for a route that defaults to discovery; mobile says Circles. Content is called Posts in Discover/composer and Moments in profiles and feed copy.",
+      "fix": "Use Circles for the general directory and Your circles for the membership view. Choose one primary content noun, or deliberately explain the relationship between a post and a moment.",
+      "accept": "Navigation and screen labels match the destination at phone and desktop sizes; users do not need to learn two names for the same object.",
+      "sources": [
+        [
+          "components/app-shell.tsx",
+          64
+        ],
+        [
+          "app/(tabs)/_layout.tsx",
+          23
+        ],
+        [
+          "app/create.tsx",
+          848
+        ]
+      ],
+      "image": "circles-1440"
+    },
+    {
+      "id": "R03",
+      "priority": "Medium",
+      "kind": "Design recommendation",
+      "title": "Replace engineering language in the live lobby with user guidance",
+      "screens": "Live lobby footer",
+      "evidence": "Visible product copy discusses Native WebRTC, a development or release build and a TURN relay. These are implementation details rather than a practical next action for a person trying to join a live conversation.",
+      "fix": "Keep camera/microphone expectations clear, detect unsupported environments where possible and show a plain-language next step. Move build and relay requirements to operator/developer documentation.",
+      "accept": "A nontechnical person can understand whether live is supported and what to do next without knowing WebRTC or TURN.",
+      "sources": [
+        [
+          "app/live/index.tsx",
+          206
+        ]
+      ],
+      "image": "live-lobby-390"
+    }
+  ],
+  "screens": [
+    [
+      "Home",
+      "/",
+      "app/(tabs)/index.tsx",
+      "home",
+      "Public feed, people rail, navigation; comment and sign-in overlays checked.",
+      "Keep the warm identity and media-led cards. Fix web state/heading semantics; do not shrink horizontal filters to force them all into view."
+    ],
+    [
+      "Discover",
+      "/discover",
+      "app/(tabs)/discover.tsx",
+      "discover",
+      "Public recommendations plus People, Posts and Live categories; no-results search checked.",
+      "Clear people cards and Follow controls. Fix Join on embedded circles; consider merging duplicate avatar/name keyboard stops in a later polish pass."
+    ],
+    [
+      "Circles",
+      "/circles",
+      "app/(tabs)/circles.tsx",
+      "circles",
+      "Five public circles; search/category rails and guest Join buttons.",
+      "Highest-priority Join defect. Reduce banner dominance at 320 pixels and align My circles / Circles naming."
+    ],
+    [
+      "Messages",
+      "/messages",
+      "app/(tabs)/messages.tsx",
+      "messages",
+      "Guest inbox with filters and sign-in gate; populated list reviewed in source.",
+      "Friendly gate and readable spacing. Populated unread rows, long titles and native keyboard require signed-in validation."
+    ],
+    [
+      "Own profile",
+      "/profile",
+      "app/(tabs)/profile.tsx",
+      "profile",
+      "Guest profile gate; profile editor/actions/saved-moments branches reviewed in shared source.",
+      "Guest layout is contained. Confirm narrow own-profile action wrapping and the edit form with real authenticated data."
+    ],
+    [
+      "Account email",
+      "/account/email",
+      "app/account/email.tsx",
+      "account-email",
+      "Existing-account verification gate; email credential form reviewed in source.",
+      "Primary heading semantics are present. Actual account connection is not exercised; do not represent the gate as a tested email form."
+    ],
+    [
+      "Conversation",
+      "/chat/[id]",
+      "app/chat/[id].tsx",
+      "chat",
+      "Guest private-conversation gate and invalid-ID recovery; no private message contents read.",
+      "Clear privacy boundary and back action. Composer, attachment preview, delivery retry and keyboard layout are source-only coverage."
+    ],
+    [
+      "Circle detail",
+      "/circle/2",
+      "app/circle/[id].tsx",
+      "circle",
+      "Public Home, Feed, Members and About; management branches reviewed in source.",
+      "Fix guest Join spinner. Feed and controls remain reachable after scrolling; unconfigured welcome/guideline/pinned blocks could be simplified for visitors."
+    ],
+    [
+      "Create",
+      "/create",
+      "app/create.tsx",
+      "create",
+      "Guest composer with Post/Circle/Go live choices; signed-in form branches reviewed in source.",
+      "Good mode separation and labelled fields in source. Verify category/privacy wrapping, recipient states, media controls and native keyboard with a real session."
+    ],
+    [
+      "Live lobby",
+      "/live",
+      "app/live/index.tsx",
+      "live-lobby",
+      "Public empty live directory; no broadcast created.",
+      "Clear empty state. Replace implementation jargon; validate nonempty cards separately."
+    ],
+    [
+      "Live session",
+      "/live/[id]",
+      "app/live/[id].tsx",
+      "live-session",
+      "Guest viewing gate; active host/viewer/chat/exit branches source-reviewed.",
+      "Do not treat this as an active-video or camera test. Check control contrast over real video, reconnection, chat and exit confirmation on devices."
+    ],
+    [
+      "Moderation",
+      "/moderation/2",
+      "app/moderation/[circleId].tsx",
+      "moderation",
+      "Guest manager gate and invalid-ID recovery; workspace source-reviewed.",
+      "Role boundary and recovery are clear. Owner/moderator reports, histories and action wrapping need authenticated rendering."
+    ],
+    [
+      "OAuth callback",
+      "/oauth/callback",
+      "app/oauth/callback.tsx",
+      "oauth-callback",
+      "Missing-parameter error with recovery action.",
+      "Friendly bounded error and a useful Back to Circles button. Processing, success and provider-specific errors remain source-only."
+    ],
+    [
+      "Onboarding",
+      "/onboarding",
+      "app/onboarding.tsx",
+      "onboarding",
+      "Guest optional-setup screen; interests/suggestions/introduction steps reviewed in source.",
+      "Good skip path and privacy explanation. Check max-six selection, progress and error recovery with an authenticated account."
+    ],
+    [
+      "Public profile",
+      "/person/2",
+      "app/person/[id].tsx",
+      "person",
+      "Existing Jules Park profile and public post; Follow opens sign-in.",
+      "Strong cover/avatar hierarchy. Fix singular counts and headings. Long names, larger system fonts and own-profile actions remain device checks."
+    ],
+    [
+      "Updates inbox",
+      "/updates",
+      "app/updates/index.tsx",
+      "updates",
+      "Guest gate; populated inbox, unread actions and paging source-reviewed.",
+      "Keep explicit empty/error states. Validate row hierarchy, notification wording and batch feedback with real account activity."
+    ],
+    [
+      "Update detail",
+      "/updates/[id]",
+      "app/updates/[id].tsx",
+      "update-detail",
+      "Guest gate; post/circle resolution and unavailable/invalid states source-reviewed.",
+      "Preserve contextual recovery. At 320 pixels and large text, render the title beside the 128-pixel Mark as read action before release."
+    ],
+    [
+      "Update preferences",
+      "/updates/preferences",
+      "app/updates/preferences.tsx",
+      "update-preferences",
+      "Guest gate; toggles, save feedback and error handling source-reviewed.",
+      "Good explanation that settings affect future updates. Validate checked/busy semantics in the real web and native controls."
+    ],
+    [
+      "Theme Lab (internal)",
+      "/dev/theme-lab",
+      "app/dev/theme-lab.tsx",
+      "theme-lab",
+      "Local light palette playground at both phone widths.",
+      "Explicitly says it does not change the app theme. Dark preview is not evidence of app-wide dark-mode support."
+    ]
+  ],
+  "captureCount": 64,
+  "scope": "Signed-out web rendering and source review; authenticated/native limits documented."
+}

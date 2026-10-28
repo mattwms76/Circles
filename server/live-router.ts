@@ -21,7 +21,7 @@ import {
   streams,
   type Stream,
 } from "../drizzle/live-schema";
-import { memberships } from "../drizzle/schema";
+import { circles, memberships } from "../drizzle/schema";
 import type { LiveStream } from "../shared/social";
 import { createHostGenerationRestartSignals } from "../shared/live-generation-restart";
 import { getDb } from "./db";
@@ -35,8 +35,8 @@ import {
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import {
   assertCircleCoverImageOwnership,
-  canAccessCircle,
-  getDisplayProfile,
+  getCircleContentAccessForProtectedRead,
+  getDisplayProfileWithDb,
   getProfile,
 } from "./social-service";
 
@@ -84,6 +84,7 @@ type LiveDatabase = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 type LiveTransaction = Parameters<
   Parameters<LiveDatabase["transaction"]>[0]
 >[0];
+type LiveReadDatabase = LiveDatabase | LiveTransaction;
 type ActiveHostLease = typeof activeHostLeases.$inferSelect;
 
 /** Strict boundary keeps an expired lease expired at exactly its cutoff. */
@@ -339,32 +340,56 @@ async function lockLiveStream(
   return stream;
 }
 
-async function assertCircleAccess(
-  userId: number,
-  circleId: number | null,
-): Promise<void> {
-  if (circleId !== null && !(await canAccessCircle(userId, circleId))) {
-    forbidden("You do not have access to this circle live stream.");
-  }
-}
+type LockedLiveCircleAccess = Readonly<{
+  privacy: "public" | "private";
+  role: CircleMembershipRole | null;
+}>;
 
-async function assertApprovedCircleHost(
+/**
+ * Circle removal takes this same parent-row lock. Every protected live
+ * transaction takes it before host-lease or stream locks, so role revocation
+ * and live admission/work are ordered without holding a lock over WebRTC I/O.
+ */
+async function lockLiveCircleAccess(
+  tx: LiveTransaction,
   userId: number,
   circleId: number | null,
-): Promise<void> {
-  if (circleId === null) return;
-  const db = await getDb();
-  if (!db) unavailable();
-  const [membership] = await db
+): Promise<LockedLiveCircleAccess | null> {
+  if (circleId === null) return null;
+  const [circle] = await tx
+    .select({ privacy: circles.privacy })
+    .from(circles)
+    .where(eq(circles.id, circleId))
+    .limit(1)
+    .for("update");
+  if (!circle) notFound();
+  const [membership] = await tx
     .select({ role: memberships.role })
     .from(memberships)
     .where(
       and(eq(memberships.circleId, circleId), eq(memberships.userId, userId)),
     )
     .limit(1);
-  if (!canHostCircleRole(membership?.role)) {
+  const role = membership?.role ?? null;
+  if (circle.privacy === "private" && !canHostCircleRole(role)) {
+    forbidden("You do not have access to this circle live stream.");
+  }
+  return { privacy: circle.privacy, role };
+}
+
+function assertCurrentLiveHostRole(
+  circleAccess: LockedLiveCircleAccess | null,
+): void {
+  if (circleAccess !== null && !canHostCircleRole(circleAccess.role)) {
     forbidden("Join this circle before hosting a live stream.");
   }
+}
+
+function assertLockedLiveStreamCircle(
+  stream: Stream,
+  expectedCircleId: number | null,
+): void {
+  if (stream.circleId !== expectedCircleId) notFound();
 }
 
 function streamHasActiveHostLease(stream: Stream, now = Date.now()): boolean {
@@ -412,7 +437,7 @@ function liveAvailability(
  * currently be allowed by their respective policies before this is exposed.
  */
 async function hostRetainsCircleMembership(
-  db: LiveDatabase,
+  db: LiveReadDatabase,
   stream: Stream,
 ): Promise<boolean> {
   if (stream.circleId === null) return true;
@@ -514,9 +539,16 @@ async function endHostStreamAtomically(
   db: LiveDatabase,
   hostId: number,
   streamId: number,
+  expectedCircleId: number | null,
   expectedGeneration: number,
 ): Promise<void> {
   await db.transaction(async (tx) => {
+    const circleAccess = await lockLiveCircleAccess(
+      tx,
+      hostId,
+      expectedCircleId,
+    );
+    assertCurrentLiveHostRole(circleAccess);
     const lease = await lockActiveHostLease(tx, hostId);
     const [stream] = await tx
       .select()
@@ -525,6 +557,7 @@ async function endHostStreamAtomically(
       .for("update")
       .limit(1);
     if (!stream || stream.status !== "live") notFound();
+    assertLockedLiveStreamCircle(stream, expectedCircleId);
     if (stream.hostId !== hostId)
       forbidden("Only the host can end this live stream.");
     if (
@@ -561,13 +594,21 @@ async function renewHostLeaseAtomically(
   db: LiveDatabase,
   hostId: number,
   streamId: number,
+  expectedCircleId: number | null,
   ready: boolean | undefined,
   setup: boolean | undefined,
   expectedGeneration: number,
 ): Promise<void> {
   await db.transaction(async (tx) => {
+    const circleAccess = await lockLiveCircleAccess(
+      tx,
+      hostId,
+      expectedCircleId,
+    );
+    assertCurrentLiveHostRole(circleAccess);
     const lease = await lockActiveHostLease(tx, hostId);
     const stream = await lockLiveStream(tx, streamId);
+    assertLockedLiveStreamCircle(stream, expectedCircleId);
     if (stream.status !== "live") notFound();
     if (stream.hostId !== hostId) notFound();
     if (
@@ -623,28 +664,6 @@ async function renewHostLeaseAtomically(
   });
 }
 
-async function getActiveViewerGeneration(
-  streamId: number,
-  userId: number,
-  now = Date.now(),
-): Promise<number | null> {
-  const db = await getDb();
-  if (!db) unavailable();
-  const rows = await db
-    .select({ generation: liveViewers.generation })
-    .from(liveViewers)
-    .where(
-      and(
-        eq(liveViewers.streamId, streamId),
-        eq(liveViewers.userId, userId),
-        isNull(liveViewers.leftAt),
-        gt(liveViewers.lastSeenAt, new Date(now - VIEWER_LEASE_MS)),
-      ),
-    )
-    .limit(1);
-  return rows[0]?.generation ?? null;
-}
-
 /** The caller already holds the stream row lock for the whole lifecycle write. */
 async function getActiveViewerGenerationInTransaction(
   tx: LiveTransaction,
@@ -667,23 +686,10 @@ async function getActiveViewerGenerationInTransaction(
   return rows[0]?.generation ?? null;
 }
 
-async function assertActiveParticipant(
-  stream: Stream,
-  userId: number,
-): Promise<number> {
-  if (!streamIsReadyAndActive(stream)) notFound();
-  await assertCircleAccess(userId, stream.circleId);
-  if (stream.hostId === userId) return stream.hostGeneration;
-  const generation = await getActiveViewerGeneration(stream.id, userId);
-  if (generation === null) {
-    forbidden("Join this live stream before participating.");
-  }
-  return generation;
-}
-
 /**
- * Transaction counterpart used only after lockLiveStream(). Circle access is
- * still checked at the route boundary before entering the transaction.
+ * Transaction counterpart used after the parent-circle lock and
+ * lockLiveStream(). The parent lock serializes current role admission with
+ * member removal before this checks generation-bound viewer presence.
  */
 async function assertActiveParticipantInTransaction(
   tx: LiveTransaction,
@@ -703,9 +709,10 @@ async function assertActiveParticipantInTransaction(
   return generation;
 }
 
-async function viewerCount(streamId: number): Promise<number> {
-  const db = await getDb();
-  if (!db) unavailable();
+async function viewerCount(
+  db: LiveReadDatabase,
+  streamId: number,
+): Promise<number> {
   const cutoff = new Date(Date.now() - VIEWER_LEASE_MS);
   const [result] = await db
     .select({ total: count() })
@@ -721,12 +728,13 @@ async function viewerCount(streamId: number): Promise<number> {
 }
 
 async function toLiveStream(
+  db: LiveReadDatabase,
   stream: Stream,
   now = Date.now(),
 ): Promise<LiveStream> {
   const [host, viewers] = await Promise.all([
-    getDisplayProfile(stream.hostId),
-    viewerCount(stream.id),
+    getDisplayProfileWithDb(db, stream.hostId),
+    viewerCount(db, stream.id),
   ]);
   const availability = liveAvailability(stream, now);
   return {
@@ -741,6 +749,45 @@ async function toLiveStream(
     liveReady: availability.liveReady,
     liveExpiresAt: availability.liveExpiresAt,
   };
+}
+
+/**
+ * Circle-scoped discovery serializes its current membership decision and DTO mapping with member
+ * removal. The shared parent SHARE lock yields removal-wins when removal acquired UPDATE first,
+ * while a read that acquired SHARE first completes a single coherent card before removal commits.
+ */
+async function currentLiveStreamOutput(
+  db: LiveDatabase,
+  stream: Stream,
+  viewerId: number | null,
+  readyOnly: boolean,
+  now: number,
+): Promise<LiveStream | null> {
+  const circleId = stream.circleId;
+  if (circleId === null) return toLiveStream(db, stream, now);
+
+  return db.transaction(async (tx) => {
+    let access: Awaited<
+      ReturnType<typeof getCircleContentAccessForProtectedRead>
+    >;
+    try {
+      access = await getCircleContentAccessForProtectedRead(
+        tx,
+        viewerId,
+        circleId,
+      );
+    } catch (error) {
+      // `canAccessCircle` previously omitted a stale/deleted circle from discovery. Preserve that
+      // public read behavior while allowing unavailable database/authorization failures to surface.
+      if (error instanceof TRPCError && error.code === "NOT_FOUND") return null;
+      throw error;
+    }
+    if (!access) return null;
+    if (readyOnly && !(await hostRetainsCircleMembership(tx, stream))) {
+      return null;
+    }
+    return toLiveStream(tx, stream, now);
+  });
 }
 
 async function signalHighWaterMarkInTransaction(
@@ -956,16 +1003,14 @@ export const liveRouter = router({
           if (readyHostIds.has(stream.hostId)) continue;
           readyHostIds.add(stream.hostId);
         }
-        if (
-          stream.circleId !== null &&
-          !(await canAccessCircle(viewerId, stream.circleId))
-        ) {
-          continue;
-        }
-        if (readyOnly && !(await hostRetainsCircleMembership(db, stream))) {
-          continue;
-        }
-        visible.push(await toLiveStream(stream, now));
+        const output = await currentLiveStreamOutput(
+          db,
+          stream,
+          viewerId,
+          readyOnly,
+          now,
+        );
+        if (output) visible.push(output);
       }
       return visible;
     }),
@@ -988,13 +1033,18 @@ export const liveRouter = router({
       // public STUN-only transport. Do this before any stream/lease write.
       loadLiveTurnConfiguration();
       const circleId = input.circleId ?? null;
-      await assertApprovedCircleHost(ctx.user.id, circleId);
 
       const now = new Date();
       const stream = await db.transaction(async (tx) => {
         // Serialize admission with the lifecycle transaction. The settings
         // reader runs before this path locks the host lease or any stream row.
         await assertPlatformFeature(tx, "liveStreamingEnabled");
+        const circleAccess = await lockLiveCircleAccess(
+          tx,
+          ctx.user.id,
+          circleId,
+        );
+        assertCurrentLiveHostRole(circleAccess);
         // Live cards render this value to other viewers. Reuse the circle-cover policy so only a
         // canonical upload owned by this host or an explicit trusted starter image can persist.
         await assertCircleCoverImageOwnership(tx, ctx.user.id, input.thumbnail);
@@ -1036,7 +1086,7 @@ export const liveRouter = router({
       }
       // Profile creation belongs to the authenticated host action, never a public formatter.
       await getProfile(ctx.user.id);
-      return toLiveStream(stream);
+      return toLiveStream(db, stream);
     }),
 
   end: protectedProcedure
@@ -1044,10 +1094,12 @@ export const liveRouter = router({
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) unavailable();
+      const stream = await getStreamOrThrow(input.streamId);
       await endHostStreamAtomically(
         db,
         ctx.user.id,
         input.streamId,
+        stream.circleId,
         input.generation,
       );
       return { success: true } as const;
@@ -1077,6 +1129,7 @@ export const liveRouter = router({
           db,
           ctx.user.id,
           stream.id,
+          stream.circleId,
           input.ready,
           input.setup,
           input.generation,
@@ -1091,9 +1144,10 @@ export const liveRouter = router({
         });
       }
       const viewerGeneration = input.generation;
-      await assertCircleAccess(ctx.user.id, stream.circleId);
       await db.transaction(async (tx) => {
+        await lockLiveCircleAccess(tx, ctx.user.id, stream.circleId);
         const lockedStream = await lockLiveStream(tx, stream.id);
+        assertLockedLiveStreamCircle(lockedStream, stream.circleId);
         if (!streamIsReadyAndActive(lockedStream, now.getTime())) notFound();
         const currentGeneration = await getActiveViewerGenerationInTransaction(
           tx,
@@ -1133,13 +1187,21 @@ export const liveRouter = router({
     if (!db) unavailable();
     const accessibleStream = await getStreamOrThrow(input.streamId);
     const now = new Date();
-    await assertCircleAccess(ctx.user.id, accessibleStream.circleId);
 
     return db.transaction(async (tx) => {
+      const circleAccess = await lockLiveCircleAccess(
+        tx,
+        ctx.user.id,
+        accessibleStream.circleId,
+      );
       // Both host restarts and viewer joins take this same stream-row lock. A
       // joining viewer therefore either appears in the restart snapshot or
       // targets the newer host generation; it can never fall between them.
       const stream = await lockLiveStream(tx, input.streamId);
+      assertLockedLiveStreamCircle(stream, accessibleStream.circleId);
+      if (stream.hostId === ctx.user.id) {
+        assertCurrentLiveHostRole(circleAccess);
+      }
       if (!streamHasActiveHostLease(stream, now.getTime())) notFound();
       await purgeExpiredLiveSignalsInTransaction(tx, stream.id, now);
 
@@ -1297,48 +1359,61 @@ export const liveRouter = router({
       const turnConfiguration = loadLiveTurnConfiguration();
       const db = await getDb();
       if (!db) unavailable();
-      const stream = await getStreamOrThrow(input.streamId);
-      const currentGeneration = await assertActiveParticipant(
-        stream,
-        ctx.user.id,
-      );
-      if (
-        !hasCurrentLiveSignalGeneration(input.generation, currentGeneration)
-      ) {
-        forbidden("This live media session has been replaced.");
-      }
-
-      // A viewer cannot refresh credentials for a generation which has not
-      // joined the currently active host lifecycle, matching signal()'s
-      // restart guard without writing a new join row or bumping generations.
-      if (ctx.user.id !== stream.hostId) {
-        const joinedCurrentHostGeneration = !!(
-          await db
-            .select({ id: liveSignals.id })
-            .from(liveSignals)
-            .where(
-              and(
-                eq(liveSignals.streamId, stream.id),
-                eq(liveSignals.fromId, ctx.user.id),
-                eq(liveSignals.toId, stream.hostId),
-                eq(liveSignals.kind, "join"),
-                eq(liveSignals.fromGeneration, currentGeneration),
-                eq(liveSignals.toGeneration, stream.hostGeneration),
-              ),
-            )
-            .limit(1)
-        )[0];
-        if (!joinedCurrentHostGeneration) {
-          throw new TRPCError({
-            code: "CONFLICT",
-            message: "The host media session restarted; waiting to rejoin.",
-          });
+      const accessibleStream = await getStreamOrThrow(input.streamId);
+      return db.transaction(async (tx) => {
+        const circleAccess = await lockLiveCircleAccess(
+          tx,
+          ctx.user.id,
+          accessibleStream.circleId,
+        );
+        const stream = await lockLiveStream(tx, input.streamId);
+        assertLockedLiveStreamCircle(stream, accessibleStream.circleId);
+        if (stream.hostId === ctx.user.id) {
+          assertCurrentLiveHostRole(circleAccess);
         }
-      }
+        const currentGeneration = await assertActiveParticipantInTransaction(
+          tx,
+          stream,
+          ctx.user.id,
+        );
+        if (
+          !hasCurrentLiveSignalGeneration(input.generation, currentGeneration)
+        ) {
+          forbidden("This live media session has been replaced.");
+        }
 
-      return {
-        ice: createTurnIceConfiguration(ctx.user.id, turnConfiguration),
-      };
+        // A viewer cannot refresh credentials for a generation which has not
+        // joined the currently active host lifecycle, matching signal()'s
+        // restart guard without writing a new join row or bumping generations.
+        if (ctx.user.id !== stream.hostId) {
+          const joinedCurrentHostGeneration = !!(
+            await tx
+              .select({ id: liveSignals.id })
+              .from(liveSignals)
+              .where(
+                and(
+                  eq(liveSignals.streamId, stream.id),
+                  eq(liveSignals.fromId, ctx.user.id),
+                  eq(liveSignals.toId, stream.hostId),
+                  eq(liveSignals.kind, "join"),
+                  eq(liveSignals.fromGeneration, currentGeneration),
+                  eq(liveSignals.toGeneration, stream.hostGeneration),
+                ),
+              )
+              .limit(1)
+          )[0];
+          if (!joinedCurrentHostGeneration) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "The host media session restarted; waiting to rejoin.",
+            });
+          }
+        }
+
+        return {
+          ice: createTurnIceConfiguration(ctx.user.id, turnConfiguration),
+        };
+      });
     }),
 
   leave: protectedProcedure
@@ -1347,12 +1422,18 @@ export const liveRouter = router({
       const db = await getDb();
       if (!db) unavailable();
       const accessibleStream = await getStreamOrThrow(input.streamId);
-      await assertCircleAccess(ctx.user.id, accessibleStream.circleId);
 
       await db.transaction(async (tx) => {
+        const circleAccess = await lockLiveCircleAccess(
+          tx,
+          ctx.user.id,
+          accessibleStream.circleId,
+        );
         const stream = await lockLiveStream(tx, input.streamId);
+        assertLockedLiveStreamCircle(stream, accessibleStream.circleId);
         if (stream.status !== "live") notFound();
         if (stream.hostId === ctx.user.id) {
+          assertCurrentLiveHostRole(circleAccess);
           forbidden("The host must end the live stream instead of leaving it.");
         }
         const [viewer] = await tx
@@ -1433,9 +1514,17 @@ export const liveRouter = router({
       const db = await getDb();
       if (!db) unavailable();
       const accessibleStream = await getStreamOrThrow(input.streamId);
-      await assertCircleAccess(ctx.user.id, accessibleStream.circleId);
       return db.transaction(async (tx) => {
+        const circleAccess = await lockLiveCircleAccess(
+          tx,
+          ctx.user.id,
+          accessibleStream.circleId,
+        );
         const stream = await lockLiveStream(tx, input.streamId);
+        assertLockedLiveStreamCircle(stream, accessibleStream.circleId);
+        if (stream.hostId === ctx.user.id) {
+          assertCurrentLiveHostRole(circleAccess);
+        }
         const now = new Date();
         await purgeExpiredLiveSignalsInTransaction(tx, stream.id, now);
         const currentGeneration = await assertActiveParticipantInTransaction(
@@ -1507,13 +1596,29 @@ export const liveRouter = router({
       }
 
       const accessibleStream = await getStreamOrThrow(input.streamId);
-      await Promise.all([
-        assertCircleAccess(ctx.user.id, accessibleStream.circleId),
-        assertCircleAccess(input.toId, accessibleStream.circleId),
-      ]);
 
       await db.transaction(async (tx) => {
+        const senderCircleAccess = await lockLiveCircleAccess(
+          tx,
+          ctx.user.id,
+          accessibleStream.circleId,
+        );
+        const recipientCircleAccess =
+          input.toId === ctx.user.id
+            ? senderCircleAccess
+            : await lockLiveCircleAccess(
+                tx,
+                input.toId,
+                accessibleStream.circleId,
+              );
         const stream = await lockLiveStream(tx, input.streamId);
+        assertLockedLiveStreamCircle(stream, accessibleStream.circleId);
+        if (stream.hostId === ctx.user.id) {
+          assertCurrentLiveHostRole(senderCircleAccess);
+        }
+        if (stream.hostId === input.toId) {
+          assertCurrentLiveHostRole(recipientCircleAccess);
+        }
         if (!streamIsReadyAndActive(stream)) notFound();
         const now = new Date();
         await purgeExpiredLiveSignalsInTransaction(tx, stream.id, now);
@@ -1623,24 +1728,36 @@ export const liveRouter = router({
   chat: protectedProcedure.input(idInput).query(async ({ ctx, input }) => {
     const db = await getDb();
     if (!db) unavailable();
-    const stream = await getStreamOrThrow(input.streamId);
-    await assertActiveParticipant(stream, ctx.user.id);
-    const rows = await db
-      .select({
-        id: liveChat.id,
-        userName: liveChat.userName,
-        avatar: liveChat.avatar,
-        text: liveChat.text,
-        createdAt: liveChat.createdAt,
-      })
-      .from(liveChat)
-      .where(eq(liveChat.streamId, stream.id))
-      .orderBy(desc(liveChat.createdAt), desc(liveChat.id))
-      .limit(100);
+    const accessibleStream = await getStreamOrThrow(input.streamId);
+    return db.transaction(async (tx) => {
+      const circleAccess = await lockLiveCircleAccess(
+        tx,
+        ctx.user.id,
+        accessibleStream.circleId,
+      );
+      const stream = await lockLiveStream(tx, input.streamId);
+      assertLockedLiveStreamCircle(stream, accessibleStream.circleId);
+      if (stream.hostId === ctx.user.id) {
+        assertCurrentLiveHostRole(circleAccess);
+      }
+      await assertActiveParticipantInTransaction(tx, stream, ctx.user.id);
+      const rows = await tx
+        .select({
+          id: liveChat.id,
+          userName: liveChat.userName,
+          avatar: liveChat.avatar,
+          text: liveChat.text,
+          createdAt: liveChat.createdAt,
+        })
+        .from(liveChat)
+        .where(eq(liveChat.streamId, stream.id))
+        .orderBy(desc(liveChat.createdAt), desc(liveChat.id))
+        .limit(100);
 
-    return rows
-      .reverse()
-      .map((row) => ({ ...row, createdAt: row.createdAt.toISOString() }));
+      return rows
+        .reverse()
+        .map((row) => ({ ...row, createdAt: row.createdAt.toISOString() }));
+    });
   }),
 
   sendChat: protectedProcedure
@@ -1649,10 +1766,18 @@ export const liveRouter = router({
       const db = await getDb();
       if (!db) unavailable();
       const accessibleStream = await getStreamOrThrow(input.streamId);
-      await assertCircleAccess(ctx.user.id, accessibleStream.circleId);
       const profile = await getProfile(ctx.user.id);
       await db.transaction(async (tx) => {
+        const circleAccess = await lockLiveCircleAccess(
+          tx,
+          ctx.user.id,
+          accessibleStream.circleId,
+        );
         const stream = await lockLiveStream(tx, input.streamId);
+        assertLockedLiveStreamCircle(stream, accessibleStream.circleId);
+        if (stream.hostId === ctx.user.id) {
+          assertCurrentLiveHostRole(circleAccess);
+        }
         await assertActiveParticipantInTransaction(tx, stream, ctx.user.id);
         await tx.insert(liveChat).values({
           streamId: stream.id,
@@ -1669,10 +1794,18 @@ export const liveRouter = router({
     const db = await getDb();
     if (!db) unavailable();
     const accessibleStream = await getStreamOrThrow(input.streamId);
-    await assertCircleAccess(ctx.user.id, accessibleStream.circleId);
     const profile = await getProfile(ctx.user.id);
     await db.transaction(async (tx) => {
+      const circleAccess = await lockLiveCircleAccess(
+        tx,
+        ctx.user.id,
+        accessibleStream.circleId,
+      );
       const stream = await lockLiveStream(tx, input.streamId);
+      assertLockedLiveStreamCircle(stream, accessibleStream.circleId);
+      if (stream.hostId === ctx.user.id) {
+        assertCurrentLiveHostRole(circleAccess);
+      }
       await assertActiveParticipantInTransaction(tx, stream, ctx.user.id);
       await tx.insert(liveChat).values({
         streamId: stream.id,

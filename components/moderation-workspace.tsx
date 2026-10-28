@@ -1,3 +1,4 @@
+import { controlAccessibilityProps } from "../lib/control-accessibility";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
@@ -39,7 +40,17 @@ import {
   invalidatePostFeeds,
 } from "@/lib/source-query-invalidation";
 import { StatusMessage } from "@/components/status-message";
-import { ago, Button, C, Empty, Icon, Loading, s, T } from "./circles-ui";
+import {
+  Heading,
+  ago,
+  Button,
+  C,
+  Empty,
+  Icon,
+  Loading,
+  s,
+  T,
+} from "./circles-ui";
 
 type ResolutionStatus = {
   message: string;
@@ -77,7 +88,7 @@ function CaseRow({
       accessibilityRole="button"
       accessibilityLabel={`Open report case ${item.id}`}
       accessibilityHint="Opens the current report details and review history."
-      accessibilityState={{ disabled }}
+      {...controlAccessibilityProps({ disabled })}
       disabled={disabled}
       onPress={onOpen}
       style={({ pressed }) => [
@@ -641,7 +652,7 @@ export function ModerationWorkspace({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Back to Reports queue"
-            accessibilityState={{ disabled: !!pendingDecision }}
+            {...controlAccessibilityProps({ disabled: !!pendingDecision })}
             disabled={!!pendingDecision}
             onPress={closeDetail}
             style={({ pressed }) => [
@@ -676,7 +687,7 @@ export function ModerationWorkspace({
             <>
               <View style={{ gap: 6 }}>
                 <T style={s.eyebrow}>REPORT CASE</T>
-                <T style={s.title}>Review reports</T>
+                <Heading style={s.title}>Review reports</Heading>
                 <T style={styles.headingCopy}>
                   {item.reportCount}{" "}
                   {item.reportCount === 1 ? "report" : "reports"} · last
@@ -691,7 +702,9 @@ export function ModerationWorkspace({
               </View>
 
               <View style={[s.card, styles.section]}>
-                <T style={styles.sectionTitle}>Current moment</T>
+                <Heading level={2} style={styles.sectionTitle}>
+                  Current moment
+                </Heading>
                 {selected.post ? (
                   <>
                     <T
@@ -723,7 +736,9 @@ export function ModerationWorkspace({
               </View>
 
               <View style={[s.card, styles.section]}>
-                <T style={styles.sectionTitle}>Why people reported this</T>
+                <Heading level={2} style={styles.sectionTitle}>
+                  Why people reported this
+                </Heading>
                 {selected.reasons.length ? (
                   <View style={{ gap: 8 }}>
                     {selected.reasons.map((reason) => (
@@ -742,7 +757,9 @@ export function ModerationWorkspace({
               </View>
 
               <View style={[s.card, styles.section]}>
-                <T style={styles.sectionTitle}>Decision</T>
+                <Heading level={2} style={styles.sectionTitle}>
+                  Decision
+                </Heading>
                 {isFinal ? (
                   <View style={styles.finalNotice}>
                     <Icon
@@ -862,7 +879,9 @@ export function ModerationWorkspace({
               </View>
 
               <View style={[s.card, styles.section]}>
-                <T style={styles.sectionTitle}>Review history</T>
+                <Heading level={2} style={styles.sectionTitle}>
+                  Review history
+                </Heading>
                 <ReviewHistory actions={selected.history} />
               </View>
             </>
@@ -872,7 +891,7 @@ export function ModerationWorkspace({
         <View style={{ gap: 16 }}>
           <View style={{ gap: 6 }}>
             <T style={s.eyebrow}>CIRCLE CARE</T>
-            <T style={s.title}>Reports</T>
+            <Heading style={s.title}>Reports</Heading>
             <T style={styles.headingCopy}>
               Review reported moments for this circle. Reporter identities are
               never shown here.
@@ -887,10 +906,13 @@ export function ModerationWorkspace({
                   key={nextFilter}
                   accessibilityRole="tab"
                   accessibilityLabel={`Show ${label.toLowerCase()} reports`}
-                  accessibilityState={{
-                    selected: selectedFilter,
-                    disabled: authorityLocked || !!pendingDecision,
-                  }}
+                  {...controlAccessibilityProps(
+                    {
+                      selected: selectedFilter,
+                      disabled: authorityLocked || !!pendingDecision,
+                    },
+                    "tab",
+                  )}
                   disabled={authorityLocked || !!pendingDecision}
                   onPress={() => selectFilter(nextFilter)}
                   style={({ pressed }) => [
@@ -920,6 +942,7 @@ export function ModerationWorkspace({
             <Loading />
           ) : authorityLocked ? (
             <Empty
+              headingLevel={2}
               icon="shield-outline"
               title="Your moderation access changed."
               text="Refresh your current permissions before viewing or acting on these reports."
@@ -928,6 +951,7 @@ export function ModerationWorkspace({
             />
           ) : queueState.isError ? (
             <Empty
+              headingLevel={2}
               icon="shield-outline"
               title="We couldn’t load Reports."
               text="Reports are available only to current owners and moderators of this circle."
@@ -936,6 +960,7 @@ export function ModerationWorkspace({
             />
           ) : queueState.items.length === 0 ? (
             <Empty
+              headingLevel={2}
               icon="flag-outline"
               title={
                 filter === "open" ? "No open reports." : "No resolved reports."

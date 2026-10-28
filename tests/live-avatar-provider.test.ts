@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const source = readFileSync("hooks/live-avatar-context.tsx", "utf8");
+const foregroundSource = readFileSync("hooks/use-foreground-state.ts", "utf8");
 
 describe("live avatar provider source contract", () => {
   it("uses account-keyed inner providers and exact viewer-scoped batched list inputs", () => {
@@ -24,8 +25,12 @@ describe("live avatar provider source contract", () => {
       "refetchInterval: requestEnabled ? LIVE_AVATAR_REFETCH_MS : false",
     );
     expect(source).toContain("refetchIntervalInBackground: false");
-    expect(source).toContain("AppState.addEventListener");
-    expect(source).toContain('document.addEventListener("visibilitychange"');
+    expect(source).toContain('from "@/hooks/use-foreground-state"');
+    expect(source).toContain("const foreground = useForegroundState()");
+    expect(foregroundSource).toContain("AppState.addEventListener");
+    expect(foregroundSource).toContain(
+      'document.addEventListener("visibilitychange"',
+    );
   });
 
   it("fails closed during auth checking or errors, avoids prior-account placeholders, and expires cached status locally", () => {
