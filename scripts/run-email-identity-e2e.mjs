@@ -82,6 +82,19 @@ function identity(subject, email, name = "Fixture member") {
   return { subject, email, name };
 }
 
+const fixtureTrustedOperations = new Set([
+  "email-identity-readiness",
+  "verified-email-identity",
+]);
+
+async function runFixtureTrustedDatabaseTransaction(operation, work) {
+  // This disposable suite supplies its own restricted RuntimeRolePool rather
+  // than server/db's configured application pool. Keep the explicit trusted
+  // seam narrow so an unexpected operation cannot silently gain fixture access.
+  assert(fixtureTrustedOperations.has(operation));
+  return work();
+}
+
 async function countRows(admin, statement, values = []) {
   const result = await admin.query(statement, values);
   return Number(result.rows[0]?.count ?? 0);
@@ -213,6 +226,7 @@ try {
   const database = drizzle(runtimePool);
   const store = new EmailIdentityStore({
     getDatabase: async () => database,
+    runTrustedDatabaseTransaction: runFixtureTrustedDatabaseTransaction,
   });
 
   assert.equal(await store.isReady(), true);
