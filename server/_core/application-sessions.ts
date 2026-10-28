@@ -1,7 +1,11 @@
 import { createHash } from "node:crypto";
 import { and, eq, gt, isNull } from "drizzle-orm";
 import { applicationSessions } from "../../drizzle/session-schema";
-import { getDb, withTrustedSystemDatabaseTransaction } from "../db";
+import {
+  getDb,
+  type TrustedSystemDatabaseOperation,
+  withTrustedSystemDatabaseTransaction,
+} from "../db";
 
 export type ApplicationSessionBinding = {
   sessionId: string;
@@ -43,12 +47,32 @@ export interface ApplicationSessionStore {
   revoke(binding: ApplicationSessionBinding, revokedAt: Date): Promise<void>;
 }
 
+type ApplicationSessionStoreDependencies = {
+  getDatabase?: typeof getDb;
+  /** Explicit isolated-fixture seam; production uses the default scoped runner. */
+  runTrustedDatabaseTransaction?: <T>(
+    operation: TrustedSystemDatabaseOperation,
+    work: () => Promise<T>,
+  ) => Promise<T>;
+};
+
 /**
  * Durable, fail-closed authority for application JWTs. Every query binds the
  * random session id fingerprint to the JWT's OAuth identity and this app id.
  */
 export class DrizzleApplicationSessionStore implements ApplicationSessionStore {
-  constructor(private readonly getDatabase: typeof getDb = getDb) {}
+  private readonly getDatabase: typeof getDb;
+  private readonly runTrustedDatabaseTransaction: <T>(
+    operation: TrustedSystemDatabaseOperation,
+    work: () => Promise<T>,
+  ) => Promise<T>;
+
+  constructor(dependencies: ApplicationSessionStoreDependencies = {}) {
+    this.getDatabase = dependencies.getDatabase ?? getDb;
+    this.runTrustedDatabaseTransaction =
+      dependencies.runTrustedDatabaseTransaction ??
+      withTrustedSystemDatabaseTransaction;
+  }
 
   private async requireDb() {
     const db = await this.getDatabase();
@@ -64,7 +88,7 @@ export class DrizzleApplicationSessionStore implements ApplicationSessionStore {
   private async withSessionStoreTransaction<T>(
     work: () => Promise<T>,
   ): Promise<T> {
-    return withTrustedSystemDatabaseTransaction(
+    return this.runTrustedDatabaseTransaction(
       "application-session-persistence",
       work,
     );

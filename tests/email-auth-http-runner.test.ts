@@ -37,6 +37,13 @@ describe("email-auth HTTP PG17 runner safety contract", () => {
     expect(source).toContain("new RuntimeRolePool({");
     expect(source).toContain("new EmailIdentityStore({");
     expect(source).toContain("new DrizzleApplicationSessionStore(");
+    expect(source).toContain("const fixtureTrustedOperations = new Set([");
+    expect(source).toContain('"application-session-persistence"');
+    expect(source).toContain('"email-identity-readiness"');
+    expect(source).toContain('"verified-email-identity"');
+    expect(source).toContain(
+      "runTrustedDatabaseTransaction: runFixtureTrustedDatabaseTransaction",
+    );
     expect(source).toContain("new SDKServer(undefined, localSessionStore)");
     expect(source).toContain("registerEmailAuthRoutes(app, {");
     expect(source).toContain("sdkServer.verifySession(token)");

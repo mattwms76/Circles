@@ -6,9 +6,10 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { once } from "node:events";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { accessSync, constants, existsSync } from "node:fs";
 import net from "node:net";
+import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -315,21 +316,19 @@ async function createApprovedPrivateFixture(admin) {
 
 async function main() {
   const pgBin = pgBinDirectory();
-  const fixtureDirectory = resolve(
-    process.cwd(),
-    `.remaining-db02-pg17-${process.pid}-${randomBytes(8).toString("hex")}`,
-  );
+  const port = await reserveLoopbackPort();
+  // A Unix socket filename must fit even when the checkout path is very deep.
+  // mkdtemp creates an exclusively owned private directory; no DSN is accepted.
+  const fixtureDirectory = await mkdtemp(resolve(tmpdir(), "circles-db02-"));
   const dataDirectory = resolve(fixtureDirectory, "data");
   const passwordFile = resolve(fixtureDirectory, "postgres-password");
   const adminPassword = fixturePassword();
   const appPassword = fixturePassword();
-  const port = await reserveLoopbackPort();
   const fixtureEnv = sanitizedFixtureEnvironment(fixtureDirectory);
   let started = false;
   let cleanupFailure;
 
   try {
-    await mkdir(fixtureDirectory, { mode: 0o700 });
     await writeFile(passwordFile, `${adminPassword}\n`, { mode: 0o600 });
     await run(
       resolve(pgBin, "initdb"),

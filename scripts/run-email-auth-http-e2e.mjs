@@ -89,6 +89,20 @@ const fixtureEnvironment = {
   NODE_ENV: "test",
 };
 
+const fixtureTrustedOperations = new Set([
+  "application-session-persistence",
+  "email-identity-readiness",
+  "verified-email-identity",
+]);
+
+async function runFixtureTrustedDatabaseTransaction(operation, work) {
+  // This disposable suite owns its restricted RuntimeRolePool instead of
+  // server/db's configured runtime pool. Keep the fixture seam closed so an
+  // unexpected direct-server operation cannot silently gain local access.
+  assert(fixtureTrustedOperations.has(operation));
+  return work();
+}
+
 if (process.env[OPT_IN_ENV] !== "1") {
   console.log(
     "SKIP: set CIRCLES_EMAIL_AUTH_LOCAL_PG17=1 for the disposable local PostgreSQL 17 email-auth HTTP drill",
@@ -645,10 +659,12 @@ async function runDrill() {
     const database = drizzle(runtimePool, { schema: databaseSchema });
     const identityStore = new EmailIdentityStore({
       getDatabase: async () => database,
+      runTrustedDatabaseTransaction: runFixtureTrustedDatabaseTransaction,
     });
-    const localSessionStore = new DrizzleApplicationSessionStore(
-      async () => database,
-    );
+    const localSessionStore = new DrizzleApplicationSessionStore({
+      getDatabase: async () => database,
+      runTrustedDatabaseTransaction: runFixtureTrustedDatabaseTransaction,
+    });
     // This is the production SDK signing/verifying/revoking implementation. The
     // supplied store is a durable Drizzle store pointed only at the local fixture.
     const sdkServer = new SDKServer(undefined, localSessionStore);
