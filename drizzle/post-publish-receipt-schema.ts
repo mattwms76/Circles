@@ -1,8 +1,8 @@
 import {
+  bigint,
   index,
   integer,
   pgSchema,
-  primaryKey,
   timestamp,
   unique,
   varchar,
@@ -18,6 +18,10 @@ export const circlesPublish = pgSchema("circles_publish");
 export const postPublishReceipts = circlesPublish.table(
   "postPublishReceipts",
   {
+    // Preserve all bigint precision; this surrogate is never part of the publication DTO.
+    id: bigint("id", { mode: "bigint" })
+      .generatedAlwaysAsIdentity()
+      .primaryKey(),
     actorId: integer("actorId")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -35,13 +39,7 @@ export const postPublishReceipts = circlesPublish.table(
       .notNull(),
   },
   (table) => [
-    // Kept alongside the established named unique constraint for operational/tooling metadata.
-    // The manual DB-11 migration creates a separate PK-owned index; it must not promote the
-    // index already owned by post_publish_receipts_actor_operation_unique.
-    primaryKey({
-      name: "post_publish_receipts_pkey",
-      columns: [table.actorId, table.operationId],
-    }),
+    // Business uniqueness remains the retry-safe actor/operation conflict arbiter.
     unique("post_publish_receipts_actor_operation_unique").on(
       table.actorId,
       table.operationId,
@@ -49,3 +47,24 @@ export const postPublishReceipts = circlesPublish.table(
     index("post_publish_receipts_post_idx").on(table.postId),
   ],
 );
+
+/**
+ * Deliberately private physical-table projection for receipt claims. The canonical exported table
+ * above must retain the captured six-column metadata for Drizzle Kit and readiness checks, but an
+ * INSERT must also remain valid against the admitted legacy five-column relation. In particular,
+ * Drizzle must never enumerate the generated `id` or defaulted `createdAt` during a claim.
+ */
+const postPublishReceiptInsertTarget = circlesPublish.table(
+  "postPublishReceipts",
+  {
+    actorId: integer("actorId").notNull(),
+    operationId: varchar("operationId", { length: 96 }).notNull(),
+    payloadHash: varchar("payloadHash", { length: 64 }).notNull(),
+    postId: integer("postId"),
+  },
+);
+
+/** Exposes the safe write projection without exporting another Drizzle table to schema tooling. */
+export function postPublishReceiptInsertProjection() {
+  return postPublishReceiptInsertTarget;
+}

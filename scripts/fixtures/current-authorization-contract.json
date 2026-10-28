@@ -1,0 +1,1909 @@
+{
+  "admin_column_acl": [
+    {
+      "column_key": "[\"audit\",\"actor_operator_id\"]",
+      "column_name": "actor_operator_id",
+      "grantee": "circles_admin_native_executor",
+      "is_grantable": false,
+      "privilege_type": "SELECT",
+      "table_name": "audit"
+    },
+    {
+      "column_key": "[\"audit\",\"request_id\"]",
+      "column_name": "request_id",
+      "grantee": "circles_admin_native_executor",
+      "is_grantable": false,
+      "privilege_type": "SELECT",
+      "table_name": "audit"
+    },
+    {
+      "column_key": "[\"operators\",\"last_active_at\"]",
+      "column_name": "last_active_at",
+      "grantee": "circles_admin_native_executor",
+      "is_grantable": false,
+      "privilege_type": "UPDATE",
+      "table_name": "operators"
+    },
+    {
+      "column_key": "[\"sessions\",\"app_id\"]",
+      "column_name": "app_id",
+      "grantee": "circles_admin_runtime",
+      "is_grantable": false,
+      "privilege_type": "INSERT",
+      "table_name": "sessions"
+    },
+    {
+      "column_key": "[\"sessions\",\"app_id\"]",
+      "column_name": "app_id",
+      "grantee": "circles_admin_runtime",
+      "is_grantable": false,
+      "privilege_type": "SELECT",
+      "table_name": "sessions"
+    },
+    {
+      "column_key": "[\"sessions\",\"created_at\"]",
+      "column_name": "created_at",
+      "grantee": "circles_admin_native_executor",
+      "is_grantable": false,
+      "privilege_type": "UPDATE",
+      "table_name": "sessions"
+    },
+    {
+      "column_key": "[\"sessions\",\"expires_at\"]",
+      "column_name": "expires_at",
+      "grantee": "circles_admin_runtime",
+      "is_grantable": false,
+      "privilege_type": "INSERT",
+      "table_name": "sessions"
+    },
+    {
+      "column_key": "[\"sessions\",\"expires_at\"]",
+      "column_name": "expires_at",
+      "grantee": "circles_admin_runtime",
+      "is_grantable": false,
+      "privilege_type": "SELECT",
+      "table_name": "sessions"
+    },
+    {
+      "column_key": "[\"sessions\",\"fingerprint\"]",
+      "column_name": "fingerprint",
+      "grantee": "circles_admin_runtime",
+      "is_grantable": false,
+      "privilege_type": "INSERT",
+      "table_name": "sessions"
+    },
+    {
+      "column_key": "[\"sessions\",\"fingerprint\"]",
+      "column_name": "fingerprint",
+      "grantee": "circles_admin_runtime",
+      "is_grantable": false,
+      "privilege_type": "SELECT",
+      "table_name": "sessions"
+    },
+    {
+      "column_key": "[\"sessions\",\"operator_id\"]",
+      "column_name": "operator_id",
+      "grantee": "circles_admin_runtime",
+      "is_grantable": false,
+      "privilege_type": "INSERT",
+      "table_name": "sessions"
+    },
+    {
+      "column_key": "[\"sessions\",\"operator_id\"]",
+      "column_name": "operator_id",
+      "grantee": "circles_admin_runtime",
+      "is_grantable": false,
+      "privilege_type": "SELECT",
+      "table_name": "sessions"
+    },
+    {
+      "column_key": "[\"sessions\",\"revoked_at\"]",
+      "column_name": "revoked_at",
+      "grantee": "circles_admin_runtime",
+      "is_grantable": false,
+      "privilege_type": "SELECT",
+      "table_name": "sessions"
+    },
+    {
+      "column_key": "[\"sessions\",\"revoked_at\"]",
+      "column_name": "revoked_at",
+      "grantee": "circles_admin_runtime",
+      "is_grantable": false,
+      "privilege_type": "UPDATE",
+      "table_name": "sessions"
+    }
+  ],
+  "admin_functions": [
+    {
+      "admin_runtime_execute": true,
+      "anon_execute": false,
+      "app_runtime_execute": false,
+      "authenticated_execute": false,
+      "body_definition_md5": "998fb2b9fa1034c60267bc0b3c57b67c",
+      "direct_acl": [
+        {
+          "grantee": "circles_admin_runtime",
+          "is_grantable": false,
+          "privilege_type": "EXECUTE"
+        }
+      ],
+      "function_name": "bind_supabase_session(p_fingerprint text, p_auth_user_id uuid, p_provider_session_id uuid, p_token_expires_at timestamp with time zone)",
+      "native_executor_execute": false,
+      "owner": "postgres",
+      "runtime_execute": false,
+      "search_path": ["search_path=pg_catalog, circles_admin, auth"],
+      "security_definer": true
+    },
+    {
+      "admin_runtime_execute": true,
+      "anon_execute": false,
+      "app_runtime_execute": false,
+      "authenticated_execute": false,
+      "body_definition_md5": "4fa35df2749d4a9b359ed91231ddf811",
+      "direct_acl": [
+        {
+          "grantee": "circles_admin_runtime",
+          "is_grantable": false,
+          "privilege_type": "EXECUTE"
+        }
+      ],
+      "function_name": "lookup_supabase_operator(p_auth_user_id uuid, p_provider_session_id uuid, p_token_expires_at timestamp with time zone)",
+      "native_executor_execute": false,
+      "owner": "postgres",
+      "runtime_execute": false,
+      "search_path": ["search_path=pg_catalog, circles_admin, auth"],
+      "security_definer": true
+    },
+    {
+      "admin_runtime_execute": false,
+      "anon_execute": false,
+      "app_runtime_execute": false,
+      "authenticated_execute": false,
+      "body_definition_md5": "83b165394815def66a9a3072582eea3d",
+      "direct_acl": [],
+      "function_name": "native_append_audit(p_actor_operator_id uuid, p_actor_name text, p_actor_role text, p_source_user_id integer, p_request_id uuid, p_request_digest text, p_action text, p_target_kind text, p_target_id text, p_note text, p_metadata jsonb)",
+      "native_executor_execute": true,
+      "owner": "circles_admin_native_executor",
+      "runtime_execute": false,
+      "search_path": ["search_path=pg_catalog, circles_admin, circles_app"],
+      "security_definer": true
+    },
+    {
+      "admin_runtime_execute": true,
+      "anon_execute": false,
+      "app_runtime_execute": false,
+      "authenticated_execute": false,
+      "body_definition_md5": "5ea6ef2fab6b56265de7f6cda9a755da",
+      "direct_acl": [
+        {
+          "grantee": "circles_admin_runtime",
+          "is_grantable": false,
+          "privilege_type": "EXECUTE"
+        }
+      ],
+      "function_name": "native_assert_replay(p_operator_id uuid, p_open_id text, p_fingerprint text, p_action text, p_target_id integer, p_circle_id integer)",
+      "native_executor_execute": true,
+      "owner": "circles_admin_native_executor",
+      "runtime_execute": false,
+      "search_path": ["search_path=pg_catalog, circles_admin, circles_app"],
+      "security_definer": true
+    },
+    {
+      "admin_runtime_execute": true,
+      "anon_execute": false,
+      "app_runtime_execute": false,
+      "authenticated_execute": false,
+      "body_definition_md5": "ceedf2e82f39d896ceeea287cf2f4cd3",
+      "direct_acl": [
+        {
+          "grantee": "circles_admin_runtime",
+          "is_grantable": false,
+          "privilege_type": "EXECUTE"
+        }
+      ],
+      "function_name": "native_circle_home(p_operator_id uuid, p_open_id text, p_session_fingerprint text, p_request_id uuid, p_request_digest text, p_note text, p_circle_id integer, p_welcome_message text, p_rules jsonb)",
+      "native_executor_execute": true,
+      "owner": "circles_admin_native_executor",
+      "runtime_execute": false,
+      "search_path": ["search_path=pg_catalog, circles_admin, circles_app"],
+      "security_definer": true
+    },
+    {
+      "admin_runtime_execute": true,
+      "anon_execute": false,
+      "app_runtime_execute": false,
+      "authenticated_execute": false,
+      "body_definition_md5": "973e1ba20b874a948787eea5598cce49",
+      "direct_acl": [
+        {
+          "grantee": "circles_admin_runtime",
+          "is_grantable": false,
+          "privilege_type": "EXECUTE"
+        }
+      ],
+      "function_name": "native_circle_home_read(p_operator_id uuid, p_open_id text, p_fingerprint text, p_circle_id integer)",
+      "native_executor_execute": true,
+      "owner": "circles_admin_native_executor",
+      "runtime_execute": false,
+      "search_path": ["search_path=pg_catalog, circles_admin, circles_app"],
+      "security_definer": true
+    },
+    {
+      "admin_runtime_execute": true,
+      "anon_execute": false,
+      "app_runtime_execute": false,
+      "authenticated_execute": false,
+      "body_definition_md5": "4f3770a7025a31be40c3586d5014335d",
+      "direct_acl": [
+        {
+          "grantee": "circles_admin_runtime",
+          "is_grantable": false,
+          "privilege_type": "EXECUTE"
+        }
+      ],
+      "function_name": "native_circle_pin(p_operator_id uuid, p_open_id text, p_session_fingerprint text, p_request_id uuid, p_request_digest text, p_note text, p_circle_id integer, p_post_id integer)",
+      "native_executor_execute": true,
+      "owner": "circles_admin_native_executor",
+      "runtime_execute": false,
+      "search_path": ["search_path=pg_catalog, circles_admin, circles_app"],
+      "security_definer": true
+    },
+    {
+      "admin_runtime_execute": true,
+      "anon_execute": false,
+      "app_runtime_execute": false,
+      "authenticated_execute": false,
+      "body_definition_md5": "f4384f315e7d6da9cdaa33aa686e348d",
+      "direct_acl": [
+        {
+          "grantee": "circles_admin_runtime",
+          "is_grantable": false,
+          "privilege_type": "EXECUTE"
+        }
+      ],
+      "function_name": "native_membership_approve(p_operator_id uuid, p_open_id text, p_session_fingerprint text, p_request_id uuid, p_request_digest text, p_note text, p_circle_id integer, p_target_user_id integer)",
+      "native_executor_execute": true,
+      "owner": "circles_admin_native_executor",
+      "runtime_execute": false,
+      "search_path": ["search_path=pg_catalog, circles_admin, circles_app"],
+      "security_definer": true
+    },
+    {
+      "admin_runtime_execute": true,
+      "anon_execute": false,
+      "app_runtime_execute": false,
+      "authenticated_execute": false,
+      "body_definition_md5": "09358d2603c207e38c700140754aa32d",
+      "direct_acl": [
+        {
+          "grantee": "circles_admin_runtime",
+          "is_grantable": false,
+          "privilege_type": "EXECUTE"
+        }
+      ],
+      "function_name": "native_membership_remove(p_operator_id uuid, p_open_id text, p_session_fingerprint text, p_request_id uuid, p_request_digest text, p_note text, p_circle_id integer, p_target_user_id integer)",
+      "native_executor_execute": true,
+      "owner": "circles_admin_native_executor",
+      "runtime_execute": false,
+      "search_path": ["search_path=pg_catalog, circles_admin, circles_app"],
+      "security_definer": true
+    },
+    {
+      "admin_runtime_execute": true,
+      "anon_execute": false,
+      "app_runtime_execute": false,
+      "authenticated_execute": false,
+      "body_definition_md5": "041d4909f5da855bb46f25e1b4bf1264",
+      "direct_acl": [
+        {
+          "grantee": "circles_admin_runtime",
+          "is_grantable": false,
+          "privilege_type": "EXECUTE"
+        }
+      ],
+      "function_name": "native_membership_role(p_operator_id uuid, p_open_id text, p_session_fingerprint text, p_request_id uuid, p_request_digest text, p_note text, p_circle_id integer, p_target_user_id integer, p_role text)",
+      "native_executor_execute": true,
+      "owner": "circles_admin_native_executor",
+      "runtime_execute": false,
+      "search_path": ["search_path=pg_catalog, circles_admin, circles_app"],
+      "security_definer": true
+    },
+    {
+      "admin_runtime_execute": true,
+      "anon_execute": false,
+      "app_runtime_execute": false,
+      "authenticated_execute": false,
+      "body_definition_md5": "7ea1075c3b4aa085ff3e12116e2882a3",
+      "direct_acl": [
+        {
+          "grantee": "circles_admin_runtime",
+          "is_grantable": false,
+          "privilege_type": "EXECUTE"
+        }
+      ],
+      "function_name": "native_moderation_resolve(p_operator_id uuid, p_open_id text, p_session_fingerprint text, p_request_id uuid, p_request_digest text, p_note text, p_circle_id integer, p_case_id integer, p_decision text)",
+      "native_executor_execute": true,
+      "owner": "circles_admin_native_executor",
+      "runtime_execute": false,
+      "search_path": ["search_path=pg_catalog, circles_admin, circles_app"],
+      "security_definer": true
+    },
+    {
+      "admin_runtime_execute": true,
+      "anon_execute": false,
+      "app_runtime_execute": false,
+      "authenticated_execute": false,
+      "body_definition_md5": "699bc90bc2ac22538128a21dddc030ae",
+      "direct_acl": [
+        {
+          "grantee": "circles_admin_runtime",
+          "is_grantable": false,
+          "privilege_type": "EXECUTE"
+        }
+      ],
+      "function_name": "native_profile_correct(p_operator_id uuid, p_open_id text, p_session_fingerprint text, p_request_id uuid, p_request_digest text, p_note text, p_target_user_id integer, p_name text, p_handle text, p_bio text)",
+      "native_executor_execute": true,
+      "owner": "circles_admin_native_executor",
+      "runtime_execute": false,
+      "search_path": ["search_path=pg_catalog, circles_admin, circles_app"],
+      "security_definer": true
+    },
+    {
+      "admin_runtime_execute": false,
+      "anon_execute": false,
+      "app_runtime_execute": false,
+      "authenticated_execute": false,
+      "body_definition_md5": "b6753127aee12bedd1c70dbb2da52e27",
+      "direct_acl": [],
+      "function_name": "native_require_actor(p_operator_id uuid, p_open_id text, p_session_fingerprint text)",
+      "native_executor_execute": true,
+      "owner": "circles_admin_native_executor",
+      "runtime_execute": false,
+      "search_path": ["search_path=pg_catalog, circles_admin, circles_app"],
+      "security_definer": true
+    },
+    {
+      "admin_runtime_execute": true,
+      "anon_execute": false,
+      "app_runtime_execute": false,
+      "authenticated_execute": false,
+      "body_definition_md5": "9ecb8c2dac595ec336a0a8eb0ef567a2",
+      "direct_acl": [
+        {
+          "grantee": "circles_admin_runtime",
+          "is_grantable": false,
+          "privilege_type": "EXECUTE"
+        }
+      ],
+      "function_name": "native_stream_force_end(p_operator_id uuid, p_open_id text, p_session_fingerprint text, p_request_id uuid, p_request_digest text, p_note text, p_stream_id integer)",
+      "native_executor_execute": true,
+      "owner": "circles_admin_native_executor",
+      "runtime_execute": false,
+      "search_path": ["search_path=pg_catalog, circles_admin, circles_app"],
+      "security_definer": true
+    },
+    {
+      "admin_runtime_execute": false,
+      "anon_execute": false,
+      "app_runtime_execute": false,
+      "authenticated_execute": false,
+      "body_definition_md5": "38d1a7f2e2aa3125cc5acad139a2a95a",
+      "direct_acl": [],
+      "function_name": "protect_owner_operator()",
+      "native_executor_execute": false,
+      "owner": "postgres",
+      "runtime_execute": false,
+      "search_path": ["search_path=pg_catalog"],
+      "security_definer": false
+    },
+    {
+      "admin_runtime_execute": false,
+      "anon_execute": false,
+      "app_runtime_execute": false,
+      "authenticated_execute": false,
+      "body_definition_md5": "e50ec0096721edfc8b410e2bb2c3cd31",
+      "direct_acl": [],
+      "function_name": "provision_initial_owner(p_operator_id uuid, p_name text, p_email text, p_open_id text)",
+      "native_executor_execute": false,
+      "owner": "postgres",
+      "runtime_execute": false,
+      "search_path": ["search_path=pg_catalog, circles_admin, circles_app"],
+      "security_definer": true
+    },
+    {
+      "admin_runtime_execute": false,
+      "anon_execute": false,
+      "app_runtime_execute": true,
+      "authenticated_execute": false,
+      "body_definition_md5": "e6bee8ae5ef47259378bc9e1836b25c8",
+      "direct_acl": [
+        {
+          "grantee": "circles_app_runtime",
+          "is_grantable": false,
+          "privilege_type": "EXECUTE"
+        }
+      ],
+      "function_name": "read_mobile_feature_settings()",
+      "native_executor_execute": false,
+      "owner": "postgres",
+      "runtime_execute": true,
+      "search_path": ["search_path=pg_catalog, circles_admin"],
+      "security_definer": true
+    },
+    {
+      "admin_runtime_execute": false,
+      "anon_execute": false,
+      "app_runtime_execute": false,
+      "authenticated_execute": false,
+      "body_definition_md5": "bf72240e6e619860aa109c09fd72e75e",
+      "direct_acl": [],
+      "function_name": "reject_audit_mutation()",
+      "native_executor_execute": false,
+      "owner": "postgres",
+      "runtime_execute": false,
+      "search_path": ["search_path=pg_catalog"],
+      "security_definer": false
+    },
+    {
+      "admin_runtime_execute": false,
+      "anon_execute": false,
+      "app_runtime_execute": false,
+      "authenticated_execute": false,
+      "body_definition_md5": "e4046b6cb2994645c5af16af5944ad89",
+      "direct_acl": [],
+      "function_name": "reject_native_control_lock_mutation()",
+      "native_executor_execute": false,
+      "owner": "postgres",
+      "runtime_execute": false,
+      "search_path": ["search_path=pg_catalog"],
+      "security_definer": false
+    },
+    {
+      "admin_runtime_execute": true,
+      "anon_execute": false,
+      "app_runtime_execute": false,
+      "authenticated_execute": false,
+      "body_definition_md5": "fd32f284ecaca7f8300b22873b174449",
+      "direct_acl": [
+        {
+          "grantee": "circles_admin_runtime",
+          "is_grantable": false,
+          "privilege_type": "EXECUTE"
+        }
+      ],
+      "function_name": "review_case_allowed(p_operator_id uuid, p_open_id text, p_fingerprint text, p_circle_id integer, p_case_id integer)",
+      "native_executor_execute": false,
+      "owner": "postgres",
+      "runtime_execute": false,
+      "search_path": ["search_path=pg_catalog"],
+      "security_definer": true
+    },
+    {
+      "admin_runtime_execute": true,
+      "anon_execute": false,
+      "app_runtime_execute": false,
+      "authenticated_execute": false,
+      "body_definition_md5": "19dd4ecf5ad3b8af872de9dcfa39a377",
+      "direct_acl": [
+        {
+          "grantee": "circles_admin_runtime",
+          "is_grantable": false,
+          "privilege_type": "EXECUTE"
+        }
+      ],
+      "function_name": "scoped_read_allowed(p_operator_id uuid, p_open_id text, p_fingerprint text, p_app_id text, p_resource text, p_resource_id integer, p_requirement text)",
+      "native_executor_execute": false,
+      "owner": "postgres",
+      "runtime_execute": false,
+      "search_path": ["search_path=pg_catalog, circles_admin, circles_app"],
+      "security_definer": true
+    },
+    {
+      "admin_runtime_execute": true,
+      "anon_execute": false,
+      "app_runtime_execute": false,
+      "authenticated_execute": false,
+      "body_definition_md5": "8998b97164f5d17ddd3af6bb5ce38dd4",
+      "direct_acl": [
+        {
+          "grantee": "circles_admin_native_executor",
+          "is_grantable": false,
+          "privilege_type": "EXECUTE"
+        },
+        {
+          "grantee": "circles_admin_runtime",
+          "is_grantable": false,
+          "privilege_type": "EXECUTE"
+        }
+      ],
+      "function_name": "supabase_session_allowed(p_fingerprint text)",
+      "native_executor_execute": true,
+      "owner": "postgres",
+      "runtime_execute": false,
+      "search_path": ["search_path=pg_catalog, circles_admin, auth"],
+      "security_definer": true
+    },
+    {
+      "admin_runtime_execute": false,
+      "anon_execute": false,
+      "app_runtime_execute": false,
+      "authenticated_execute": false,
+      "body_definition_md5": "595e56fb4457f03d3c9cb7187a9ac5bc",
+      "direct_acl": [],
+      "function_name": "touch_updated_at()",
+      "native_executor_execute": false,
+      "owner": "postgres",
+      "runtime_execute": false,
+      "search_path": ["search_path=pg_catalog"],
+      "security_definer": false
+    }
+  ],
+  "admin_schema_acl": [
+    {
+      "grantee": "circles_admin_native_executor",
+      "is_grantable": false,
+      "privilege_type": "USAGE",
+      "schema_name": "circles_admin"
+    },
+    {
+      "grantee": "circles_admin_runtime",
+      "is_grantable": false,
+      "privilege_type": "USAGE",
+      "schema_name": "circles_admin"
+    },
+    {
+      "grantee": "circles_app_runtime",
+      "is_grantable": false,
+      "privilege_type": "USAGE",
+      "schema_name": "circles_admin"
+    }
+  ],
+  "admin_table_acl": [
+    {
+      "grantee": "circles_admin_native_executor",
+      "is_grantable": false,
+      "privilege_type": "INSERT",
+      "table_name": "audit"
+    },
+    {
+      "grantee": "circles_admin_native_executor",
+      "is_grantable": false,
+      "privilege_type": "SELECT",
+      "table_name": "operators"
+    },
+    {
+      "grantee": "circles_admin_native_executor",
+      "is_grantable": false,
+      "privilege_type": "SELECT",
+      "table_name": "sessions"
+    },
+    {
+      "grantee": "circles_admin_runtime",
+      "is_grantable": false,
+      "privilege_type": "DELETE",
+      "table_name": "review_handoffs"
+    },
+    {
+      "grantee": "circles_admin_runtime",
+      "is_grantable": false,
+      "privilege_type": "INSERT",
+      "table_name": "audit"
+    },
+    {
+      "grantee": "circles_admin_runtime",
+      "is_grantable": false,
+      "privilege_type": "INSERT",
+      "table_name": "entity_state"
+    },
+    {
+      "grantee": "circles_admin_runtime",
+      "is_grantable": false,
+      "privilege_type": "INSERT",
+      "table_name": "operators"
+    },
+    {
+      "grantee": "circles_admin_runtime",
+      "is_grantable": false,
+      "privilege_type": "INSERT",
+      "table_name": "report_reviews"
+    },
+    {
+      "grantee": "circles_admin_runtime",
+      "is_grantable": false,
+      "privilege_type": "INSERT",
+      "table_name": "review_handoffs"
+    },
+    {
+      "grantee": "circles_admin_runtime",
+      "is_grantable": false,
+      "privilege_type": "INSERT",
+      "table_name": "settings"
+    },
+    {
+      "grantee": "circles_admin_runtime",
+      "is_grantable": false,
+      "privilege_type": "SELECT",
+      "table_name": "audit"
+    },
+    {
+      "grantee": "circles_admin_runtime",
+      "is_grantable": false,
+      "privilege_type": "SELECT",
+      "table_name": "entity_state"
+    },
+    {
+      "grantee": "circles_admin_runtime",
+      "is_grantable": false,
+      "privilege_type": "SELECT",
+      "table_name": "operators"
+    },
+    {
+      "grantee": "circles_admin_runtime",
+      "is_grantable": false,
+      "privilege_type": "SELECT",
+      "table_name": "report_reviews"
+    },
+    {
+      "grantee": "circles_admin_runtime",
+      "is_grantable": false,
+      "privilege_type": "SELECT",
+      "table_name": "review_handoffs"
+    },
+    {
+      "grantee": "circles_admin_runtime",
+      "is_grantable": false,
+      "privilege_type": "SELECT",
+      "table_name": "settings"
+    },
+    {
+      "grantee": "circles_admin_runtime",
+      "is_grantable": false,
+      "privilege_type": "UPDATE",
+      "table_name": "entity_state"
+    },
+    {
+      "grantee": "circles_admin_runtime",
+      "is_grantable": false,
+      "privilege_type": "UPDATE",
+      "table_name": "operators"
+    },
+    {
+      "grantee": "circles_admin_runtime",
+      "is_grantable": false,
+      "privilege_type": "UPDATE",
+      "table_name": "settings"
+    }
+  ],
+  "admin_tables": [
+    {
+      "owner": "postgres",
+      "rls_enabled": true,
+      "rls_forced": true,
+      "table_name": "audit"
+    },
+    {
+      "owner": "postgres",
+      "rls_enabled": true,
+      "rls_forced": true,
+      "table_name": "auth_subjects"
+    },
+    {
+      "owner": "postgres",
+      "rls_enabled": true,
+      "rls_forced": true,
+      "table_name": "entity_state"
+    },
+    {
+      "owner": "postgres",
+      "rls_enabled": true,
+      "rls_forced": true,
+      "table_name": "operators"
+    },
+    {
+      "owner": "postgres",
+      "rls_enabled": true,
+      "rls_forced": true,
+      "table_name": "report_reviews"
+    },
+    {
+      "owner": "postgres",
+      "rls_enabled": true,
+      "rls_forced": true,
+      "table_name": "review_handoffs"
+    },
+    {
+      "owner": "postgres",
+      "rls_enabled": true,
+      "rls_forced": true,
+      "table_name": "sessions"
+    },
+    {
+      "owner": "postgres",
+      "rls_enabled": true,
+      "rls_forced": true,
+      "table_name": "settings"
+    },
+    {
+      "owner": "postgres",
+      "rls_enabled": true,
+      "rls_forced": true,
+      "table_name": "supabase_sessions"
+    }
+  ],
+  "captured_at_utc": "2026-10-28T12:04:47.549Z",
+  "fixture_name": "circles_current_authorization_contract",
+  "metadata_only": true,
+  "policies": [
+    {
+      "command": "INSERT",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_native_audit_append",
+      "roles": ["circles_admin_native_executor"],
+      "schema_name": "circles_admin",
+      "table_name": "audit",
+      "using_qualification": null,
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_native_audit_read",
+      "roles": ["circles_admin_native_executor"],
+      "schema_name": "circles_admin",
+      "table_name": "audit",
+      "using_qualification": "true",
+      "with_check_qualification": null
+    },
+    {
+      "command": "INSERT",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_runtime_audit_insert",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_admin",
+      "table_name": "audit",
+      "using_qualification": null,
+      "with_check_qualification": "(EXISTS ( SELECT 1\n   FROM circles_admin.operators o\n  WHERE ((o.id = audit.actor_operator_id) AND ((o.status)::text = 'active'::text) AND ((o.role)::text = (audit.actor_role)::text))))"
+    },
+    {
+      "command": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_runtime_audit_select",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_admin",
+      "table_name": "audit",
+      "using_qualification": "true",
+      "with_check_qualification": null
+    },
+    {
+      "command": "ALL",
+      "permissive": "RESTRICTIVE",
+      "policy_name": "closed_table_deny_all",
+      "roles": ["public"],
+      "schema_name": "circles_admin",
+      "table_name": "auth_subjects",
+      "using_qualification": "false",
+      "with_check_qualification": "false"
+    },
+    {
+      "command": "INSERT",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_runtime_entity_state_insert",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_admin",
+      "table_name": "entity_state",
+      "using_qualification": null,
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_runtime_entity_state_select",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_admin",
+      "table_name": "entity_state",
+      "using_qualification": "true",
+      "with_check_qualification": null
+    },
+    {
+      "command": "UPDATE",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_runtime_entity_state_update",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_admin",
+      "table_name": "entity_state",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "UPDATE",
+      "permissive": "RESTRICTIVE",
+      "policy_name": "circles_admin_native_operators_lock",
+      "roles": ["circles_admin_native_executor"],
+      "schema_name": "circles_admin",
+      "table_name": "operators",
+      "using_qualification": "true",
+      "with_check_qualification": "false"
+    },
+    {
+      "command": "UPDATE",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_native_operators_lock_permissive",
+      "roles": ["circles_admin_native_executor"],
+      "schema_name": "circles_admin",
+      "table_name": "operators",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_native_operators_read",
+      "roles": ["circles_admin_native_executor"],
+      "schema_name": "circles_admin",
+      "table_name": "operators",
+      "using_qualification": "true",
+      "with_check_qualification": null
+    },
+    {
+      "command": "INSERT",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_runtime_operators_insert",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_admin",
+      "table_name": "operators",
+      "using_qualification": null,
+      "with_check_qualification": "((role)::text <> 'owner'::text)"
+    },
+    {
+      "command": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_runtime_operators_select",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_admin",
+      "table_name": "operators",
+      "using_qualification": "true",
+      "with_check_qualification": null
+    },
+    {
+      "command": "UPDATE",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_runtime_operators_update",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_admin",
+      "table_name": "operators",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "INSERT",
+      "permissive": "RESTRICTIVE",
+      "policy_name": "circles_admin_runtime_owner_insert_guard",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_admin",
+      "table_name": "operators",
+      "using_qualification": null,
+      "with_check_qualification": "((role)::text <> 'owner'::text)"
+    },
+    {
+      "command": "INSERT",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_runtime_report_reviews_insert",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_admin",
+      "table_name": "report_reviews",
+      "using_qualification": null,
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_runtime_report_reviews_select",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_admin",
+      "table_name": "report_reviews",
+      "using_qualification": "true",
+      "with_check_qualification": null
+    },
+    {
+      "command": "DELETE",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_review_handoffs_runtime_delete",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_admin",
+      "table_name": "review_handoffs",
+      "using_qualification": "true",
+      "with_check_qualification": null
+    },
+    {
+      "command": "INSERT",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_review_handoffs_runtime_insert",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_admin",
+      "table_name": "review_handoffs",
+      "using_qualification": null,
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_review_handoffs_runtime_select",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_admin",
+      "table_name": "review_handoffs",
+      "using_qualification": "true",
+      "with_check_qualification": null
+    },
+    {
+      "command": "UPDATE",
+      "permissive": "RESTRICTIVE",
+      "policy_name": "circles_admin_native_sessions_lock",
+      "roles": ["circles_admin_native_executor"],
+      "schema_name": "circles_admin",
+      "table_name": "sessions",
+      "using_qualification": "true",
+      "with_check_qualification": "false"
+    },
+    {
+      "command": "UPDATE",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_native_sessions_lock_permissive",
+      "roles": ["circles_admin_native_executor"],
+      "schema_name": "circles_admin",
+      "table_name": "sessions",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_native_sessions_read",
+      "roles": ["circles_admin_native_executor"],
+      "schema_name": "circles_admin",
+      "table_name": "sessions",
+      "using_qualification": "true",
+      "with_check_qualification": null
+    },
+    {
+      "command": "INSERT",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_runtime_sessions_insert",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_admin",
+      "table_name": "sessions",
+      "using_qualification": null,
+      "with_check_qualification": "((auth_provider)::text = 'manus'::text)"
+    },
+    {
+      "command": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_runtime_sessions_select",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_admin",
+      "table_name": "sessions",
+      "using_qualification": "true",
+      "with_check_qualification": null
+    },
+    {
+      "command": "UPDATE",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_runtime_sessions_update",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_admin",
+      "table_name": "sessions",
+      "using_qualification": "true",
+      "with_check_qualification": "((auth_provider)::text = ANY ((ARRAY['manus'::character varying, 'supabase'::character varying])::text[]))"
+    },
+    {
+      "command": "SELECT",
+      "permissive": "RESTRICTIVE",
+      "policy_name": "circles_admin_sessions_provider_allowed",
+      "roles": ["circles_admin_native_executor", "circles_admin_runtime"],
+      "schema_name": "circles_admin",
+      "table_name": "sessions",
+      "using_qualification": "circles_admin.supabase_session_allowed((fingerprint)::text)",
+      "with_check_qualification": null
+    },
+    {
+      "command": "INSERT",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_runtime_settings_insert",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_admin",
+      "table_name": "settings",
+      "using_qualification": null,
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_runtime_settings_select",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_admin",
+      "table_name": "settings",
+      "using_qualification": "true",
+      "with_check_qualification": null
+    },
+    {
+      "command": "UPDATE",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_runtime_settings_update",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_admin",
+      "table_name": "settings",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "ALL",
+      "permissive": "RESTRICTIVE",
+      "policy_name": "closed_table_deny_all",
+      "roles": ["public"],
+      "schema_name": "circles_admin",
+      "table_name": "supabase_sessions",
+      "using_qualification": "false",
+      "with_check_qualification": "false"
+    },
+    {
+      "command": "ALL",
+      "permissive": "RESTRICTIVE",
+      "policy_name": "circles_app_deny_anon_authenticated",
+      "roles": ["anon", "authenticated"],
+      "schema_name": "circles_app",
+      "table_name": "_dataMigrations",
+      "using_qualification": "false",
+      "with_check_qualification": "false"
+    },
+    {
+      "command": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policy_name": "runtime_data_migrations_read_policy",
+      "roles": ["circles_app_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "_dataMigrations",
+      "using_qualification": "true",
+      "with_check_qualification": null
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_native_exec_activehostleases",
+      "roles": ["circles_admin_native_executor"],
+      "schema_name": "circles_app",
+      "table_name": "activeHostLeases",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_parity_read_activehostleases",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "activeHostLeases",
+      "using_qualification": "true",
+      "with_check_qualification": null
+    },
+    {
+      "command": "ALL",
+      "permissive": "RESTRICTIVE",
+      "policy_name": "circles_app_deny_anon_authenticated",
+      "roles": ["anon", "authenticated"],
+      "schema_name": "circles_app",
+      "table_name": "activeHostLeases",
+      "using_qualification": "false",
+      "with_check_qualification": "false"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "runtime_active_host_leases_policy",
+      "roles": ["circles_app_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "activeHostLeases",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_native_exec_activitycirclepreferences",
+      "roles": ["circles_admin_native_executor"],
+      "schema_name": "circles_app",
+      "table_name": "activityCirclePreferences",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "ALL",
+      "permissive": "RESTRICTIVE",
+      "policy_name": "circles_app_deny_anon_authenticated",
+      "roles": ["anon", "authenticated"],
+      "schema_name": "circles_app",
+      "table_name": "activityCirclePreferences",
+      "using_qualification": "false",
+      "with_check_qualification": "false"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "runtime_activity_circle_preferences_policy",
+      "roles": ["circles_app_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "activityCirclePreferences",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_native_exec_activityitems",
+      "roles": ["circles_admin_native_executor"],
+      "schema_name": "circles_app",
+      "table_name": "activityItems",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_parity_read_activityitems",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "activityItems",
+      "using_qualification": "true",
+      "with_check_qualification": null
+    },
+    {
+      "command": "ALL",
+      "permissive": "RESTRICTIVE",
+      "policy_name": "circles_app_deny_anon_authenticated",
+      "roles": ["anon", "authenticated"],
+      "schema_name": "circles_app",
+      "table_name": "activityItems",
+      "using_qualification": "false",
+      "with_check_qualification": "false"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "runtime_activity_items_policy",
+      "roles": ["circles_app_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "activityItems",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_native_exec_activitypreferences",
+      "roles": ["circles_admin_native_executor"],
+      "schema_name": "circles_app",
+      "table_name": "activityPreferences",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "ALL",
+      "permissive": "RESTRICTIVE",
+      "policy_name": "circles_app_deny_anon_authenticated",
+      "roles": ["anon", "authenticated"],
+      "schema_name": "circles_app",
+      "table_name": "activityPreferences",
+      "using_qualification": "false",
+      "with_check_qualification": "false"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "runtime_activity_preferences_policy",
+      "roles": ["circles_app_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "activityPreferences",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "ALL",
+      "permissive": "RESTRICTIVE",
+      "policy_name": "circles_app_deny_anon_authenticated",
+      "roles": ["anon", "authenticated"],
+      "schema_name": "circles_app",
+      "table_name": "applicationSessions",
+      "using_qualification": "false",
+      "with_check_qualification": "false"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "runtime_application_sessions_policy",
+      "roles": ["circles_app_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "applicationSessions",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_parity_read_bookmarks",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "bookmarks",
+      "using_qualification": "true",
+      "with_check_qualification": null
+    },
+    {
+      "command": "ALL",
+      "permissive": "RESTRICTIVE",
+      "policy_name": "circles_app_deny_anon_authenticated",
+      "roles": ["anon", "authenticated"],
+      "schema_name": "circles_app",
+      "table_name": "bookmarks",
+      "using_qualification": "false",
+      "with_check_qualification": "false"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "runtime_bookmarks_policy",
+      "roles": ["circles_app_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "bookmarks",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_native_exec_circles",
+      "roles": ["circles_admin_native_executor"],
+      "schema_name": "circles_app",
+      "table_name": "circles",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_read_circles",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "circles",
+      "using_qualification": "true",
+      "with_check_qualification": null
+    },
+    {
+      "command": "ALL",
+      "permissive": "RESTRICTIVE",
+      "policy_name": "circles_app_deny_anon_authenticated",
+      "roles": ["anon", "authenticated"],
+      "schema_name": "circles_app",
+      "table_name": "circles",
+      "using_qualification": "false",
+      "with_check_qualification": "false"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "runtime_circles_policy",
+      "roles": ["circles_app_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "circles",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_read_comments",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "comments",
+      "using_qualification": "true",
+      "with_check_qualification": null
+    },
+    {
+      "command": "ALL",
+      "permissive": "RESTRICTIVE",
+      "policy_name": "circles_app_deny_anon_authenticated",
+      "roles": ["anon", "authenticated"],
+      "schema_name": "circles_app",
+      "table_name": "comments",
+      "using_qualification": "false",
+      "with_check_qualification": "false"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "runtime_comments_policy",
+      "roles": ["circles_app_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "comments",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "ALL",
+      "permissive": "RESTRICTIVE",
+      "policy_name": "circles_app_deny_anon_authenticated",
+      "roles": ["anon", "authenticated"],
+      "schema_name": "circles_app",
+      "table_name": "conversationParticipants",
+      "using_qualification": "false",
+      "with_check_qualification": "false"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "runtime_conversation_participants_policy",
+      "roles": ["circles_app_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "conversationParticipants",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "ALL",
+      "permissive": "RESTRICTIVE",
+      "policy_name": "circles_app_deny_anon_authenticated",
+      "roles": ["anon", "authenticated"],
+      "schema_name": "circles_app",
+      "table_name": "conversations",
+      "using_qualification": "false",
+      "with_check_qualification": "false"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "runtime_conversations_policy",
+      "roles": ["circles_app_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "conversations",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_parity_read_follows",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "follows",
+      "using_qualification": "true",
+      "with_check_qualification": null
+    },
+    {
+      "command": "ALL",
+      "permissive": "RESTRICTIVE",
+      "policy_name": "circles_app_deny_anon_authenticated",
+      "roles": ["anon", "authenticated"],
+      "schema_name": "circles_app",
+      "table_name": "follows",
+      "using_qualification": "false",
+      "with_check_qualification": "false"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "runtime_follows_policy",
+      "roles": ["circles_app_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "follows",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_parity_read_livechat",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "liveChat",
+      "using_qualification": "true",
+      "with_check_qualification": null
+    },
+    {
+      "command": "ALL",
+      "permissive": "RESTRICTIVE",
+      "policy_name": "circles_app_deny_anon_authenticated",
+      "roles": ["anon", "authenticated"],
+      "schema_name": "circles_app",
+      "table_name": "liveChat",
+      "using_qualification": "false",
+      "with_check_qualification": "false"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "runtime_live_chat_policy",
+      "roles": ["circles_app_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "liveChat",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_native_exec_livesignals",
+      "roles": ["circles_admin_native_executor"],
+      "schema_name": "circles_app",
+      "table_name": "liveSignals",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "ALL",
+      "permissive": "RESTRICTIVE",
+      "policy_name": "circles_app_deny_anon_authenticated",
+      "roles": ["anon", "authenticated"],
+      "schema_name": "circles_app",
+      "table_name": "liveSignals",
+      "using_qualification": "false",
+      "with_check_qualification": "false"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "runtime_live_signals_policy",
+      "roles": ["circles_app_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "liveSignals",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_read_liveviewers",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "liveViewers",
+      "using_qualification": "true",
+      "with_check_qualification": null
+    },
+    {
+      "command": "ALL",
+      "permissive": "RESTRICTIVE",
+      "policy_name": "circles_app_deny_anon_authenticated",
+      "roles": ["anon", "authenticated"],
+      "schema_name": "circles_app",
+      "table_name": "liveViewers",
+      "using_qualification": "false",
+      "with_check_qualification": "false"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "runtime_live_viewers_policy",
+      "roles": ["circles_app_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "liveViewers",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_native_exec_memberships",
+      "roles": ["circles_admin_native_executor"],
+      "schema_name": "circles_app",
+      "table_name": "memberships",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_read_memberships",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "memberships",
+      "using_qualification": "true",
+      "with_check_qualification": null
+    },
+    {
+      "command": "ALL",
+      "permissive": "RESTRICTIVE",
+      "policy_name": "circles_app_deny_anon_authenticated",
+      "roles": ["anon", "authenticated"],
+      "schema_name": "circles_app",
+      "table_name": "memberships",
+      "using_qualification": "false",
+      "with_check_qualification": "false"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "runtime_memberships_policy",
+      "roles": ["circles_app_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "memberships",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "ALL",
+      "permissive": "RESTRICTIVE",
+      "policy_name": "circles_app_deny_anon_authenticated",
+      "roles": ["anon", "authenticated"],
+      "schema_name": "circles_app",
+      "table_name": "messages",
+      "using_qualification": "false",
+      "with_check_qualification": "false"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "runtime_messages_policy",
+      "roles": ["circles_app_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "messages",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_native_exec_moderationactions",
+      "roles": ["circles_admin_native_executor"],
+      "schema_name": "circles_app",
+      "table_name": "moderationActions",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_parity_read_moderationactions",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "moderationActions",
+      "using_qualification": "true",
+      "with_check_qualification": null
+    },
+    {
+      "command": "ALL",
+      "permissive": "RESTRICTIVE",
+      "policy_name": "circles_app_deny_anon_authenticated",
+      "roles": ["anon", "authenticated"],
+      "schema_name": "circles_app",
+      "table_name": "moderationActions",
+      "using_qualification": "false",
+      "with_check_qualification": "false"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "runtime_moderation_actions_policy",
+      "roles": ["circles_app_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "moderationActions",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_native_exec_moderationcases",
+      "roles": ["circles_admin_native_executor"],
+      "schema_name": "circles_app",
+      "table_name": "moderationCases",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_parity_read_moderationcases",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "moderationCases",
+      "using_qualification": "true",
+      "with_check_qualification": null
+    },
+    {
+      "command": "ALL",
+      "permissive": "RESTRICTIVE",
+      "policy_name": "circles_app_deny_anon_authenticated",
+      "roles": ["anon", "authenticated"],
+      "schema_name": "circles_app",
+      "table_name": "moderationCases",
+      "using_qualification": "false",
+      "with_check_qualification": "false"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "runtime_moderation_cases_policy",
+      "roles": ["circles_app_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "moderationCases",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_native_exec_posts",
+      "roles": ["circles_admin_native_executor"],
+      "schema_name": "circles_app",
+      "table_name": "posts",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_read_posts",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "posts",
+      "using_qualification": "true",
+      "with_check_qualification": null
+    },
+    {
+      "command": "ALL",
+      "permissive": "RESTRICTIVE",
+      "policy_name": "circles_app_deny_anon_authenticated",
+      "roles": ["anon", "authenticated"],
+      "schema_name": "circles_app",
+      "table_name": "posts",
+      "using_qualification": "false",
+      "with_check_qualification": "false"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "runtime_posts_policy",
+      "roles": ["circles_app_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "posts",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_native_exec_profiles",
+      "roles": ["circles_admin_native_executor"],
+      "schema_name": "circles_app",
+      "table_name": "profiles",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_read_profiles",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "profiles",
+      "using_qualification": "true",
+      "with_check_qualification": null
+    },
+    {
+      "command": "ALL",
+      "permissive": "RESTRICTIVE",
+      "policy_name": "circles_app_deny_anon_authenticated",
+      "roles": ["anon", "authenticated"],
+      "schema_name": "circles_app",
+      "table_name": "profiles",
+      "using_qualification": "false",
+      "with_check_qualification": "false"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "runtime_profiles_policy",
+      "roles": ["circles_app_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "profiles",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_read_reactions",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "reactions",
+      "using_qualification": "true",
+      "with_check_qualification": null
+    },
+    {
+      "command": "ALL",
+      "permissive": "RESTRICTIVE",
+      "policy_name": "circles_app_deny_anon_authenticated",
+      "roles": ["anon", "authenticated"],
+      "schema_name": "circles_app",
+      "table_name": "reactions",
+      "using_qualification": "false",
+      "with_check_qualification": "false"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "runtime_reactions_policy",
+      "roles": ["circles_app_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "reactions",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_read_reports",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "reports",
+      "using_qualification": "true",
+      "with_check_qualification": null
+    },
+    {
+      "command": "ALL",
+      "permissive": "RESTRICTIVE",
+      "policy_name": "circles_app_deny_anon_authenticated",
+      "roles": ["anon", "authenticated"],
+      "schema_name": "circles_app",
+      "table_name": "reports",
+      "using_qualification": "false",
+      "with_check_qualification": "false"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "runtime_reports_policy",
+      "roles": ["circles_app_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "reports",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "ALL",
+      "permissive": "RESTRICTIVE",
+      "policy_name": "circles_app_deny_anon_authenticated",
+      "roles": ["anon", "authenticated"],
+      "schema_name": "circles_app",
+      "table_name": "socialSeedMarkers",
+      "using_qualification": "false",
+      "with_check_qualification": "false"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "runtime_social_seed_markers_policy",
+      "roles": ["circles_app_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "socialSeedMarkers",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_parity_read_socialuploads",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "socialUploads",
+      "using_qualification": "true",
+      "with_check_qualification": null
+    },
+    {
+      "command": "ALL",
+      "permissive": "RESTRICTIVE",
+      "policy_name": "circles_app_deny_anon_authenticated",
+      "roles": ["anon", "authenticated"],
+      "schema_name": "circles_app",
+      "table_name": "socialUploads",
+      "using_qualification": "false",
+      "with_check_qualification": "false"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "runtime_social_uploads_policy",
+      "roles": ["circles_app_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "socialUploads",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_native_exec_streams",
+      "roles": ["circles_admin_native_executor"],
+      "schema_name": "circles_app",
+      "table_name": "streams",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_read_streams",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "streams",
+      "using_qualification": "true",
+      "with_check_qualification": null
+    },
+    {
+      "command": "ALL",
+      "permissive": "RESTRICTIVE",
+      "policy_name": "circles_app_deny_anon_authenticated",
+      "roles": ["anon", "authenticated"],
+      "schema_name": "circles_app",
+      "table_name": "streams",
+      "using_qualification": "false",
+      "with_check_qualification": "false"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "runtime_streams_policy",
+      "roles": ["circles_app_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "streams",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_native_exec_users",
+      "roles": ["circles_admin_native_executor"],
+      "schema_name": "circles_app",
+      "table_name": "users",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    },
+    {
+      "command": "UPDATE",
+      "permissive": "RESTRICTIVE",
+      "policy_name": "circles_admin_native_users_lock_only",
+      "roles": ["circles_admin_native_executor"],
+      "schema_name": "circles_app",
+      "table_name": "users",
+      "using_qualification": "true",
+      "with_check_qualification": "false"
+    },
+    {
+      "command": "SELECT",
+      "permissive": "PERMISSIVE",
+      "policy_name": "circles_admin_read_users",
+      "roles": ["circles_admin_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "users",
+      "using_qualification": "true",
+      "with_check_qualification": null
+    },
+    {
+      "command": "ALL",
+      "permissive": "RESTRICTIVE",
+      "policy_name": "circles_app_deny_anon_authenticated",
+      "roles": ["anon", "authenticated"],
+      "schema_name": "circles_app",
+      "table_name": "users",
+      "using_qualification": "false",
+      "with_check_qualification": "false"
+    },
+    {
+      "command": "ALL",
+      "permissive": "PERMISSIVE",
+      "policy_name": "runtime_users_policy",
+      "roles": ["circles_app_runtime"],
+      "schema_name": "circles_app",
+      "table_name": "users",
+      "using_qualification": "true",
+      "with_check_qualification": "true"
+    }
+  ],
+  "source_schema_sha256": "35cc5c0d8d01777d13b6b2bc08cae906e26c82c628fecdc49d18676c7d04320f"
+}

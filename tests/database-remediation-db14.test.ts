@@ -72,12 +72,21 @@ describe("DB-14 critical database contract", () => {
     expect(EMAIL_IDENTITY_READINESS_SQL).toContain("LIMIT 1");
   });
 
-  it("requires the named receipt UNIQUE plus any exact validated PK-or-UNIQUE guarantee", () => {
+  it("requires named business uniqueness and the exact legacy or surrogate receipt-key contract", () => {
     expect(POST_PUBLICATION_STATUS_SQL).toContain(
       "post_publish_receipts_actor_operation_unique",
     );
     expect(POST_PUBLICATION_STATUS_SQL).toContain(
-      "contype IN ('p'::pg_catalog.\"char\", 'u'::pg_catalog.\"char\")",
+      "c.contype = 'u'::pg_catalog.\"char\" AND c.convalidated",
+    );
+    expect(POST_PUBLICATION_STATUS_SQL).toContain(
+      "c.contype = 'p'::pg_catalog.\"char\" AND c.convalidated",
+    );
+    expect(POST_PUBLICATION_STATUS_SQL).toContain(
+      "'id'::pg_catalog.name, 6::pg_catalog.int2, 'bigint'::pg_catalog.text, true, 'a'::pg_catalog.\"char\"",
+    );
+    expect(POST_PUBLICATION_STATUS_SQL).toContain(
+      "identity_attribute.attidentity = 'a'::pg_catalog.\"char\"",
     );
     expect(POST_PUBLICATION_STATUS_SQL).toContain(
       "postPublishReceipts_actorId_fkey",

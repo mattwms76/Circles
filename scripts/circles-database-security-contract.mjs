@@ -1,3 +1,20 @@
+import { readFileSync } from "node:fs";
+
+const currentAuthorizationContract = JSON.parse(
+  readFileSync(
+    new URL("./fixtures/current-authorization-contract.json", import.meta.url),
+    "utf8",
+  ),
+);
+
+function deepFreezeContract(value) {
+  if (value && typeof value === "object" && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const entry of Object.values(value)) deepFreezeContract(entry);
+  }
+  return value;
+}
+
 /**
  * DB-05 finite authorization contract.
  *
@@ -9,6 +26,13 @@
 
 export const APPLICATION_SCHEMA = "circles_app";
 export const ADMIN_SCHEMA = "circles_admin";
+/**
+ * Metadata-only, complete current state captured 2026-10-28.  This is an
+ * explicit reviewed variant, not an inventory exemption or namespace pattern.
+ */
+export const CURRENT_AUTHORIZATION_CONTRACT = deepFreezeContract(
+  currentAuthorizationContract,
+);
 export const APP_RUNTIME_ROLE = "circles_app_runtime";
 export const ADMIN_RUNTIME_ROLE = "circles_admin_runtime";
 export const ADMIN_NATIVE_EXECUTOR_ROLE = "circles_admin_native_executor";
@@ -152,6 +176,36 @@ export const APP_LOGIN_CONTRACT_VARIANTS = Object.freeze({
         inherit_option: false,
         set_option: true,
         admin_option: false,
+      },
+    ]),
+    direct_object_acl: Object.freeze([]),
+  }),
+  /**
+   * The dedicated principal is deliberately staged but detached: it remains
+   * NOLOGIN and retains only the provider-owned incoming administration edge.
+   * This is not a connection-ready or cutover-ready login state.
+   */
+  no_login_detached_provider_owned_incoming_edge: Object.freeze({
+    roles: Object.freeze([
+      {
+        role_name: "circles_app_login",
+        can_login: false,
+        inherits: false,
+        is_superuser: false,
+        can_create_db: false,
+        can_create_role: false,
+        bypasses_rls: false,
+        can_replicate: false,
+      },
+    ]),
+    memberships: Object.freeze([
+      {
+        parent_role: "circles_app_login",
+        member_role: "postgres",
+        grantor_role: "supabase_admin",
+        inherit_option: false,
+        set_option: false,
+        admin_option: true,
       },
     ]),
     direct_object_acl: Object.freeze([]),
@@ -1481,6 +1535,22 @@ export const ADMIN_TABLE_EXPECTATIONS = Object.freeze([
     rls_forced: true,
   },
 ]);
+
+/** Complete captured nine-table admin state, including review_handoffs. */
+export const CURRENT_ADMIN_TABLE_EXPECTATIONS =
+  CURRENT_AUTHORIZATION_CONTRACT.admin_tables;
+
+/**
+ * Direct, non-owner ACLs in circles_admin for the complete current state.
+ * Owner-default grants are intentionally not represented here: the collector
+ * removes them before comparison so only independently granted authority is
+ * accepted.
+ */
+export const CURRENT_ADMIN_DIRECT_ACL = Object.freeze({
+  schema: CURRENT_AUTHORIZATION_CONTRACT.admin_schema_acl,
+  tables: CURRENT_AUTHORIZATION_CONTRACT.admin_table_acl,
+  columns: CURRENT_AUTHORIZATION_CONTRACT.admin_column_acl,
+});
 
 /**
  * DB-09 removes exactly one member of each known duplicate pair.  No partially
@@ -4984,6 +5054,11 @@ export const POLICY_CONTRACT_VARIANTS = Object.freeze({
       with_check_qualification: "true",
     },
   ]),
+  /**
+   * Complete metadata-only capture after duplicate consolidation, the two
+   * closed-table deny policies, and review-handoff authorization landed.
+   */
+  current_complete_20261028: CURRENT_AUTHORIZATION_CONTRACT.policies,
 });
 
 /**
@@ -5449,3 +5524,11 @@ export const ADMIN_FUNCTION_CONTRACT_VARIANTS = Object.freeze({
     },
   ]),
 });
+
+/**
+ * Complete current helper state. Each entry pins signature, owner, definer
+ * flag, exact search_path settings, pg_get_functiondef MD5 fingerprint, all
+ * relevant effective executors, and every non-owner direct EXECUTE ACL.
+ */
+export const CURRENT_ADMIN_FUNCTION_EXPECTATIONS =
+  CURRENT_AUTHORIZATION_CONTRACT.admin_functions;

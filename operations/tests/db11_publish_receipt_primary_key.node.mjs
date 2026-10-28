@@ -54,11 +54,10 @@ test("DB-11 never replaces the named unique constraint or tries to promote its o
   );
 });
 
-test("DB-11 represents both compatible arbiters in the discovered Drizzle receipt schema", () => {
-  assert.match(schema, /primaryKey,/);
+test("DB-11 preserves legacy migration SQL while Drizzle reflects the captured surrogate receipt primary key", () => {
   assert.match(
     schema,
-    /primaryKey\(\{[\s\S]*name: "post_publish_receipts_pkey",[\s\S]*columns: \[table\.actorId, table\.operationId\]/,
+    /id: bigint\("id", \{ mode: "bigint" \}\)\s*\.generatedAlwaysAsIdentity\(\)\s*\.primaryKey\(\)/,
   );
   assert.match(
     schema,
@@ -66,11 +65,28 @@ test("DB-11 represents both compatible arbiters in the discovered Drizzle receip
   );
   assert.doesNotMatch(
     schema,
+    /primaryKey\(\{[\s\S]*columns: \[table\.actorId, table\.operationId\]/,
+  );
+  assert.doesNotMatch(
+    schema,
     /uniqueIndex\("post_publish_receipts_actor_operation_unique"/,
   );
+  assert.match(
+    schema,
+    /const postPublishReceiptInsertTarget = circlesPublish\.table\([\s\S]*actorId: integer\("actorId"\)[\s\S]*operationId: varchar\("operationId"[\s\S]*payloadHash: varchar\("payloadHash"[\s\S]*postId: integer\("postId"\)/,
+  );
+  assert.match(
+    schema,
+    /export function postPublishReceiptInsertProjection\(\)/,
+  );
+  assert.doesNotMatch(schema, /export const postPublishReceiptInsertTarget/);
 });
 
 test("DB-11 preserves the application's explicit actor-operation ON CONFLICT contract", () => {
+  assert.match(
+    service,
+    /const receiptInsert = postPublishReceiptInsertProjection\(\);[\s\S]*\.insert\(receiptInsert\)/,
+  );
   assert.match(
     service,
     /\.onConflictDoNothing\(\{[\s\S]*target: \[[\s\S]*postPublishReceipts\.actorId,[\s\S]*postPublishReceipts\.operationId/,
