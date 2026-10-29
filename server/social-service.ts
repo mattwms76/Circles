@@ -56,6 +56,7 @@ import type {
   Post,
   Profile,
 } from "../shared/social";
+import { INTEREST_IDS } from "../shared/onboarding";
 import {
   MESSAGE_PAGE_DEFAULT_LIMIT,
   MESSAGE_PAGE_MAX_LIMIT,
@@ -855,35 +856,164 @@ export async function listProfilesPage(
 ): Promise<CursorPage<Profile, IdCursor>> {
   const db = await requireDb();
   const term = options.search?.trim();
-  const clauses: SQL[] = [];
-  // Keep self out of the SQL page so it cannot consume a page slot or surface an impossible
-  // Follow mutation for the current actor.
-  if (viewerId !== null) clauses.push(ne(profiles.userId, viewerId));
-  if (term) {
-    clauses.push(
-      or(
-        ilike(profiles.name, `%${term}%`),
-        ilike(profiles.handle, `%${term}%`),
-      )!,
+  const limit = socialPageLimit(options.limit);
+
+  /**
+   * Ranking inputs remain inside this runtime-role query. It returns only public-profile IDs and
+   * cursor validity; no private interests, score totals, or intermediate follow identities leave
+   * PostgreSQL. The JSON CASE handles historic non-array values and DISTINCT plus the fixed
+   * onboarding allowlist make duplicate or unknown JSON entries inert.
+   */
+  type RankedProfileRow = { userId: number | null; cursorValid: boolean };
+  const searchNeedle = term ? `%${term}%` : null;
+  const cursorId = options.cursor?.id ?? null;
+  const allowedInterests = sql.join(
+    INTEREST_IDS.map((interest) => sql`${interest}`),
+    sql`, `,
+  );
+  const rankedResult = await db.execute(
+    sql`
+      WITH scoped_profiles AS (
+        SELECT
+          candidate."userId" AS user_id,
+          candidate.interests,
+          EXISTS (
+            SELECT 1
+            FROM ${follows} AS direct_follow
+            WHERE direct_follow."followerId" = ${viewerId}::integer
+              AND direct_follow."followingId" = candidate."userId"
+          ) AS already_followed
+        FROM ${profiles} AS candidate
+        WHERE (${viewerId}::integer IS NULL OR candidate."userId" <> ${viewerId}::integer)
+          AND (
+            ${searchNeedle}::text IS NULL
+            OR candidate.name ILIKE ${searchNeedle}::text
+            OR candidate.handle ILIKE ${searchNeedle}::text
+          )
+      ),
+      viewer_interests AS (
+        SELECT DISTINCT viewer_interest.value AS interest
+        FROM ${profiles} AS viewer_profile
+        CROSS JOIN LATERAL pg_catalog.jsonb_array_elements_text(
+          CASE
+            WHEN pg_catalog.jsonb_typeof(viewer_profile.interests) = 'array'
+              THEN viewer_profile.interests
+            ELSE '[]'::jsonb
+          END
+        ) AS viewer_interest(value)
+        WHERE viewer_profile."userId" = ${viewerId}::integer
+          AND viewer_interest.value = ANY(ARRAY[${allowedInterests}]::text[])
+      ),
+      candidate_interests AS (
+        SELECT DISTINCT scoped_profiles.user_id, candidate_interest.value AS interest
+        FROM scoped_profiles
+        CROSS JOIN LATERAL pg_catalog.jsonb_array_elements_text(
+          CASE
+            WHEN pg_catalog.jsonb_typeof(scoped_profiles.interests) = 'array'
+              THEN scoped_profiles.interests
+            ELSE '[]'::jsonb
+          END
+        ) AS candidate_interest(value)
+        WHERE candidate_interest.value = ANY(ARRAY[${allowedInterests}]::text[])
+      ),
+      interest_scores AS (
+        SELECT candidate_interests.user_id,
+          pg_catalog.count(*)::integer AS shared_interest_count
+        FROM candidate_interests
+        INNER JOIN viewer_interests
+          ON viewer_interests.interest = candidate_interests.interest
+        GROUP BY candidate_interests.user_id
+      ),
+      two_hop_scores AS (
+        SELECT second_hop."followingId" AS user_id,
+          pg_catalog.count(DISTINCT first_hop."followingId")::integer AS two_hop_count
+        FROM ${follows} AS first_hop
+        INNER JOIN ${follows} AS second_hop
+          ON second_hop."followerId" = first_hop."followingId"
+        INNER JOIN scoped_profiles
+          ON scoped_profiles.user_id = second_hop."followingId"
+        WHERE first_hop."followerId" = ${viewerId}::integer
+        GROUP BY second_hop."followingId"
+      ),
+      ranked AS (
+        SELECT
+          scoped_profiles.user_id,
+          scoped_profiles.already_followed,
+          (
+            100 * COALESCE(interest_scores.shared_interest_count, 0)
+            + 10 * LEAST(COALESCE(two_hop_scores.two_hop_count, 0), 9)
+          )::integer AS relevance_score
+        FROM scoped_profiles
+        LEFT JOIN interest_scores
+          ON interest_scores.user_id = scoped_profiles.user_id
+        LEFT JOIN two_hop_scores
+          ON two_hop_scores.user_id = scoped_profiles.user_id
+      ),
+      cursor_anchor AS (
+        SELECT user_id, already_followed, relevance_score
+        FROM ranked
+        WHERE user_id = ${cursorId}::integer
+      ),
+      cursor_state AS (
+        SELECT (
+          ${cursorId}::integer IS NULL
+          OR EXISTS (SELECT 1 FROM cursor_anchor)
+        ) AS cursor_valid
+      ),
+      page AS (
+        SELECT ranked.user_id, ranked.already_followed, ranked.relevance_score
+        FROM ranked
+        CROSS JOIN cursor_state
+        WHERE cursor_state.cursor_valid
+          AND (
+            ${cursorId}::integer IS NULL
+            OR EXISTS (
+              SELECT 1
+              FROM cursor_anchor
+              WHERE ranked.already_followed > cursor_anchor.already_followed
+                OR (
+                  ranked.already_followed = cursor_anchor.already_followed
+                  AND ranked.relevance_score < cursor_anchor.relevance_score
+                )
+                OR (
+                  ranked.already_followed = cursor_anchor.already_followed
+                  AND ranked.relevance_score = cursor_anchor.relevance_score
+                  AND ranked.user_id > cursor_anchor.user_id
+                )
+            )
+          )
+        ORDER BY ranked.already_followed ASC, ranked.relevance_score DESC, ranked.user_id ASC
+        LIMIT ${limit + 1}
+      )
+      SELECT
+        page.user_id AS "userId",
+        cursor_state.cursor_valid AS "cursorValid"
+      FROM cursor_state
+      LEFT JOIN page ON true
+      ORDER BY page.already_followed ASC NULLS LAST,
+        page.relevance_score DESC NULLS LAST,
+        page.user_id ASC NULLS LAST
+    `,
+  );
+  const rows = rankedResult.rows as RankedProfileRow[];
+  if (!rows[0]?.cursorValid) {
+    socialError(
+      "BAD_REQUEST",
+      "People recommendations changed. Refresh to continue.",
     );
   }
-  if (options.cursor) clauses.push(gt(profiles.userId, options.cursor.id));
-  const limit = socialPageLimit(options.limit);
-  const rows = await db
-    .select({ userId: profiles.userId })
-    .from(profiles)
-    .where(clauses.length ? and(...clauses) : undefined)
-    .orderBy(asc(profiles.userId))
-    .limit(limit + 1);
-  const pageRows = rows.slice(0, limit);
-  const hasMore = rows.length > limit;
-  const last = pageRows[pageRows.length - 1];
+  const rankedIds = rows
+    .map((row) => row.userId)
+    .filter((userId): userId is number => Number.isSafeInteger(userId));
+  const pageIds = rankedIds.slice(0, limit);
+  const hasMore = rankedIds.length > limit;
+  const lastId = pageIds[pageIds.length - 1];
   const items = await Promise.all(
-    pageRows.map((row) => findProfileWithDb(db, row.userId, viewerId)),
+    pageIds.map((userId) => findProfileWithDb(db, userId, viewerId)),
   );
   return {
     items: items.filter((profile): profile is Profile => profile !== null),
-    nextCursor: hasMore && last ? { id: last.userId } : null,
+    nextCursor: hasMore && lastId ? { id: lastId } : null,
     hasMore,
   };
 }

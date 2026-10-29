@@ -94,6 +94,26 @@ describe("onboarding UI helpers", () => {
 });
 
 describe("onboarding source contract", () => {
+  it("refreshes ranked People after current-account interest persistence without turning reader failure into save failure", () => {
+    const saveHook = onboardingRoute.slice(
+      onboardingRoute.indexOf("const save = trpc.onboarding.save.useMutation"),
+      onboardingRoute.indexOf(
+        "const finish = trpc.onboarding.finish.useMutation",
+      ),
+    );
+    expect(saveHook).toContain("onSuccess: (saved)");
+    expect(saveHook).toContain("saved.userId !== accountId");
+    expect(saveHook).toContain(
+      "!isCurrentOnboardingAccount(accountId, currentAccountRef.current)",
+    );
+    expect(saveHook).toContain(
+      "utils.social.profilesPage.invalidate().catch(() => undefined)",
+    );
+    expect(saveHook.indexOf("return;")).toBeLessThan(
+      saveHook.indexOf("utils.social.profilesPage.invalidate()"),
+    );
+  });
+
   it("uses explicit membership, finishes before navigation, and never auto-joins", () => {
     expect(onboardingRoute).toContain("trpc.social.setMembership.useMutation");
     expect(onboardingRoute).toContain("await finish.mutateAsync()");

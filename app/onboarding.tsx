@@ -337,7 +337,18 @@ function OnboardingWizard({
   const operationLock = useRef(false);
   const membershipTargetRef = useRef<D28020MembershipTarget | null>(null);
   const membershipMountedRef = useRef(false);
-  const save = trpc.onboarding.save.useMutation();
+  const save = trpc.onboarding.save.useMutation({
+    onSuccess: (saved) => {
+      if (
+        saved.userId !== accountId ||
+        !isCurrentOnboardingAccount(accountId, currentAccountRef.current)
+      )
+        return;
+      // Interest persistence remains successful even if a background reader
+      // cannot refresh; that reader owns its existing error/retry presentation.
+      void utils.social.profilesPage.invalidate().catch(() => undefined);
+    },
+  });
   const finish = trpc.onboarding.finish.useMutation();
   const membership = trpc.social.setMembership.useMutation();
   useEffect(() => {

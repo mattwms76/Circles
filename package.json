@@ -4,7 +4,10 @@
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
-    "dev": "concurrently -k \"pnpm dev:server\" \"pnpm dev:metro\"",
+    "dev": "node scripts/dev-supervisor.mjs",
+    "dev:supervised": "node scripts/dev-supervisor.mjs",
+    "services:check": "node scripts/dev-supervisor.mjs --once",
+    "services:status": "node scripts/dev-supervisor.mjs --status",
     "dev:server": "cross-env PORT=3000 NODE_ENV=development tsx watch server/_core/index.ts",
     "dev:metro": "cross-env EXPO_USE_METRO_WORKSPACE_ROOT=1 EXPO_PORT=8081 npx expo start --web --port 8081",
     "build": "esbuild server/_core/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
@@ -37,7 +40,8 @@
     "qr": "node scripts/generate_qr.mjs",
     "test:e2e:activity": "/usr/bin/python3 scripts/run-circle-home-e2e.py --suite activity",
     "test:e2e:moderation": "/usr/bin/python3 scripts/run-circle-home-e2e.py --suite moderation",
-    "test:e2e:post-publish": "/usr/bin/python3 -B scripts/run-circle-home-e2e.py --suite post-publish-idempotency"
+    "test:e2e:post-publish": "/usr/bin/python3 -B scripts/run-circle-home-e2e.py --suite post-publish-idempotency",
+    "test:e2e:people-recommendations": "/usr/bin/python3 -B scripts/run-circle-home-e2e.py --suite people-recommendations"
   },
   "dependencies": {
     "@config-plugins/react-native-webrtc": "15.0.2",

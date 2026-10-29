@@ -61,6 +61,7 @@ SUITES = (
     "a26-authority",
     "sec27-security",
     "post-publish-idempotency",
+    "people-recommendations",
 )
 
 
@@ -136,6 +137,8 @@ def suite_config(suite: str) -> str:
         return "e2e/moderation.e2e.config.ts"
     if suite == "post-publish-idempotency":
         return "e2e/post-publish-idempotency.e2e.config.ts"
+    if suite == "people-recommendations":
+        return "e2e/people-recommendations.e2e.config.ts"
     return "e2e/circle-home.e2e.config.ts"
 
 
@@ -286,6 +289,62 @@ def apply_fixture_schema(
               (106, 1, 11, 'Owner-authored fixture post')
             """
         )
+        if suite == "people-recommendations":
+            # The recommendation graph is intentionally synthetic and isolated. IDs 16–25 have
+            # no profile rows: they exercise the nine-intermediary cap without creating extra
+            # directory candidates. Malformed historical JSON is installed only after the health
+            # check below, preserving the normal schema drill for every fixed suite.
+            recommendations = (
+                (1, "Meridian", "@meridian", '["music", "design"]'),
+                (2, "Vector", "@vector", '["gaming", "technology"]'),
+                (3, "Cold Start", "@cold-start", '[]'),
+                (4, "Lumen Atlas", "@lumen-atlas", '["music", "design"]'),
+                (5, "Pixel Deck", "@pixel-deck", '["gaming", "technology"]'),
+                (6, "Music One", "@music-one", '["music"]'),
+                (7, "Direct Fallback", "@direct-fallback", '["art"]'),
+            )
+            for user_id, name, handle, interests in recommendations:
+                db.execute(
+                    """
+                    UPDATE circles_app.profiles
+                       SET name = %s, handle = %s, interests = %s::jsonb
+                     WHERE "userId" = %s
+                    """,
+                    (name, handle, interests, user_id),
+                )
+            for user_id in range(8, 26):
+                db.execute(
+                    "INSERT INTO circles_app.users(id, \"openId\", name) VALUES (%s, %s, %s)",
+                    (user_id, f"people-recommendations-{user_id}", f"Synthetic {user_id}"),
+                )
+            for user_id, name, handle, interests in (
+                (8, "Two-hop cap", "@two-hop-cap", '[]'),
+                (9, "Music Bridge", "@music-bridge", '["music"]'),
+                (10, "Two-hop only", "@two-hop-only", '[]'),
+                (11, "Music Tie", "@music-tie", '["music"]'),
+                (12, "Malformed Legacy", "@malformed-legacy", '[]'),
+                (13, "Music Duplicate", "@music-dup", '["music"]'),
+                (14, "Bridge One", "@bridge-one", '[]'),
+                (15, "Bridge Two", "@bridge-two", '[]'),
+            ):
+                db.execute(
+                    """
+                    INSERT INTO circles_app.profiles("userId", name, handle, bio, avatar, interests)
+                    VALUES (%s, %s, %s, '', '', %s::jsonb)
+                    """,
+                    (user_id, name, handle, interests),
+                )
+            recommendation_edges = [
+                (1, 7), (1, 14), (1, 15), (2, 6), (3, 14),
+                (14, 8), (14, 9), (15, 8), (15, 10),
+            ]
+            recommendation_edges.extend((1, intermediate) for intermediate in range(16, 26))
+            recommendation_edges.extend((intermediate, 8) for intermediate in range(16, 26))
+            for follower_id, following_id in recommendation_edges:
+                db.execute(
+                    "INSERT INTO circles_app.follows(\"followerId\", \"followingId\") VALUES (%s, %s)",
+                    (follower_id, following_id),
+                )
         if moderation_present:
             # These rows model legacy per-reporter report capture. They remain fixture-local;
             # 0012 itself is responsible for creating the aggregate moderation cases.
@@ -309,9 +368,27 @@ def apply_fixture_schema(
             ).fetchone()
             if health != (True, None):
                 fail("paired feature operations health contract is unhealthy")
+        if suite == "people-recommendations":
+            # This disposable local fixture models legacy rows predating the current JSON CHECK.
+            # It never changes source DDL or a real database, and the suite proves the service's
+            # jsonb_typeof CASE treats the object as empty while deduping/allowlisting arrays.
+            db.execute(
+                "ALTER TABLE circles_app.profiles DROP CONSTRAINT profiles_onboarding_interests_check"
+            )
+            db.execute(
+                "UPDATE circles_app.profiles SET interests = %s::jsonb WHERE \"userId\" = %s",
+                ('{"music": true}', 12),
+            )
+            db.execute(
+                "UPDATE circles_app.profiles SET interests = %s::jsonb WHERE \"userId\" = %s",
+                ('["music", "music", "unknown"]', 13),
+            )
         # Explicit ids keep request assertions stable; future fixture writes remain safe too.
         membership_sequence_value = 11 if suite == "activity" else 9
-        for sequence, value in (("users_id_seq", 7), ("profiles_id_seq", 7), ("circles_id_seq", 13), ("memberships_id_seq", membership_sequence_value), ("posts_id_seq", 106)):
+        user_sequence_value = 25 if suite == "people-recommendations" else 7
+        profile_sequence_value = 15 if suite == "people-recommendations" else 7
+        follow_sequence_value = 29 if suite == "people-recommendations" else 1
+        for sequence, value in (("users_id_seq", user_sequence_value), ("profiles_id_seq", profile_sequence_value), ("follows_id_seq", follow_sequence_value), ("circles_id_seq", 13), ("memberships_id_seq", membership_sequence_value), ("posts_id_seq", 106)):
             db.execute("SELECT setval(%s, %s, true)", (f"circles_app.{sequence}", value))
 
 

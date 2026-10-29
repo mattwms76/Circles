@@ -76,6 +76,19 @@ type RuntimeRoleVerificationRow = {
 
 type UntypedQuery = (...args: unknown[]) => unknown;
 
+/**
+ * Keeps a checked-out pg client safe until pg-pool has synchronously installed
+ * its own idle listener. pg-pool deliberately removes its idle listener before
+ * handing a client to a checkout, so every checkout needs this temporary owner.
+ */
+type RuntimeRoleClientErrorOwnership = {
+  hasFailed(): boolean;
+  hasReleasedRawClient(): boolean;
+  releaseRawClient(releaseError?: Error | boolean): void;
+  retireFailedClient(releaseError?: Error | boolean): void;
+  setFailureCallback(callback: (() => void) | undefined): void;
+};
+
 type SqlLexeme = {
   kind: "word" | "symbol" | "unsupported";
   value: string;
@@ -415,6 +428,63 @@ function isSubmittableQuery(query: unknown): boolean {
   );
 }
 
+function ownRuntimeRoleClientErrors(
+  client: PoolClient,
+): RuntimeRoleClientErrorOwnership {
+  let clientFailed = false;
+  let rawClientReleased = false;
+  let failureCallback: (() => void) | undefined;
+
+  const onClientError = (error: Error): void => {
+    clientFailed = true;
+    failureCallback?.();
+    releaseRawClient(error);
+  };
+
+  const releaseRawClient = (releaseError?: Error | boolean): void => {
+    if (rawClientReleased) return;
+    // pg-pool emits acquire immediately before it assigns client.release. An
+    // acquire listener must therefore install only the error listener; resolve
+    // the release function lazily when a later checked-out error needs it.
+    const rawRelease = client.release;
+    if (typeof rawRelease !== "function") return;
+    rawClientReleased = true;
+
+    let releasedToPool = false;
+    try {
+      if (releaseError === undefined) rawRelease.call(client);
+      else rawRelease.call(client, releaseError);
+      releasedToPool = true;
+    } catch {
+      // Keep our listener if pg-pool could not take ownership. The client is
+      // terminal and must not expose another unhandled EventEmitter error.
+    }
+
+    if (releasedToPool && typeof client.removeListener === "function") {
+      // pg-pool installs its idle/destroy listener synchronously in release().
+      // Remove ours only after that handoff, never before it.
+      client.removeListener("error", onClientError);
+    }
+  };
+
+  const retireFailedClient = (releaseError?: Error | boolean): void => {
+    clientFailed = true;
+    releaseRawClient(releaseError ?? true);
+  };
+
+  if (typeof client.on === "function") client.on("error", onClientError);
+
+  return {
+    hasFailed: () => clientFailed,
+    hasReleasedRawClient: () => rawClientReleased,
+    releaseRawClient,
+    retireFailedClient,
+    setFailureCallback: (callback) => {
+      failureCallback = callback;
+    },
+  };
+}
+
 function rejectedQueryInvocation(
   args: readonly unknown[],
   error: Error,
@@ -436,30 +506,15 @@ function rejectedQueryInvocation(
  * low-level Submittable objects are rejected because their SQL cannot be
  * reviewed before they submit to the connection.
  */
-export function guardRuntimeRoleClient(client: PoolClient): PoolClient {
+export function guardRuntimeRoleClient(
+  client: PoolClient,
+  errorOwnership = ownRuntimeRoleClientErrors(client),
+): PoolClient {
   const rawQuery = client.query.bind(client) as UntypedQuery;
-  const rawRelease = client.release.bind(client);
   let checkoutReleased = false;
-  let rawClientReleased = false;
-
-  const onCheckedOutError = (error: Error): void => {
+  errorOwnership.setFailureCallback(() => {
     checkoutReleased = true;
-    releaseRawClient(error);
-  };
-
-  const releaseRawClient = (releaseError?: Error | boolean): void => {
-    if (rawClientReleased) return;
-    rawClientReleased = true;
-    if (typeof client.removeListener === "function") {
-      client.removeListener("error", onCheckedOutError);
-    }
-    try {
-      if (releaseError === undefined) rawRelease();
-      else rawRelease(releaseError);
-    } catch {
-      // The raw client is already unusable and must never be exposed again.
-    }
-  };
+  });
 
   const cleanupThenRelease = async (): Promise<void> => {
     try {
@@ -467,11 +522,11 @@ export function guardRuntimeRoleClient(client: PoolClient): PoolClient {
         Promise.resolve(rawQuery(RUNTIME_ROLE_RELEASE_CLEANUP_SQL)),
         RUNTIME_ROLE_RELEASE_CLEANUP_TIMEOUT_MS,
       );
-      releaseRawClient();
+      errorOwnership.releaseRawClient();
     } catch {
       // DISCARD ALL is invalid in a leaked transaction. A timeout or driver
       // failure is likewise unsafe: destroy rather than return this session.
-      releaseRawClient(true);
+      errorOwnership.retireFailedClient();
     }
   };
 
@@ -480,7 +535,7 @@ export function guardRuntimeRoleClient(client: PoolClient): PoolClient {
     checkoutReleased = true;
 
     if (releaseError) {
-      releaseRawClient(releaseError);
+      errorOwnership.releaseRawClient(releaseError);
       return;
     }
 
@@ -516,10 +571,6 @@ export function guardRuntimeRoleClient(client: PoolClient): PoolClient {
     return rawQuery(...args);
   }) as PoolClient["query"];
 
-  // pg-pool handles errors on idle clients, not checked-out ones. Own that
-  // interval (including the asynchronous cleanup barrier) and retire failures.
-  if (typeof client.on === "function") client.on("error", onCheckedOutError);
-
   return new Proxy(client, {
     get(target, property, receiver) {
       if (property === "query") return guardedQuery;
@@ -540,25 +591,36 @@ export function guardRuntimeRoleClient(client: PoolClient): PoolClient {
  */
 export async function initializeRuntimeRole(
   client: PoolClient,
+  errorOwnership?: RuntimeRoleClientErrorOwnership,
 ): Promise<PoolClient> {
   try {
+    if (errorOwnership?.hasFailed()) {
+      throw new Error("runtime role client disconnected during initialization");
+    }
     await withOperationDeadline(
       client.query(SET_RUNTIME_ROLE_SQL),
       RUNTIME_ROLE_INITIALIZATION_TIMEOUT_MS,
     );
+    if (errorOwnership?.hasFailed()) {
+      throw new Error("runtime role client disconnected during initialization");
+    }
     const verification = await withOperationDeadline(
       client.query<RuntimeRoleVerificationRow>(VERIFY_RUNTIME_ROLE_SQL, [
         RUNTIME_ROLE,
       ]),
       RUNTIME_ROLE_INITIALIZATION_TIMEOUT_MS,
     );
+    if (errorOwnership?.hasFailed()) {
+      throw new Error("runtime role client disconnected during initialization");
+    }
     if (!isRestrictedRuntimeRole(verification)) {
       throw new Error("runtime role verification did not pass");
     }
     return client;
   } catch {
     try {
-      client.release(true);
+      if (errorOwnership) errorOwnership.retireFailedClient();
+      else client.release(true);
     } catch {
       // The checkout is already unusable; retain the generic external error.
     }
@@ -573,17 +635,46 @@ export async function initializeRuntimeRole(
  * runtime clients.
  */
 export class RuntimeRolePool extends Pool {
+  private readonly clientErrorOwnership = new WeakMap<
+    PoolClient,
+    RuntimeRoleClientErrorOwnership
+  >();
+
+  constructor(options?: PoolConfig) {
+    super(options);
+    // pg-pool emits acquire before removing its idle listener and invoking the
+    // caller callback. Install our checked-out owner in that synchronous window
+    // so SET ROLE and verification cannot receive an unhandled client error.
+    this.on("acquire", (client: PoolClient) => {
+      this.ownClientErrors(client);
+    });
+    // pg-pool removes an idle failed client before emitting this event. Handle
+    // that event generically so an incidental idle disconnect cannot terminate
+    // Node; authority and schema checks remain checkout failures, not this path.
+    this.on("error", () => undefined);
+  }
+
+  private ownClientErrors(client: PoolClient): RuntimeRoleClientErrorOwnership {
+    const existing = this.clientErrorOwnership.get(client);
+    if (existing && !existing.hasReleasedRawClient()) return existing;
+
+    const ownership = ownRuntimeRoleClientErrors(client);
+    this.clientErrorOwnership.set(client, ownership);
+    return ownership;
+  }
+
   private async acquireRuntimeClient(): Promise<PoolClient> {
     let client: PoolClient | undefined;
     try {
       client = await super.connect();
-      await initializeRuntimeRole(client);
-      return guardRuntimeRoleClient(client);
+      const errorOwnership = this.ownClientErrors(client);
+      await initializeRuntimeRole(client, errorOwnership);
+      return guardRuntimeRoleClient(client, errorOwnership);
     } catch (error) {
       // initializeRuntimeRole already destroys a client whose SET ROLE or
       // verification failed. A pre-initialization acquire failure has no client.
       if (error instanceof RuntimeRoleInitializationError) throw error;
-      if (client) client.release(true);
+      if (client) this.ownClientErrors(client).retireFailedClient();
       throw new RuntimeRoleInitializationError();
     }
   }

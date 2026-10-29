@@ -1,0 +1,34 @@
+# Template only — do not install or enable from this repository without an authorized host operator.
+# Preconditions:
+#   * /srv/circles is the reviewed project checkout, owned 0700 by circles:circles.
+#   * /etc/circles/circles-preview.env is a reviewed protected EnvironmentFile, owned root:circles,
+#     mode 0640 or stricter. It supplies only trusted runtime values; do not put secrets in ExecStart.
+#   * The operator has deliberately stopped only the known old API/Metro jobs and verified :3000/:8081 free.
+#   * This unit is appropriate only on a persistent Linux host, not a hibernating sandbox.
+
+[Unit]
+Description=Circles preview foreground API and Metro supervisor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=circles
+Group=circles
+WorkingDirectory=/srv/circles
+EnvironmentFile=/etc/circles/circles-preview.env
+Environment=DOTENV_CONFIG_PATH=/dev/null
+UnsetEnvironment=CI DATABASE_URL DRIZZLE_DATABASE_URL
+UMask=0077
+ExecStart=/usr/bin/node /srv/circles/scripts/dev-supervisor.mjs
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=30s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/srv/circles/artifacts/private/service-supervision
+
+[Install]
+WantedBy=multi-user.target

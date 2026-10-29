@@ -113,9 +113,14 @@ describe("A26 backend repair contract", () => {
 
   it("A26-006 excludes the current actor in the paged directory SQL predicate", () => {
     const source = readFileSync("server/social-service.ts", "utf8");
-    expect(source).toContain(
-      "if (viewerId !== null) clauses.push(ne(profiles.userId, viewerId))",
+    const page = source.slice(
+      source.indexOf("export async function listProfilesPage("),
+      source.indexOf("async function assertCircleContentAccess("),
     );
+    expect(page).toContain('candidate."userId" <> ${viewerId}::integer');
+    expect(
+      page.indexOf('candidate."userId" <> ${viewerId}::integer'),
+    ).toBeLessThan(page.indexOf("cursor_anchor AS"));
   });
 
   it("A26-002 routes a hostile thumbnail to the shared image-ownership policy before any stream write", async () => {

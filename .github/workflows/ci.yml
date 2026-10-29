@@ -118,6 +118,7 @@ jobs:
         run: |
           export PATH="/usr/lib/postgresql/17/bin:$PATH"
           CIRCLES_DB03_LOCAL_PG17=1 pnpm exec tsx operations/tests/db03-runtime-pool.pg17.mjs
+          CIRCLES_RUNTIME_POOL_CONNECTION_ERRORS_PG17=1 pnpm exec tsx operations/tests/runtime-pool-connection-errors.pg17.mjs
           CIRCLES_DB04_LOCAL_PG17=1 node operations/tests/database-remediation-db04.pg17.mjs
           DB07_RUN_SYNTHETIC_PG17=1 node --test operations/tests/db07-foreign-key-indexes.node.mjs
           /usr/bin/python3 -B operations/tests/database-remediation-integration.pg17.py
@@ -144,6 +145,9 @@ jobs:
 
       - name: Run isolated retry-safe publication HTTP and PostgreSQL E2E
         run: pnpm test:e2e:post-publish
+
+      - name: Run isolated interest and follow based People recommendation HTTP and PostgreSQL E2E
+        run: pnpm test:e2e:people-recommendations
 
       - name: Run isolated email identity roles and allocation-race drills
         env:
