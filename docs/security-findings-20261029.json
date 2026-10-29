@@ -1,0 +1,898 @@
+{
+  "schema": "circles.security-findings.v1",
+  "generated_at_utc": "2026-10-29",
+  "baseline": {
+    "source_commit": "98587dd128c984aac98538c06fabd61677770238",
+    "source_tree": "fcc68acf9d17017df6bd6056aee6534234275a86",
+    "branch": "feature/security-audit-roadmap-2026-10-29",
+    "scope": "Reconciled source review and parent-provided credential-free scan artifacts; not a production penetration test or runtime attestation."
+  },
+  "counting_policy": {
+    "unique_register_items": 30,
+    "custom_source_confirmed": 4,
+    "source_traced_installed_dependency_advisories": 1,
+    "conditional_risks": 19,
+    "verification_gaps": 6,
+    "severity": {
+      "high": 1,
+      "medium": 17,
+      "low": 6,
+      "informational": 6
+    },
+    "notes": [
+      "Tool advisory paths are alternative dependency graph paths and are never summed into vulnerability totals.",
+      "The four dependency advisory families are kept distinct from custom source findings and from owner/deployment verification gates.",
+      "Status describes the strength and scope of evidence, not whether a deployment is secure or a remediation is activated.",
+      "Custom source-confirmed findings include an architectural revocation limitation; this is not a count of reproduced external exploits."
+    ]
+  },
+  "deduplication": {
+    "method": "One stable identifier per materially distinct attack path, custody risk, or verification gate. Cross-domain overlapping controls are linked through prior IDs rather than duplicated.",
+    "not_duplicated": [
+      "AUTH-003 is specific to email-auth admission; HTTP-001 is the broader distributed transport/edge gate.",
+      "ACCESS-002 is bootstrap-principal exposure; ACCESS-003 is trusted-server RLS scope; ACCESS-004 is deployment-state evidence.",
+      "MEDIA-002 is object deletion/retention; OPS-005 is recovery-evidence availability and integrity.",
+      "DEP-001 through DEP-004 are one record per advisory family, not one record per package path."
+    ]
+  },
+  "findings": [
+    {
+      "id": "AUTH-001",
+      "domain": "Authentication, identity and session security",
+      "title": "A valid but not freshly reauthenticated session can add a durable attacker-controlled email credential",
+      "severity": "medium",
+      "status": "source-confirmed",
+      "finding_type": "custom-source-finding",
+      "prior_ids": [],
+      "evidence": [
+        "server/_core/email-auth.ts:891-931 accepts authenticateRequest as the account proof, links a verified email identity, and issues a session without a recent-primary-authentication assertion.",
+        "server/_core/email-identity.ts:329-375 persists the unique subject-to-user mapping after current-actor checks.",
+        "shared/const.ts:4-5 permits a 12-hour application session; server/_core/sdk.ts:520-589 accepts valid durable actor-bound sessions without a recent-auth claim.",
+        "tests/email-auth-server.test.ts:406-450 and tests/email-identity.test.ts:110-134 cover current actor authority/mapping uniqueness, not enrollment freshness."
+      ],
+      "preconditions": "Optional email authentication is enabled; an attacker has a victim's active Circles web session or native bearer and controls a confirmed provider email/password identity. Deployment enablement was not inspected.",
+      "impact": "The attacker can attach their email identity, receive a new session, and retain a later authentication route after the stolen session expires or is revoked. This turns temporary session compromise into persistent account access.",
+      "remediation": "Require a server-verified, short-lived, single-use recent-primary-authentication intent bound to the numeric actor before credential enrollment. Define inventory, removal, recovery, notification, and session-lifecycle behavior.",
+      "acceptance": "Isolated stale/replayed/mismatched-proof negative tests and authorized synthetic-account staging prove enrollment, session revocation, removal/recovery, and notifications. No live validation was performed.",
+      "reachability": "API and native/web account credential enrollment path.",
+      "approval_boundary": "Provider settings, notification delivery, and account testing require separate authorization."
+    },
+    {
+      "id": "AUTH-002",
+      "domain": "Authentication, identity and session security",
+      "title": "Configuration permits a remote HTTP frontend origin in credentialed OAuth and email flows",
+      "severity": "medium",
+      "status": "conditional-risk",
+      "finding_type": "deployment-configuration-risk",
+      "prior_ids": [],
+      "evidence": [
+        "server/_core/frontend-origins.ts:17-38 accepts canonical http: and https: origins without a production-only HTTPS rule.",
+        "server/_core/cors.ts:21-35,73-123 and server/_core/email-auth.ts:219-255 use that trust set for credentialed CORS and browser email admission.",
+        "server/_core/oauth.ts:207-230 permits a configured http: web callback; server/_core/cookies.ts:35-44 supports secure cross-origin cookie contexts."
+      ],
+      "preconditions": "A production-like deployment configures a non-loopback HTTP frontend origin and a user has an API cookie; an on-path attacker or party controlling that origin can modify its script.",
+      "impact": "The insecure frontend becomes trusted for OAuth redirects, email browser admission, and credentialed CORS, allowing manipulated frontend code to originate authenticated API requests.",
+      "remediation": "Reject non-loopback HTTP frontend origins in production validation; retain HTTP only for explicit direct-loopback development and attest deployed OAuth/CORS/frontend origins.",
+      "acceptance": "Production-mode tests reject remote HTTP origins; authorized staging browser tests verify configured origins, CORS, redirects, and cookie behavior.",
+      "reachability": "Deployment configuration affecting API and web OAuth/email flows.",
+      "approval_boundary": "Deployment configuration attestation is separate from source work."
+    },
+    {
+      "id": "AUTH-003",
+      "domain": "Authentication, identity and session security",
+      "title": "Email password admission limits are explicitly process-local",
+      "severity": "medium",
+      "status": "conditional-risk",
+      "finding_type": "distributed-abuse-risk",
+      "prior_ids": ["SEC-023"],
+      "evidence": [
+        "server/_core/email-auth.ts:644-755 implements in-memory account, network, and global budgets and documents their process-local defense-in-depth role at :664-669.",
+        "server/_core/email-auth.ts:823-839,860-878,891-907 apply the local budgets to sign-in, sign-up, and connect.",
+        "tests/sec27-auth-security.test.ts:251-317 proves independent bounded in-process budgets, not shared enforcement."
+      ],
+      "preconditions": "Email authentication runs on multiple replicas without sufficiently strict shared provider/edge controls, and an attacker distributes attempts across replicas or sources.",
+      "impact": "Effective sign-in, sign-up, and connect budgets can multiply by replica count, weakening password-guessing and abuse resistance.",
+      "remediation": "Require reviewed shared account-aware provider/edge throttling and privacy-preserving account/source/global admission policy before scaling email authentication.",
+      "acceptance": "Authorized non-production multi-replica/edge test demonstrates shared distributed admission and provider-unavailable behavior.",
+      "reachability": "Email authentication API; conditional on deployment topology and edge controls.",
+      "approval_boundary": "Provider and edge controls require separate operational review."
+    },
+    {
+      "id": "AUTH-004",
+      "domain": "Authentication, identity and session security",
+      "title": "Provider-side email confirmation, recovery, and lifecycle controls lack deployment evidence",
+      "severity": "informational",
+      "status": "verification-gap",
+      "finding_type": "provider-evidence-gap",
+      "prior_ids": [],
+      "evidence": [
+        "server/_core/email-auth.ts:150-165 pins expected provider origin/key format; :525-573 validates provider subject, confirmed email, and email identity.",
+        "server/_core/email-auth.ts:575-608,860-885 implements confirmation-only signup without exposing provider credentials or minting a session.",
+        "No scoped application-owned reset/recovery route or screen establishes provider confirmation, redirect allowlists, disable/delete, or recovery policy."
+      ],
+      "preconditions": "Email authentication is enabled in a deployment; assurance depends on provider project configuration and operational recovery/deletion policy.",
+      "impact": "A provider misconfiguration could weaken confirmation/recovery assurance or leave post-compromise recovery incomplete; no misconfiguration was observed.",
+      "remediation": "Document and attest provider confirmation, password, recovery redirect, rate-limit, token/session, disable/delete, support, and recovery controls aligned with AUTH-001.",
+      "acceptance": "With owner approval and synthetic non-production accounts only, inspect settings and exercise confirmation/recovery lifecycle.",
+      "reachability": "Provider-managed identity lifecycle.",
+      "approval_boundary": "No provider request was made in this audit."
+    },
+    {
+      "id": "ACCESS-001",
+      "domain": "Authorization, database isolation and private-resource access",
+      "title": "Direct-message creation can force public materialization of an unprofiled target's private identity",
+      "severity": "medium",
+      "status": "source-confirmed",
+      "finding_type": "custom-source-finding",
+      "prior_ids": [],
+      "evidence": [
+        "server/social-router.ts:762-764 exposes protected social.openDirect with caller-selected targetUserId; server/social-service.ts:3161-3170 checks only target existence before ensureProfileWithDb for both parties.",
+        "server/social-service.ts:548-579 reads users.name and inserts a persistent profile when absent; :628-634 describes ordinary self materialization.",
+        "server/social-router.ts:518-544 and server/social-service.ts:863-894 expose public profile list/page/detail reads without a per-account visibility predicate.",
+        "server/moderation-service.ts:284-293 identifies users.name as OAuth/private identity; tests/database-remediation-db15.test.ts:107-115 lacks absent-target materialization/public-exposure coverage."
+      ],
+      "preconditions": "An authenticated Circles account knows a valid numeric target user ID and the target has no social profile.",
+      "impact": "A caller can create an unsolicited direct conversation and persist a publicly discoverable profile with the target's OAuth-derived name and predictable handle. The endpoint outcome also probes account existence. It does not expose email, OpenID, sessions, or other users fields through this path.",
+      "remediation": "Define direct-message identity/consent rules; do not persist a recipient public profile as a caller side effect. Use conversation-scoped display data or require opt-in/existing public profile and decide whether relationship/DM consent is required.",
+      "acceptance": "Service/router regressions verify guest profile/page reads do not reveal an absent target's private source name after DM-open unless chosen policy permits it; cover nonexistent target, existing profile, retry, and concurrent opens.",
+      "reachability": "Authenticated social direct-message opening followed by public/guest profile reads.",
+      "approval_boundary": "No live database verification was performed."
+    },
+    {
+      "id": "ACCESS-002",
+      "domain": "Authorization, database isolation and private-resource access",
+      "title": "Active database pool retains a privileged bootstrap principal",
+      "severity": "medium",
+      "status": "conditional-risk",
+      "finding_type": "database-boundary-risk",
+      "prior_ids": ["SEC-020"],
+      "evidence": [
+        "server/_core/postgres-config.mjs:9-15 defines postgres as CURRENT_CONNECTION_PRINCIPAL while a dedicated bootstrap identity is proposed only.",
+        "drizzle/postgres/0000_circles_app.sql:5-10 grants the runtime role to postgres.",
+        "server/runtime-role-pool.ts:560-628 guards role/session-reset SQL and sets/verifies restricted role; server/db.ts:30-65 creates only the guarded pool."
+      ],
+      "preconditions": "Application-code execution/raw SQL bypasses the pool guard, privileged connection credentials are accessed directly, or configuration permits use before SET ROLE.",
+      "impact": "The more-authoritative bootstrap principal can bypass the intended runtime-role database boundary and access private resources.",
+      "remediation": "Complete owner-approved dedicated LOGIN bootstrap cutover with SET-only membership, reviewed DSN/connection update, and exact session/effective-role startup attestation.",
+      "acceptance": "Owner-controlled disposable environment proves dedicated session principal, restricted effective role, SET-only membership, and socket destruction on initialization/cleanup failure.",
+      "reachability": "Server/database credential or internal execution boundary; not direct browser database access.",
+      "approval_boundary": "Role provisioning, DSN changes, and startup validation require owner authorization."
+    },
+    {
+      "id": "ACCESS-003",
+      "domain": "Authorization, database isolation and private-resource access",
+      "title": "Runtime-role RLS is a trusted-server boundary rather than user/circle row isolation",
+      "severity": "medium",
+      "status": "conditional-risk",
+      "finding_type": "database-authorization-depth-risk",
+      "prior_ids": ["SEC-019", "SEC-027"],
+      "evidence": [
+        "drizzle/postgres/0000_circles_app.sql:289-333 enables RLS but grants circles_app_runtime universal USING (true) WITH CHECK (true) policies.",
+        "operations/migrations/0010_circles_activity_inbox.sql:60-88 and 0012_circles_moderation.sql:70-95 use the same runtime-policy model.",
+        "operations/migrations/0023_circles_ops_policy_health.sql:36-74 accepts those true-predicate runtime policies as reviewed state."
+      ],
+      "preconditions": "A server authorization flaw, unsafe new runtime-role query/endpoint, arbitrary SQL under runtime role, or incorrect internal consumer crosses the trusted server boundary.",
+      "impact": "Policies do not constrain recipient, actor, membership, or moderator scope after server boundary failure; affected records can include direct messages, social content, Activity, and moderation data. Ordinary external callers cannot directly query these tables under reviewed browser-role denial.",
+      "remediation": "Design phased table-specific actor-bound RLS while retaining service authorization. Set trusted actor context transaction-locally only, never from tRPC input, headers, or cookies; begin with Activity and direct/circle conversations.",
+      "acceptance": "Disposable PostgreSQL integration proves cross-recipient Activity, nonparticipant DM, revoked-private-member, and unauthorized moderation denial plus legitimate runtime/admin maintenance paths; exact policies/ACLs/force-RLS/functions are attested before rollout.",
+      "reachability": "Defense in depth after internal/server compromise or logic failure.",
+      "approval_boundary": "RLS rollout needs explicit database-owner review for admin/background/revocation compatibility."
+    },
+    {
+      "id": "ACCESS-004",
+      "domain": "Authorization, database isolation and private-resource access",
+      "title": "Static review cannot establish deployed database catalog or prepared-migration activation state",
+      "severity": "informational",
+      "status": "verification-gap",
+      "finding_type": "database-evidence-gap",
+      "prior_ids": ["SEC-019", "SEC-020", "SEC-027"],
+      "evidence": [
+        "operations/migrations/0017_circles_dedicated_app_login.sql:1-9, 0015_circles_publish_post_receipts.sql:1-4, and 0025_circles_media_upload_budget.sql:1-6 explicitly describe prepared-only state.",
+        "operations/tests/current-authorization-contract.node.mjs validates checked-in fixtures/evaluator rather than a live PostgreSQL catalog."
+      ],
+      "preconditions": "Any claim about deployed ACL, RLS, trigger, role, function, or migration state requires live catalog evidence.",
+      "impact": "This is not an exploitable condition; it prevents confirmation that deployment matches reviewed source and static contracts.",
+      "remediation": "Maintain a value-free owner-run release attestation for migration journal, ownership, ACLs, policies, RLS/force-RLS, triggers/functions/search paths, role attributes/membership, and session/effective role.",
+      "acceptance": "Authorized controlled read-only catalog/readiness checks produce redacted aggregate pass/fail evidence and reconcile exact migration-journal entries.",
+      "reachability": "Deployment state.",
+      "approval_boundary": "Live database reads were prohibited for this audit."
+    },
+    {
+      "id": "MEDIA-001",
+      "domain": "Media encryption, upload validation, and storage transport",
+      "title": "Signing-secret compromise or rotation has media-wide impact through key coupling",
+      "severity": "high",
+      "status": "conditional-risk",
+      "finding_type": "key-custody-and-rotation-risk",
+      "prior_ids": ["SEC-033"],
+      "evidence": [
+        "server/social-service.ts:180-203 derives the AES-256-GCM media key from the managed signing secret plus circles-media-v1; :206-236 repeats derivation for decryption.",
+        "server/_core/env.ts:71-80 defines application signing/cookie-secret configuration; README.md:29,48 documents current coupling."
+      ],
+      "preconditions": "An attacker obtains the managed signing secret and ciphertext objects, or an operator rotates the secret without compatible media-key migration.",
+      "impact": "Signing-secret compromise can extend to decryption of acquired historical media; uncoordinated rotation can make historical media unreadable. Ciphertext access remains required for confidentiality impact.",
+      "remediation": "Use a separately managed versioned media root key with key identifiers, dual-read migration, rotation/recovery procedures, and isolated rotation tests. Do not use signing-secret rotation as logout mitigation.",
+      "acceptance": "Key-version round-trip, old/new dual-read, tamper, unsupported-version, and rotation/recovery tests pass before any approved custody rollout.",
+      "reachability": "Encrypted media confidentiality and availability; conditional on secret/ciphertext access or rotation.",
+      "approval_boundary": "Key provisioning, rotation, and provider recovery require separate authorization."
+    },
+    {
+      "id": "MEDIA-002",
+      "domain": "Media encryption, upload validation, and storage transport",
+      "title": "Orphaned encrypted provider objects have no source-level deletion or compensation path",
+      "severity": "medium",
+      "status": "conditional-risk",
+      "finding_type": "provider-retention-cost-risk",
+      "prior_ids": ["CBA-06"],
+      "evidence": [
+        "server/social-service.ts:2037-2115 documents/implements discard metadata removal without provider deletion.",
+        "server/media-upload-budget.ts:66-69,205-301 preserves failed/ambiguous PUT charges and inventories reconciliation candidates; drizzle/media-upload-budget-schema.ts:52-55 retains reservation rows because no delete API exists.",
+        "server/media-upload-budget.ts:12-15 caps an account at 64 objects/512 MiB; server/social-router.ts:809-895 fails closed when ledger unavailable."
+      ],
+      "preconditions": "A permitted account causes failed/ambiguous publication or discard, provider deletion lifecycle is unavailable, and provider retention/cost applies; multi-account behavior can increase aggregate cost.",
+      "impact": "Opaque encrypted objects and durable quota charges can persist without physical reclamation. This is bounded per account in source and is retention/cost/abuse exposure, not direct plaintext disclosure.",
+      "remediation": "Obtain provider deletion/retention guarantees and design authorized idempotent deletion, outbox, reconciliation, durable receipts, and attached-media deletion policy.",
+      "acceptance": "Approved provider integration proves idempotent deletion/retry/reconciliation and retained-charge policy without exposing object or key values.",
+      "reachability": "Provider media lifecycle after failed/ambiguous upload or discard.",
+      "approval_boundary": "No provider deletion or retention behavior was tested."
+    },
+    {
+      "id": "MEDIA-003",
+      "domain": "Media encryption, upload validation, and storage transport",
+      "title": "Account-change image-cache cleanup is asynchronous and failure is ignored outside the logout fence",
+      "severity": "medium",
+      "status": "conditional-risk",
+      "finding_type": "native-privacy-runtime-risk",
+      "prior_ids": ["CBA-05", "SEC-008"],
+      "evidence": [
+        "hooks/circles-context.tsx:214-219 invokes clearPrivateImageCaches fire-and-forget and swallows rejection before replacement actor admission.",
+        "lib/media-cache.ts:26-41 rejects when either cache clear fails; lib/client-session.ts:262-359 and hooks/circles-context.tsx:229-291 retain the stronger logout barrier.",
+        "components/media-image.tsx:37-77 scopes bearer to current account/request key but cannot establish SDK decoded-image cache behavior."
+      ],
+      "preconditions": "A shared device changes account outside full logout, cache clear is delayed/rejects, and the native image implementation can render a cached protected resource across accounts.",
+      "impact": "Old private pixels could temporarily be visible after account replacement. Stale bearer reuse is prevented by source.",
+      "remediation": "Treat actor replacement as a privacy boundary: await successful protected-cache eviction before admitting the new authenticated subtree, or isolate renderer-cache namespaces per account while retaining logout fence.",
+      "acceptance": "Regression tests cover replacement failure/delay; physical iOS/Android tests prove no cross-account protected rendering under injected cache-clear failures.",
+      "reachability": "Native shared-device account switch.",
+      "approval_boundary": "No physical native cache or rendering test was run."
+    },
+    {
+      "id": "MEDIA-004",
+      "domain": "Media encryption, upload validation, and storage transport",
+      "title": "Storage-provider, DNS/TLS, ledger, and native media behavior retain source-only proof",
+      "severity": "informational",
+      "status": "verification-gap",
+      "finding_type": "runtime-evidence-gap",
+      "prior_ids": ["SEC-006", "SEC-007", "SEC-008", "SEC-015"],
+      "evidence": [
+        "server/storage.ts:66-460 enforces HTTPS origins, public DNS answers, pinned lookup/SNI/TLS, redirect refusal, deadlines, and cancellation.",
+        "server/_core/storageProxy.ts:375-801 has reference-aware authorization and final locked recheck before byte enqueue; shared/recorded-video.ts and server/sec27-video-validation.ts bound parsing."
+      ],
+      "preconditions": "Deployment/provider/native runtime differs materially from source assumptions.",
+      "impact": "This is missing operational proof, not a demonstrated source defect; real provider/network/native behavior could differ.",
+      "remediation": "Run approved non-destructive staging checks for object ACL/ciphertext posture, configured origin/DNS/TLS/redirect behavior, ledger readiness, revocation timing, no-store behavior, and physical iOS/Android cache/decoder behavior.",
+      "acceptance": "Redacted staging evidence demonstrates each selected contract or records named blocker with capability disabled.",
+      "reachability": "Storage provider, network, ledger, and device runtime.",
+      "approval_boundary": "No provider, real DNS/TLS/CDN, native cache, or hardware decoder was exercised."
+    },
+    {
+      "id": "HTTP-001",
+      "domain": "HTTP request security and abuse resistance",
+      "title": "Distributed abuse protection is not configured or evidenced in this repository",
+      "severity": "medium",
+      "status": "conditional-risk",
+      "finding_type": "distributed-abuse-risk",
+      "prior_ids": ["SEC-010", "SEC-023", "SEC-024"],
+      "evidence": [
+        "server/_core/index.ts:41-49,83-170 defines bounded process-local transport admission.",
+        "server/_core/email-auth.ts:664-755 and server/_core/storageProxy.ts:67-170 define finite in-process email/media controls.",
+        "docs/media-download-limits.md:21-24 states edge enforcement is required but not configured; no ingress/CDN/WAF artifact was reviewed."
+      ],
+      "preconditions": "Public API is reachable through multiple replicas/restarts and real CDN/WAF/load balancer lacks equivalent global request, concurrency, body, timeout, and client-identity controls.",
+      "impact": "Distributed traffic can exceed aggregate assurance of per-worker controls, raising availability/resource-cost exposure; source-local limits still constrain a worker.",
+      "remediation": "Define provider-neutral global/per-client edge admission for general, media, and email routes with overload response and authoritative client identity rules.",
+      "acceptance": "Authorized multi-replica test proves quotas survive worker selection/restart and header/address rotation while preserving 429/Retry-After behavior.",
+      "reachability": "Public API deployment topology.",
+      "approval_boundary": "This audit did not configure or test edge/CDN/WAF infrastructure."
+    },
+    {
+      "id": "HTTP-002",
+      "domain": "HTTP request security and abuse resistance",
+      "title": "Forwarded-client identity protections depend on unverified ingress header sanitization",
+      "severity": "medium",
+      "status": "conditional-risk",
+      "finding_type": "proxy-configuration-risk",
+      "prior_ids": ["SEC-016", "SEC-024"],
+      "evidence": [
+        "server/_core/runtimeSecurity.ts:165-237,366-385 keeps proxy trust opt-in/narrow and requires trusted socket, exact protocol, and one forwarded address.",
+        "server/_core/index.ts:419-427 trusts only immediate-hop CIDRs; :235-239 and server/_core/storageProxy.ts:291-299 use req.ip client identities.",
+        ".env.example:32-35 requires ingress to strip/recreate forwarding headers, but deployed behavior is not in the repository."
+      ],
+      "preconditions": "Trusted proxy CIDRs are wrong/overbroad, direct listener access exists, or ingress forwards caller-controlled X-Forwarded headers rather than recreating them.",
+      "impact": "An attacker meeting those infrastructure conditions could steer req.ip admission buckets or forwarded transport context.",
+      "remediation": "Review listener isolation, exact immediate proxy CIDRs, forwarding-header replacement, and one client-address representation.",
+      "acceptance": "Non-production real-ingress tests cover direct-listener denial, forged/multiple X-Forwarded-For, forged X-Forwarded-Proto, hop mismatch, and correct rate-bucket identity.",
+      "reachability": "Ingress/proxy deployment configuration.",
+      "approval_boundary": "No real ingress was tested."
+    },
+    {
+      "id": "HTTP-003",
+      "domain": "HTTP request security and abuse resistance",
+      "title": "Non-production uncaught Express errors can disclose stack detail",
+      "severity": "low",
+      "status": "conditional-risk",
+      "finding_type": "debug-error-disclosure-risk",
+      "prior_ids": [],
+      "evidence": [
+        "server/_core/index.ts:320-344,465-494 normalizes known errors but forwards unknown errors without a final error middleware after routes.",
+        "Installed express@4.22.3 uses finalhandler without a terminal handler at node_modules/express/lib/application.js:159-171; finalhandler uses err.stack outside production at node_modules/finalhandler/index.js:77-82,171-184.",
+        "Dockerfile:25-29 sets NODE_ENV=production; package.json dev:server uses NODE_ENV=development."
+      ],
+      "preconditions": "A non-production/debug-configured process is publicly reachable and an error reaches Express finalhandler rather than route/tRPC handling.",
+      "impact": "A response can disclose stack path and implementation detail; no reachable user-controlled response or production exposure was demonstrated.",
+      "remediation": "Install terminal API error envelope with generic no-store response and server-only diagnostics, including explicit Express 4 async direct-route rejection design.",
+      "acceptance": "Injected non-parser middleware/route failures in development and production expose no stack, path, request bytes, or credential data.",
+      "reachability": "Publicly exposed debug/non-production process only.",
+      "approval_boundary": "No app listener was started."
+    },
+    {
+      "id": "LIVE-001",
+      "domain": "Live video signaling, membership and native lifecycle",
+      "title": "Private membership revocation is not server-enforceable after direct media negotiation",
+      "severity": "medium",
+      "status": "source-confirmed",
+      "finding_type": "source-confirmed-design-limitation",
+      "prior_ids": ["SEC-013", "SEC-014"],
+      "evidence": [
+        "server/live-router.ts:746-795 produces membership-filtered peer-authority snapshot and :1550-1588 gives it to host only.",
+        "components/live-media.web.tsx:465-498,542-575 create/close direct RTCPeerConnections locally; components/live-media.native.tsx:663-698,744-774 mirrors it.",
+        "tests/cba01-live-peer-authority.test.ts:25-110 and tests/live-access-terminal.test.ts:39-95 prove conforming clients, not media termination against a modified/disconnected host."
+      ],
+      "preconditions": "A private-stream viewer was admitted and negotiated a peer, then is removed while a compromised or nonconforming host ignores revocation or loses control-plane connectivity while peer transport remains alive.",
+      "impact": "The server cannot terminate that established direct peer itself. This is an architectural limit of documented P2P delivery, not an unauthenticated join bypass; malicious senders can also independently redistribute content under any architecture.",
+      "remediation": "Decide whether server termination of app-managed transport is required. If so, plan mediated SFU/media-proxy delivery with revocable authorization; otherwise explicitly accept and disclose the direct-P2P limit. Do not promise prevention of malicious sender redistribution.",
+      "acceptance": "Approved real WebRTC test measures post-negotiation removal under an adversarial/disconnected host and proves selected policy behavior.",
+      "reachability": "Private live streams after a user is admitted.",
+      "approval_boundary": "No real WebRTC session was used; persistence duration is unmeasured."
+    },
+    {
+      "id": "LIVE-002",
+      "domain": "Live video signaling, membership and native lifecycle",
+      "title": "Abandoned streams retain signaling payloads without automatic expiry cleanup",
+      "severity": "medium",
+      "status": "source-confirmed",
+      "finding_type": "custom-source-finding",
+      "prior_ids": [],
+      "evidence": [
+        "server/live-router.ts:54-66 caps a stream at 512 signals of 32,768 bytes (16 MiB before row overhead).",
+        "server/live-router.ts:499-547 ends expired-host stream without deleting liveSignals, while :549-601 explicit end deletes them.",
+        "server/live-router.ts:874-893 deletes on later stream operations only; drizzle/live-schema.ts:70-83 and drizzle/postgres/0000_circles_app.sql:219-229 lack matching liveSignals query index.",
+        "tests/live-signal-bounds.test.ts:27-128 covers per-stream caps but not expired-lease purge."
+      ],
+      "preconditions": "A live-enabled authenticated host and controlled participants fill bounded valid signal rows and abandon without ending; this repeats across streams.",
+      "impact": "Expired undiscoverable streams retain signaling rows absent later targeted calls, enabling database-growth abuse and progressively expensive unindexed signal polling.",
+      "remediation": "Implement automatic abandoned-session cleanup, aggregate retention/storage budget, and poll/deletion indexes matched to predicates.",
+      "acceptance": "Disposable PostgreSQL tests prove expired-lease cleanup, bounded retention, query plans, and race-safe/idempotent behavior before promotion.",
+      "reachability": "Authenticated live signaling creation and persistence.",
+      "approval_boundary": "No live database size, plans, or out-of-band cleanup were inspected."
+    },
+    {
+      "id": "LIVE-003",
+      "domain": "Live video signaling, membership and native lifecycle",
+      "title": "TURN credentials are actor-bound but not session-, stream-, or revocation-bound",
+      "severity": "low",
+      "status": "conditional-risk",
+      "finding_type": "relay-entitlement-risk",
+      "prior_ids": [],
+      "evidence": [
+        "server/turn-config.ts:5-10,197-235 issues ten-minute REST credentials named only with expiry and user ID.",
+        "server/live-router.ts:225-240,1383-1390,1466-1473 returns credentials on authorized join; leave/end has no application-to-coturn revocation action.",
+        "operations/coturn/circles-turnserver.conf.template:25-67 has quotas/private-destination denies; tests/turn-config.test.ts:60-81 validates intended user-bound TTL."
+      ],
+      "preconditions": "A user obtains a valid relay credential and deployed coturn accepts it after leave, removal, or stream end.",
+      "impact": "Relay entitlement can remain for TTL, enabling bounded quota/bandwidth abuse or post-removal allocation if deployment permits it. This is not a confirmed open relay or SSRF finding.",
+      "remediation": "Make explicit entitlement/revocation decision; if immediate revocation is required, design provider-compatible session-scoped mechanism and validate quotas, expiry, destination denies, and post-removal behavior.",
+      "acceptance": "Approved synthetic-coturn test proves selected expiry/revocation and quota posture.",
+      "reachability": "TURN relay after previously authorized live join.",
+      "approval_boundary": "Actual coturn allocation semantics and configuration parity were not tested."
+    },
+    {
+      "id": "LIVE-004",
+      "domain": "Live video signaling, membership and native lifecycle",
+      "title": "Configured TURN does not force relay-only ICE privacy",
+      "severity": "medium",
+      "status": "conditional-risk",
+      "finding_type": "participant-network-privacy-risk",
+      "prior_ids": [],
+      "evidence": [
+        "components/live-media.web.tsx:83-99,477-505 and components/live-media.native.tsx:166-215,675-705 pass ICE servers without iceTransportPolicy.",
+        "server/live-router.ts:57-58 explicitly declares direct P2P model.",
+        "W3C WebRTC Recommendation states relay policy uses only TURN relay candidates: https://www.w3.org/TR/webrtc/.",
+        "tests/turn-config.test.ts:89-140 and tests/live-ice-protocol.test.ts:23-91 do not collect real candidates or assert relay-only policy."
+      ],
+      "preconditions": "A permitted participant joins a live session, browser/native exposes non-relay candidates under default policy, and product policy requires participant IP privacy.",
+      "impact": "TURN availability alone does not prevent remote participant learning/selecting direct candidates where exposed by runtime/NAT topology.",
+      "remediation": "Set explicit direct-P2P/address-privacy policy. If privacy required, carry relay-only setting through adapters and validate candidate gathering on approved browser/native matrix; otherwise document exposure.",
+      "acceptance": "Real candidate gathering proves selected policy on supported browser/native/NAT matrix.",
+      "reachability": "Live participants; conditional on runtime and product privacy policy.",
+      "approval_boundary": "No browser/native candidate collection was run."
+    },
+    {
+      "id": "LIVE-005",
+      "domain": "Live video signaling, membership and native lifecycle",
+      "title": "Deployed chat admission indexes cannot be established from source evidence",
+      "severity": "informational",
+      "status": "verification-gap",
+      "finding_type": "database-evidence-gap",
+      "prior_ids": [],
+      "evidence": [
+        "server/live-router.ts:950-1001,1936-2004 performs lock-held chat admission counts before insert.",
+        "operations/migrations/0024_circles_live_chat_bounds.sql:1-7 says index migration is prepared only; drizzle/live-schema.ts:97-108 declares matching indexes while drizzle/postgres/0000_circles_app.sql:241-259 lacks them.",
+        "tests/cba04-live-chat-bounds.test.ts:85-123 checks source/migration text, not installed plan."
+      ],
+      "preconditions": "Target database lacks prepared 0024 indexes and retained live-chat history becomes large.",
+      "impact": "Polling and admission counts may sequentially scan while live stream lock is held; production condition is not established.",
+      "remediation": "Retain owner evidence for migration and a disposable PostgreSQL EXPLAIN/concurrency result for exact poll/count predicates before scaling.",
+      "acceptance": "Read-only catalog state and disposable query-plan/concurrency evidence show selected indexes and bounded lock behavior.",
+      "reachability": "Live chat database workload.",
+      "approval_boundary": "No database read/write was authorized."
+    },
+    {
+      "id": "OPS-001",
+      "domain": "CI, secrets, deployment and recovery operations",
+      "title": "Git staging does not exclude private recovery/key artifacts",
+      "severity": "low",
+      "status": "conditional-risk",
+      "finding_type": "credential-custody-risk",
+      "prior_ids": ["SEC-025", "SEC-026", "CBA-06"],
+      "evidence": [
+        ".dockerignore:15-23 excludes recovery/private, encrypted/key, dump, and archive classes from Docker context, but .gitignore:20,36-41,72 does not equivalently cover them.",
+        "Offline git check-ignore found representative recovery/private key/archive filename classes are not ignored; no files were created or staged."
+      ],
+      "preconditions": "An operator stores recovery identity, encrypted recovery material, dump, or evidence under checkout and uses broad Git staging.",
+      "impact": "Sensitive recovery artifact could be committed and retained in repository history. Docker-context exclusion does not protect Git staging.",
+      "remediation": "Mirror recovery/key exclusions in .gitignore and add tracked-file denylist/CI test; retain requirement that live identities/evidence stay outside checkout.",
+      "acceptance": "Synthetic filename-only ignore and tracked-file tests, plus credential-free staging rehearsal, demonstrate blocked handling.",
+      "reachability": "Developer/operator source-control workflow.",
+      "approval_boundary": "No actual credential material should be created for testing."
+    },
+    {
+      "id": "OPS-002",
+      "domain": "CI, secrets, deployment and recovery operations",
+      "title": "Supervisor forwards server runtime environment to Metro by default",
+      "severity": "medium",
+      "status": "conditional-risk",
+      "finding_type": "environment-custody-risk",
+      "prior_ids": ["CBA-07"],
+      "evidence": [
+        "scripts/lib/dev-supervisor-core.mjs:530-568 builds Metro without cleanEnvironment, clones process.env, and removes only CI, DATABASE_URL, and DRIZZLE_DATABASE_URL.",
+        "scripts/lib/dev-supervisor-core.mjs:1043-1048 passes that environment to child; operations/supervision/circles-preview.service.example:19 uses EnvironmentFile and docs/service-supervision.md:66 says other values are preserved."
+      ],
+      "preconditions": "Optional template is installed with server-only values and a Metro/Expo plugin, diagnostic path, dependency compromise, or local process compromise reads Metro environment.",
+      "impact": "Server-only settings can be copied to a narrower-purpose child, increasing custody/exfiltration surface; no browser bundle disclosure or deployed exploit was shown.",
+      "remediation": "Use documented minimal Metro environment allowlist and test representative server-only values are absent while intended public Expo values remain.",
+      "acceptance": "Synthetic supervisor spawn-environment test proves allowlist; host template is separately validated without starting production services.",
+      "reachability": "Optional local/host preview supervisor deployment.",
+      "approval_boundary": "No installed unit or live environment was examined."
+    },
+    {
+      "id": "OPS-003",
+      "domain": "CI, secrets, deployment and recovery operations",
+      "title": "Privileged and recovery helpers resolve executables through inherited PATH",
+      "severity": "medium",
+      "status": "conditional-risk",
+      "finding_type": "privileged-execution-path-risk",
+      "prior_ids": ["CBA-08"],
+      "evidence": [
+        "operations/coturn/install-coturn.sh:1 uses /usr/bin/env bash and invokes privileged host tools by bare name, including apt-get at :211-212; mutation needs root plus explicit flags.",
+        "scripts/recovery-continuity.mjs:660-666 preserves PATH and :695-733 launches helpers shell:false; :763-770 invokes git by bare name."
+      ],
+      "preconditions": "Privileged coturn or recovery operator invokes the tool with attacker-influenced/unexpectedly writable PATH; coturn also requires root and explicit acknowledgment.",
+      "impact": "A substituted executable could run with invoking authority, including root or access to transient recovery material.",
+      "remediation": "Use absolute interpreter, fixed trusted PATH before command expansion, and resolved/allowlisted absolute helper paths for privileged/recovery entrypoints.",
+      "acceptance": "Synthetic hostile-PATH tests demonstrate trusted helper selection or fail-closed behavior without real install/restore.",
+      "reachability": "Privileged coturn and recovery operator tooling.",
+      "approval_boundary": "No real coturn installation or restore was run."
+    },
+    {
+      "id": "OPS-004",
+      "domain": "CI, secrets, deployment and recovery operations",
+      "title": "Locked installs lack a package publication-age guard",
+      "severity": "low",
+      "status": "conditional-risk",
+      "finding_type": "supply-chain-policy-risk",
+      "prior_ids": [],
+      "evidence": [
+        ".npmrc:1 has node-linker configuration only and no publication-age policy.",
+        ".github/workflows/ci.yml:60-61,228-229 and Dockerfile:10-23 use frozen lockfile installs; Dockerfile:2,25 pins Node base digest and Dockerfile:8 requests fixed pnpm version.",
+        "Semgrep reported package_managers.npm.npm-missing-minimum-release-age at .npmrc:1; this is retained as a policy finding, not an active package compromise."
+      ],
+      "preconditions": "A reviewed dependency/lockfile update accepts a compromised/malicious newly published package before ecosystem detection or revocation. Unchanged frozen-lock builds are unaffected.",
+      "impact": "Supply-chain compromise could execute at installation/build; no malicious package or registry compromise was found.",
+      "remediation": "At a supported package-manager version, add tested minimum-release-age and exception process while retaining frozen-lock/provenance review.",
+      "acceptance": "Configuration tests demonstrate a synthetic too-new-package exception and unchanged frozen installs.",
+      "reachability": "Dependency update and build workflow.",
+      "approval_boundary": "Package-manager compatibility and lockfile changes need separate review."
+    },
+    {
+      "id": "OPS-005",
+      "domain": "CI, secrets, deployment and recovery operations",
+      "title": "Live encrypted backup and isolated restore evidence remains intentionally unverified",
+      "severity": "informational",
+      "status": "verification-gap",
+      "finding_type": "recovery-evidence-gap",
+      "prior_ids": ["SEC-025", "SEC-026", "CBA-06"],
+      "evidence": [
+        "Offline recovery checker emitted SOURCE_CONTRACT_PASS and SOURCE_PASS_EXTERNAL_RECOVERY_UNVERIFIED.",
+        "docs/codebase-audit-remediation-20261029.md:14,30-32,40-43 describes private encrypted-backup activation and provider/key evidence as separately gated."
+      ],
+      "preconditions": "A real incident, restore request, or rollback requires encrypted checkpoint and isolated recovery.",
+      "impact": "Recovery availability/integrity cannot be asserted from source-only evidence; this does not establish recovery failure or absence of backup.",
+      "remediation": "Run separately authorized current isolated restore drill with controlled encrypted checkpoint and independently reviewed redacted evidence for integrity, reconciliation, key separation, and cleanup.",
+      "acceptance": "Record isolation target, checksums, catalog/media-ledger reconciliation, cleanup, and exceptions in value-free evidence.",
+      "reachability": "Incident recovery.",
+      "approval_boundary": "Do not connect audit work to providers, production databases, backups, or keys without explicit authorization."
+    },
+    {
+      "id": "DEP-001",
+      "domain": "Locked dependency advisories and compatibility exposure",
+      "title": "Expo Router's locked query decoder can process attacker-controlled deep-link query strings",
+      "severity": "medium",
+      "status": "source-confirmed",
+      "finding_type": "source-traced-installed-dependency-advisory",
+      "prior_ids": ["SEC-005"],
+      "advisory": {
+        "package": "decode-uri-component",
+        "version": "0.2.2",
+        "tool_severity": "moderate",
+        "url": "https://github.com/advisories/GHSA-vcc3-ghjq-m6fr",
+        "cve": "CVE-2026-45822",
+        "full_and_production_graph": true,
+        "path_count_each_audit": 60
+      },
+      "evidence": [
+        "raw/pnpm-audit-production.json:57-156 and raw/pnpm-audit-full.json:57-156 report the installed resolution and advisory; full/prod advisory set is identical.",
+        "pnpm-lock.yaml:3098-3100,11695-11700 resolves expo-router@57.0.22 > query-string@7.1.3 > decode-uri-component@0.2.2.",
+        "node_modules/expo-router/build/react-navigation/core/getStateFromPath.js:40-49,488-500 imports/calls queryString.parse; node_modules/query-string/index.js:1-5 imports decoder.",
+        "app.config.ts:24-27,70,89-101 registers custom scheme/browsable Android VIEW filter; app/oauth/callback.tsx:93-101 consumes Router search parameters."
+      ],
+      "preconditions": "Attacker induces native/web client to open/navigate affected Router path with sufficiently malformed percent-encoded query string; no backend request is required.",
+      "impact": "Client/web runtime availability degradation or unresponsiveness. Advisory does not describe confidentiality, integrity, or code execution impact.",
+      "remediation": "Qualify Expo Router/Expo SDK parent migration with compatible fixed graph; do not directly override decoder, add wrapper, or use CommonJS bridge.",
+      "acceptance": "Frozen-lock install, fresh production audit, and bounded hostile deep-link regression demonstrate removal and compatible consumer behavior.",
+      "reachability": "Native/web deep-link parsing.",
+      "approval_boundary": "No exploit payload, app start, or device test was executed."
+    },
+    {
+      "id": "DEP-002",
+      "domain": "Locked dependency advisories and compatibility exposure",
+      "title": "Expo CLI retains vulnerable Zod 3 for tooling schemas",
+      "severity": "low",
+      "status": "conditional-risk",
+      "finding_type": "tooling-dependency-advisory",
+      "prior_ids": ["SEC-001"],
+      "advisory": {
+        "package": "zod",
+        "version": "3.25.76",
+        "tool_severity": "high",
+        "url": "https://github.com/advisories/GHSA-mrhx-c7xc-m3w5",
+        "cve": "CVE-2023-54404",
+        "full_and_production_graph": true,
+        "path_count_each_audit": 35
+      },
+      "evidence": [
+        "raw/pnpm-audit-production.json:267-338 reports transitive zod@3.25.76; direct application zod is 4.6.7 at package.json:103 and pnpm-lock.yaml:209-211,6268-6269.",
+        "pnpm-lock.yaml:7307 resolves affected copy under @expo/cli@57.0.26; node_modules/@expo/cli/build/src/start/server/DevToolsPlugin.schema.js:19-47,82 contains unbounded arrays.",
+        "package.json:12,33 exposes Expo tooling and .github/workflows/ci.yml:231-235 invokes expo export; server/_core/index.ts:1-25 imports no Expo CLI."
+      ],
+      "preconditions": "Expo tooling/build execution reaches affected unbounded CLI schema with attacker-controlled oversized array input.",
+      "impact": "Potential resource exhaustion in local development or CI tooling; production server/API invocation was not established.",
+      "remediation": "Wait for/qualify Expo CLI parent release or SDK migration; do not force Zod 4 into CLI's 3.x dependency range.",
+      "acceptance": "Fresh production audit and installed CLI-consumer coverage prove a qualified parent removes the affected resolution.",
+      "reachability": "Development and CI tooling, not established production server/API.",
+      "approval_boundary": "No CLI schema exploit/build was run."
+    },
+    {
+      "id": "DEP-003",
+      "domain": "Locked dependency advisories and compatibility exposure",
+      "title": "Expo code-signing tooling contains the unpatched node-forge signature verifier",
+      "severity": "medium",
+      "status": "conditional-risk",
+      "finding_type": "tooling-dependency-advisory",
+      "prior_ids": ["SEC-003"],
+      "advisory": {
+        "package": "node-forge",
+        "version": "1.4.0",
+        "tool_severity": "high",
+        "url": "https://github.com/advisories/GHSA-86w9-cpqp-85rv",
+        "cve": "CVE-2026-85393",
+        "full_and_production_graph": true,
+        "path_count_each_audit": 71,
+        "upstream_patched_release": "none reported by audit"
+      },
+      "evidence": [
+        "raw/pnpm-audit-production.json:158-265 reports node-forge@1.4.0; pnpm-lock.yaml:7289,7324-7326,4878-4880 places it under Expo CLI/code-signing certificates.",
+        "node_modules/@expo/code-signing-certificates/build/main.js:153-207 verifies self-signed certificates/signatures and :235-247 verifies CSR input.",
+        "server/_core/index.ts:1-25 does not import tooling; no deployment signing path or untrusted certificate input was exercised."
+      ],
+      "preconditions": "Development, CI, or code-signing operation invokes affected verification with crafted certificate, signature, or CSR.",
+      "impact": "Forged-signature acceptance could undermine code-signing integrity decision if the condition is met; present deployment use is unproven.",
+      "remediation": "Qualify Expo/CLI or code-signing-consumer parent update removing/replacing resolver, or SDK migration; do not write custom RSA/ASN.1 handling.",
+      "acceptance": "Qualified parent removal is evidenced by fresh audit and consumer regression; advisory-specific crafted input is evaluated only in approved test scope.",
+      "reachability": "Development/CI/signing tooling; not established production API reachability.",
+      "approval_boundary": "No signing workflow was run."
+    },
+    {
+      "id": "DEP-004",
+      "domain": "Locked dependency advisories and compatibility exposure",
+      "title": "Expo configuration merging retains unpatched deepmerge prototype-poisoning exposure",
+      "severity": "low",
+      "status": "conditional-risk",
+      "finding_type": "build-dependency-advisory",
+      "prior_ids": [],
+      "advisory": {
+        "package": "deepmerge",
+        "version": "4.3.1",
+        "tool_severity": "low",
+        "url": "https://github.com/advisories/GHSA-gcqx-w48m-w2h4",
+        "cve": "CVE-2026-93753",
+        "full_and_production_graph": true,
+        "path_count_each_audit": 211,
+        "upstream_patched_release": "none reported by audit"
+      },
+      "evidence": [
+        "raw/pnpm-audit-production.json:340-587 reports deepmerge@4.3.1; pnpm-lock.yaml:3109-3111,7353-7356 resolves @expo/config@57.0.9 > deepmerge@4.3.1.",
+        "node_modules/@expo/config/build/Config.js:40-45,407-453 imports/merges root config modifications and plugin properties.",
+        "app.config.ts:29-40,63-177 contains dynamic application config/plugin objects; CI runs Expo export, but no app request-to-config merge path was found."
+      ],
+      "preconditions": "Attacker introduces a malicious source object into Expo configuration modifications/plugin properties during build/config evaluation.",
+      "impact": "Conditional build/tooling integrity exposure via prototype poisoning; no remote production API sink or app-runtime exploit path was established.",
+      "remediation": "Keep configuration/CI inputs trusted and reviewed; qualify @expo/config/Expo parent update only when it removes affected resolution and add installed-consumer merge regression.",
+      "acceptance": "Fresh production audit and benign installed consumer regression demonstrate qualified parent graph change.",
+      "reachability": "Configuration/build tooling, not established request-driven production path.",
+      "approval_boundary": "No Expo export/build was started."
+    },
+    {
+      "id": "DEP-005",
+      "domain": "Locked dependency advisories and compatibility exposure",
+      "title": "Dependency security register is stale against fresh raw audit evidence",
+      "severity": "informational",
+      "status": "verification-gap",
+      "finding_type": "security-governance-gap",
+      "prior_ids": ["SEC-001", "SEC-003", "SEC-004", "SEC-005"],
+      "evidence": [
+        "docs/dependency-security.md:25-32 lists Zod, node-forge, http-cache-semantics, and decoder, omitting deepmerge.",
+        "raw/pnpm-audit-full.json and raw/pnpm-audit-production.json report Zod, node-forge, decoder, and deepmerge, but not historic http-cache-semantics.",
+        "pnpm-lock.yaml:4036-4037,8973 still contains http-cache-semantics@4.2.0, so non-emission is not proof of package removal/fix."
+      ],
+      "preconditions": "Release/remediation decision relies on dated documentation instead of fresh raw audit evidence.",
+      "impact": "Exception tracking may hide new deepmerge gate or incorrectly label historic cache advisory resolved. This is not a confirmed cache-advisory exploit.",
+      "remediation": "At next authorized documentation refresh, record fresh raw audit timestamp/hashes, add deepmerge GHSA, and label historic cache advisory non-emitted rather than remediated.",
+      "acceptance": "Dependency register aligns family/version/status with fresh audit, separates direct/runtime/tooling reachability, and records audit artifact identity.",
+      "reachability": "Security governance and release decision-making.",
+      "approval_boundary": "No dependency document was edited as part of domain review; this reconciled register records the gap."
+    }
+  ],
+  "scanner_reconciliation": {
+    "dependency_audit": {
+      "full": {
+        "exit_code": 1,
+        "total_dependencies": 1258,
+        "advisory_families": 4,
+        "tool_severity_counts": {
+          "critical": 0,
+          "high": 2,
+          "moderate": 1,
+          "low": 1,
+          "info": 0
+        }
+      },
+      "production": {
+        "exit_code": 1,
+        "total_dependencies": 850,
+        "advisory_families": 4,
+        "tool_severity_counts": {
+          "critical": 0,
+          "high": 2,
+          "moderate": 1,
+          "low": 1,
+          "info": 0
+        }
+      },
+      "families": [
+        {
+          "id": "GHSA-vcc3-ghjq-m6fr",
+          "package": "decode-uri-component",
+          "version": "0.2.2",
+          "paths_each_audit": 60,
+          "register_id": "DEP-001"
+        },
+        {
+          "id": "GHSA-86w9-cpqp-85rv",
+          "package": "node-forge",
+          "version": "1.4.0",
+          "paths_each_audit": 71,
+          "register_id": "DEP-003"
+        },
+        {
+          "id": "GHSA-mrhx-c7xc-m3w5",
+          "package": "zod",
+          "version": "3.25.76",
+          "paths_each_audit": 35,
+          "register_id": "DEP-002"
+        },
+        {
+          "id": "GHSA-gcqx-w48m-w2h4",
+          "package": "deepmerge",
+          "version": "4.3.1",
+          "paths_each_audit": 211,
+          "register_id": "DEP-004"
+        }
+      ],
+      "interpretation": "Full and production sets are equal. Installed graph presence is not runtime reachability; only DEP-001 is source-traced through a client deep-link parser."
+    },
+    "gitleaks": {
+      "tool": "gitleaks distro package 8.16.0-1ubuntu0.24.04.3",
+      "current": {
+        "exit_code": 1,
+        "redacted_candidates": 27
+      },
+      "history": {
+        "exit_code": 1,
+        "redacted_candidates": 35
+      },
+      "triage": "Candidate values are intentionally omitted. Review classified candidate locations as generated design output, synthetic/design fixtures, contract-shaped values, and historical document/web paths. No active exposure was confirmed in assigned review; no provider validation, revocation, or rotation was performed, so this is not a no-secrets certification.",
+      "historical_handling": "History candidates are not counted as active exposure merely because they remain in commit history; any candidate ever proven valid requires separate owner incident/custody handling."
+    },
+    "semgrep": {
+      "version": "1.182.1",
+      "exit_code": 0,
+      "matches": 7,
+      "scan_warnings_or_errors": 4,
+      "triage": [
+        {
+          "rule": "package_managers.npm.npm-missing-minimum-release-age",
+          "path": ".npmrc:1",
+          "disposition": "retained as OPS-004"
+        },
+        {
+          "rule": "javascript.browser.security.wildcard-postmessage-configuration",
+          "path": "lib/_core/manus-runtime.ts:64",
+          "disposition": "non-finding; fixed non-sensitive readiness signal"
+        },
+        {
+          "rule": "javascript.express.security.cors-misconfiguration",
+          "path": "server/_core/cors.ts:108",
+          "disposition": "non-finding; exact configured-origin allowlist reflection"
+        },
+        {
+          "rule": "javascript.node-crypto.security.gcm-no-tag-length",
+          "path": "server/social-service.ts:227",
+          "disposition": "non-finding; fixed serialized 16-byte tag field and source tamper/truncation checks"
+        },
+        {
+          "rule": "javascript.node-crypto.security.gcm-no-tag-length",
+          "path": "operations/security-tools/sec27-local-recovery-drill.mjs:76",
+          "disposition": "not confirmed vulnerability after owning operations review"
+        },
+        {
+          "rule": "python.lang.security.audit.dangerous-subprocess-use-tainted-env-args",
+          "path": "scripts/run-circle-home-e2e.py:440,477",
+          "disposition": "not confirmed vulnerability after owning operations review"
+        }
+      ],
+      "coverage_limit": "Initial scan emitted four shell/timeout/partial YAML/partial TypeScript warnings. Targeted 60-second-per-rule rerun resolved the auditor-script timeout with zero errors. ShellCheck and bash syntax checks supplement the shell gap; partial parsing limits still apply. Exit 0 is not a clean-security verdict.",
+      "rulesets": ["p/security-audit", "p/owasp-top-ten"],
+      "rules_run": 319,
+      "files_scanned": 455,
+      "excluded_paths": [
+        "node_modules",
+        "outputs",
+        "skills",
+        "design-audit",
+        "drizzle/meta",
+        "drizzle/postgres/meta",
+        "pnpm-lock.yaml",
+        "Semgrep default ignore rules"
+      ],
+      "telemetry_disabled": true,
+      "targeted_timeout_recheck": {
+        "exit_code": 0,
+        "file": "scripts/circles-supabase-security-audit.mjs",
+        "per_rule_timeout_seconds": 60,
+        "findings": 0,
+        "errors": 0
+      }
+    },
+    "shellcheck": {
+      "exit_code": 1,
+      "triage": "Two coturn warnings were reliability-style observations, not confirmed security findings.",
+      "version": "0.9.0",
+      "bash_syntax_check_exit_code": 0,
+      "warning_codes": ["SC2155", "SC2015"]
+    },
+    "parent_checks": {
+      "all_reported_exit_zero": [
+        "check-api-build",
+        "check-env-ci",
+        "check-env-template",
+        "check-format",
+        "check-lint",
+        "check-synthetic-auditor",
+        "check-types",
+        "check-units"
+      ],
+      "unit_log": {
+        "test_files_passed": 244,
+        "tests_passed": 1209
+      },
+      "unit_xml": {
+        "valid": true,
+        "tests": 1209,
+        "failures": 0,
+        "errors": 0,
+        "test_files": 244,
+        "note": "Completed XML supersedes an incomplete concurrent read observed by one domain reviewer."
+      },
+      "synthetic_auditor": {
+        "tests": 72,
+        "passed": 71,
+        "failed": 0,
+        "skipped": 1
+      }
+    }
+  },
+  "negative_results": [
+    "No high or critical custom source-confirmed SQL injection, external IDOR of existing private-circle content, owner/moderator escalation, arbitrary storage-proxy origin, open relay, or active plaintext-media disclosure was established in the assigned source scopes.",
+    "OAuth state/redirect binding, durable session actor/revocation checks, cookie/logout fencing, verified email subject uniqueness, protected social/circle/activity/moderation scope checks, strict media origin/DNS/TLS controls, and configured-origin CORS checks were substantiated in source and targeted tests.",
+    "These results do not prove absence outside reviewed paths or under real deployment/provider/device conditions."
+  ],
+  "coverage": {
+    "domains": [
+      "Authentication, identity and session security",
+      "Authorization, database isolation and private-resource access",
+      "Media encryption, upload validation, and storage transport",
+      "HTTP request security and abuse resistance",
+      "Live video signaling, membership and native lifecycle",
+      "CI, secrets, deployment and recovery operations",
+      "Locked dependency advisories and compatibility exposure"
+    ],
+    "source_and_test_evidence": "Reviewers traced source/contracts/tests and ran focused overlapping subsets. Completed log and parsed JUnit agree on 244 test files and 1,209 tests with zero failures/errors. Separate synthetic audit had 71 passes and one skip. These are not production runtime proof.",
+    "raw_artifacts": "/home/ubuntu/circles-security-20261029/raw",
+    "portable_evidence": "docs/security-scan-evidence-20261029.json"
+  },
+  "limitations": [
+    "No production credentials, provider or live database requests, live catalog reads/writes, migrations, production application/service starts, key rotation, publication, or production operations occurred. Tests can start disposable local subprocesses/listeners and synthetic recovery fixtures; this task writes audit documentation only.",
+    "No real ingress/CDN/WAF, TLS termination, CORS browser matrix, object provider, deployed DNS/CDN/TLS, native device, camera/microphone, real WebRTC/TURN, backup archive, restore, signing, or provider configuration was exercised.",
+    "Source/static/mocked tests cannot establish deployed PostgreSQL locks/RLS/query plans, external rate limiting, browser/WebView cookie behavior, native cache/decoder behavior, or modified-client media behavior.",
+    "Raw secret candidate snippets are forbidden from this register; the redacted scanner metadata was used only for aggregate triage.",
+    "No container-image OS vulnerability scan, DAST, or independent PostgreSQL E2E drill was performed. The feature branch and report files are local; no remote branch push is part of this audit request."
+  ],
+  "references": [
+    {
+      "id": "GHSA-vcc3-ghjq-m6fr",
+      "url": "https://github.com/advisories/GHSA-vcc3-ghjq-m6fr",
+      "subject": "decode-uri-component"
+    },
+    {
+      "id": "GHSA-mrhx-c7xc-m3w5",
+      "url": "https://github.com/advisories/GHSA-mrhx-c7xc-m3w5",
+      "subject": "Zod"
+    },
+    {
+      "id": "GHSA-86w9-cpqp-85rv",
+      "url": "https://github.com/advisories/GHSA-86w9-cpqp-85rv",
+      "subject": "node-forge"
+    },
+    {
+      "id": "GHSA-gcqx-w48m-w2h4",
+      "url": "https://github.com/advisories/GHSA-gcqx-w48m-w2h4",
+      "subject": "deepmerge"
+    },
+    {
+      "id": "W3C-WebRTC",
+      "url": "https://www.w3.org/TR/webrtc/",
+      "subject": "ICE transport policy"
+    }
+  ]
+}
