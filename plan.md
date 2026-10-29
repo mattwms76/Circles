@@ -347,3 +347,8 @@ Reuse the existing stored PostgreSQL setting and verified-target TLS helper for 
 ## Complete GitHub source synchronization — 29 October 2026
 
 Preserve and merge both canonical audit/recovery commits and GitHub helper-consolidation/watchdog commits without force-pushing. Include the completed presentation script, historical verification snapshot and recovery outcome as repository-safe Markdown; retain raw/private evidence and credentials outside Git. Keep live PostgreSQL authentication, prepared SQL/provider cutovers, device verification and publication separate from source synchronization.
+
+
+## Exact-source hosted CI corrections after full synchronization — 29 October 2026
+
+The combined 761e95e push exposed two validation-contract failures, not authorization to change live credentials or prepared SQL. Make the fixed isolated CBA runners use the already-selected supported Node executable instead of a sandbox-only /home/ubuntu Node path/version; retain disposable PG17, credential stripping, fixed fixture modes, loopback/marker checks and cleanup. Align the container smoke assertion with the current redacted readiness response while still requiring 200 liveness, HTTP 503 and false readiness when the intentionally invalid synthetic DSN cannot connect. Never weaken the production readiness implementation or supply production credentials to CI.

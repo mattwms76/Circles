@@ -93,29 +93,56 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          trap 'docker rm --force circles-api-validation >/dev/null 2>&1 || true' EXIT
+          docker() {
+            env -i PATH="$PATH" HOME="$HOME" docker "$@"
+          }
+          trap 'docker rm --force circles-api-validation >/dev/null 2>&1 || true; rm -f /tmp/circles-container-health.json /tmp/circles-container-ready.json' EXIT
           # Production must reject a wholly untrusted/missing runtime environment.
           if docker run --rm circles-api-validation:local >/tmp/circles-missing-runtime.log 2>&1; then
             printf 'missing trusted production configuration was incorrectly accepted\n'
             exit 1
           fi
-          export MANUS_JWT_SECRET
           MANUS_JWT_SECRET=$(openssl rand -hex 32)
           # These are non-secret placeholders, never a production DB/account/provider.
           # The invalid DSN fails locally before any external connection is attempted.
-          docker run --detach --name circles-api-validation --publish 127.0.0.1:13000:3000 \
-            --env MANUS_JWT_SECRET \
+          docker run --detach --name circles-api-validation --publish 127.0.0.1::3000 \
+            --env MANUS_JWT_SECRET="$MANUS_JWT_SECRET" \
             --env MANUS_PROJECT_ID=synthetic-container-validation \
             --env MANUS_OAUTH_API_URL=https://oauth-api.example.invalid \
             --env MANUS_OAUTH_PORTAL_URL=https://oauth.example.invalid \
             --env SUPABASE_DATABASE_URL=synthetic-invalid-dsn \
             circles-api-validation:local >/dev/null
+          host_port=$(docker port circles-api-validation 3000/tcp | sed -n 's/^127\.0\.0\.1:\([0-9][0-9]*\)$/\1/p' | head -n 1)
+          if [[ ! "$host_port" =~ ^[1-9][0-9]*$ ]] || [[ "$host_port" == 3000 || "$host_port" == 8081 ]]; then
+            printf 'container did not receive an ephemeral loopback port: %s\n' "$host_port"
+            exit 1
+          fi
+          origin="http://127.0.0.1:${host_port}"
           for attempt in $(seq 1 30); do
-            if curl --fail --silent http://127.0.0.1:13000/api/health > /tmp/circles-container-health.json; then break; fi
+            health_status=$(curl --connect-timeout 2 --max-time 5 --silent --output /tmp/circles-container-health.json --write-out '%{http_code}' "$origin/api/health" || true)
+            if test "$health_status" = 200; then break; fi
             sleep 1
           done
+          test "$health_status" = 200
           python3 -c 'import json; assert json.load(open("/tmp/circles-container-health.json"))["ok"] is True'
-          status=$(curl --silent --output /tmp/circles-container-ready.json --write-out '%{http_code}' http://127.0.0.1:13000/api/ready)
+          status=$(curl --connect-timeout 2 --max-time 5 --silent --output /tmp/circles-container-ready.json --write-out '%{http_code}' "$origin/api/ready")
           test "$status" = 503
-          python3 -c 'import json; r=json.load(open("/tmp/circles-container-ready.json")); assert r == {"ok": False}'
+          python3 - <<'PY'
+          import json
+
+          response = json.load(open("/tmp/circles-container-ready.json"))
+          expected_keys = {
+              "ok",
+              "liveRelay",
+              "liveReady",
+              "mediaUploadBudget",
+              "mediaUploadReady",
+          }
+          # Exact keys and boolean-only values prevent error, DSN, query, or account metadata leaks.
+          assert set(response) == expected_keys
+          assert all(type(response[key]) is bool for key in expected_keys)
+          assert response["ok"] is False
+          assert response["liveReady"] is False
+          assert response["mediaUploadReady"] is False
+          PY
           printf 'container liveness passed; absent datastore readiness correctly blocked\n'

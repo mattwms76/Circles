@@ -582,3 +582,12 @@ Cleanup evidence: fast-forwarded the clean imported checkout from ec770ae to cur
 - [ ] Verify the combined exact-source CI separately. No production schema, provider, credential, native-device or publication change is authorized by this source push.
 
 Combined-source pre-push evidence: 1,203 tests/242 files, strict types, zero-warning lint, formatting and API build passed. Fresh isolated People, social-pagination and security suites passed and removed their temporary databases. The read-only review found no code-preservation defect; its document whitespace and historical-label findings were corrected. Final remote push/CI receipts are recorded in the task handoff; live credentials, prepared migrations and physical-device gates remain open.
+
+
+## Hosted CI portability follow-up — 29 October 2026
+
+- [x] Correct CBA fixture Node executable/version portability while preserving synthetic-only PostgreSQL 17, fixed modes, credential stripping, marker/loopback checks and cleanup; run all affected fixtures.
+- [x] Update the container smoke contract for the current redacted readiness response; retain missing-runtime rejection, nonroot pinned TLS proof, liveness and strict HTTP-503/false readiness, with no real datastore/provider/credentials.
+- [ ] Save and push the narrow corrections and observe new exact-source CI; keep failed 761e95e receipts, live PostgreSQL 28P01, staged SQL/provider changes and native verification distinct.
+
+Follow-up source evidence: 1,209 tests/244 files, strict types, zero-warning lint, source formatting and API build passed. CBA-02/04/06 real isolated PG17 assertions passed (4/4, 4/4, 8/8), including a copied alternate Node executable path proof; exact Node 22.23.4 and fixture boundaries remain enforced. Container contract/real shell-wrapper/security checks passed (10/10), followed by a fresh strict typecheck, exact-policy and identity/session drills. Docker image validation remains a hosted-CI result; the old failed 761e95e receipts are retained. No production readiness code, credentials, SQL, native config or service ownership changed.

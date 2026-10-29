@@ -163,7 +163,13 @@ describe("SEC27 integration configuration boundaries", () => {
       new URL(".github/workflows/container-validation.yml", root),
       "utf8",
     );
-    expect(source).toContain('assert r == {"ok": False}');
-    expect(source).not.toContain('r["database"]');
+    expect(source).not.toContain('assert r == {"ok": False}');
+    expect(source).toContain('test "$status" = 503');
+    expect(source).toContain("assert set(response) == expected_keys");
+    expect(source).toContain(
+      "assert all(type(response[key]) is bool for key in expected_keys)",
+    );
+    expect(source).toContain('assert response["ok"] is False');
+    expect(source).not.toContain('response["database"]');
   });
 });

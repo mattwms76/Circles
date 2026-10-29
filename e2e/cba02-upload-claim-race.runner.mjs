@@ -10,13 +10,14 @@ import { randomBytes } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { createRequire } from "node:module";
 import net from "node:net";
 import { Pool } from "pg";
 
 const PROJECT_ROOT = resolve(new URL("..", import.meta.url).pathname);
-const NODE = "/home/ubuntu/.nvm/versions/node/v22.23.4/bin/node";
+const NODE = process.execPath;
+const NODE_BIN = dirname(NODE);
 const PG_BIN = "/usr/lib/postgresql/17/bin";
 const INITDB = `${PG_BIN}/initdb`;
 const PG_CTL = `${PG_BIN}/pg_ctl`;
@@ -72,7 +73,7 @@ function fixtureEnvironment(home) {
     HOME: home,
     LANG: "C.UTF-8",
     LC_ALL: "C.UTF-8",
-    PATH: "/home/ubuntu/.nvm/versions/node/v22.23.4/bin:/usr/lib/postgresql/17/bin:/usr/bin:/bin",
+    PATH: `${NODE_BIN}:${PG_BIN}:/usr/bin:/bin`,
     NODE_ENV: "test",
     CI: "1",
     NO_COLOR: "1",
@@ -172,7 +173,8 @@ async function main() {
     passed: false,
   };
   try {
-    if (process.execPath !== NODE) fail("CBA-02 requires Node 22.23.4");
+    if (process.versions.node !== "22.23.4")
+      fail("CBA-02 requires Node 22.23.4");
     if (
       run(INITDB, ["--version"], fixtureEnvironment(PROJECT_ROOT))
         .stdout.trim()
