@@ -486,6 +486,17 @@ function healthyLiveness(probe, probeType) {
   return probeType === "tcp" ? probe.reachable : healthyHttpResponse(probe);
 }
 
+function classifyHttpReadiness(probe) {
+  return probe.reachable && probe.status === 503
+    ? "degraded"
+    : probe.reachable &&
+        probe.status !== null &&
+        probe.status >= 200 &&
+        probe.status < 300
+      ? "ready"
+      : "unknown";
+}
+
 export function createDefaultServices(projectDir = DEFAULT_PROJECT_DIR) {
   return [
     {
@@ -1217,15 +1228,7 @@ export class DevSupervisor {
           "/api/ready",
           this.options.probeTimeoutMs,
         );
-        const nextReadiness =
-          readiness.reachable && readiness.status === 503
-            ? "degraded"
-            : readiness.reachable &&
-                readiness.status !== null &&
-                readiness.status >= 200 &&
-                readiness.status < 300
-              ? "ready"
-              : "unknown";
+        const nextReadiness = classifyHttpReadiness(readiness);
         if (nextReadiness !== service.lastHealth.readiness) {
           await this.record({
             event:
@@ -1472,15 +1475,7 @@ export async function observeOnce(services = createDefaultServices()) {
     let readiness = "not_applicable";
     if (service.readiness) {
       const probe = await probeLocalHttp(service.port, "/api/ready", 1_500);
-      readiness =
-        probe.reachable && probe.status === 503
-          ? "degraded"
-          : probe.reachable &&
-              probe.status !== null &&
-              probe.status >= 200 &&
-              probe.status < 300
-            ? "ready"
-            : "unknown";
+      readiness = classifyHttpReadiness(probe);
     }
     observations.push({
       name: service.name,

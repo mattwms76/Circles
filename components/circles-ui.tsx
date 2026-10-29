@@ -127,6 +127,31 @@ export type AvatarProps = {
   livePulse?: boolean;
 };
 
+function avatarFallback(name: string, size: number) {
+  return (
+    <View
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size,
+        backgroundColor: C.sage,
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <T
+        style={{
+          fontWeight: "700",
+          color: C.secondary,
+          fontSize: size * 0.34,
+        }}
+      >
+        {name.slice(0, 1).toUpperCase() || "C"}
+      </T>
+    </View>
+  );
+}
+
 export function Avatar({
   uri,
   name = "",
@@ -154,50 +179,10 @@ export function Avatar({
           style={{ width: size, height: size, borderRadius: size }}
           contentFit="cover"
           transition={180}
-          fallback={
-            <View
-              style={{
-                width: size,
-                height: size,
-                borderRadius: size,
-                backgroundColor: C.sage,
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <T
-                style={{
-                  fontWeight: "700",
-                  color: C.secondary,
-                  fontSize: size * 0.34,
-                }}
-              >
-                {name.slice(0, 1).toUpperCase() || "C"}
-              </T>
-            </View>
-          }
+          fallback={avatarFallback(name, size)}
         />
       ) : (
-        <View
-          style={{
-            width: size,
-            height: size,
-            borderRadius: size,
-            backgroundColor: C.sage,
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <T
-            style={{
-              fontWeight: "700",
-              color: C.secondary,
-              fontSize: size * 0.34,
-            }}
-          >
-            {name.slice(0, 1).toUpperCase() || "C"}
-          </T>
-        </View>
+        avatarFallback(name, size)
       )}
       <LiveAvatarRing
         size={size + (ring ? 8 : 0)}

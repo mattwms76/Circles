@@ -44,6 +44,62 @@ function childElements(node: ReactNode) {
 }
 
 describe("live avatar visual contract", () => {
+  it.each([
+    { name: "Ari", size: 40, initial: "A" },
+    { name: "", size: 28, initial: "C" },
+    { name: "matt", size: 64, initial: "M" },
+  ])(
+    "uses identical missing-image and failed-image fallbacks for $name at $size pixels",
+    ({ name, size, initial }) => {
+      const withoutImage = Avatar({ name, size });
+      const withImage = Avatar({
+        name,
+        size,
+        uri: "https://example.invalid/avatar.jpg",
+      });
+      const missingFallback = childElements(withoutImage.props.children)[0];
+      const image = childElements(withImage.props.children)[0];
+      const imageProps = image.props as {
+        fallback: ReactNode;
+        source: { uri: string };
+        contentFit: string;
+        transition: number;
+      };
+
+      expect(image.type).toBe("Image");
+      expect(imageProps).toMatchObject({
+        source: { uri: "https://example.invalid/avatar.jpg" },
+        contentFit: "cover",
+        transition: 180,
+      });
+      expect(isValidElement(imageProps.fallback)).toBe(true);
+      if (!isValidElement(imageProps.fallback)) {
+        throw new Error("The failed-image fallback must remain an element");
+      }
+      // Children.toArray assigns a synthetic key; compare the rendered tree, not that key.
+      expect(imageProps.fallback.type).toBe(missingFallback.type);
+      expect(imageProps.fallback.props).toEqual(missingFallback.props);
+      expect(missingFallback.type).toBe("View");
+      expect(missingFallback.props).toMatchObject({
+        style: {
+          width: size,
+          height: size,
+          borderRadius: size,
+          backgroundColor: "#E9EEE5",
+          alignItems: "center",
+          justifyContent: "center",
+        },
+      });
+      const initials = childElements(
+        (missingFallback.props as { children: ReactNode }).children,
+      )[0];
+      expect(initials.props).toMatchObject({
+        children: initial,
+        style: { fontSize: size * 0.34, fontWeight: "700" },
+      });
+    },
+  );
+
   it("keeps the primitive avatar presentational while passing a noninteractive overlay its existing frame dimensions", () => {
     const node = Avatar({
       uri: null,

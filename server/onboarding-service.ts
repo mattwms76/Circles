@@ -18,6 +18,12 @@ import { getProfile } from "./social-service";
 
 const APPROVED_MEMBER_ROLES = ["owner", "moderator", "member"] as const;
 const RECOMMENDATION_MAX_LIMIT = 12;
+const ONBOARDING_PROFILE_FIELDS = {
+  userId: profiles.userId,
+  interests: profiles.interests,
+  onboardingStep: profiles.onboardingStep,
+  onboardingCompletedAt: profiles.onboardingCompletedAt,
+};
 
 type MembershipRole = "owner" | "moderator" | "member" | "pending";
 type Database = CirclesDatabase;
@@ -79,12 +85,7 @@ async function findOwnOnboardingProfile(
   userId: number,
 ): Promise<OnboardingProfileRow | null> {
   const rows = await db
-    .select({
-      userId: profiles.userId,
-      interests: profiles.interests,
-      onboardingStep: profiles.onboardingStep,
-      onboardingCompletedAt: profiles.onboardingCompletedAt,
-    })
+    .select(ONBOARDING_PROFILE_FIELDS)
     .from(profiles)
     .where(eq(profiles.userId, userId))
     .limit(1);
@@ -97,12 +98,7 @@ async function lockOwnMutableOnboardingProfile(
   userId: number,
 ): Promise<OnboardingProfileRow> {
   const rows = await tx
-    .select({
-      userId: profiles.userId,
-      interests: profiles.interests,
-      onboardingStep: profiles.onboardingStep,
-      onboardingCompletedAt: profiles.onboardingCompletedAt,
-    })
+    .select(ONBOARDING_PROFILE_FIELDS)
     .from(profiles)
     .where(eq(profiles.userId, userId))
     .limit(1)
@@ -182,12 +178,7 @@ export async function saveOnboarding(
         updatedAt: new Date(),
       })
       .where(eq(profiles.userId, userId))
-      .returning({
-        userId: profiles.userId,
-        interests: profiles.interests,
-        onboardingStep: profiles.onboardingStep,
-        onboardingCompletedAt: profiles.onboardingCompletedAt,
-      });
+      .returning(ONBOARDING_PROFILE_FIELDS);
     const row = rows[0];
     if (!row)
       onboardingError("INTERNAL_SERVER_ERROR", "Unable to save onboarding");
@@ -209,12 +200,7 @@ export async function finishOnboarding(
         updatedAt: new Date(),
       })
       .where(eq(profiles.userId, userId))
-      .returning({
-        userId: profiles.userId,
-        interests: profiles.interests,
-        onboardingStep: profiles.onboardingStep,
-        onboardingCompletedAt: profiles.onboardingCompletedAt,
-      });
+      .returning(ONBOARDING_PROFILE_FIELDS);
     const row = rows[0];
     if (!row)
       onboardingError("INTERNAL_SERVER_ERROR", "Unable to finish onboarding");

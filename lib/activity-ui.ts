@@ -6,6 +6,10 @@ import {
   type ActivityTarget,
   type ActivityUnread,
 } from "../shared/activity";
+import {
+  resolveCurrentQueryDisplayState,
+  uniqueByNumericId,
+} from "./query-display-state";
 
 export type ActivityViewerScope = { viewerId: number | null };
 
@@ -76,45 +80,6 @@ export function isCurrentActivityTarget(
   );
 }
 
-function queryDisplayState({
-  queryEnabled,
-  isError,
-  isFetchedAfterMount,
-  isFetching,
-  hasCurrentValue,
-  hasForeignValue,
-}: {
-  queryEnabled: boolean;
-  isError: boolean;
-  isFetchedAfterMount: boolean;
-  isFetching: boolean;
-  hasCurrentValue: boolean;
-  hasForeignValue: boolean;
-}): Pick<
-  ActivityResponseUiState<never>,
-  "isLoading" | "isError" | "isAuthorityAvailable"
-> {
-  const mismatchSettled =
-    queryEnabled && isFetchedAfterMount && hasForeignValue && !isFetching;
-  const displayError = queryEnabled && (isError || mismatchSettled);
-  const displayLoading =
-    queryEnabled &&
-    !displayError &&
-    (!isFetchedAfterMount || (hasForeignValue && isFetching));
-
-  return {
-    isLoading: displayLoading,
-    isError: displayError,
-    isAuthorityAvailable:
-      queryEnabled &&
-      isFetchedAfterMount &&
-      !isError &&
-      hasCurrentValue &&
-      !hasForeignValue &&
-      !isFetching,
-  };
-}
-
 /**
  * Never render an infinite-query cache until every page belongs to this mounted account.
  * During a normal refresh matching items remain readable, but write/navigation authority is
@@ -140,7 +105,7 @@ export function resolveActivityPagesUiState({
     (page) => !isCurrentActivityPage(page, scope),
   );
   const hasCurrentPages = hasPages && !hasForeignPage;
-  const display = queryDisplayState({
+  const display = resolveCurrentQueryDisplayState({
     queryEnabled,
     isError,
     isFetchedAfterMount,
@@ -182,7 +147,7 @@ export function resolveActivityResponseUiState<T extends { viewerId: number }>({
 }): ActivityResponseUiState<T> {
   const current = isCurrent(value, scope);
   const foreign = !!value && !current;
-  const display = queryDisplayState({
+  const display = resolveCurrentQueryDisplayState({
     queryEnabled,
     isError,
     isFetchedAfterMount,
@@ -203,12 +168,7 @@ export function resolveActivityResponseUiState<T extends { viewerId: number }>({
 export function uniqueActivityItems(
   items: readonly ActivityItem[],
 ): ActivityItem[] {
-  const seen = new Set<number>();
-  return items.filter((item) => {
-    if (seen.has(item.id)) return false;
-    seen.add(item.id);
-    return true;
-  });
+  return uniqueByNumericId(items);
 }
 
 /** A badge never reports a negative/non-finite value and deliberately caps visual noise. */

@@ -260,9 +260,17 @@ describe.sequential("development supervisor", () => {
       );
       await new Promise((resolve) => setTimeout(resolve, 250));
       const status = await value.supervisor.status();
+      const observation = await observeOnce([
+        syntheticService(value.port, { mode: "ready503" }),
+      ]);
       expect(status.services[0].generation).toBe(1);
       expect(status.services[0].liveness).toBe("healthy");
       expect(status.services[0].readiness).toBe("degraded");
+      expect(observation.services[0]).toMatchObject({
+        liveness: "healthy",
+        healthStatus: 200,
+        readiness: "degraded",
+      });
     } finally {
       await closeHarness(value);
     }
@@ -284,11 +292,22 @@ describe.sequential("development supervisor", () => {
       expect(observation.services[0]).toMatchObject({
         liveness: "unhealthy",
         healthStatus: 500,
+        readiness: "ready",
       });
       expect(observationExitCode(observation)).toBe(2);
     } finally {
       await closeHarness(value);
     }
+  });
+
+  it("reports an unreachable one-shot readiness probe as unknown", async () => {
+    const port = await freePort();
+    const observation = await observeOnce([syntheticService(port)]);
+    expect(observation.services[0]).toMatchObject({
+      liveness: "unreachable",
+      healthStatus: null,
+      readiness: "unknown",
+    });
   });
 
   it("restarts an owned HTTP 500 child after consecutive liveness failures", async () => {
