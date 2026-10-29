@@ -565,3 +565,20 @@ Owner request: implement fixes for all audit issues. CBA-09 is excluded as an ad
 - [x] Deliver a text-only presentation script summarizing verified People/design/source results and accurate remaining database, CI and physical-device evidence limits.
 
 - Available repair evidence: current-source 1,188 tests/241 files, strict types/lint/format/API build passed; 13/13 watchdog cases passed as an unprivileged user without /home/ubuntu write access; GitHub-source 14/14 watchdog cases passed and the test-only fix was pushed as 06bbc71. Stored-value PostgreSQL authentication still returns 28P01, so live recovery and hosted exact-source CI completion are not claimed here.
+
+## Behavior-preserving codebase cleanup — 29 October 2026
+
+- [x] Consolidate duplicated Activity/Moderation display-state and numeric-ID deduplication logic behind pure helpers, retaining domain exports, account/resource predicates, cached-value selection and action-authority behavior.
+- [x] Reuse the existing Avatar initials fallback markup without changing its rendered structure, image props, live-ring behavior or accessibility.
+- [x] Consolidate identical onboarding profile field projections and supervisor HTTP-readiness classification without changing query/lock order, ownership, restart policy or probe evaluation order; remove obsolete feature-router example comments.
+- [x] Validate targeted regressions, exhaustive display-state combinations, the credential-free full unit suite, strict TypeScript, zero-warning lint, source formatting and API compilation; independently review the patch. Preserve dependencies, schema/SQL, credentials, providers, native settings and deployment. Live service recovery, native/device/provider proof and GitHub publication are outside this cleanup.
+
+Cleanup evidence: fast-forwarded the clean imported checkout from ec770ae to current GitHub main20652cb before editing. Baseline1,148tests/225files passed; final1,163tests/226files passed with zero failures/errors/skips, including all64 display-state combinations and synthetic supervisor readiness cases. Strict unused-code TypeScript, zero-warning lint, tracked/new-file formatting, environment template/CI contracts, API compilation and independent read-only review passed. Initial new-test React-key comparison and array-style warnings were corrected without weakening source behavior or lint rules. At validation completion, changes were local and uncommitted; that validation did not include a push, service restart, deployment, live database/provider operation, dependency/schema/native configuration change or device-verification claim. The owner subsequently authorized committing and pushing the complete cleanup to GitHub; remote CI is a separate receipt.
+
+
+## Complete GitHub source synchronization — 29 October 2026
+
+- [ ] Preserve both current histories and push all reviewed project source plus the completed presentation/recovery documents to GitHub main; include the portable watchdog fix and retained audit/helper changes, but not credentials, private service state or raw task artifacts.
+- [ ] Verify the combined exact-source CI separately. No production schema, provider, credential, native-device or publication change is authorized by this source push.
+
+Combined-source pre-push evidence: 1,203 tests/242 files, strict types, zero-warning lint, formatting and API build passed. Fresh isolated People, social-pagination and security suites passed and removed their temporary databases. The read-only review found no code-preservation defect; its document whitespace and historical-label findings were corrected. Final remote push/CI receipts are recorded in the task handoff; live credentials, prepared migrations and physical-device gates remain open.

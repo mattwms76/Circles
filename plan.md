@@ -342,3 +342,8 @@ Final preparation amendment: the durable media ledger is in separate private cir
 ## Post-push blocker recovery — 29 October 2026
 
 Reuse the existing stored PostgreSQL setting and verified-target TLS helper for bounded read-only authentication checks; do not reset passwords, rotate signing/media keys, alter database roles, install prepared migrations, or create production fixtures. Restart only an identified API process when refreshed stored credentials actually pass preflight; preserve healthy Metro and existing supervisor ownership. Resolve only the watchdog test's machine-specific evidence path by placing its private JSON evidence under the test's existing temporary directory and retaining cleanup and crash-recovery assertions. Summarize the historical post-push report and current verified outcomes in a text-only presentation script; source tests, hosted CI, live readiness and physical-device verification remain separate evidence.
+
+
+## Complete GitHub source synchronization — 29 October 2026
+
+Preserve and merge both canonical audit/recovery commits and GitHub helper-consolidation/watchdog commits without force-pushing. Include the completed presentation script, historical verification snapshot and recovery outcome as repository-safe Markdown; retain raw/private evidence and credentials outside Git. Keep live PostgreSQL authentication, prepared SQL/provider cutovers, device verification and publication separate from source synchronization.

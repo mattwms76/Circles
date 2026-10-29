@@ -8,6 +8,10 @@ import {
   type ModerationResolution,
   type ModerationScope,
 } from "../shared/moderation";
+import {
+  resolveCurrentQueryDisplayState,
+  uniqueByNumericId,
+} from "./query-display-state";
 
 export type ModerationUiScope = ModerationScope;
 
@@ -70,45 +74,6 @@ export function isCurrentModerationResolution(
   );
 }
 
-function queryDisplayState({
-  queryEnabled,
-  isError,
-  isFetchedAfterMount,
-  isFetching,
-  hasCurrentValue,
-  hasForeignValue,
-}: {
-  queryEnabled: boolean;
-  isError: boolean;
-  isFetchedAfterMount: boolean;
-  isFetching: boolean;
-  hasCurrentValue: boolean;
-  hasForeignValue: boolean;
-}): Pick<
-  ModerationDetailUiState,
-  "isLoading" | "isError" | "isAuthorityAvailable"
-> {
-  const mismatchSettled =
-    queryEnabled && isFetchedAfterMount && hasForeignValue && !isFetching;
-  const displayError = queryEnabled && (isError || mismatchSettled);
-  const displayLoading =
-    queryEnabled &&
-    !displayError &&
-    (!isFetchedAfterMount || (hasForeignValue && isFetching));
-
-  return {
-    isLoading: displayLoading,
-    isError: displayError,
-    isAuthorityAvailable:
-      queryEnabled &&
-      isFetchedAfterMount &&
-      !isError &&
-      hasCurrentValue &&
-      !hasForeignValue &&
-      !isFetching,
-  };
-}
-
 /**
  * Never render an infinite-case cache before this mount receives matching account and circle
  * pages. A matching queue can stay readable while refreshing, but it cannot authorize action.
@@ -133,7 +98,7 @@ export function resolveModerationPagesUiState({
     (page) => !isCurrentModerationPage(page, scope),
   );
   const hasCurrentPages = hasPages && !hasForeignPage;
-  const display = queryDisplayState({
+  const display = resolveCurrentQueryDisplayState({
     queryEnabled,
     isError,
     isFetchedAfterMount,
@@ -173,7 +138,7 @@ export function resolveModerationDetailUiState({
 }): ModerationDetailUiState {
   const current = isCurrentModerationDetail(detail, scope, caseId);
   const foreign = !!detail && !current;
-  const display = queryDisplayState({
+  const display = resolveCurrentQueryDisplayState({
     queryEnabled,
     isError,
     isFetchedAfterMount,
@@ -194,12 +159,7 @@ export function resolveModerationDetailUiState({
 export function uniqueModerationCases(
   items: readonly ModerationCase[],
 ): ModerationCase[] {
-  const seen = new Set<number>();
-  return items.filter((item) => {
-    if (seen.has(item.id)) return false;
-    seen.add(item.id);
-    return true;
-  });
+  return uniqueByNumericId(items);
 }
 
 /** Completion effects belong only to the still-mounted account/circle/case scope. */
