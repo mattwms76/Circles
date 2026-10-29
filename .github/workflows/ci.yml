@@ -60,6 +60,9 @@ jobs:
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Check tracked source formatting
+        run: pnpm format:check
+
       - name: Check environment template and safe CI configuration
         run: |
           pnpm check:env --template
@@ -148,6 +151,14 @@ jobs:
 
       - name: Run isolated interest and follow based People recommendation HTTP and PostgreSQL E2E
         run: pnpm test:e2e:people-recommendations
+
+      - name: Run isolated codebase-audit authority, flood, quota and exact-policy regressions
+        run: |
+          /usr/bin/python3 -B scripts/run-circle-home-e2e.py --suite cba03-social-pagination
+          node e2e/cba02-upload-claim-race.runner.mjs
+          node e2e/cba04-live-chat-bounds.runner.mjs
+          node e2e/cba06-media-upload-budget.runner.mjs
+          CIRCLES_CBA10_LOCAL_PG17=1 /usr/bin/python3 -B operations/tests/cba10-policy-health.pg17.py
 
       - name: Run isolated email identity roles and allocation-race drills
         env:

@@ -306,14 +306,20 @@ export function PostCard({
     sourceScope,
     utils,
   ]);
-  const comments = trpc.social.comments.useQuery(
-    { postId: post.id },
-    { enabled: commentsOpen && actionsAvailable },
+  const comments = trpc.social.commentsPage.useInfiniteQuery(
+    { postId: post.id, limit: 20 },
+    {
+      enabled: commentsOpen && actionsAvailable,
+      getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    },
   );
+  const commentItems = comments.data?.pages.flatMap((page) => page.items) ?? [];
   const commentsDisplayState = resolveFnd001QueryDisplayState({
     isLoading: comments.isLoading,
-    isError: comments.isError,
-    hasContent: !!comments.data?.length,
+    // A continuation failure must retain the comments already loaded instead of replacing them
+    // with a full-sheet error. The explicit continuation control below offers the retry.
+    isError: comments.isError && commentItems.length === 0,
+    hasContent: commentItems.length > 0 || !!comments.hasNextPage,
   });
   const addComment = trpc.social.comment.useMutation();
   const submitComment = useCallback(() => {
@@ -771,7 +777,7 @@ export function PostCard({
                   </T>
                 ) : (
                   <View style={{ gap: 16 }}>
-                    {(comments.data ?? []).map((comment) => (
+                    {commentItems.map((comment) => (
                       <View
                         key={comment.id}
                         style={[s.row, { alignItems: "flex-start", gap: 12 }]}
@@ -796,6 +802,25 @@ export function PostCard({
                         </View>
                       </View>
                     ))}
+                    {comments.hasNextPage && (
+                      <View style={{ alignItems: "center", gap: 8 }}>
+                        {comments.isFetchNextPageError && (
+                          <StatusMessage
+                            message="We couldn’t load more comments. Try again."
+                            tone="error"
+                          />
+                        )}
+                        <Button
+                          title="Load more comments"
+                          secondary
+                          loading={comments.isFetchingNextPage}
+                          disabled={
+                            !actionsAvailable || comments.isFetchingNextPage
+                          }
+                          onPress={() => void comments.fetchNextPage()}
+                        />
+                      </View>
+                    )}
                   </View>
                 )}
                 <View

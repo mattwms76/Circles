@@ -182,7 +182,7 @@ No live SQL/grants/credentials/rotation/provider/identity0014/reader/admin opera
 
 Implement the referenced record-preview-publish plan with the user's amendment: choose **30 or60 seconds** before recording, default30. Reuse warm editorial Circles controls/composer. Native recorder owns permission/readiness/capture/finalization and local preview; dedicated expo-video playback replaces video-as-image in the composer. Request720p/H264 and conservative bitrate, inspect actual MP4 metadata, bound files in owned temporary cache by effective upload maximum <=20MiB. Web offers existing library upload, not fake recording.
 
-Shared recorded-video types/MP4 inspector live in shared/, platform cache readers/deleters in lib/recorded-video-files.*, camera state/lifecycle in components/video-recorder.native.tsx with web guidance counterpart, playback in components/recorded-video-preview.tsx, actor/composer/audience-fenced publication in app/create.tsx. Only explicit Publish reads base64 and enters authenticated encrypted social.upload. Optional recording-limit input permits server inspection before storage. Separate private receipt schema/additive migration provides actor+clientPublishId payload-matched transactional uniqueness without changing legacy post reads; absent readiness fails closed for ID-bearing calls. Preserve ambiguous payload/ID and never delete server media from a lost response. Prepared/local fixture evidence, live installation, physical native/provider validation and public release remain distinct; no live SQL/provider activation/live recording/public app publication selected here.
+Shared recorded-video types/MP4 inspector live in shared/, platform cache readers/deleters in lib/recorded-video-files.\*, camera state/lifecycle in components/video-recorder.native.tsx with web guidance counterpart, playback in components/recorded-video-preview.tsx, actor/composer/audience-fenced publication in app/create.tsx. Only explicit Publish reads base64 and enters authenticated encrypted social.upload. Optional recording-limit input permits server inspection before storage. Separate private receipt schema/additive migration provides actor+clientPublishId payload-matched transactional uniqueness without changing legacy post reads; absent readiness fails closed for ID-bearing calls. Preserve ambiguous payload/ID and never delete server media from a lost response. Prepared/local fixture evidence, live installation, physical native/provider validation and public release remain distinct; no live SQL/provider activation/live recording/public app publication selected here.
 
 Rollout amendment (27 October 2026):the owner separately approved only migration0015, exact SHA25620a240535e0a5f40a8504ce7368fc5ce9e05ce346be9dc89f3d2934994844bb3. Following isolated tests and independent review, that exact additive private SQL committed; metadata verification confirms unchanged circles_app catalog and restricted receipt readiness. Source is saved without publication; native device/provider journeys remain unobserved. Implementation/evidence boundaries are documented in docs/record-preview-publish-20261027.md.
 
@@ -231,3 +231,109 @@ Replace the existing paged People directory ID-only ordering with deterministic 
 Add an application-owned foreground Node API/Metro supervisor and resource-monitor/status scripts under scripts/, with private rotating sanitized event logs and explicit process ownership. Preserve ports3000/8081, trusted runtime/TLS/cookies/proxy and app identity; bounded liveness probes, consecutive-failure handling, startup grace, exponential backoff and a retry circuit breaker restart only owned children. Dependency readiness failures are degraded alerts, not restart triggers; sustained owned-child RSS pressure can restart only the affected verified child. Intentional stop never resurrects services; existing listeners are never adopted or killed by discovery. Parent activates after validation through a managed resident-service job and one controlled takeover of the two identified preview services. A host-level systemd template is prepared only, not installed. Sandbox/session suspension can still stop the supervisor; this is not always-on hosting or a keepalive. Keep private backups/Cron/provider/dependencies/native files/schema and publication unchanged.
 
 Observed-failure amendment29October08:50UTC:the read-only monitor detected API3000gone while Metro8081 remained healthy. The old API terminal shows an unhandled PostgreSQL Client error, Connection terminated unexpectedly; this establishes a new single-service crash, not the cause of the older lost terminal sessions. Add only a narrow runtime-role pool error-listener lifecycle correction and deterministic failure/recovery tests. Preserve SETROLE/verification, guarded SQL, DISCARDALL and terminal released-client checks, destroy unusable clients exactly once, never retry uncertain writes or globally swallow process exceptions. Record runtime-role-pool.ts as an intentional protected-file delta; no other protected boundary is changed.
+
+## Implement the corrected codebase audit — 29 October 2026
+
+Implement CBA-01–08 and CBA-10–14, and defensively address conditional CBA-15; CBA-09 remains excluded. Work from the clean refreshed 20652cb7 base in this private exact-base worktree so running Preview is unchanged until integration. Preserve the current warm editorial design, hidden Chats/tab and scrollbar decisions, native identifiers, framework/dependency lock, durable account/session/authorization, signing/media derivation material and fixed API3000/Metro8081 contract.
+
+Existing app/components/lib/server modules retain responsibilities. New narrowly named shared/server helpers and dedicated tests support authoritative live peer eviction, bounded data/read/write work, atomic managed-upload claiming, failure-aware cleanup and safe cookie names. New reviewed private SQL belongs under operations/migrations/0023+ and disposable drill tooling under operations/tests or e2e. Do not rewrite applied migrations. Root plan/TODO, configuration/scripts/CI and integration evidence remain parent/integrator-owned.
+
+No production SQL/grants/provider/credential/reset, object deletion, Cron/backup change, service installation, purchase or publication is selected. Missing provider deletion capability must not be guessed: protect uploads with durable reserve-before-PUT account budgets and retain charged unknown/orphaned attempts until confirmed reclamation. Migration-dependent features must fail closed when absent and stay rollout-gated, not silently weaken controls. Existing browser sessions may require deliberate reauthentication after host-cookie activation; native bearer and durable identity stay unchanged. Source/local synthetic proof is not real native/provider/account proof.
+
+The exact issue outcomes are preserved below.
+
+### Integration status — 29 October 2026
+
+| ID                                                                                             | Source state                                            | Activation / validation boundary                                                                                                                                                                                 |
+| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CBA-01, CBA-02, CBA-03, CBA-04, CBA-05, CBA-07, CBA-08, CBA-11, CBA-12, CBA-13, CBA-14, CBA-15 | Implemented and focused-tested in the detached worktree | CBA-04's `0024` migration remains unapplied; all results are synthetic/source-equivalent only.                                                                                                                   |
+| CBA-06                                                                                         | Implemented but prepared/gated                          | `0025` must not be activated until the ledger's separate backup/recovery and existing 27-table daily-health catalog alignment are privately approved; `social.upload` fails before PUT when its table is absent. |
+| CBA-10                                                                                         | Prepared/gated                                          | `0023` preserves the exact receipt wrapper and must be applied only through approved private PostgreSQL transport after current wrapper, role, ACL, and policy-state verification.                               |
+
+No native/device, provider, authenticated live-account, browser-domain, production database, deployment, or publication proof is implied by this status table.
+
+### CBA-01 — Expired or revoked viewers are not evicted from established WebRTC peers
+
+Lease/count logic uses liveViewers lastSeenAt and leftAt, membership removal does not invalidate/notify live viewers, and host adapters retain negotiated peers without server-authority reconciliation.
+
+Required behavior: Make lease expiry and revocation authoritative at the media plane; notify/invalidate viewer generations and periodically reconcile host peer maps to server-authorized active/forced-leave records.
+
+### CBA-02 — Discard can delete upload metadata between validation and attachment claim
+
+Publication inserts a reference before a plain-select upload validation and unchecked claim update. A concurrent discard can lock/delete metadata before the later update, which need not affect a row.
+
+Required behavior: Lock/validate the upload row before reference insertion, keep the lock through an UPDATE RETURNING claim, require a returned row, and serialize discard on the same lock.
+
+### CBA-03 — Legacy public member and comment readers have unbounded per-row fan-out
+
+Public social.members and social.comments take only identifiers, select all rows, and profile-project every row without a result cap or cursor.
+
+Required behavior: Retire or replace legacy list procedures with mandatory cursor pagination and a server-enforced maximum; cap any compatibility endpoint.
+
+### CBA-04 — Live chat and reactions are unthrottled and poll an unindexed retained table
+
+sendChat/reaction insertion requires active participation but has no per-participant/per-stream rate, burst, or row-cap guard. Polling filters/orders liveChat without a matching secondary index.
+
+Required behavior: Add atomic rate/burst admission, tighter reaction aggregation/policy, retention/archive bounds, and an index such as (streamId, createdAt DESC, id DESC).
+
+### CBA-05 — Native private-image cache cleanup masks failure and can falsely complete secure logout
+
+clearPrivateImageCaches ignores Promise.allSettled rejections and always resolves; the logout cleanup fence therefore records cache cleanup as cleared and may remove the recovery marker.
+
+Required behavior: Throw/return failure when either cache clear rejects and preserve the existing incomplete-logout marker until retry succeeds.
+
+### CBA-06 — Successful encrypted upload objects have no reclamation or compensating lifecycle
+
+An encrypted object is put before metadata recording; discard removes only metadata. Reviewed code has no object deletion, delete retry/outbox, pending expiry, garbage collection, aggregate account quota, or compensation for record-after-PUT failure.
+
+Required behavior: Create a pending/discarded-object lifecycle with authorized deletion plus retry/outbox compensation, or strict pending metadata quotas and bounded expiry/reconciliation if deletion is unavailable.
+
+### CBA-07 — Supervisor releases ownership after root exit while owned descendant survives
+
+Stop signals the detached process group but waits only for root ChildProcess exit, without verifying the group is empty or escalating for a surviving owned descendant before persisting stopped state/releasing lock.
+
+Required behavior: Require verified process-group emptiness before clean stop; during drain, safely kill remaining owned members before clearing ownership/state/lock.
+
+### CBA-08 — Continuity export timeout can remain pending after TERM
+
+runTool sends SIGTERM at timeout but settles only on child close, with no grace-period kill or independent rejection, preventing downstream cleanup if a helper ignores TERM.
+
+Required behavior: TERM at timeout, then safely kill owned helper/process group after a short grace interval and reject independently of close so cleanup runs.
+
+### CBA-10 — Active daily health check rejects committed multi-policy authorization contract
+
+Active function requires exactly one runtime-role policy per circles_app table, while committed current metadata has 86 policy records and multiple policies on all 27 covered tables; corrective candidate is unapplied.
+
+Required behavior: Forward migration to exact closed comparison of supported policy inventories while retaining role/ACL checks.
+
+### CBA-11 — Deployment readiness hides unavailable TURN relay status
+
+checkBackendReadiness derives liveRelay independently but /api/ready serializes only ok despite deployment documentation stating relay availability is separately reported.
+
+Required behavior: Expose sanitized liveRelay and consume it for live-enabled deployment policy, or correct documentation and define a separate authoritative relay check.
+
+### CBA-12 — CI omits declared formatting gate
+
+format:check is declared but not invoked by the main CI workflow, which runs env validation, TypeScript, ESLint, and tests.
+
+Required behavior: Run pnpm format:check fail-fast before tests and preserve its tracked-file/Git boundary.
+
+### CBA-13 — Narrow Messages route leaves every visible bottom tab unselected
+
+Messages is registered and reachable, but custom narrow TabBar has no Messages entry and suppresses it; visible tabs all calculate unselected when Messages is active.
+
+Required behavior: Hide bar, include Messages, or document/map parent selection so visible bar has exactly one selected destination.
+
+### CBA-14 — Shared circle card exposes duplicate indistinguishable Open controls
+
+Image and title pressables both expose button role, identical Open [circle] label, and identical navigation action in a component used by both directories.
+
+Required behavior: Expose one accessible Open control or remove redundant visual control from accessibility tree while retaining independent actions.
+
+### CBA-15 — Non-host-prefixed application cookie could permit sibling-domain session fixation
+
+Active webdev_app_session cookie is not host-prefixed; parser selects first duplicate same-name Cookie value in synthetic fixture.
+
+Required behavior: Cut over application identity to a \_\_Host- cookie with Secure, Path=/, no Domain and stop accepting generic cookie after deliberate reauthentication.
+
+Final preparation amendment: the durable media ledger is in separate private circles_media (not circles_app), with closed runtime-role/ACL/RLS/column/index/constraint readiness, safe optional public capability booleans and a separately enumerated encrypted-backup/recovery source scope. The original 27-table application contract and historical migrations stay unchanged. Source-level preparation is complete and locally tested; 0023/0024/0025, hosted CI, real backup/provider/native/account operation and publication remain distinct approval/evidence gates.

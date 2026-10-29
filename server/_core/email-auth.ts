@@ -9,10 +9,7 @@ import {
   type LinkedEmailIdentity,
   type VerifiedEmailIdentity,
 } from "./email-identity";
-import {
-  APPLICATION_SESSION_COOKIE_NAME,
-  getSessionCookieOptions,
-} from "./cookies";
+import { canIssueSessionCookie, setSessionCookie } from "./cookies";
 import { isLoopbackApiHost, trustedFrontendWebOrigins } from "./cors";
 import {
   configuredFrontendOrigins,
@@ -780,10 +777,9 @@ function setOwnBrowserSession(
   res: ExpressResponse,
   sessionToken: string,
 ): void {
-  res.cookie(APPLICATION_SESSION_COOKIE_NAME, sessionToken, {
-    ...getSessionCookieOptions(req),
-    maxAge: APPLICATION_SESSION_TTL_MS,
-  });
+  if (!setSessionCookie(req, res, sessionToken, APPLICATION_SESSION_TTL_MS)) {
+    throw emailError("REQUEST_NOT_ACCEPTED");
+  }
 }
 
 async function issueOwnSession(
@@ -830,6 +826,9 @@ export function registerEmailAuthRoutes(
       if (!config) throw emailError("UNAVAILABLE");
       const credentials = parseCredentialBody(req.body, true);
       enforceBrowserOrNativeRequest(req, credentials.client!);
+      if (credentials.client === "web" && !canIssueSessionCookie(req)) {
+        throw emailError("REQUEST_NOT_ACCEPTED");
+      }
       if (
         !throttle.checkAndRecordAdmission(
           emailAdmissionKeys(req, credentials.email),
@@ -895,6 +894,9 @@ export function registerEmailAuthRoutes(
       if (!config) throw emailError("UNAVAILABLE");
       const credentials = parseCredentialBody(req.body, true);
       enforceBrowserOrNativeRequest(req, credentials.client!);
+      if (credentials.client === "web" && !canIssueSessionCookie(req)) {
+        throw emailError("REQUEST_NOT_ACCEPTED");
+      }
       if (
         !throttle.checkAndRecordAdmission(
           emailAdmissionKeys(req, credentials.email),

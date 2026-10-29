@@ -27,7 +27,16 @@ export function nativeMediaTokenForRequest(
  * Expo Image exposes global native caches rather than account namespaces.
  * Clearing both at the local account boundary prevents a later account from
  * rendering an already-cached private image while authorization is rechecked.
+ * A rejected clear must remain visible to the logout fence, which retains its
+ * incomplete-logout marker until a retry can clear both caches.
  */
 export async function clearPrivateImageCaches(): Promise<void> {
-  await Promise.allSettled([Image.clearMemoryCache(), Image.clearDiskCache()]);
+  const results = await Promise.allSettled([
+    Image.clearMemoryCache(),
+    Image.clearDiskCache(),
+  ]);
+  const failure = results.find((result) => result.status === "rejected");
+  if (failure?.status === "rejected") {
+    throw failure.reason;
+  }
 }

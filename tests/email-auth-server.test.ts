@@ -360,9 +360,10 @@ describe("email/password REST server contract", () => {
       expect(await result.json()).toEqual({ success: true });
       const cookie = result.headers.get("set-cookie") ?? "";
       expect(cookie).toContain(
-        "webdev_app_session=circles-durable-session-token",
+        "manus_local_session_252278368451773=circles-durable-session-token",
       );
       expect(cookie).toContain("HttpOnly");
+      expect(cookie).toContain("SameSite=Lax");
       expect(cookie).not.toContain("provider-access-token");
     } finally {
       await close(server);

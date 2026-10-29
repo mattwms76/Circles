@@ -124,7 +124,7 @@ function mockTrpcFetch(calls: MockCall[]) {
       input: queryInput,
     });
     if (
-      ["live.signals", "live.relay"].includes(route) &&
+      ["live.signals", "live.relay", "live.peerAuthority"].includes(route) &&
       !liveSignalsInput.safeParse(queryInput).success
     ) {
       return new Response(
@@ -150,6 +150,7 @@ function mockTrpcFetch(calls: MockCall[]) {
       "social.publicationStatus",
       "live.signals",
       "live.relay",
+      "live.peerAuthority",
       "live.chat",
     ].includes(route);
     if (protectedRoute && !authenticated && route !== "auth.me") {
@@ -239,9 +240,11 @@ function mockTrpcFetch(calls: MockCall[]) {
                       ? { items: [], nextCursor: null, hasMore: false }
                       : route === "live.relay"
                         ? { ice: null }
-                        : ["social.circle", "social.profile"].includes(route)
-                          ? { id: 1 }
-                          : [];
+                        : route === "live.peerAuthority"
+                          ? { viewers: [] }
+                          : ["social.circle", "social.profile"].includes(route)
+                            ? { id: 1 }
+                            : [];
     return new Response(JSON.stringify({ result: { data: { json: value } } }), {
       status: 200,
       headers: { "content-type": "application/json" },
@@ -278,11 +281,11 @@ describe("guarded API recovery", () => {
 
     expect(report.ok).toBe(true);
     expect(restartCalls).toBe(1);
-    expect(report.inventory.declaredQueries).toBe(31);
+    expect(report.inventory.declaredQueries).toBe(33);
     expect(report.verification.summary).toMatchObject({
       failed: 0,
       skipped: 0,
-      completedPositiveQueries: 31,
+      completedPositiveQueries: 33,
     });
     expect(calls.every((call) => call.method === "GET")).toBe(true);
     expect(
@@ -380,6 +383,7 @@ describe("guarded API recovery", () => {
         endpoints: {
           "live.signals": { input: { generation: 27 } },
           "live.relay": { input: { generation: 27 } },
+          "live.peerAuthority": { input: { generation: 27 } },
         },
       }),
     );
@@ -959,7 +963,7 @@ describe("guarded API recovery", () => {
     expect(databaseChecks).toBe(0);
     expect(schemaChecks).toBe(0);
     expect(restarts).toBe(0);
-    expect(report.inventory.declaredQueries).toBe(31);
+    expect(report.inventory.declaredQueries).toBe(33);
     expect(calls.every((call) => call.method === "GET")).toBe(true);
   });
 
@@ -992,7 +996,7 @@ describe("guarded API recovery", () => {
     expect(child.status).toBe(1);
     const report = JSON.parse(child.stdout);
     expect(report.configuration.ok).toBe(true);
-    expect(report.inventory.declaredQueries).toBe(31);
+    expect(report.inventory.declaredQueries).toBe(33);
     expect(report.restart.attempted).toBe(false);
     expect(report.database.required).toBe(false);
   });

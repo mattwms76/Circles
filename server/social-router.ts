@@ -28,6 +28,12 @@ import {
   Mp4ValidationError,
   validateMp4Upload,
 } from "./sec27-video-validation";
+import {
+  confirmSocialUploadPut,
+  MediaUploadBudgetExhaustedError,
+  MediaUploadBudgetUnavailableError,
+  reserveSocialUploadBudget,
+} from "./media-upload-budget";
 import { storagePut } from "./storage";
 import {
   approveMember,
@@ -48,6 +54,7 @@ import {
   listCircles,
   listCirclesPage,
   listComments,
+  listCommentsPage,
   listConversations,
   listMembers,
   listMembersPage,
@@ -375,6 +382,13 @@ export const circlesPageInput = z.object({
   limit: pageLimit,
 });
 
+export const commentsPageInput = z.object({
+  postId: id,
+  // JS Date truncates PostgreSQL microseconds; preserve the exact companion across continuations.
+  cursor: feedPageCursor.optional(),
+  limit: pageLimit,
+});
+
 export const socialRouter = router({
   feed: publicProcedure
     .input(
@@ -686,6 +700,33 @@ export const socialRouter = router({
         listComments(ctx.user?.id ?? null, input.postId),
     ),
 
+  commentsPage: publicProcedure
+    .input(commentsPageInput)
+    .query(async ({ ctx, input }) => {
+      const page = await listCommentsPage(ctx.user?.id ?? null, input.postId, {
+        ...(input.cursor
+          ? {
+              cursor: {
+                createdAt: new Date(input.cursor.createdAt),
+                id: input.cursor.id,
+                createdAtExact: input.cursor.createdAtExact,
+              },
+            }
+          : {}),
+        limit: input.limit,
+      });
+      return {
+        ...page,
+        nextCursor: page.nextCursor
+          ? {
+              createdAt: page.nextCursor.createdAt.toISOString(),
+              id: page.nextCursor.id,
+              createdAtExact: page.nextCursor.createdAtExact,
+            }
+          : null,
+      };
+    }),
+
   comment: protectedProcedure
     .input(z.object({ postId: id, text: shortText }))
     .mutation(
@@ -767,20 +808,16 @@ export const socialRouter = router({
       try {
         const bytes = decodeBase64(input.base64);
         const db = await getDb().catch(() => null);
-        let effectiveMaxBytes = MAX_UPLOAD_BYTES;
         if (!db) {
-          if (process.env.CIRCLES_PLATFORM_SETTINGS_ENABLED === "true") {
-            throw new TRPCError({
-              code: "PRECONDITION_FAILED",
-              message: "Database is unavailable",
-            });
-          }
-        } else {
-          effectiveMaxBytes = await assertPlatformUploadSizeWithLimit(
-            db,
-            bytes.length,
-          );
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Database is unavailable",
+          });
         }
+        const effectiveMaxBytes = await assertPlatformUploadSizeWithLimit(
+          db,
+          bytes.length,
+        );
         if (input.recording) {
           if (input.mimeType !== "video/mp4") {
             throw new TRPCError({
@@ -825,8 +862,30 @@ export const socialRouter = router({
           });
         }
         const key = `social-encrypted/${ctx.user.id}/${randomUUID()}.${extension}.enc`;
+        let reservation;
+        try {
+          reservation = await reserveSocialUploadBudget(db, {
+            userId: ctx.user.id,
+            storageKey: key,
+            objectBytes: encrypted.length,
+          });
+        } catch (error) {
+          if (error instanceof MediaUploadBudgetExhaustedError) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: "Media upload budget is exhausted",
+            });
+          }
+          if (error instanceof MediaUploadBudgetUnavailableError) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: "Media upload lifecycle is unavailable",
+            });
+          }
+          throw error;
+        }
         const uploaded = await storagePut(
-          key,
+          reservation.storageKey,
           encrypted,
           "application/octet-stream",
           {
@@ -834,12 +893,37 @@ export const socialRouter = router({
             signal: cancellation.signal,
           },
         );
-        return recordUpload(ctx.user.id, {
-          key: uploaded.key,
-          url: uploaded.url,
-          mimeType: verified.mimeType,
-          bytes: verified.bytes.length,
-        });
+        if (
+          uploaded.key !== reservation.storageKey ||
+          uploaded.url !== reservation.url
+        ) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Storage upload did not produce the reserved object",
+          });
+        }
+        try {
+          await confirmSocialUploadPut(db, reservation);
+          return await recordUpload(
+            ctx.user.id,
+            {
+              key: uploaded.key,
+              url: uploaded.url,
+              mimeType: verified.mimeType,
+              bytes: verified.bytes.length,
+              reservation,
+            },
+            db,
+          );
+        } catch (error) {
+          if (error instanceof MediaUploadBudgetUnavailableError) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: "Media upload lifecycle is unavailable",
+            });
+          }
+          throw error;
+        }
       } finally {
         cancellation.dispose();
       }

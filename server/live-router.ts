@@ -24,6 +24,17 @@ import {
 import { circles, memberships } from "../drizzle/schema";
 import type { LiveStream } from "../shared/social";
 import { createHostGenerationRestartSignals } from "../shared/live-generation-restart";
+import {
+  MAX_LIVE_CHAT_POLL_BATCH,
+  liveChatRateWindowMs,
+  type LiveChatAdmissionKind,
+  wouldExceedLiveChatAdmission,
+} from "../shared/live-chat-limits";
+import {
+  currentLivePeerAuthority,
+  isLiveCircleParticipantRole,
+  type LivePeerAuthorityViewer,
+} from "../shared/live-peer-authority";
 import { getDb } from "./db";
 import { assertPlatformFeature } from "./platform-settings";
 import {
@@ -146,7 +157,7 @@ export function wouldExceedLiveSignalQuota(input: {
 export function canHostCircleRole(
   role: CircleMembershipRole | string | null | undefined,
 ): boolean {
-  return role === "owner" || role === "moderator" || role === "member";
+  return isLiveCircleParticipantRole(role);
 }
 
 /**
@@ -727,6 +738,63 @@ async function viewerCount(
   return Number(result?.total ?? 0);
 }
 
+/**
+ * The host receives this bounded, current snapshot before processing a signal
+ * batch. It intentionally rechecks private-circle membership here instead of
+ * waiting for social-service removal hooks, which do not own live transport.
+ */
+async function currentLivePeerAuthorityInTransaction(
+  tx: LiveTransaction,
+  stream: Stream,
+  circleAccess: LockedLiveCircleAccess | null,
+  now: number,
+): Promise<LivePeerAuthorityViewer[]> {
+  const viewers = await tx
+    .select({
+      userId: liveViewers.userId,
+      generation: liveViewers.generation,
+      lastSeenAt: liveViewers.lastSeenAt,
+      leftAt: liveViewers.leftAt,
+    })
+    .from(liveViewers)
+    .where(
+      and(
+        eq(liveViewers.streamId, stream.id),
+        isNull(liveViewers.leftAt),
+        gt(liveViewers.lastSeenAt, new Date(now - VIEWER_LEASE_MS)),
+      ),
+    )
+    .orderBy(liveViewers.userId)
+    // P2P admission already makes this a maximum-four collection. Keeping the
+    // snapshot explicitly bounded fails closed if historical data violates it.
+    .limit(P2P_VIEWER_LIMIT);
+
+  const privateCircle = circleAccess?.privacy === "private";
+  const membershipsForViewers =
+    privateCircle && stream.circleId !== null && viewers.length > 0
+      ? await tx
+          .select({ userId: memberships.userId, role: memberships.role })
+          .from(memberships)
+          .where(
+            and(
+              eq(memberships.circleId, stream.circleId),
+              inArray(
+                memberships.userId,
+                viewers.map((viewer) => viewer.userId),
+              ),
+            ),
+          )
+      : [];
+
+  return currentLivePeerAuthority({
+    viewers,
+    memberships: membershipsForViewers,
+    privateCircle,
+    now,
+    viewerLeaseMs: VIEWER_LEASE_MS,
+  });
+}
+
 async function toLiveStream(
   db: LiveReadDatabase,
   stream: Stream,
@@ -870,6 +938,64 @@ async function assertLiveSignalCapacityInTransaction(
     throw new TRPCError({
       code: "TOO_MANY_REQUESTS",
       message: "Live signaling is busy. Please wait and retry.",
+    });
+  }
+}
+
+/**
+ * The parent-circle then stream-row locks already held by every caller make
+ * these counts and the following insert one atomic admission decision. Rows
+ * are retained up to the explicit caps; this path never deletes live history.
+ */
+async function assertLiveChatAdmissionInTransaction(
+  tx: LiveTransaction,
+  input: {
+    streamId: number;
+    participantId: number;
+    kind: LiveChatAdmissionKind;
+    now: Date;
+  },
+): Promise<void> {
+  const recentCutoff = new Date(
+    input.now.getTime() - liveChatRateWindowMs(input.kind),
+  );
+  const [streamRows, participantRows, recentParticipantRows] =
+    await Promise.all([
+      tx
+        .select({ total: count() })
+        .from(liveChat)
+        .where(eq(liveChat.streamId, input.streamId)),
+      tx
+        .select({ total: count() })
+        .from(liveChat)
+        .where(
+          and(
+            eq(liveChat.streamId, input.streamId),
+            eq(liveChat.userId, input.participantId),
+          ),
+        ),
+      tx
+        .select({ total: count() })
+        .from(liveChat)
+        .where(
+          and(
+            eq(liveChat.streamId, input.streamId),
+            eq(liveChat.userId, input.participantId),
+            gt(liveChat.createdAt, recentCutoff),
+          ),
+        ),
+    ]);
+
+  if (
+    wouldExceedLiveChatAdmission(input.kind, {
+      streamRows: Number(streamRows[0]?.total ?? 0),
+      participantRows: Number(participantRows[0]?.total ?? 0),
+      recentParticipantRows: Number(recentParticipantRows[0]?.total ?? 0),
+    })
+  ) {
+    throw new TRPCError({
+      code: "TOO_MANY_REQUESTS",
+      message: "Live chat is busy. Please wait and retry.",
     });
   }
 }
@@ -1416,6 +1542,51 @@ export const liveRouter = router({
       });
     }),
 
+  /**
+   * Hosts periodically reconcile negotiated WebRTC peers with the current
+   * membership and viewer-lease authority. The parent lock is acquired before
+   * the stream lock, matching join/heartbeat/signal paths and member removal.
+   */
+  peerAuthority: protectedProcedure
+    .input(idInput.extend({ generation: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) unavailable();
+      const accessibleStream = await getStreamOrThrow(input.streamId);
+
+      return db.transaction(async (tx) => {
+        const circleAccess = await lockLiveCircleAccess(
+          tx,
+          ctx.user.id,
+          accessibleStream.circleId,
+        );
+        const stream = await lockLiveStream(tx, input.streamId);
+        assertLockedLiveStreamCircle(stream, accessibleStream.circleId);
+        if (stream.hostId !== ctx.user.id) {
+          forbidden("Only the host can reconcile live media peers.");
+        }
+        assertCurrentLiveHostRole(circleAccess);
+        if (!streamIsReadyAndActive(stream)) notFound();
+        if (
+          !hasCurrentLiveSignalGeneration(
+            input.generation,
+            stream.hostGeneration,
+          )
+        ) {
+          forbidden("This live media session has been replaced.");
+        }
+
+        return {
+          viewers: await currentLivePeerAuthorityInTransaction(
+            tx,
+            stream,
+            circleAccess,
+            Date.now(),
+          ),
+        };
+      });
+    }),
+
   leave: protectedProcedure
     .input(idInput.extend({ generation: z.number().int().positive() }))
     .mutation(async ({ ctx, input }) => {
@@ -1551,6 +1722,7 @@ export const liveRouter = router({
             fromId: liveSignals.fromId,
             toId: liveSignals.toId,
             kind: liveSignals.kind,
+            fromGeneration: liveSignals.fromGeneration,
             toGeneration: liveSignals.toGeneration,
             payload: liveSignals.payload,
           })
@@ -1571,6 +1743,7 @@ export const liveRouter = router({
             fromId: row.fromId,
             toId: row.toId,
             kind: row.kind as LiveSignalKind,
+            fromGeneration: row.fromGeneration,
             payload: row.payload,
           }));
       });
@@ -1752,7 +1925,7 @@ export const liveRouter = router({
         .from(liveChat)
         .where(eq(liveChat.streamId, stream.id))
         .orderBy(desc(liveChat.createdAt), desc(liveChat.id))
-        .limit(100);
+        .limit(MAX_LIVE_CHAT_POLL_BATCH);
 
       return rows
         .reverse()
@@ -1779,6 +1952,12 @@ export const liveRouter = router({
           assertCurrentLiveHostRole(circleAccess);
         }
         await assertActiveParticipantInTransaction(tx, stream, ctx.user.id);
+        await assertLiveChatAdmissionInTransaction(tx, {
+          streamId: stream.id,
+          participantId: ctx.user.id,
+          kind: "chat",
+          now: new Date(),
+        });
         await tx.insert(liveChat).values({
           streamId: stream.id,
           userId: ctx.user.id,
@@ -1807,6 +1986,12 @@ export const liveRouter = router({
         assertCurrentLiveHostRole(circleAccess);
       }
       await assertActiveParticipantInTransaction(tx, stream, ctx.user.id);
+      await assertLiveChatAdmissionInTransaction(tx, {
+        streamId: stream.id,
+        participantId: ctx.user.id,
+        kind: "reaction",
+        now: new Date(),
+      });
       await tx.insert(liveChat).values({
         streamId: stream.id,
         userId: ctx.user.id,

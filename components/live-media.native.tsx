@@ -29,7 +29,9 @@ import type {
   A26LiveMediaPhase,
   A26LiveMediaPhaseChange,
 } from "@/lib/a26-live-media-state";
+import { liveHostPeerIdsToEvict } from "@/lib/live-peer-authority";
 import { hostGenerationFromRestartSignal } from "@/shared/live-generation-restart";
+import type { LivePeerAuthorityViewer } from "@/shared/live-peer-authority";
 import { StatusMessage } from "./status-message";
 import {
   liveHostLeaseFromJoin,
@@ -58,6 +60,7 @@ type Signal = {
   fromId: number;
   toId: number | null;
   kind: SignalKind;
+  fromGeneration: number;
   payload: string;
 };
 
@@ -75,6 +78,11 @@ type LiveApi = {
     relay: {
       query(input: { streamId: number; generation: number }): Promise<{
         ice: LiveTurnCredentials | null;
+      }>;
+    };
+    peerAuthority: {
+      query(input: { streamId: number; generation: number }): Promise<{
+        viewers: LivePeerAuthorityViewer[];
       }>;
     };
     leave: {
@@ -183,6 +191,8 @@ type PeerState = {
   connection: NativePeer;
   pendingIce: EpochNativeCandidate[];
   restartPending: boolean;
+  /** Hosts bind a peer to the exact viewer lifecycle from authority polling. */
+  viewerGeneration: number | null;
   localOfferEpoch: number;
   remoteOfferEpoch: number | null;
 };
@@ -395,6 +405,7 @@ export default function LiveMedia({
     let viewerMediaReady = false;
     let hostMediaReady = false;
     let terminal = false;
+    let authorizedHostViewers: readonly LivePeerAuthorityViewer[] = [];
 
     const emitMediaPhase = (phase: A26LiveMediaPhase, message?: string) => {
       if (!active) return;
@@ -649,9 +660,13 @@ export default function LiveMedia({
         .catch(report);
     };
 
-    const hostPeer = async (viewerId: number): Promise<PeerState | null> => {
+    const hostPeer = async (
+      viewerId: number,
+      viewerGeneration: number,
+    ): Promise<PeerState | null> => {
       const existing = peersRef.current.get(viewerId);
-      if (existing) return existing;
+      if (existing?.viewerGeneration === viewerGeneration) return existing;
+      if (existing) closePeer(viewerId);
       await refreshRelay();
       if (!active) return null;
       const localStream = localStreamRef.current;
@@ -664,6 +679,7 @@ export default function LiveMedia({
         connection,
         pendingIce: [],
         restartPending: false,
+        viewerGeneration,
         localOfferEpoch: 0,
         remoteOfferEpoch: null,
       };
@@ -692,6 +708,7 @@ export default function LiveMedia({
         connection,
         pendingIce: [],
         restartPending: false,
+        viewerGeneration: null,
         localOfferEpoch: 0,
         remoteOfferEpoch: null,
       };
@@ -718,6 +735,42 @@ export default function LiveMedia({
         }
       };
       return peer;
+    };
+
+    /**
+     * System join/leave signals are best-effort wakeups only. This current,
+     * generation-bound server snapshot is the authority for host peer maps.
+     */
+    const reconcileHostPeers = async (): Promise<void> => {
+      if (!host || !active) return;
+      const authority = await api.live.peerAuthority.query({
+        streamId,
+        generation: requireGeneration(),
+      });
+      if (!active) return;
+      authorizedHostViewers = authority.viewers;
+
+      const peerIdsToEvict = liveHostPeerIdsToEvict({
+        peers: [...peersRef.current.entries()].map(([viewerId, peer]) => ({
+          viewerId,
+          viewerGeneration: peer.viewerGeneration,
+        })),
+        authority: authorizedHostViewers,
+      });
+      for (const viewerId of peerIdsToEvict) closePeer(viewerId);
+
+      for (const viewer of authorizedHostViewers) {
+        if (!active || peersRef.current.has(viewer.userId)) continue;
+        const peer = await hostPeer(viewer.userId, viewer.generation);
+        if (!peer) return;
+        try {
+          await sendHostOffer(viewer.userId, peer);
+        } catch {
+          // A viewer can leave or be revoked after the snapshot commits. Close
+          // this one peer and let the next authority snapshot decide retries.
+          closePeer(viewer.userId);
+        }
+      }
     };
 
     /**
@@ -838,14 +891,23 @@ export default function LiveMedia({
 
       if (host) {
         if (signal.kind === "join") {
-          const peer = await hostPeer(signal.fromId);
-          if (!peer) return;
-          await sendHostOffer(signal.fromId, peer);
+          // Host reconciliation creates offers from the authoritative snapshot;
+          // a retained join row must never resurrect an expired/revoked peer.
           return;
         }
         if (signal.kind === "answer") {
           const peer = peersRef.current.get(signal.fromId);
-          if (!peer) return;
+          if (
+            !peer ||
+            peer.viewerGeneration !== signal.fromGeneration ||
+            !authorizedHostViewers.some(
+              (viewer) =>
+                viewer.userId === signal.fromId &&
+                viewer.generation === signal.fromGeneration,
+            )
+          ) {
+            return;
+          }
           const answer = parseDescription(signal.payload, "answer");
           if (
             answer.liveOfferEpoch !== undefined &&
@@ -868,10 +930,25 @@ export default function LiveMedia({
         }
         if (signal.kind === "ice") {
           const peer = peersRef.current.get(signal.fromId);
-          if (peer) await receiveIce(peer, signal.payload);
+          if (
+            peer &&
+            peer.viewerGeneration === signal.fromGeneration &&
+            authorizedHostViewers.some(
+              (viewer) =>
+                viewer.userId === signal.fromId &&
+                viewer.generation === signal.fromGeneration,
+            )
+          ) {
+            await receiveIce(peer, signal.payload);
+          }
           return;
         }
-        if (signal.kind === "leave") closePeer(signal.fromId);
+        if (signal.kind === "leave") {
+          const peer = peersRef.current.get(signal.fromId);
+          if (peer?.viewerGeneration === signal.fromGeneration) {
+            closePeer(signal.fromId);
+          }
+        }
         return;
       }
 
@@ -918,6 +995,8 @@ export default function LiveMedia({
       if (!active || polling) return;
       polling = true;
       try {
+        await reconcileHostPeers();
+        if (!active) return;
         const signals = await api.live.signals.query({
           streamId,
           generation: requireGeneration(),

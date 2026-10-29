@@ -18,7 +18,10 @@ export function TabBar({ state, navigation }: TabBarProps) {
   const router = useRouter();
   const { requireAuth } = useCircles();
   const layout = appShellLayout(width, insets);
-  if (layout.wide) return null;
+  const activeRoute = state.routes[state.index];
+  // Messages is reached from the shell rather than represented as a bottom tab.
+  // Do not leave the visible four-tab bar without a selected destination.
+  if (layout.wide || activeRoute?.name === "messages") return null;
   const captionMode = d28024TabCaptionMode(layout.availableWidth, fontScale);
   const icons: Record<string, [IconName, IconName, string, string]> = {
     index: ["home-outline", "home", "Home", "Home"],

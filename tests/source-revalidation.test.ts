@@ -90,6 +90,12 @@ describe("source query revalidation policy", () => {
       viewerScope: 8,
       filter: "open",
     });
+    const commentsPage = sourceKey(
+      "social",
+      "commentsPage",
+      { postId: 13, limit: 20 },
+      "infinite",
+    );
     const platformStatus = sourceKey("platform", "status");
 
     expect(isCurrentSourceQueryForPath(circleFeed, "/circle/12", 7)).toBe(true);
@@ -102,6 +108,18 @@ describe("source query revalidation policy", () => {
     expect(
       isCurrentSourceQueryForPath(foreignModeration, "/moderation/12", 7),
     ).toBe(false);
+    expect(isCurrentSourceQueryForPath(commentsPage, "/circle/12", 7)).toBe(
+      true,
+    );
+    expect(isCurrentSourceQueryForPath(commentsPage, "/person/12", 7)).toBe(
+      true,
+    );
+    expect(isCurrentSourceQueryForPath(commentsPage, "/discover", 7)).toBe(
+      true,
+    );
+    expect(isCurrentSourceQueryForPath(commentsPage, "/messages", 7)).toBe(
+      false,
+    );
     expect(isCurrentSourceQueryForPath(platformStatus, "/create", null)).toBe(
       true,
     );

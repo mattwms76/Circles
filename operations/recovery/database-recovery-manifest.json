@@ -23,7 +23,14 @@
       "operations/migrations/0014_circles_email_identity.sql",
       "operations/migrations/0015_circles_publish_post_receipts.sql",
       "operations/recovery/README.md",
-      "scripts/recovery-continuity.mjs"
+      "scripts/recovery-continuity.mjs",
+      "drizzle/media-upload-budget-schema.ts",
+      "server/media-upload-budget.ts",
+      "server/media-upload-budget-contract.ts",
+      "operations/migrations/0025_circles_media_upload_budget.sql",
+      "operations/migrations/cba06-ordered-rollout-manifest.json",
+      "operations/recovery/cba06-private-media-ledger-backup-scope.json",
+      "operations/recovery/cba06-private-media-ledger-backup.md"
     ],
     "catalog_inventory_sha256": {
       "tables": "c35557b06a15ee4f133425140b7416b5f1a5ad1f3f361e9a06f24abb998aca10",
@@ -289,7 +296,31 @@
         "scope": "encrypted media object bytes and the existing media derivation/signing material",
         "reason": "A database dump preserves only socialUploads references. Use the separately guarded continuity process; never place material in this manifest or evidence."
       }
-    ]
+    ],
+    "prepared_private_media_ledger": {
+      "state": "source_prepared_unapplied",
+      "schema": "circles_media",
+      "tables": [
+        {
+          "name": "socialUploadBudgets",
+          "source": "drizzle/media-upload-budget-schema.ts"
+        },
+        {
+          "name": "socialUploadReservations",
+          "source": "drizzle/media-upload-budget-schema.ts"
+        }
+      ],
+      "migration": "operations/migrations/0025_circles_media_upload_budget.sql",
+      "rollout_manifest": "operations/migrations/cba06-ordered-rollout-manifest.json",
+      "backup_scope": "operations/recovery/cba06-private-media-ledger-backup-scope.json",
+      "readiness_helper": "server/media-upload-budget-contract.ts",
+      "live_backup_activation": "separately_gated_owner_approval_required",
+      "notes": [
+        "This is a prepared private ledger scope, not installed catalog state and not part of the preserved 27-table circles_app contract.",
+        "After separate authorized activation, include only the two private relations in the existing encrypted database archive and replay them only to an isolated PostgreSQL 17 restore target.",
+        "No ledger rows, account identifiers, managed storage references, object bytes, or derivation/signing material are embedded in this manifest or exposed through public readiness output."
+      ]
+    }
   },
   "authorization_helpers": {
     "roles": [

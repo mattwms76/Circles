@@ -33,6 +33,9 @@ export const MEDIA_FETCH_TIMEOUT_MS = 15_000;
 export const ARCHIVE_TIMEOUT_MS = 60_000;
 export const AGE_TIMEOUT_MS = 120_000;
 
+const TOOL_TERM_GRACE_MS = 5_000;
+const MAX_TOOL_TERM_GRACE_MS = 30_000;
+
 const AGE_RECIPIENT = /^age1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{58}$/;
 const MANAGED_STORAGE_KEY =
   /^social-encrypted\/[1-9]\d*\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.(?:jpg|png|webp|mp4)\.enc$/;
@@ -672,29 +675,87 @@ function safeProcessEnvironment() {
   );
 }
 
-async function runTool(command, argumentsList, timeout, operation) {
+function signalOwnedTool(child, signal) {
+  const pid = child.pid;
+  if (process.platform !== "win32" && Number.isInteger(pid) && pid > 0) {
+    try {
+      process.kill(-pid, signal);
+      return;
+    } catch {
+      // The group may already be gone; fall back to the direct child below.
+    }
+  }
+  try {
+    child.kill(signal);
+  } catch {
+    // A completed helper must not turn timeout cleanup into an unsafe error.
+  }
+}
+
+export async function runTool(
+  command,
+  argumentsList,
+  timeout,
+  operation,
+  { terminationGraceMs = TOOL_TERM_GRACE_MS } = {},
+) {
+  const grace = safeInteger(
+    terminationGraceMs,
+    1,
+    MAX_TOOL_TERM_GRACE_MS,
+    operation,
+  );
   await new Promise((resolve, reject) => {
-    let timedOut = false;
     let child;
+    let timedOut = false;
+    let settled = false;
+    let timeoutTimer;
+    let graceTimer;
+
+    const clearTimers = () => {
+      clearTimeout(timeoutTimer);
+      clearTimeout(graceTimer);
+    };
+    const settle = (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimers();
+      if (error) reject(new ContinuitySafetyError(operation));
+      else resolve(undefined);
+    };
+
     try {
       child = spawn(command, argumentsList, {
+        detached: process.platform !== "win32",
         shell: false,
         stdio: ["ignore", "ignore", "ignore"],
         env: safeProcessEnvironment(),
       });
     } catch {
-      reject(new ContinuitySafetyError(operation));
+      settle(true);
       return;
     }
-    const timer = setTimeout(() => {
+
+    timeoutTimer = setTimeout(() => {
+      if (settled) return;
       timedOut = true;
-      child.kill("SIGTERM");
+      signalOwnedTool(child, "SIGTERM");
+      graceTimer = setTimeout(() => {
+        signalOwnedTool(child, "SIGKILL");
+        // Do not depend on close: cleanup must run even for a stuck helper.
+        settle(true);
+      }, grace);
     }, timeout);
-    child.once("error", () => reject(new ContinuitySafetyError(operation)));
+
+    child.once("error", () => {
+      if (!timedOut) settle(true);
+    });
     child.once("close", (code) => {
-      clearTimeout(timer);
-      if (!timedOut && code === 0) resolve(undefined);
-      else reject(new ContinuitySafetyError(operation));
+      // After a timeout, retain the grace timer so any surviving group members
+      // are killed before downstream cleanup is allowed to run.
+      if (timedOut) return;
+      if (code === 0) settle(false);
+      else settle(true);
     });
   });
 }

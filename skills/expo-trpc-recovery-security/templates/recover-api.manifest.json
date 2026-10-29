@@ -29,6 +29,9 @@
     "live.relay": {
       "input": {}
     },
+    "live.peerAuthority": {
+      "input": {}
+    },
     "social.feedPage": {
       "input": {
         "filter": "for-you",

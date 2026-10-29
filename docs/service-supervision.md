@@ -33,6 +33,8 @@ The foreground process is stopped by sending **SIGTERM** or **SIGINT to that exa
 
 `--once` exits `0` when API liveness is 2xx and Metro's local TCP listener responds, or `2` when either is unreachable/unhealthy. An API health 500 is a failed liveness check, not success. API dependency readiness of `503` is reported as `degraded`, distinct from process liveness. `--status` exits `0` for valid private state and `3` when no valid owned state exists. `--help` never probes, locks, or spawns. Saved state is a last observation, not proof that its recorded supervisor PID is still alive; use `--once` plus an authorized service/process check for current availability.
 
+Clean shutdown is recorded only after procfs verifies that every process in each identity-verified detached group has exited. If a root exits while a group member survives TERM, the supervisor observes that still-owned group, sends SIGKILL, and verifies emptiness before writing `stopped` or releasing its lock. If procfs cannot prove emptiness or a signal fails, state remains `draining` and the lock remains owned; the supervisor never reports a clean stop while an owned descendant may remain.
+
 ## Busy-port and lock behavior
 
 Before it starts any child, the foreground supervisor takes a private lock and verifies both fixed local ports are available. It refuses to start when either port is already occupied, including by an existing manually launched API or Metro process. It **does not inspect, adopt, signal, or stop** that unknown process. It also refuses a live private lock from another supervisor; stale locks are removed only after the recorded PID's `/proc` start tick no longer matches, preventing PID-reuse mistakes.
@@ -67,7 +69,7 @@ For an already-authorized persistent Linux host, see `operations/supervision/cir
 
 ## Finite validation evidence
 
-`tests/dev-supervisor.test.ts` launches only `env -i` synthetic Node children on ephemeral ports. Its 13 cases cover crash replacement, health restoration, immediate exit and spawn ENOENT handling, hang recovery, HTTP-500 liveness/one-shot behavior, readiness-503 no-churn behavior, retry circuit breaking, intentional stop/no resurrection, busy ports, live-lock refusal, secret-safe bounded logs, unavailable resources, and owned-RSS restart gating. Its bounded crash-recovery drill preserves redacted evidence at:
+`tests/dev-supervisor.test.ts` launches only `env -i` synthetic Node children on ephemeral ports. Its 13 cases cover crash replacement, health restoration, immediate exit and spawn ENOENT handling, hang recovery, HTTP-500 liveness/one-shot behavior, readiness-503 no-churn behavior, retry circuit breaking, intentional stop/no resurrection, busy ports, live-lock refusal, secret-safe bounded logs, unavailable resources, and owned-RSS restart gating. The dedicated `tests/cba07-supervisor-group-drain.test.ts` adds a root-exits-first, TERM-ignoring same-group descendant drill and asserts force-kill, verified group drain, then clean stopped-state ordering. Its bounded crash-recovery drill preserves redacted evidence at:
 
 ```text
 /home/ubuntu/circles-people-and-resilience-20261029/evidence/supervisor/synthetic-crash-recovery.json

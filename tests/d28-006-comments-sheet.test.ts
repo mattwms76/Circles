@@ -144,11 +144,15 @@ vi.mock("@/lib/trpc", () => {
     trpc: {
       useUtils: () => ({}),
       social: {
-        comments: {
-          useQuery: () => ({
-            data: runtime.comments,
+        commentsPage: {
+          useInfiniteQuery: () => ({
+            data: { pages: [{ items: runtime.comments, nextCursor: null }] },
+            hasNextPage: false,
             isError: runtime.commentsDisplayState === "error",
             isLoading: runtime.commentsDisplayState === "loading",
+            isFetchingNextPage: false,
+            isFetchNextPageError: false,
+            fetchNextPage: vi.fn(),
             refetch: runtime.commentsRefetch,
           }),
         },

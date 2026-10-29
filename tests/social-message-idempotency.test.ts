@@ -114,10 +114,16 @@ function createMessageTransactionFixture(
     }),
     update: (table: unknown) => ({
       set: () => ({
-        where: async () => {
-          if (table === socialUploads) writes.push("claim-upload");
-          else if (table === conversations) writes.push("update-conversation");
-          else throw new Error("Unexpected synthetic message update");
+        where: () => {
+          if (table === socialUploads) {
+            writes.push("claim-upload");
+            return { returning: async () => [{ id: 3 }] };
+          }
+          if (table === conversations) {
+            writes.push("update-conversation");
+            return Promise.resolve();
+          }
+          throw new Error("Unexpected synthetic message update");
         },
       }),
     }),

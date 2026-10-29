@@ -136,8 +136,10 @@ function CircleCardInstance({ circle }: { circle: Circle }) {
     <View style={[s.card, { overflow: "hidden", marginBottom: 18 }]}>
       <Pressable
         onPress={() => router.push(`/circle/${circle.id}`)}
-        accessibilityRole="button"
-        accessibilityLabel={`Open ${circle.name}`}
+        // The title is the card's one named Open control. Keep the image tappable
+        // for pointer users without adding a duplicate keyboard/screen-reader stop.
+        accessible={false}
+        importantForAccessibility="no-hide-descendants"
       >
         <Image
           source={{ uri: circle.image }}

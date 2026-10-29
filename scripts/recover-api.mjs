@@ -501,6 +501,10 @@ const ENDPOINT_DEFINITIONS = Object.freeze({
     expected: "array",
     identifier: { source: "postId", field: "postId" },
   },
+  "social.commentsPage": {
+    expected: "paged-object",
+    identifier: { source: "postId", field: "postId" },
+  },
   "social.conversations": { expected: "array", requiresAuth: true },
   "social.messages": {
     expected: "array",
@@ -533,6 +537,26 @@ const ENDPOINT_DEFINITIONS = Object.freeze({
     exactIdentifierInput: true,
   },
   "live.relay": {
+    expected: "object",
+    requiresAuth: true,
+    identifiers: [
+      {
+        source: "streamId",
+        field: "streamId",
+        missingReason: "missing_existing_stream_id",
+        invalidReason: "invalid_existing_stream_id",
+      },
+      {
+        source: "liveGeneration",
+        field: "generation",
+        manifestOverride: true,
+        missingReason: "missing_current_live_generation",
+        invalidReason: "invalid_current_live_generation",
+      },
+    ],
+    exactIdentifierInput: true,
+  },
+  "live.peerAuthority": {
     expected: "object",
     requiresAuth: true,
     identifiers: [

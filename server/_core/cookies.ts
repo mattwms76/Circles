@@ -4,13 +4,21 @@ import {
   LEGACY_COOKIE_NAME,
   SESSION_COOKIE_SUFFIX,
 } from "../../shared/const.js";
+import { isLoopbackApiHost } from "./cors";
 import {
   isTrustedPreviewProxyRequest,
   isTrustedExternalProxyRequest,
 } from "./runtimeSecurity";
 
-/** The application cookie accepted before the context-specific SDK session cookie. */
-export const APPLICATION_SESSION_COOKIE_NAME = "webdev_app_session";
+/**
+ * Pre-cutover generic browser session name. It is only revoked/expired during
+ * logout; it must never establish request identity after the host-cookie cutover.
+ */
+export const LEGACY_APPLICATION_SESSION_COOKIE_NAME = "webdev_app_session";
+
+/** @deprecated Logout compatibility export; do not use for authentication or issuance. */
+export const APPLICATION_SESSION_COOKIE_NAME =
+  LEGACY_APPLICATION_SESSION_COOKIE_NAME;
 
 export function isSecureRequest(req: Request) {
   // A direct TLS server reports https without a forwarding header. Once a forwarding header is
@@ -55,10 +63,41 @@ function legacyParentDomain(hostname: string): string | null {
   return `.${normalized.split(".").slice(-2).join(".")}`;
 }
 
-export function getSessionCookieName(req: Request): string {
-  return isSecureRequest(req)
-    ? `__Host-manus_session_${SESSION_COOKIE_SUFFIX}`
-    : `manus_local_session_${SESSION_COOKIE_SUFFIX}`;
+function requestHostname(req: Request): string {
+  return typeof req.hostname === "string" ? req.hostname : "";
+}
+
+export function getSessionCookieName(req: Request): string | undefined {
+  if (isSecureRequest(req)) {
+    return `__Host-manus_session_${SESSION_COOKIE_SUFFIX}`;
+  }
+
+  // A Secure __Host- cookie cannot exist on plain HTTP. Retain a separately
+  // named cookie only for direct loopback development; never turn an arbitrary
+  // insecure deployment into a non-host-prefixed identity surface.
+  return isLoopbackApiHost(requestHostname(req))
+    ? `manus_local_session_${SESSION_COOKIE_SUFFIX}`
+    : undefined;
+}
+
+export function canIssueSessionCookie(req: Request): boolean {
+  return getSessionCookieName(req) !== undefined;
+}
+
+/** Issues the sole browser identity cookie accepted for this request context. */
+export function setSessionCookie(
+  req: Request,
+  res: Response,
+  sessionToken: string,
+  maxAge: number,
+): boolean {
+  const name = getSessionCookieName(req);
+  if (!name) return false;
+  res.cookie(name, sessionToken, {
+    ...getSessionCookieOptions(req),
+    maxAge,
+  });
+  return true;
 }
 
 /**
@@ -71,16 +110,26 @@ export function getSessionCookieName(req: Request): string {
 export function clearAcceptedSessionCookies(req: Request, res: Response): void {
   const options = getSessionCookieOptions(req);
 
-  res.clearCookie(APPLICATION_SESSION_COOKIE_NAME, options);
-  res.clearCookie(getSessionCookieName(req), options);
+  // Clear the directly issued pre-cutover cookie, and, for a recognized
+  // Preview API host, a possible historical parent-domain variant as well.
+  res.clearCookie(LEGACY_APPLICATION_SESSION_COOKIE_NAME, options);
+  const legacyOptions = getLegacySessionCookieOptions(req);
+  if (legacyOptions.domain) {
+    res.clearCookie(LEGACY_APPLICATION_SESSION_COOKIE_NAME, legacyOptions);
+  }
+  clearHistoricalLegacySessionCookie(req, res, options, legacyOptions);
+
+  const currentName = getSessionCookieName(req);
+  if (currentName) res.clearCookie(currentName, options);
 }
 
 export function getLegacySessionCookieOptions(
   req: Request,
 ): Pick<CookieOptions, "domain" | "httpOnly" | "path" | "sameSite" | "secure"> {
   const secure = isSecureRequest(req);
+  const domain = legacyParentDomain(requestHostname(req));
   return {
-    domain: legacyParentDomain(req.hostname) ?? undefined,
+    ...(domain ? { domain } : {}),
     httpOnly: true,
     path: "/",
     sameSite: secure ? "none" : "lax",
@@ -88,14 +137,30 @@ export function getLegacySessionCookieOptions(
   };
 }
 
+function clearHistoricalLegacySessionCookie(
+  req: Request,
+  res: Response,
+  options = getSessionCookieOptions(req),
+  legacyOptions = getLegacySessionCookieOptions(req),
+): void {
+  // app_session_id is logout compatibility only. Historical installations may
+  // have set it host-only or, on a recognized Preview hostname, parent-domain.
+  // Expire both distinct browser records without restoring it as identity.
+  res.clearCookie(LEGACY_COOKIE_NAME, options);
+  if (legacyOptions.domain) {
+    res.clearCookie(LEGACY_COOKIE_NAME, legacyOptions);
+  }
+}
+
 export function clearLegacySessionCookie(): RequestHandler {
   return (req, res, next) => {
-    res.clearCookie(LEGACY_COOKIE_NAME, getLegacySessionCookieOptions(req));
+    clearHistoricalLegacySessionCookie(req, res);
     next();
   };
 }
 
 export function currentSessionCookie(req: Request): string | undefined {
-  if (!req.headers.cookie) return undefined;
-  return parseCookieHeader(req.headers.cookie)[getSessionCookieName(req)];
+  const name = getSessionCookieName(req);
+  if (!req.headers.cookie || !name) return undefined;
+  return parseCookieHeader(req.headers.cookie)[name];
 }

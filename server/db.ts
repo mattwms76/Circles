@@ -6,6 +6,7 @@ import * as liveSchema from "../drizzle/live-schema";
 import * as sessionSchema from "../drizzle/session-schema";
 import * as activitySchema from "../drizzle/activity-schema";
 import * as moderationSchema from "../drizzle/moderation-schema";
+import * as mediaUploadBudgetSchema from "../drizzle/media-upload-budget-schema";
 import * as postPublishReceiptSchema from "../drizzle/post-publish-receipt-schema";
 import { type InsertUser, users } from "../drizzle/schema";
 import { ENV } from "./_core/env";
@@ -22,6 +23,7 @@ const databaseSchema = {
   ...sessionSchema,
   ...activitySchema,
   ...moderationSchema,
+  ...mediaUploadBudgetSchema,
   ...postPublishReceiptSchema,
 };
 

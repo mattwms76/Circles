@@ -5,14 +5,27 @@ import { socialRouter } from "../server/social-router";
 import { syntheticRecordedMp4 } from "./fixtures/recorded-mp4";
 
 const socialUploadMocks = vi.hoisted(() => ({
+  getDb: vi.fn(),
   storagePut: vi.fn(),
   encryptSocialMedia: vi.fn((bytes: Buffer) => bytes),
+  reserveSocialUploadBudget: vi.fn(),
+  confirmSocialUploadPut: vi.fn(),
   recordUpload: vi.fn(),
 }));
 
+vi.mock("../server/db", () => ({ getDb: socialUploadMocks.getDb }));
 vi.mock("../server/storage", () => ({
   storagePut: socialUploadMocks.storagePut,
 }));
+vi.mock("../server/media-upload-budget", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../server/media-upload-budget")>();
+  return {
+    ...actual,
+    reserveSocialUploadBudget: socialUploadMocks.reserveSocialUploadBudget,
+    confirmSocialUploadPut: socialUploadMocks.confirmSocialUploadPut,
+  };
+});
 vi.mock("../server/social-service", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../server/social-service")>();
@@ -30,23 +43,37 @@ describe("social upload request cancellation", () => {
     const request = Object.assign(new EventEmitter(), { aborted: false });
     const response = Object.assign(new EventEmitter(), { writableEnded: true });
     let receivedSignal: AbortSignal | undefined;
+    socialUploadMocks.getDb.mockResolvedValue({});
+    socialUploadMocks.reserveSocialUploadBudget.mockImplementation(
+      async (
+        _db: unknown,
+        input: { userId: number; storageKey: string; objectBytes: number },
+      ) => ({
+        reservationId: "cba06-cancellation-reservation",
+        userId: input.userId,
+        storageKey: input.storageKey,
+        url: `/manus-storage/${input.storageKey}`,
+        objectBytes: input.objectBytes,
+      }),
+    );
+    socialUploadMocks.confirmSocialUploadPut.mockResolvedValue(undefined);
     socialUploadMocks.storagePut.mockImplementation(
       async (
-        _key: string,
+        key: string,
         _bytes: Buffer,
         _contentType: string,
         options: { signal?: AbortSignal },
       ) => {
         receivedSignal = options.signal;
         return {
-          key: "social-encrypted/7/synthetic.mp4.enc",
-          url: "/manus-storage/social-encrypted/7/synthetic.mp4.enc",
+          key,
+          url: `/manus-storage/${key}`,
         };
       },
     );
-    socialUploadMocks.recordUpload.mockResolvedValue({
-      url: "/manus-storage/social-encrypted/7/synthetic.mp4.enc",
-    });
+    socialUploadMocks.recordUpload.mockImplementation(
+      async (_userId: number, upload: { url: string }) => ({ url: upload.url }),
+    );
 
     const caller = socialRouter.createCaller({
       user: { id: 7 } as never,
@@ -60,9 +87,11 @@ describe("social upload request cancellation", () => {
         mimeType: "video/mp4",
         recording: { maxDurationSeconds: 30 },
       }),
-    ).resolves.toEqual({
-      url: "/manus-storage/social-encrypted/7/synthetic.mp4.enc",
-    });
+    ).resolves.toEqual(
+      expect.objectContaining({
+        url: expect.stringMatching(/^\/manus-storage\/social-encrypted\/7\//),
+      }),
+    );
 
     expect(receivedSignal).toBeInstanceOf(AbortSignal);
     expect(receivedSignal?.aborted).toBe(false);

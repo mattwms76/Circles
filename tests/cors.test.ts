@@ -274,9 +274,16 @@ describe("Mobile API origin and cookie isolation", () => {
     } as Request;
     const currentName = getSessionCookieName(request);
     const tossableParentName = `manus_session_${SESSION_COOKIE_SUFFIX}`;
-    expect(currentName.startsWith("__Host-")).toBe(true);
+    expect(currentName).toMatch(/^__Host-/);
     expect(
       getSessionCookieName({ ...request, protocol: "http" } as Request),
+    ).toBeUndefined();
+    expect(
+      getSessionCookieName({
+        ...request,
+        protocol: "http",
+        hostname: "127.0.0.1",
+      } as Request),
     ).toBe(`manus_local_session_${SESSION_COOKIE_SUFFIX}`);
     for (const cookie of [
       `${LEGACY_COOKIE_NAME}=legacy-token; ${currentName}=current-project-token`,
@@ -292,7 +299,7 @@ describe("Mobile API origin and cookie isolation", () => {
     }
   });
 
-  it("expires the legacy parent-domain cookie from a recognized preview API host", () => {
+  it("expires both host-only and parent-domain legacy cookies from a recognized preview API host", () => {
     const previousPackager = process.env.EXPO_PACKAGER_PROXY_URL;
     process.env.EXPO_PACKAGER_PROXY_URL =
       "https://8081-sandbox.preview.example.test";
@@ -320,11 +327,22 @@ describe("Mobile API origin and cookie isolation", () => {
     expect(cleared).toEqual([
       {
         name: LEGACY_COOKIE_NAME,
-        options: expect.objectContaining({
-          domain: ".example.test",
+        options: {
+          httpOnly: true,
           path: "/",
+          sameSite: "none",
           secure: true,
-        }),
+        },
+      },
+      {
+        name: LEGACY_COOKIE_NAME,
+        options: {
+          domain: ".example.test",
+          httpOnly: true,
+          path: "/",
+          sameSite: "none",
+          secure: true,
+        },
       },
     ]);
   });

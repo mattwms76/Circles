@@ -1,0 +1,46 @@
+{
+  "format": "circles-cba06-ordered-rollout-manifest-v1",
+  "version": 1,
+  "state": "source_prepared_unapplied",
+  "purpose": "Exact ordered source manifest for CBA-06 rollout review; not an instruction or authorization to apply migration SQL.",
+  "ordered_migrations": [
+    {
+      "sequence": 23,
+      "path": "operations/migrations/0023_circles_ops_policy_health.sql",
+      "sha256": "1b7796f906c954f0ec2f1aed3f232fc48eea98489c62da86f34500bb164234b3",
+      "preserved_contract": "cba10_receipt_compatible_daily_health_with_finite_86_or_96_policy_variants"
+    },
+    {
+      "sequence": 24,
+      "path": "operations/migrations/0024_circles_live_chat_bounds.sql",
+      "sha256": "f8432056fc779202f27318ba4e60952367ace78573d3efa4b78693284b5a0b36",
+      "preserved_contract": "cba02_locking_and_cba03_paging"
+    },
+    {
+      "sequence": 25,
+      "path": "operations/migrations/0025_circles_media_upload_budget.sql",
+      "sha256": "a7e9ebf38afe4e78a221edb639869217dfa011f177ed7a583ee2182090785307",
+      "prepared_contract": "private_circles_media_upload_ledger_cba06_circles_media_v1"
+    }
+  ],
+  "private_health_extension": {
+    "source": "server/media-upload-budget-contract.ts",
+    "variant": "cba06_circles_media_v1",
+    "public_output": ["mediaUploadBudget", "mediaUploadReady"],
+    "daily_cba10_health_modified": false
+  },
+  "activation_gates": {
+    "candidate_migration_apply": "separate_owner_authorization_required",
+    "backup_activation": "separate_owner_authorization_required",
+    "provider_or_scheduler_activation": false,
+    "isolated_pg17_validation_required": true,
+    "exact_runtime_catalog_contract_required": true,
+    "api_role_denial_required": true
+  },
+  "validation": {
+    "runner": "e2e/cba06-media-upload-budget.runner.mjs",
+    "fixture": "fresh_loopback_postgresql_17_only",
+    "production_access": false,
+    "provider_access": false
+  }
+}

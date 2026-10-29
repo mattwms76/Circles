@@ -243,15 +243,31 @@ describe("parity27 private-read serialization", () => {
   it("keeps every named private DTO mapper behind a parent-lock projection helper", () => {
     const social = readFileSync("server/social-service.ts", "utf8");
     const activity = readFileSync("server/activity-service.ts", "utf8");
-    for (const name of ["feed", "feedPage", "listComments"]) {
+    for (const name of ["feed", "feedPage"]) {
       const start = social.indexOf(`export async function ${name}`);
       const end = social.indexOf("\nexport ", start + 1);
       expect(social.slice(start, end === -1 ? undefined : end)).toContain(
-        name.startsWith("feed")
-          ? "postOutputForProtectedRead"
-          : "assertPostAccessForProtectedRead",
+        "postOutputForProtectedRead",
       );
     }
+    const commentsStart = social.indexOf("export async function listComments(");
+    const commentsEnd = social.indexOf(
+      "export async function listCommentsPage(",
+      commentsStart + 1,
+    );
+    const commentsPageEnd = social.indexOf(
+      "\nexport async function createComment(",
+      commentsEnd + 1,
+    );
+    expect(social.slice(commentsStart, commentsEnd)).toContain(
+      "listCommentsPage(userId, postId",
+    );
+    expect(
+      social.slice(
+        commentsEnd,
+        commentsPageEnd === -1 ? undefined : commentsPageEnd,
+      ),
+    ).toContain("assertPostAccessForProtectedRead");
     expect(social).toContain("lockCircleForProtectedRead");
     expect(activity).toContain("lockMemberCircleForReadOrNull");
     expect(activityInternals.activityDisplayName("  public label  ")).toBe(

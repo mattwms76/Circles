@@ -1,0 +1,63 @@
+{
+  "format": "circles-cba06-private-media-ledger-backup-scope-v1",
+  "version": 1,
+  "purpose": "Prepared source-only encrypted-backup and isolated-restore scope for CBA-06; not proof of a current archive, provider continuity, or live activation.",
+  "activation": {
+    "source_prepared": true,
+    "candidate_migration_applied": false,
+    "live_backup_activation": "separately_gated_owner_approval_required",
+    "scheduler_or_provider_activation": false
+  },
+  "ledger": {
+    "schema": "circles_media",
+    "tables": ["socialUploadBudgets", "socialUploadReservations"],
+    "runtime_role": "circles_app_runtime",
+    "api_roles_denied": ["anon", "authenticated", "service_role"],
+    "source_migration": "operations/migrations/0025_circles_media_upload_budget.sql",
+    "readiness_contract": "server/media-upload-budget-contract.ts"
+  },
+  "encrypted_backup_scope": {
+    "archive_classification": "private_encrypted_database_archive_only",
+    "required_relations": [
+      "circles_media.socialUploadBudgets",
+      "circles_media.socialUploadReservations"
+    ],
+    "forbidden_outputs": [
+      "public_dto",
+      "public_readiness_response",
+      "source_report",
+      "unencrypted_operator_log"
+    ],
+    "sensitive_fields": [
+      "ledger_rows",
+      "account_identifiers",
+      "managed_storage_references"
+    ],
+    "media_object_bytes": "separate_existing_encrypted_media_continuity_process",
+    "derivation_or_signing_material": "separate_owner_controlled_key_scope"
+  },
+  "isolated_restore": {
+    "target": "isolated_postgresql_17",
+    "production_target": false,
+    "required_replay_order": [
+      "operations/migrations/0023_circles_ops_policy_health.sql",
+      "operations/migrations/0024_circles_live_chat_bounds.sql",
+      "operations/migrations/0025_circles_media_upload_budget.sql"
+    ],
+    "required_post_restore_checks": [
+      "closed_cba06_catalog_contract_ready",
+      "runtime_role_can_access_private_ledger",
+      "api_roles_denied_schema_and_table_access",
+      "forced_rls_and_exact_policies_present",
+      "legacy_social_upload_backfill_reconciled"
+    ],
+    "replay_limit": "apply_only_to_approved_isolated_restore_target_after_base_archive_contract_is_verified"
+  },
+  "evidence_limits": {
+    "source_scope_complete": true,
+    "backup_run_verified": false,
+    "provider_object_continuity_verified": false,
+    "live_restore_verified": false,
+    "no_secrets_or_row_data_embedded": true
+  }
+}

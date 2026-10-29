@@ -90,16 +90,33 @@ const EXPECTED_ADMIN_FUNCTIONS = Object.freeze([
   "supabase_session_allowed",
   "touch_updated_at",
 ]);
+const PREPARED_MEDIA_LEDGER_TABLES = Object.freeze([
+  "socialUploadBudgets",
+  "socialUploadReservations",
+]);
+const CBA06_MIGRATION =
+  "operations/migrations/0025_circles_media_upload_budget.sql";
+const CBA06_ROLLOUT_MANIFEST =
+  "operations/migrations/cba06-ordered-rollout-manifest.json";
+const CBA06_BACKUP_SCOPE =
+  "operations/recovery/cba06-private-media-ledger-backup-scope.json";
 const EXPECTED_SOURCE_FILES = Object.freeze([
   ...new Set([
     ...Object.values(APP_TABLE_SOURCES),
+    "drizzle/media-upload-budget-schema.ts",
     "drizzle/post-publish-receipt-schema.ts",
+    "server/media-upload-budget.ts",
+    "server/media-upload-budget-contract.ts",
     "operations/migrations/0001_circles_ops_daily_migration_health.sql",
     "operations/migrations/0002_circles_auth_oauth_pending.sql",
     "operations/migrations/0004_circles_app_integrity.sql",
     "operations/migrations/0014_circles_email_identity.sql",
     "operations/migrations/0015_circles_publish_post_receipts.sql",
+    CBA06_MIGRATION,
+    CBA06_ROLLOUT_MANIFEST,
     "operations/recovery/README.md",
+    CBA06_BACKUP_SCOPE,
+    "operations/recovery/cba06-private-media-ledger-backup.md",
     "scripts/recovery-continuity.mjs",
   ]),
 ]);
@@ -176,9 +193,31 @@ function sourceText(filename, sourceRoot) {
   }
 }
 
+function sourceJson(filename, sourceRoot) {
+  const text = sourceText(filename, sourceRoot);
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function sourceSha256(filename, sourceRoot) {
+  const text = sourceText(filename, sourceRoot);
+  return text === null ? null : createHash("sha256").update(text).digest("hex");
+}
+
 function includesTableDeclaration(source, name) {
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(`circlesApp\\.table\\(\\s*["']${escaped}["']`).test(source);
+}
+
+function includesMediaTableDeclaration(source, name) {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`circlesMedia\\.table\\(\\s*["']${escaped}["']`).test(
+    source,
+  );
 }
 
 function checkSourceContains(errors, filename, token, code, sourceRoot) {
@@ -218,6 +257,169 @@ function policiesForDigest(manifest) {
       "circles_publish",
     ].map((name) => [name, policies?.[name]]),
   );
+}
+
+export function validatePreparedMediaLedgerCoverage(
+  manifest,
+  { sourceRoot = PROJECT_ROOT } = {},
+) {
+  const errors = [];
+  const group = manifest.coverage?.prepared_private_media_ledger;
+  if (
+    !exactKeys(group, [
+      "state",
+      "schema",
+      "tables",
+      "migration",
+      "rollout_manifest",
+      "backup_scope",
+      "readiness_helper",
+      "live_backup_activation",
+      "notes",
+    ]) ||
+    group.state !== "source_prepared_unapplied" ||
+    group.schema !== "circles_media" ||
+    group.migration !== CBA06_MIGRATION ||
+    group.rollout_manifest !== CBA06_ROLLOUT_MANIFEST ||
+    group.backup_scope !== CBA06_BACKUP_SCOPE ||
+    group.readiness_helper !== "server/media-upload-budget-contract.ts" ||
+    group.live_backup_activation !==
+      "separately_gated_owner_approval_required" ||
+    !sameArray(sortedNames(group.tables, "name"), PREPARED_MEDIA_LEDGER_TABLES)
+  ) {
+    return {
+      valid: false,
+      errors: ["prepared_media_ledger_inventory_invalid"],
+    };
+  }
+  const model = sourceText("drizzle/media-upload-budget-schema.ts", sourceRoot);
+  if (
+    !model?.includes('pgSchema("circles_media")') ||
+    group.tables.some(
+      (table) =>
+        !exactKeys(table, ["name", "source"]) ||
+        table.source !== "drizzle/media-upload-budget-schema.ts" ||
+        !includesMediaTableDeclaration(model, table.name),
+    )
+  )
+    errors.push("prepared_media_ledger_not_source_derived");
+
+  const rollout = sourceJson(CBA06_ROLLOUT_MANIFEST, sourceRoot);
+  const expectedPaths = [
+    "operations/migrations/0023_circles_ops_policy_health.sql",
+    "operations/migrations/0024_circles_live_chat_bounds.sql",
+    CBA06_MIGRATION,
+  ];
+  if (
+    rollout?.format !== "circles-cba06-ordered-rollout-manifest-v1" ||
+    rollout.version !== 1 ||
+    rollout.state !== "source_prepared_unapplied" ||
+    !sameArray(
+      rollout.ordered_migrations?.map((entry) => entry.path),
+      expectedPaths,
+    ) ||
+    rollout.ordered_migrations.some(
+      (entry, index) =>
+        entry.sequence !== 23 + index ||
+        !/^[a-f0-9]{64}$/.test(entry.sha256 ?? "") ||
+        entry.sha256 !== sourceSha256(entry.path, sourceRoot),
+    ) ||
+    rollout.private_health_extension?.source !== group.readiness_helper ||
+    rollout.private_health_extension?.variant !== "cba06_circles_media_v1" ||
+    rollout.private_health_extension?.daily_cba10_health_modified !== false ||
+    !sameArray(rollout.private_health_extension?.public_output, [
+      "mediaUploadBudget",
+      "mediaUploadReady",
+    ]) ||
+    !exactKeys(rollout.activation_gates, [
+      "candidate_migration_apply",
+      "backup_activation",
+      "provider_or_scheduler_activation",
+      "isolated_pg17_validation_required",
+      "exact_runtime_catalog_contract_required",
+      "api_role_denial_required",
+    ]) ||
+    rollout.activation_gates.candidate_migration_apply !==
+      "separate_owner_authorization_required" ||
+    rollout.activation_gates.backup_activation !==
+      "separate_owner_authorization_required" ||
+    rollout.activation_gates.provider_or_scheduler_activation !== false ||
+    rollout.activation_gates.isolated_pg17_validation_required !== true ||
+    rollout.activation_gates.exact_runtime_catalog_contract_required !== true ||
+    rollout.activation_gates.api_role_denial_required !== true
+  )
+    errors.push("prepared_media_ledger_rollout_invalid");
+
+  const scope = sourceJson(CBA06_BACKUP_SCOPE, sourceRoot);
+  if (
+    scope?.format !== "circles-cba06-private-media-ledger-backup-scope-v1" ||
+    scope.version !== 1 ||
+    !exactKeys(scope.activation, [
+      "source_prepared",
+      "candidate_migration_applied",
+      "live_backup_activation",
+      "scheduler_or_provider_activation",
+    ]) ||
+    scope.activation.source_prepared !== true ||
+    scope.activation.candidate_migration_applied !== false ||
+    scope.activation.live_backup_activation !== group.live_backup_activation ||
+    scope.activation.scheduler_or_provider_activation !== false ||
+    scope.ledger?.schema !== "circles_media" ||
+    !sameArray(scope.ledger?.tables, PREPARED_MEDIA_LEDGER_TABLES) ||
+    scope.ledger?.runtime_role !== "circles_app_runtime" ||
+    !sameArray(scope.ledger?.api_roles_denied, [
+      "anon",
+      "authenticated",
+      "service_role",
+    ]) ||
+    scope.ledger?.source_migration !== CBA06_MIGRATION ||
+    scope.ledger?.readiness_contract !== group.readiness_helper ||
+    scope.encrypted_backup_scope?.archive_classification !==
+      "private_encrypted_database_archive_only" ||
+    !sameArray(
+      scope.encrypted_backup_scope?.required_relations,
+      PREPARED_MEDIA_LEDGER_TABLES.map((name) => `circles_media.${name}`),
+    ) ||
+    !sameArray(scope.encrypted_backup_scope?.forbidden_outputs, [
+      "public_dto",
+      "public_readiness_response",
+      "source_report",
+      "unencrypted_operator_log",
+    ]) ||
+    !sameArray(scope.encrypted_backup_scope?.sensitive_fields, [
+      "ledger_rows",
+      "account_identifiers",
+      "managed_storage_references",
+    ]) ||
+    scope.encrypted_backup_scope?.media_object_bytes !==
+      "separate_existing_encrypted_media_continuity_process" ||
+    scope.encrypted_backup_scope?.derivation_or_signing_material !==
+      "separate_owner_controlled_key_scope" ||
+    scope.isolated_restore?.target !== "isolated_postgresql_17" ||
+    scope.isolated_restore?.production_target !== false ||
+    !sameArray(scope.isolated_restore?.required_replay_order, expectedPaths) ||
+    !sameArray(scope.isolated_restore?.required_post_restore_checks, [
+      "closed_cba06_catalog_contract_ready",
+      "runtime_role_can_access_private_ledger",
+      "api_roles_denied_schema_and_table_access",
+      "forced_rls_and_exact_policies_present",
+      "legacy_social_upload_backfill_reconciled",
+    ]) ||
+    !exactKeys(scope.evidence_limits, [
+      "source_scope_complete",
+      "backup_run_verified",
+      "provider_object_continuity_verified",
+      "live_restore_verified",
+      "no_secrets_or_row_data_embedded",
+    ]) ||
+    scope.evidence_limits.source_scope_complete !== true ||
+    scope.evidence_limits.backup_run_verified !== false ||
+    scope.evidence_limits.provider_object_continuity_verified !== false ||
+    scope.evidence_limits.live_restore_verified !== false ||
+    scope.evidence_limits.no_secrets_or_row_data_embedded !== true
+  )
+    errors.push("prepared_media_ledger_backup_scope_invalid");
+  return { valid: errors.length === 0, errors };
 }
 
 /**
@@ -443,6 +645,9 @@ export function validateManifest(manifest, { sourceRoot = PROJECT_ROOT } = {}) {
       (manifest.authorization_helpers?.policies?.circles_ops?.length ?? 0) +
       (manifest.authorization_helpers?.policies?.circles_publish?.length ?? 0),
   };
+  errors.push(
+    ...validatePreparedMediaLedgerCoverage(manifest, { sourceRoot }).errors,
+  );
   return {
     valid: errors.length === 0,
     errors: [...new Set(errors)].sort(),
@@ -699,6 +904,7 @@ export function inspectRecoveryManifest({
     limitations: [
       "No network, database, provider, backup, GitHub, media, credential, or dotenv access was used.",
       "A complete redacted attestation is not independently verified and is not proof of a live recovery.",
+      "Prepared circles_media ledger coverage is separate from the pinned installed catalog and external attestation; its SQL and backup activation remain unverified.",
     ],
   };
 }

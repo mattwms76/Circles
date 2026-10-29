@@ -15,7 +15,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { createCorsMiddleware } from "./cors";
 import { clearLegacySessionCookie, isSecureRequest } from "./cookies";
-import { checkBackendReadiness } from "./readiness";
+import { checkBackendReadiness, publicReadinessFromStatus } from "./readiness";
 import { closePostgresPool } from "../db";
 import { withOperationDeadline } from "./bounded-network";
 import { assertCanonicalOAuthProviderConfiguration } from "./env";
@@ -503,9 +503,9 @@ export function createApiServer() {
 
   app.get("/api/ready", async (_req, res) => {
     const status = await checkBackendReadiness();
-    // Detailed component evidence remains in the server-only readiness helper/operator surfaces.
-    // The public endpoint exposes only the aggregate needed by a simple availability probe.
-    res.status(status.ok ? 200 : 503).json({ ok: status.ok });
+    // Detailed component evidence remains in server-only readiness helper/operator surfaces.
+    // HTTP status remains core-only; live-enabled deployment automation must require liveReady.
+    res.status(status.ok ? 200 : 503).json(publicReadinessFromStatus(status));
   });
 
   app.use(

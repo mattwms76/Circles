@@ -410,21 +410,37 @@ export async function ownedProcessGroupRss(rootIdentity) {
   return { totalBytes, processCount };
 }
 
-async function processGroupHasMembers(pgrp) {
-  if (!Number.isInteger(pgrp) || pgrp <= 1) return true;
+async function readProcessGroupMembers(pgrp) {
+  if (!Number.isInteger(pgrp) || pgrp <= 1) return null;
   let entries;
   try {
     entries = await readdir("/proc", { withFileTypes: true });
   } catch {
     // If procfs is unavailable, absence of evidence is not proof that a group is empty.
-    return true;
+    return null;
   }
+  const members = [];
   for (const entry of entries) {
     if (!entry.isDirectory() || !/^\d+$/.test(entry.name)) continue;
     const identity = await processIdentity(Number(entry.name));
-    if (identity?.pgrp === pgrp) return true;
+    if (identity?.pgrp === pgrp) members.push(identity);
   }
-  return false;
+  return members;
+}
+
+async function processGroupHasMembers(pgrp) {
+  const members = await readProcessGroupMembers(pgrp);
+  return members === null || members.length > 0;
+}
+
+async function waitForProcessGroupEmpty(pgrp, timeoutMs) {
+  const deadline = Date.now() + Math.max(0, timeoutMs);
+  while (true) {
+    const members = await readProcessGroupMembers(pgrp);
+    if (members?.length === 0) return true;
+    if (Date.now() >= deadline) return false;
+    await sleep(Math.min(25, Math.max(1, deadline - Date.now())));
+  }
 }
 
 async function probeTcp(port, timeoutMs) {
@@ -808,6 +824,7 @@ export class DevSupervisor {
     this.pollQueued = false;
     this.started = false;
     this.stopping = false;
+    this.stopVerified = false;
     this.stopPromise = null;
     this.resolveStopped = null;
     this.stopped = new Promise((resolve) => {
@@ -873,9 +890,22 @@ export class DevSupervisor {
         reason,
         state: "intentional",
       });
-      await Promise.all(
+      const stopped = await Promise.all(
         this.services.map((service) => this.stopOwnedService(service)),
       );
+      if (!stopped.every(Boolean)) {
+        // Keep private ownership and its lock when a process group cannot be proven empty. Reporting
+        // a clean stop here would leave a listener or other descendant unmanaged.
+        await this.record({
+          event: "supervisor_stop_incomplete",
+          reason,
+          state: "draining",
+        });
+        await this.persist("draining");
+        this.stopPromise = null;
+        return false;
+      }
+      this.stopVerified = true;
       await this.record({
         event: "supervisor_stopped",
         reason,
@@ -885,6 +915,7 @@ export class DevSupervisor {
       if (this.lockFile) await releaseLock(this.lockFile, this.instanceId);
       this.lockFile = null;
       this.resolveStopped?.();
+      return true;
     });
     return this.stopPromise;
   }
@@ -916,13 +947,22 @@ export class DevSupervisor {
       if (service.restartTimer) clearTimeout(service.restartTimer);
       service.restartTimer = null;
     }
-    await Promise.all(
+    this.stopping = true;
+    const stopped = await Promise.all(
       this.services.map((service) => this.stopOwnedService(service)),
     );
-    if (this.lockFile) await releaseLock(this.lockFile, this.instanceId);
-    this.lockFile = null;
-    this.stopping = true;
-    this.resolveStopped?.();
+    if (stopped.every(Boolean)) {
+      if (this.lockFile) await releaseLock(this.lockFile, this.instanceId);
+      this.lockFile = null;
+      this.resolveStopped?.();
+    } else {
+      await this.record({
+        event: "supervisor_stop_incomplete",
+        reason: "failed_start_cleanup",
+        state: "draining",
+      });
+      await this.persist("draining");
+    }
   }
 
   enqueue(operation) {
@@ -947,7 +987,13 @@ export class DevSupervisor {
     await this.eventLog.append(sanitized);
   }
 
-  statusView(mode = this.stopping ? "stopped" : "supervising") {
+  statusView(
+    mode = this.stopVerified
+      ? "stopped"
+      : this.stopping
+        ? "draining"
+        : "supervising",
+  ) {
     return {
       schema: 1,
       mode,
@@ -1322,10 +1368,12 @@ export class DevSupervisor {
   async stopOwnedService(service) {
     service.plannedRestart = "intentional_stop";
     const child = service.child;
-    await this.terminateOwnedChild(service);
-    // terminateOwnedChild waits for the root child exit. Clear the owned reference before final
-    // status persistence so its queued exit callback cannot resurrect private state after stop.
-    if (service.child === child) service.child = null;
+    if (!child) return true;
+    const stopped = await this.terminateOwnedChild(service);
+    // Clear the owned reference only after the entire identity-verified process group is empty, so
+    // its queued root-exit callback cannot resurrect state or hide a surviving descendant.
+    if (stopped && service.child === child) service.child = null;
+    return stopped;
   }
 
   async terminateOwnedChild(service) {
@@ -1346,12 +1394,10 @@ export class DevSupervisor {
       return false;
     }
 
-    const waitForExit = this.waitForChildExit(
-      child.process,
-      this.options.drainTimeoutMs,
-    );
+    let termDelivered = false;
     try {
       process.kill(-child.pid, "SIGTERM");
+      termDelivered = true;
     } catch (error) {
       if (!error || error.code !== "ESRCH") {
         await this.record({
@@ -1363,46 +1409,85 @@ export class DevSupervisor {
         return false;
       }
     }
-    if (await waitForExit) return true;
-
-    const afterDrain = await processIdentity(child.pid);
     if (
-      !sameIdentity(child.identity, afterDrain) ||
-      afterDrain.pgrp !== child.pid
+      await waitForProcessGroupEmpty(child.pid, this.options.drainTimeoutMs)
     ) {
+      await this.record({
+        event: "owned_group_drained",
+        service: service.spec.name,
+        pid: child.pid,
+      });
+      return true;
+    }
+
+    // SIGTERM was delivered only after this exact root identity was verified as the leader of its
+    // detached group. A remaining observed group therefore remains owned; if TERM could not be
+    // delivered, do not signal a later PID/group that may have been reused.
+    const remaining = await readProcessGroupMembers(child.pid);
+    if (!termDelivered || remaining === null) {
+      await this.record({
+        event: "signal_refused",
+        service: service.spec.name,
+        pid: child.pid,
+        reason: termDelivered
+          ? "group_members_unreadable"
+          : "term_group_missing",
+      });
       return false;
+    }
+    if (remaining.length === 0) {
+      await this.record({
+        event: "owned_group_drained",
+        service: service.spec.name,
+        pid: child.pid,
+      });
+      return true;
     }
     try {
       process.kill(-child.pid, "SIGKILL");
       await this.record({
-        event: "child_force_killed",
+        event: "owned_group_force_killed",
         service: service.spec.name,
         pid: child.pid,
       });
-      return await this.waitForChildExit(
-        child.process,
-        this.options.drainTimeoutMs,
-      );
-    } catch {
+    } catch (error) {
+      if (error?.code === "ESRCH") {
+        if (
+          await waitForProcessGroupEmpty(child.pid, this.options.drainTimeoutMs)
+        ) {
+          await this.record({
+            event: "owned_group_drained",
+            service: service.spec.name,
+            pid: child.pid,
+          });
+          return true;
+        }
+      }
+      await this.record({
+        event: "signal_refused",
+        service: service.spec.name,
+        pid: child.pid,
+        reason: "force_kill_failed",
+      });
       return false;
     }
-  }
-
-  async waitForChildExit(child, timeoutMs) {
-    if (child.exitCode !== null || child.signalCode !== null) return true;
-    return new Promise((resolve) => {
-      let done = false;
-      const finish = (value) => {
-        if (done) return;
-        done = true;
-        clearTimeout(timer);
-        child.off("exit", onExit);
-        resolve(value);
-      };
-      const onExit = () => finish(true);
-      const timer = setTimeout(() => finish(false), timeoutMs);
-      child.once("exit", onExit);
+    if (
+      await waitForProcessGroupEmpty(child.pid, this.options.drainTimeoutMs)
+    ) {
+      await this.record({
+        event: "owned_group_drained",
+        service: service.spec.name,
+        pid: child.pid,
+      });
+      return true;
+    }
+    await this.record({
+      event: "supervisor_stop_incomplete",
+      service: service.spec.name,
+      pid: child.pid,
+      state: "draining",
     });
+    return false;
   }
 
   async scheduleRestart(service, reason) {

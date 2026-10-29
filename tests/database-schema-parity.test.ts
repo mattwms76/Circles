@@ -137,7 +137,7 @@ describe("current private database schema parity", () => {
       unsupported: [],
       classificationMismatch: [],
     });
-    expect(inventory.endpoints).toHaveLength(31);
+    expect(inventory.endpoints).toHaveLength(33);
     expect(documentedCount).toBe(String(inventory.endpoints.length));
   });
 });

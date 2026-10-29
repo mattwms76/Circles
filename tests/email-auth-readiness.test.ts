@@ -40,6 +40,7 @@ describe("optional email-auth deployment readiness", () => {
       database: true,
       oauthState: true,
       liveRelay: false,
+      mediaUploadBudget: false,
     });
     expect(mocks.status).not.toHaveBeenCalled();
   });
@@ -50,6 +51,7 @@ describe("optional email-auth deployment readiness", () => {
       database: true,
       oauthState: true,
       liveRelay: false,
+      mediaUploadBudget: false,
       emailAuth: true,
     });
     mocks.status.mockResolvedValue({
@@ -62,6 +64,7 @@ describe("optional email-auth deployment readiness", () => {
       database: true,
       oauthState: true,
       liveRelay: false,
+      mediaUploadBudget: false,
       emailAuth: false,
     });
   });

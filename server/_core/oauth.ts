@@ -8,9 +8,10 @@ import {
 import type { Express, Request, Response } from "express";
 import { getUserByOpenId, upsertUser } from "../db";
 import {
-  APPLICATION_SESSION_COOKIE_NAME,
+  canIssueSessionCookie,
   clearAcceptedSessionCookies,
   getSessionCookieOptions,
+  setSessionCookie,
 } from "./cookies";
 import { ENV } from "./env";
 import {
@@ -519,10 +520,9 @@ function setApplicationSession(
   res: Response,
   sessionToken: string,
 ) {
-  res.cookie(APPLICATION_SESSION_COOKIE_NAME, sessionToken, {
-    ...getSessionCookieOptions(req),
-    maxAge: APPLICATION_SESSION_TTL_MS,
-  });
+  if (!setSessionCookie(req, res, sessionToken, APPLICATION_SESSION_TTL_MS)) {
+    throw new Error("Browser session cookie requires HTTPS or loopback HTTP");
+  }
 }
 
 function requestHeader(req: Request, name: string): string | undefined {
@@ -693,6 +693,11 @@ export function registerOAuthRoutes(app: Express) {
       return;
     }
 
+    if (!canIssueSessionCookie(req)) {
+      res.status(400).json({ error: "Browser session requires HTTPS" });
+      return;
+    }
+
     try {
       const { sessionToken } = await completeOAuthLogin(code, state);
       setApplicationSession(req, res, sessionToken);
@@ -744,7 +749,6 @@ export function registerOAuthRoutes(app: Express) {
 
     try {
       const { sessionToken, user } = await completeOAuthLogin(code, state);
-      setApplicationSession(req, res, sessionToken);
       res.setHeader("Cache-Control", "no-store");
       res.json({
         app_session_id: sessionToken,
@@ -788,6 +792,10 @@ export function registerOAuthRoutes(app: Express) {
 
   // Establish a browser session from an already validated Bearer token.
   app.post("/api/auth/session", async (req: Request, res: Response) => {
+    if (!canIssueSessionCookie(req)) {
+      res.status(400).json({ error: "Browser session requires HTTPS" });
+      return;
+    }
     try {
       const user = await sdk.authenticateRequest(req);
       const authHeader = req.headers.authorization || req.headers.Authorization;

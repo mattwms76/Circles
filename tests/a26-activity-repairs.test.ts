@@ -191,10 +191,14 @@ vi.mock("@/lib/trpc", () => ({
       setCircleMuted: { useMutation: () => runtime.mutation },
     },
     social: {
-      comments: {
-        useQuery: () => ({
-          data: [],
+      commentsPage: {
+        useInfiniteQuery: () => ({
+          data: { pages: [{ items: [], nextCursor: null }] },
+          fetchNextPage: vi.fn(),
+          hasNextPage: false,
           isError: false,
+          isFetchNextPageError: false,
+          isFetchingNextPage: false,
           isLoading: false,
           refetch: vi.fn(),
         }),

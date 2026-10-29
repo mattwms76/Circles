@@ -76,6 +76,10 @@ import { getDb, type CirclesDatabase, type CirclesTransaction } from "./db";
 import { assertPlatformFeature } from "./platform-settings";
 import { getPostPublicationStatus as getDatabasePostPublicationStatus } from "./_core/database-contracts";
 import {
+  recordSocialUploadMetadata,
+  type SocialUploadReservation,
+} from "./media-upload-budget";
+import {
   recordCommentActivity,
   recordMembershipApprovalActivity,
 } from "./activity-events";
@@ -727,12 +731,51 @@ export type CursorPage<Item, Cursor> = {
 
 const SOCIAL_PAGE_DEFAULT_LIMIT = 20;
 const SOCIAL_PAGE_MAX_LIMIT = 50;
+/**
+ * Legacy array procedures intentionally retain their shape for older clients, but never expose
+ * an unbounded collection. Cursor procedures are the complete collection contract.
+ */
+export const SOCIAL_LEGACY_LIST_MAX_LIMIT = SOCIAL_PAGE_MAX_LIMIT;
 
 function socialPageLimit(value: number | undefined): number {
   return Math.min(
     Math.max(Math.floor(value ?? SOCIAL_PAGE_DEFAULT_LIMIT), 1),
     SOCIAL_PAGE_MAX_LIMIT,
   );
+}
+
+type DateIdPageRow = {
+  id: number;
+  createdAt: Date;
+  preciseCreatedAt?: string | null;
+};
+
+/**
+ * Maps only rows admitted to a bounded SQL page. Keeping projection inside this helper prevents
+ * an over-fetch sentinel row from triggering another profile projection on every paged reader.
+ */
+export async function mapBoundedDateIdPage<Row extends DateIdPageRow, Item>(
+  rows: readonly Row[],
+  limit: number,
+  mapItem: (row: Row) => Item | Promise<Item>,
+): Promise<CursorPage<Item, CircleDateIdCursor>> {
+  const pageRows = rows.slice(0, limit);
+  const hasMore = rows.length > limit;
+  const last = pageRows[pageRows.length - 1];
+  return {
+    items: await Promise.all(pageRows.map(mapItem)),
+    nextCursor:
+      hasMore && last
+        ? {
+            createdAt: last.createdAt,
+            id: last.id,
+            ...(last.preciseCreatedAt
+              ? { createdAtExact: last.preciseCreatedAt }
+              : {}),
+          }
+        : null,
+    hasMore,
+  };
 }
 
 export async function listCirclesPage(
@@ -1830,11 +1873,23 @@ export async function feedPage(
   return page;
 }
 
+type LockedManagedUpload = {
+  id: number;
+  storageKey: string;
+  url: string;
+  mimeType: string;
+};
+
+/**
+ * Locks a managed upload before this transaction writes a reference to it. Discard takes the same
+ * lock, so it can either remove an unused upload first or observe the committed reference/claim;
+ * it cannot delete metadata between attachment validation and claim.
+ */
 async function assertMediaOwnership(
-  db: Database | SocialTransaction,
+  db: SocialTransaction,
   userId: number,
   media?: string,
-) {
+): Promise<LockedManagedUpload | undefined> {
   if (!media) return;
   const key = managedSocialMediaKeyFromUrl(media);
   if (!key) {
@@ -1851,38 +1906,46 @@ async function assertMediaOwnership(
       id: socialUploads.id,
       storageKey: socialUploads.storageKey,
       url: socialUploads.url,
+      mimeType: socialUploads.mimeType,
     })
     .from(socialUploads)
     .where(
       and(eq(socialUploads.userId, userId), eq(socialUploads.storageKey, key)),
     )
-    .limit(1);
-  if (!owned.length)
+    .limit(1)
+    .for("update");
+  const upload = owned[0];
+  if (!upload)
     socialError("FORBIDDEN", "You can only attach your own uploaded media");
-  if (owned[0].storageKey !== key || owned[0].url !== media) {
+  if (upload.storageKey !== key || upload.url !== media) {
     socialError(
       "FORBIDDEN",
       "Media must match the recorded managed upload URL",
     );
   }
+  return upload;
 }
 
-/** Marks an owned managed upload as committed only after the referencing write succeeds. */
+/** Marks an already locked managed upload as committed after its referencing write succeeds. */
 async function claimMediaOwnership(
-  db: Database | SocialTransaction,
-  userId: number,
-  media?: string | null,
+  db: SocialTransaction,
+  upload: LockedManagedUpload | undefined,
 ): Promise<void> {
-  if (!media) return;
-  const key = managedSocialMediaKeyFromUrl(media);
-  if (!key) return;
-  await assertMediaOwnership(db, userId, media);
-  await db
+  if (!upload) return;
+  const claimed = await db
     .update(socialUploads)
     .set({ claimedAt: new Date() })
     .where(
-      and(eq(socialUploads.userId, userId), eq(socialUploads.storageKey, key)),
-    );
+      and(
+        eq(socialUploads.id, upload.id),
+        eq(socialUploads.storageKey, upload.storageKey),
+        eq(socialUploads.url, upload.url),
+      ),
+    )
+    .returning({ id: socialUploads.id });
+  if (!claimed[0]) {
+    socialError("INTERNAL_SERVER_ERROR", "Unable to claim uploaded media");
+  }
 }
 
 const POST_PHOTO_MIME_TYPES = new Set([
@@ -1896,11 +1959,11 @@ const POST_PHOTO_MIME_TYPES = new Set([
  * byte validation, so a caller's mediaType is checked only against that persisted metadata.
  */
 async function assertPostMediaTypeOwnership(
-  db: Database | SocialTransaction,
+  db: SocialTransaction,
   userId: number,
   media: string | undefined,
   mediaType: PostPublishInput["mediaType"],
-): Promise<void> {
+): Promise<LockedManagedUpload | undefined> {
   if (!media) {
     if (mediaType !== "text") {
       socialError("BAD_REQUEST", "Photo and video posts need media");
@@ -1910,14 +1973,8 @@ async function assertPostMediaTypeOwnership(
   if (mediaType === "text") {
     socialError("BAD_REQUEST", "Text posts cannot include media");
   }
-  const key = managedSocialMediaKeyFromUrl(media);
-  if (!key) {
-    if (!isTrustedStarterMediaUrl(media)) {
-      socialError(
-        "BAD_REQUEST",
-        "Media must be a canonical managed upload or an approved starter asset",
-      );
-    }
+  const upload = await assertMediaOwnership(db, userId, media);
+  if (!upload) {
     if (mediaType !== "photo") {
       socialError(
         "BAD_REQUEST",
@@ -1925,21 +1982,6 @@ async function assertPostMediaTypeOwnership(
       );
     }
     return;
-  }
-  const rows = await db
-    .select({
-      storageKey: socialUploads.storageKey,
-      url: socialUploads.url,
-      mimeType: socialUploads.mimeType,
-    })
-    .from(socialUploads)
-    .where(
-      and(eq(socialUploads.userId, userId), eq(socialUploads.storageKey, key)),
-    )
-    .limit(1);
-  const upload = rows[0];
-  if (!upload || upload.storageKey !== key || upload.url !== media) {
-    socialError("FORBIDDEN", "You can only attach your own uploaded media");
   }
   const expectedMime =
     mediaType === "video"
@@ -1953,25 +1995,15 @@ async function assertPostMediaTypeOwnership(
         : "Photo posts require a JPEG, PNG, or WEBP upload",
     );
   }
+  return upload;
 }
 
-/** Marks a type-verified managed post attachment as claimed inside the publication transaction. */
+/** Marks a type-verified and locked managed post attachment inside publication. */
 async function claimPostMediaOwnership(
-  db: Database | SocialTransaction,
-  userId: number,
-  media: string | undefined,
-  mediaType: PostPublishInput["mediaType"],
+  db: SocialTransaction,
+  upload: LockedManagedUpload | undefined,
 ): Promise<void> {
-  await assertPostMediaTypeOwnership(db, userId, media, mediaType);
-  if (!media) return;
-  const key = managedSocialMediaKeyFromUrl(media);
-  if (!key) return;
-  await db
-    .update(socialUploads)
-    .set({ claimedAt: new Date() })
-    .where(
-      and(eq(socialUploads.userId, userId), eq(socialUploads.storageKey, key)),
-    );
+  await claimMediaOwnership(db, upload);
 }
 
 const CIRCLE_COVER_IMAGE_MIME_TYPES = new Set([
@@ -1986,31 +2018,20 @@ export function isCircleCoverImageMime(mimeType: string): boolean {
 
 /** A managed circle cover must retain its server-recorded image MIME, not just a picker hint. */
 export async function assertCircleCoverImageOwnership(
-  db: Database | SocialTransaction,
+  db: SocialTransaction,
   userId: number,
   media?: string,
-): Promise<void> {
-  await assertMediaOwnership(db, userId, media);
-  if (!media) return;
-  const key = managedSocialMediaKeyFromUrl(media);
+): Promise<LockedManagedUpload | undefined> {
+  const upload = await assertMediaOwnership(db, userId, media);
   // Starter assets are an explicit trusted allowlist and have no socialUploads metadata row.
-  if (!key) return;
-  const rows = await db
-    .select({ mimeType: socialUploads.mimeType, url: socialUploads.url })
-    .from(socialUploads)
-    .where(
-      and(eq(socialUploads.userId, userId), eq(socialUploads.storageKey, key)),
-    )
-    .limit(1);
-  if (!rows[0] || rows[0].url !== media) {
-    socialError("FORBIDDEN", "You can only attach your own uploaded media");
-  }
-  if (!isCircleCoverImageMime(rows[0].mimeType)) {
+  if (!upload) return;
+  if (!isCircleCoverImageMime(upload.mimeType)) {
     socialError(
       "BAD_REQUEST",
       "A circle cover must be a JPEG, PNG, or WEBP image",
     );
   }
+  return upload;
 }
 
 /**
@@ -2101,7 +2122,6 @@ export async function updateProfile(
 ): Promise<Profile> {
   const db = await requireDb();
   await ensureProfileWithDb(db, userId);
-  await assertMediaOwnership(db, userId, input.avatar);
   const current = await db
     .select()
     .from(profiles)
@@ -2112,6 +2132,7 @@ export async function updateProfile(
 
   try {
     await db.transaction(async (tx) => {
+      const upload = await assertMediaOwnership(tx, userId, input.avatar);
       await tx
         .update(profiles)
         .set({
@@ -2122,7 +2143,7 @@ export async function updateProfile(
           ...(input.avatar !== undefined ? { avatar: input.avatar } : {}),
         })
         .where(eq(profiles.userId, userId));
-      await claimMediaOwnership(tx, userId, input.avatar);
+      await claimMediaOwnership(tx, upload);
     });
   } catch (error) {
     if (isPostgresUniqueViolation(error)) {
@@ -2199,7 +2220,11 @@ export async function createCircle(
   const circleId = await db.transaction(async (tx) => {
     await assertPlatformFeature(tx, "circleCreationEnabled");
     await ensureProfileWithDb(tx, userId);
-    await assertCircleCoverImageOwnership(tx, userId, input.image);
+    const upload = await assertCircleCoverImageOwnership(
+      tx,
+      userId,
+      input.image,
+    );
     const created = await tx
       .insert(circles)
       .values({
@@ -2217,7 +2242,7 @@ export async function createCircle(
     await tx
       .insert(memberships)
       .values({ circleId: id, userId, role: "owner" });
-    await claimMediaOwnership(tx, userId, input.image);
+    await claimMediaOwnership(tx, upload);
     return id;
   });
   return circleOutputWithDb(db, circleId, userId);
@@ -2306,38 +2331,12 @@ export async function listMembers(
   userId: number | null,
   circleId: number,
 ): Promise<Member[]> {
-  const db = await requireDb();
-  return db.transaction(async (tx) => {
-    const { circle, role: viewerRole } = await lockCircleAccessForProtectedRead(
-      tx,
-      userId,
-      circleId,
-    );
-    if (!canReadCircleContent(circle.privacy, viewerRole)) {
-      socialError(
-        "FORBIDDEN",
-        "You must be an approved member to access this private circle",
-      );
-    }
-    const rows = await tx
-      .select({ userId: memberships.userId, role: memberships.role })
-      .from(memberships)
-      .where(
-        canViewPendingMembers(viewerRole)
-          ? eq(memberships.circleId, circleId)
-          : and(
-              eq(memberships.circleId, circleId),
-              ne(memberships.role, "pending"),
-            ),
-      )
-      .orderBy(asc(memberships.createdAt));
-    return Promise.all(
-      rows.map(async (row) => ({
-        user: await displayProfileWithDb(tx, row.userId, userId),
-        role: row.role as CircleRole,
-      })),
-    );
+  // Keep the legacy array response for staged clients, while sharing the bounded reader with the
+  // cursor-first API. Callers needing the full roster must continue via membersPage.
+  const page = await listMembersPage(userId, circleId, {
+    limit: SOCIAL_LEGACY_LIST_MAX_LIMIT,
   });
+  return page.items;
 }
 
 export async function listMembersPage(
@@ -2389,28 +2388,10 @@ export async function listMembersPage(
       .where(and(...clauses))
       .orderBy(asc(memberships.createdAt), asc(memberships.id))
       .limit(limit + 1);
-    const pageRows = rows.slice(0, limit);
-    const hasMore = rows.length > limit;
-    const last = pageRows[pageRows.length - 1];
-    return {
-      items: await Promise.all(
-        pageRows.map(async (row) => ({
-          user: await displayProfileWithDb(tx, row.userId, userId),
-          role: row.role as CircleRole,
-        })),
-      ),
-      nextCursor:
-        hasMore && last
-          ? {
-              createdAt: last.createdAt,
-              id: last.id,
-              ...(last.preciseCreatedAt
-                ? { createdAtExact: last.preciseCreatedAt }
-                : {}),
-            }
-          : null,
-      hasMore,
-    };
+    return mapBoundedDateIdPage(rows, limit, async (row) => ({
+      user: await displayProfileWithDb(tx, row.userId, userId),
+      role: row.role as CircleRole,
+    }));
   });
 }
 
@@ -2574,6 +2555,12 @@ export async function createPost(
           );
         }
       }
+      const upload = await assertPostMediaTypeOwnership(
+        tx,
+        userId,
+        normalized.media,
+        normalized.mediaType,
+      );
 
       if (normalized.clientPublishId && payloadHash) {
         // The unique insert is the transaction-scoped operation claim. A competing request waits
@@ -2622,13 +2609,6 @@ export async function createPost(
               "Publication operation identifier was already used with different content",
             );
           }
-          // Exact retries still revalidate caller ownership and stored MIME inside the boundary.
-          await assertPostMediaTypeOwnership(
-            tx,
-            userId,
-            normalized.media,
-            normalized.mediaType,
-          );
           if (existing.postId === null) {
             socialError(
               "CONFLICT",
@@ -2651,12 +2631,7 @@ export async function createPost(
         .returning({ id: posts.id });
       const id = created[0]?.id;
       if (!id) socialError("INTERNAL_SERVER_ERROR", "Unable to create post");
-      await claimPostMediaOwnership(
-        tx,
-        userId,
-        normalized.media,
-        normalized.mediaType,
-      );
+      await claimPostMediaOwnership(tx, upload);
       if (normalized.clientPublishId) {
         await tx
           .update(postPublishReceipts)
@@ -2746,22 +2721,56 @@ export async function listComments(
   userId: number | null,
   postId: number,
 ): Promise<Comment[]> {
+  // Compatibility readers receive a bounded prefix only. The commentsPage cursor is the complete
+  // reader so an old client cannot force unbounded rows, profile projections, or response bytes.
+  const page = await listCommentsPage(userId, postId, {
+    limit: SOCIAL_LEGACY_LIST_MAX_LIMIT,
+  });
+  return page.items;
+}
+
+export async function listCommentsPage(
+  userId: number | null,
+  postId: number,
+  options: { cursor?: CircleDateIdCursor; limit?: number } = {},
+): Promise<CursorPage<Comment, CircleDateIdCursor>> {
   const db = await requireDb();
   return db.transaction(async (tx) => {
     await assertPostAccessForProtectedRead(tx, userId, postId);
+    const clauses: SQL[] = [eq(comments.postId, postId)];
+    if (options.cursor) {
+      const cursorCreatedAt = options.cursor.createdAtExact
+        ? sql`${options.cursor.createdAtExact}::timestamptz`
+        : options.cursor.createdAt;
+      clauses.push(
+        or(
+          gt(comments.createdAt, cursorCreatedAt),
+          and(
+            eq(comments.createdAt, cursorCreatedAt),
+            gt(comments.id, options.cursor.id),
+          ),
+        )!,
+      );
+    }
+    const limit = socialPageLimit(options.limit);
     const rows = await tx
-      .select()
+      .select({
+        id: comments.id,
+        authorId: comments.authorId,
+        text: comments.text,
+        createdAt: comments.createdAt,
+        preciseCreatedAt: sql<string>`to_char(${comments.createdAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
+      })
       .from(comments)
-      .where(eq(comments.postId, postId))
-      .orderBy(asc(comments.createdAt), asc(comments.id));
-    return Promise.all(
-      rows.map(async (row) => ({
-        id: row.id,
-        author: await displayProfileWithDb(tx, row.authorId, userId),
-        text: row.text,
-        createdAt: toIso(row.createdAt),
-      })),
-    );
+      .where(and(...clauses))
+      .orderBy(asc(comments.createdAt), asc(comments.id))
+      .limit(limit + 1);
+    return mapBoundedDateIdPage(rows, limit, async (row) => ({
+      id: row.id,
+      author: await displayProfileWithDb(tx, row.authorId, userId),
+      text: row.text,
+      createdAt: toIso(row.createdAt),
+    }));
   });
 }
 
@@ -3499,7 +3508,7 @@ export async function sendMessage(
     }
     // The attachment check and ownership claim live with message insertion. A failed insert
     // cannot consume an upload, and a nonce retry rejects changed payload before new media work.
-    await assertMediaOwnership(tx, userId, media);
+    const upload = await assertMediaOwnership(tx, userId, media);
     const created = await tx
       .insert(messages)
       .values({
@@ -3513,7 +3522,7 @@ export async function sendMessage(
     const message = created[0];
     if (!message)
       socialError("INTERNAL_SERVER_ERROR", "Unable to send message");
-    await claimMediaOwnership(tx, userId, media);
+    await claimMediaOwnership(tx, upload);
     // Keep message allocation and list recency in the same transaction and conversation lock.
     await tx
       .update(conversations)
@@ -3605,22 +3614,40 @@ export async function markConversationRead(
 
 export async function recordUpload(
   userId: number,
-  upload: { key: string; url: string; mimeType: string; bytes: number },
+  upload: {
+    key: string;
+    url: string;
+    mimeType: string;
+    bytes: number;
+    reservation: SocialUploadReservation;
+  },
+  database?: Database,
 ): Promise<{ url: string }> {
-  const db = await requireDb();
+  const db = database ?? (await requireDb());
   const url = managedSocialMediaUrlForKey(upload.key);
-  if (!url || upload.url !== url) {
+  if (
+    !url ||
+    upload.url !== url ||
+    upload.reservation.userId !== userId ||
+    upload.reservation.storageKey !== upload.key ||
+    upload.reservation.url !== url ||
+    upload.reservation.objectBytes !==
+      upload.bytes + SOCIAL_MEDIA_FRAME_OVERHEAD
+  ) {
     socialError(
       "INTERNAL_SERVER_ERROR",
       "Upload did not produce a canonical managed media URL",
     );
   }
-  await db.insert(socialUploads).values({
-    userId,
-    storageKey: upload.key,
-    url,
-    mimeType: upload.mimeType,
-    bytes: upload.bytes,
+  await db.transaction(async (transaction) => {
+    await transaction.insert(socialUploads).values({
+      userId,
+      storageKey: upload.key,
+      url,
+      mimeType: upload.mimeType,
+      bytes: upload.bytes,
+    });
+    await recordSocialUploadMetadata(transaction, upload.reservation);
   });
   return { url };
 }

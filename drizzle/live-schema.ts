@@ -1,4 +1,5 @@
 import {
+  index,
   integer,
   pgSchema,
   primaryKey,
@@ -16,8 +17,10 @@ const liveSignalKind = circlesApp.enum("live_signal_kind", [
   "ice",
   "leave",
 ]);
-const generatedId = (name = "id") => integer(name).generatedByDefaultAsIdentity().primaryKey();
-const createdAt = (name = "createdAt") => timestamp(name, { withTimezone: true }).defaultNow().notNull();
+const generatedId = (name = "id") =>
+  integer(name).generatedByDefaultAsIdentity().primaryKey();
+const createdAt = (name = "createdAt") =>
+  timestamp(name, { withTimezone: true }).defaultNow().notNull();
 
 /** A host-owned broadcast session. A stream stays queryable after it has ended. */
 export const streams = circlesApp.table("streams", {
@@ -30,7 +33,9 @@ export const streams = circlesApp.table("streams", {
   /** Set only after the host has captured local camera media. */
   readyAt: timestamp("readyAt", { withTimezone: true }),
   /** Host lease renewed by authenticated heartbeat calls. */
-  lastHeartbeatAt: timestamp("lastHeartbeatAt", { withTimezone: true }).notNull().defaultNow(),
+  lastHeartbeatAt: timestamp("lastHeartbeatAt", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
   /** Bumped whenever the host starts a fresh media transport for this stream. */
   hostGeneration: integer("hostGeneration").notNull().default(1),
   createdAt: createdAt(),
@@ -52,7 +57,9 @@ export const liveViewers = circlesApp.table(
     userId: integer("userId").notNull(),
     joinedAt: createdAt("joinedAt"),
     /** Viewer lease renewed by authenticated heartbeat calls after joining. */
-    lastSeenAt: timestamp("lastSeenAt", { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp("lastSeenAt", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
     /** Bumped for every fresh viewer media transport, including a rejoin. */
     generation: integer("generation").notNull().default(1),
     leftAt: timestamp("leftAt", { withTimezone: true }),
@@ -76,15 +83,30 @@ export const liveSignals = circlesApp.table("liveSignals", {
 });
 
 /** Persisted live chat. Heart reactions are represented as normal ❤ messages. */
-export const liveChat = circlesApp.table("liveChat", {
-  id: generatedId(),
-  streamId: integer("streamId").notNull(),
-  userId: integer("userId").notNull(),
-  userName: varchar("userName", { length: 160 }).notNull(),
-  avatar: varchar("avatar", { length: 2048 }).notNull().default(""),
-  text: varchar("text", { length: 500 }).notNull(),
-  createdAt: createdAt(),
-});
+export const liveChat = circlesApp.table(
+  "liveChat",
+  {
+    id: generatedId(),
+    streamId: integer("streamId").notNull(),
+    userId: integer("userId").notNull(),
+    userName: varchar("userName", { length: 160 }).notNull(),
+    avatar: varchar("avatar", { length: 2048 }).notNull().default(""),
+    text: varchar("text", { length: 500 }).notNull(),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    index("live_chat_stream_created_id_idx").on(
+      table.streamId,
+      table.createdAt,
+      table.id,
+    ),
+    index("live_chat_stream_user_created_idx").on(
+      table.streamId,
+      table.userId,
+      table.createdAt,
+    ),
+  ],
+);
 
 export type Stream = typeof streams.$inferSelect;
 export type LiveSignal = typeof liveSignals.$inferSelect;

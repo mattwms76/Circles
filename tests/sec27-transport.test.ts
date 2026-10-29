@@ -132,7 +132,13 @@ describe("SEC27 bounded transport boundary", () => {
 
     const ready = await fetch(`${origin}/api/ready`);
     expect([200, 503]).toContain(ready.status);
-    expect(await ready.json()).toEqual({ ok: ready.status === 200 });
+    expect(await ready.json()).toEqual({
+      ok: ready.status === 200,
+      liveRelay: false,
+      liveReady: false,
+      mediaUploadBudget: false,
+      mediaUploadReady: false,
+    });
   });
 
   it("emits HSTS only for the owned verified Preview contract while retaining Preview iframe compatibility", async () => {

@@ -93,6 +93,7 @@ const SOCIAL_SOURCE_PROCEDURES = new Set([
   "feed",
   "feedPage",
   "comments",
+  "commentsPage",
   "conversations",
 ]);
 const CIRCLE_HOME_SOURCE_PROCEDURES = new Set(["get"]);
@@ -303,7 +304,7 @@ function isPlatformStatusQuery(descriptor: SourceQueryDescriptor): boolean {
 }
 
 function isCircleContentProcedure(procedure: string): boolean {
-  return ["feed", "feedPage", "comments"].includes(procedure);
+  return ["feed", "feedPage", "comments", "commentsPage"].includes(procedure);
 }
 
 function matchesProfileRoute(
@@ -317,10 +318,19 @@ function matchesProfileRoute(
       ? hasNoInputId(descriptor.input)
       : inputIdMatches(descriptor.input, "id", profileId);
   }
-  if (!["feed", "feedPage", "comments"].includes(descriptor.procedure)) {
+  if (
+    !["feed", "feedPage", "comments", "commentsPage"].includes(
+      descriptor.procedure,
+    )
+  ) {
     return false;
   }
-  if (descriptor.procedure === "comments") return true;
+  if (
+    descriptor.procedure === "comments" ||
+    descriptor.procedure === "commentsPage"
+  ) {
+    return true;
+  }
   if (!hasNoCircleScope(descriptor.input)) return false;
   if (profileId !== null) {
     return inputIdMatches(descriptor.input, "authorId", profileId);
@@ -374,6 +384,7 @@ export function isCurrentSourceQueryForPath(
           "feed",
           "feedPage",
           "comments",
+          "commentsPage",
         ].includes(descriptor.procedure) &&
         hasNoCircleScope(descriptor.input)
       );
@@ -398,7 +409,7 @@ export function isCurrentSourceQueryForPath(
         return inputIdMatches(descriptor.input, "circleId", route.circleId);
       }
       if (isCircleContentProcedure(descriptor.procedure)) {
-        return descriptor.procedure === "comments"
+        return ["comments", "commentsPage"].includes(descriptor.procedure)
           ? true
           : inputIdMatches(descriptor.input, "circleId", route.circleId);
       }

@@ -17,7 +17,7 @@ import {
 } from "./application-sessions";
 import { assertCanonicalOAuthProviderConfiguration, ENV } from "./env";
 import {
-  APPLICATION_SESSION_COOKIE_NAME,
+  LEGACY_APPLICATION_SESSION_COOKIE_NAME,
   currentSessionCookie,
 } from "./cookies";
 import type {
@@ -474,7 +474,9 @@ export class SDKServer {
       : {};
     const candidates = [
       bearer,
-      parsedCookies[APPLICATION_SESSION_COOKIE_NAME],
+      // The generic pre-cutover cookie is logout-only compatibility input: a
+      // valid value must be revoked when presented, but never authenticates.
+      parsedCookies[LEGACY_APPLICATION_SESSION_COOKIE_NAME],
       currentSessionCookie(req),
     ];
 
@@ -523,11 +525,9 @@ export class SDKServer {
       token = authHeader.slice("Bearer ".length).trim();
     }
 
-    const exactApplicationCookie = req.headers.cookie
-      ? parseCookieHeader(req.headers.cookie)[APPLICATION_SESSION_COOKIE_NAME]
-      : undefined;
-    const sessionCookie =
-      token || exactApplicationCookie || currentSessionCookie(req);
+    // HTTPS accepts only the host-prefixed session cookie. The distinct local
+    // development name is available only on a direct loopback HTTP request.
+    const sessionCookie = token || currentSessionCookie(req);
     const session = await this.verifySession(sessionCookie);
 
     if (!session) {

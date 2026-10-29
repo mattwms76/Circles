@@ -24,7 +24,7 @@ function conditionContains(
 function createCommentViewerDb() {
   const result = <T>(rows: T[]) => ({
     limit: async () => rows,
-    orderBy: async () => rows,
+    orderBy: () => ({ limit: async () => rows }),
     then: <Output>(
       resolve: (value: T[]) => Output | PromiseLike<Output>,
       reject?: (reason: unknown) => Output | PromiseLike<Output>,

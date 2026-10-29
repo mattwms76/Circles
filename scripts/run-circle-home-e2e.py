@@ -53,6 +53,9 @@ POST_PUBLICATION_MIGRATIONS = (
     "operations/migrations/0014_circles_email_identity.sql",
     "operations/migrations/0015_circles_publish_post_receipts.sql",
 )
+MEDIA_UPLOAD_BUDGET_MIGRATIONS = (
+    "operations/migrations/0025_circles_media_upload_budget.sql",
+)
 # Fixed test names only: this runner never accepts a caller-supplied config, DSN, port, or URL.
 SUITES = (
     "circle-home",
@@ -62,6 +65,7 @@ SUITES = (
     "sec27-security",
     "post-publish-idempotency",
     "people-recommendations",
+    "cba03-social-pagination",
 )
 
 
@@ -93,6 +97,11 @@ def fixture_migrations(suite: str) -> tuple[str, ...]:
         for relative_path in POST_PUBLICATION_MIGRATIONS
         if PROJECT_ROOT.joinpath(relative_path).is_file()
     )
+    available_media_upload_budget = tuple(
+        relative_path
+        for relative_path in MEDIA_UPLOAD_BUDGET_MIGRATIONS
+        if PROJECT_ROOT.joinpath(relative_path).is_file()
+    )
     if suite == "a26-authority" and (
         available_activity != ACTIVITY_MIGRATIONS
         or available_moderation != MODERATION_MIGRATIONS
@@ -109,6 +118,11 @@ def fixture_migrations(suite: str) -> tuple[str, ...]:
         and available_post_publication != POST_PUBLICATION_MIGRATIONS
     ):
         fail("Post publication E2E requires the reviewed 0014 and 0015 fixture migrations")
+    if (
+        suite == "post-publish-idempotency"
+        and available_media_upload_budget != MEDIA_UPLOAD_BUDGET_MIGRATIONS
+    ):
+        fail("Post publication E2E requires the prepared 0025 media budget fixture migration")
     # Circle Home keeps running during a concurrent additive migration rollout: it receives the
     # exact Activity schema/health pair together, never an orphan health definition that expects
     # tables not yet present. Activity mode above remains stricter and refuses a partial pair.
@@ -120,9 +134,10 @@ def fixture_migrations(suite: str) -> tuple[str, ...]:
     if available_moderation == MODERATION_MIGRATIONS:
         migrations += MODERATION_MIGRATIONS
     if suite == "post-publish-idempotency":
-        # The receipt table follows the prepared identity mapping. Run the exact pair only for
-        # this fixture mode; callers cannot supply a config path, DSN, or arbitrary migration.
-        migrations += POST_PUBLICATION_MIGRATIONS
+        # The receipt table and encrypted upload reserve-before-PUT ledger follow their prepared
+        # migrations. Run them only for this fixture mode; callers cannot supply a config path,
+        # DSN, or arbitrary migration. CBA-06's explicit absent-schema drill remains separate.
+        migrations += POST_PUBLICATION_MIGRATIONS + MEDIA_UPLOAD_BUDGET_MIGRATIONS
     return migrations
 
 
@@ -139,6 +154,8 @@ def suite_config(suite: str) -> str:
         return "e2e/post-publish-idempotency.e2e.config.ts"
     if suite == "people-recommendations":
         return "e2e/people-recommendations.e2e.config.ts"
+    if suite == "cba03-social-pagination":
+        return "e2e/cba03-social-pagination.e2e.config.ts"
     return "e2e/circle-home.e2e.config.ts"
 
 
@@ -207,7 +224,9 @@ def apply_fixture_schema(
         # deliberately verifies the actual migration path rather than a post-migration stand-in.
         moderation_present = all(path in migrations for path in MODERATION_MIGRATIONS)
         initial_migrations = tuple(
-            path for path in migrations if path not in MODERATION_MIGRATIONS
+            path
+            for path in migrations
+            if path not in MODERATION_MIGRATIONS + MEDIA_UPLOAD_BUDGET_MIGRATIONS
         )
         for relative_path in initial_migrations:
             db.execute((PROJECT_ROOT / relative_path).read_text(encoding="utf-8"))
@@ -368,6 +387,12 @@ def apply_fixture_schema(
             ).fetchone()
             if health != (True, None):
                 fail("paired feature operations health contract is unhealthy")
+        if suite == "post-publish-idempotency":
+            # 0011/0013 intentionally verify the historical exact circles_app inventory. Apply
+            # the prepared private ledger only after that catalog check and only in this fixture;
+            # CBA-06 keeps its own explicit absent-schema fail-closed drill.
+            for relative_path in MEDIA_UPLOAD_BUDGET_MIGRATIONS:
+                db.execute((PROJECT_ROOT / relative_path).read_text(encoding="utf-8"))
         if suite == "people-recommendations":
             # This disposable local fixture models legacy rows predating the current JSON CHECK.
             # It never changes source DDL or a real database, and the suite proves the service's

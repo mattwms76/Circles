@@ -20,11 +20,13 @@ const fallbackMigration = readFileSync(
 );
 
 describe("operator-health outstanding finding regressions", () => {
-  it("keeps recovery guidance and source aligned with the PostgreSQL-only 31-query inventory", () => {
-    expect(guide).toContain("31 source-derived query procedures");
+  it("keeps recovery guidance and source aligned with the PostgreSQL-only 33-query inventory", () => {
+    expect(guide).toContain("33 source-derived query procedures");
     expect(guide).toContain("`live.relay`");
+    expect(guide).toContain("`live.peerAuthority`");
     expect(guide).toContain("seven bounded private-schema catalog reads");
     expect(recovery).toContain('"live.relay"');
+    expect(recovery).toContain('"live.peerAuthority"');
     expect(recovery).toContain("REQUIRED_IDENTITY_SEQUENCES");
     expect(recovery).toContain("REQUIRED_RUNTIME_POLICIES");
   });

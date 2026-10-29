@@ -5,11 +5,13 @@ import path from "node:path";
 import test from "node:test";
 import {
   DEFAULT_MANIFEST,
+  PROJECT_ROOT,
   inspectRecoveryManifest,
   loadManifest,
   runCli,
   validateExternalEvidence,
   validateManifest,
+  validatePreparedMediaLedgerCoverage,
 } from "./check-database-recovery-manifest.mjs";
 
 function completeEvidence(observedAt) {
@@ -137,4 +139,113 @@ test("CLI only requires external evidence when explicitly requested", () => {
     ),
     true,
   );
+});
+
+test("CBA-06 prepared ledger scope is separate, closed and not installed backup evidence", () => {
+  const manifest = loadManifest();
+  assert.equal(validatePreparedMediaLedgerCoverage(manifest).valid, true);
+  for (const mutate of [
+    (group) => {
+      group.schema = "circles_app";
+    },
+    (group) => {
+      group.state = "installed";
+    },
+    (group) => {
+      group.tables.push({
+        name: "foreignLedger",
+        source: "drizzle/media-upload-budget-schema.ts",
+      });
+    },
+    (group) => {
+      group.tables[0].source = "drizzle/schema.ts";
+    },
+    (group) => {
+      group.live_backup_activation = "verified";
+    },
+  ]) {
+    const altered = structuredClone(manifest);
+    mutate(altered.coverage.prepared_private_media_ledger);
+    assert.equal(validatePreparedMediaLedgerCoverage(altered).valid, false);
+    assert.equal(validateManifest(altered).valid, false);
+  }
+});
+
+test("CBA-06 recovery scope rejects changed SQL, unsafe restore and premature archive attestations", () => {
+  const manifest = loadManifest();
+  const directory = fs.mkdtempSync(
+    path.join(os.tmpdir(), "circles-cba06-recovery-"),
+  );
+  const relativePaths = [
+    "drizzle/media-upload-budget-schema.ts",
+    "operations/migrations/0023_circles_ops_policy_health.sql",
+    "operations/migrations/0024_circles_live_chat_bounds.sql",
+    "operations/migrations/0025_circles_media_upload_budget.sql",
+    "operations/migrations/cba06-ordered-rollout-manifest.json",
+    "operations/recovery/cba06-private-media-ledger-backup-scope.json",
+  ];
+  const restoreSources = () => {
+    for (const relative of relativePaths) {
+      const target = path.join(directory, relative);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.copyFileSync(path.join(PROJECT_ROOT, relative), target);
+    }
+  };
+  const scopePath = path.join(
+    directory,
+    "operations/recovery/cba06-private-media-ledger-backup-scope.json",
+  );
+  try {
+    restoreSources();
+    assert.equal(
+      validatePreparedMediaLedgerCoverage(manifest, { sourceRoot: directory })
+        .valid,
+      true,
+    );
+    fs.appendFileSync(
+      path.join(
+        directory,
+        "operations/migrations/0025_circles_media_upload_budget.sql",
+      ),
+      "\n-- unreviewed changed SQL\n",
+    );
+    assert.deepEqual(
+      validatePreparedMediaLedgerCoverage(manifest, { sourceRoot: directory })
+        .errors,
+      ["prepared_media_ledger_rollout_invalid"],
+    );
+    for (const mutate of [
+      (scope) => {
+        scope.isolated_restore.production_target = true;
+      },
+      (scope) => {
+        scope.activation.candidate_migration_applied = true;
+      },
+      (scope) => {
+        scope.evidence_limits.backup_run_verified = true;
+      },
+      (scope) => {
+        scope.encrypted_backup_scope.archive_classification =
+          "public_plaintext";
+      },
+      (scope) => {
+        scope.ledger.api_roles_denied.pop();
+      },
+      (scope) => {
+        scope.encrypted_backup_scope.forbidden_outputs.pop();
+      },
+    ]) {
+      restoreSources();
+      const scope = JSON.parse(fs.readFileSync(scopePath, "utf8"));
+      mutate(scope);
+      fs.writeFileSync(scopePath, JSON.stringify(scope));
+      assert.deepEqual(
+        validatePreparedMediaLedgerCoverage(manifest, { sourceRoot: directory })
+          .errors,
+        ["prepared_media_ledger_backup_scope_invalid"],
+      );
+    }
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });

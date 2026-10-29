@@ -3,7 +3,10 @@ import type { AddressInfo } from "node:net";
 import express from "express";
 import { SignJWT } from "jose";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { APPLICATION_SESSION_TTL_MS } from "../shared/const";
+import {
+  APPLICATION_SESSION_TTL_MS,
+  LEGACY_COOKIE_NAME,
+} from "../shared/const";
 import { registerOAuthRoutes } from "../server/_core/oauth";
 import { SDKServer, sdk } from "../server/_core/sdk";
 import { appRouter } from "../server/routers";
@@ -131,6 +134,7 @@ function createAuthContext(
     user,
     req: {
       protocol,
+      hostname: protocol === "http" ? "127.0.0.1" : "api.synthetic.invalid",
       headers: {
         origin: "https://web.synthetic.invalid",
         ...headers,
@@ -184,7 +188,8 @@ describe("auth.logout", () => {
 
     expect(result).toEqual({ success: true });
     expect(clearedCookies.map((cookie) => cookie.name)).toEqual([
-      "webdev_app_session",
+      APPLICATION_SESSION_COOKIE_NAME,
+      LEGACY_COOKIE_NAME,
       getSessionCookieName(ctx.req),
     ]);
     for (const cookie of clearedCookies) {
@@ -205,7 +210,8 @@ describe("auth.logout", () => {
 
     expect(result).toEqual({ success: true });
     expect(clearedCookies.map((cookie) => cookie.name)).toEqual([
-      "webdev_app_session",
+      APPLICATION_SESSION_COOKIE_NAME,
+      LEGACY_COOKIE_NAME,
       getSessionCookieName(ctx.req),
     ]);
     for (const cookie of clearedCookies) {
@@ -290,6 +296,7 @@ describe("auth.logout", () => {
     });
     const fallbackName = getSessionCookieName({
       protocol: "http",
+      hostname: "127.0.0.1",
       headers: {},
     } as TrpcContext["req"]);
     const { ctx, clearedCookies } = createAuthContext("http", {
@@ -305,6 +312,7 @@ describe("auth.logout", () => {
     await expect(sdk.verifySession(fallbackCookie)).resolves.toBeNull();
     expect(clearedCookies.map((cookie) => cookie.name)).toEqual([
       APPLICATION_SESSION_COOKIE_NAME,
+      LEGACY_COOKIE_NAME,
       fallbackName,
     ]);
   });
@@ -321,6 +329,7 @@ describe("auth.logout", () => {
     });
     const fallbackName = getSessionCookieName({
       protocol: "http",
+      hostname: "127.0.0.1",
       headers: {},
     } as TrpcContext["req"]);
     const { server, url } = await startLogoutApp();
@@ -366,6 +375,7 @@ describe("auth.logout", () => {
     });
     const fallbackName = getSessionCookieName({
       protocol: "http",
+      hostname: "127.0.0.1",
       headers: {},
     } as TrpcContext["req"]);
     const { server, url } = await startLogoutApp();
@@ -410,6 +420,7 @@ describe("auth.logout", () => {
     );
     expect(clearedCookies.map((cookie) => cookie.name)).toEqual([
       APPLICATION_SESSION_COOKIE_NAME,
+      LEGACY_COOKIE_NAME,
       getSessionCookieName(ctx.req),
     ]);
   });

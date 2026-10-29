@@ -517,3 +517,42 @@ Current source evidence: all11conditional structural repairs and prior13 repairs
 - [x] Close the observed unhandled PostgreSQL Client connection-error path during initialization/checkout/cleanup/idle/destruction, retire only the failed client and allow a fresh role-verified checkout; preserve SQL/role security, surface generic errors and do not retry ambiguous writes. Verify synthetic client failures and the existing runtime-role PostgreSQL drill; this does not establish the earlier dual-session-loss trigger.
 
 Source/activation evidence:1,148tests/225files,13supervisor subprocess cases,6rankedPeople HTTP/PG cases plus existing Home11/authority14/security2, two real isolatedPG17socket-termination recovery scenarios, strict types/lint/format/APIbuild passed. The two confirmed supervisor review gaps were corrected and rechecked. One foreground watchdog job_Lm15I5yp owns both fixed listeners after controlled handoff; actual readiness and People read passed. Remaining canonical-save/Version-history and full-sandbox/persistent-host outcomes are not inferred from these checks.
+
+## Corrected codebase audit repairs — 29 October 2026
+
+Owner request: implement fixes for all audit issues. CBA-09 is excluded as an adjudicated tool-version false positive; CBA-15 is defensive conditional hardening rather than a reproduced deployment exploit. Preserve all historical outcomes above.
+
+- [x] **CBA-01 — Expired or revoked viewers are not evicted from established WebRTC peers.** Make lease expiry and revocation authoritative at the media plane; notify/invalidate viewer generations and periodically reconcile host peer maps to server-authorized active/forced-leave records. Preserve current actor/resource boundaries. Regression requirement: Establish a host/viewer peer, test silent lease expiry and membership removal, and assert host peer-close initiation and no capacity reuse before eviction.
+
+- [x] **CBA-02 — Discard can delete upload metadata between validation and attachment claim.** Lock/validate the upload row before reference insertion, keep the lock through an UPDATE RETURNING claim, require a returned row, and serialize discard on the same lock. Preserve current actor/resource boundaries. Regression requirement: Disposable PostgreSQL interleavings for post, message, profile, and cover claim versus discard; assert discard rejects or both reference and metadata commit.
+
+- [x] **CBA-03 — Legacy public member and comment readers have unbounded per-row fan-out.** Retire or replace legacy list procedures with mandatory cursor pagination and a server-enforced maximum; cap any compatibility endpoint. Preserve current actor/resource boundaries. Regression requirement: Assert oversized member/comment collections return continuations and do not retrieve/project every row.
+
+- [x] **CBA-04 — Live chat and reactions are unthrottled and poll an unindexed retained table.** Add atomic rate/burst admission, tighter reaction aggregation/policy, retention/archive bounds, and an index such as (streamId, createdAt DESC, id DESC). Preserve current actor/resource boundaries. Regression requirement: Concurrent flood, retention, and query-plan/index tests using isolated fixtures.
+
+- [x] **CBA-05 — Native private-image cache cleanup masks failure and can falsely complete secure logout.** Throw/return failure when either cache clear rejects and preserve the existing incomplete-logout marker until retry succeeds. Preserve current actor/resource boundaries. Regression requirement: Memory-only, disk-only, and both-fail cases through helper and final logout outcome.
+
+- [ ] **CBA-06 — Successful encrypted upload objects have no reclamation or compensating lifecycle (prepared/gated).** Create a pending/discarded-object lifecycle with authorized deletion plus retry/outbox compensation, or strict pending metadata quotas and bounded expiry/reconciliation if deletion is unavailable. Preserve current actor/resource boundaries. Regression requirement: Adapter coverage for delete/retry, record-after-PUT failure, idempotent discard, expiry, quota, and attached-content deletion semantics.
+
+- [x] **CBA-07 — Supervisor releases ownership after root exit while owned descendant survives.** Require verified process-group emptiness before clean stop; during drain, safely kill remaining owned members before clearing ownership/state/lock. Preserve current actor/resource boundaries. Regression requirement: Root-exits-first, TERM-ignoring descendant case must finish with no descendant and only then record intentional stopped state.
+
+- [x] **CBA-08 — Continuity export timeout can remain pending after TERM.** TERM at timeout, then safely kill owned helper/process group after a short grace interval and reject independently of close so cleanup runs. Preserve current actor/resource boundaries. Regression requirement: TERM-ignoring archiver and encryptor cases assert bounded rejection and temporary-directory cleanup.
+
+- [ ] **CBA-10 — Active daily health check rejects committed multi-policy authorization contract (prepared/gated).** Forward migration to exact closed comparison of supported policy inventories while retaining role/ACL checks. Preserve current actor/resource boundaries. Regression requirement: Execute health check against supported multi-policy and actual-drift fixtures.
+
+- [x] **CBA-11 — Deployment readiness hides unavailable TURN relay status.** Expose sanitized liveRelay and consume it for live-enabled deployment policy, or correct documentation and define a separate authoritative relay check. Preserve current actor/resource boundaries. Regression requirement: Healthy catalog plus missing TURN case must produce the documented relay signal or documented separate check.
+
+- [x] **CBA-12 — CI omits declared formatting gate.** Run pnpm format:check fail-fast before tests and preserve its tracked-file/Git boundary. Preserve current actor/resource boundaries. Regression requirement: Workflow-contract assertion and normal-checkout formatting failure case.
+
+- [x] **CBA-13 — Narrow Messages route leaves every visible bottom tab unselected.** Hide bar, include Messages, or document/map parent selection so visible bar has exactly one selected destination. Preserve current actor/resource boundaries. Regression requirement: Actual five-route render with active Messages asserts selected/hide policy.
+
+- [x] **CBA-14 — Shared circle card exposes duplicate indistinguishable Open controls.** Expose one accessible Open control or remove redundant visual control from accessibility tree while retaining independent actions. Preserve current actor/resource boundaries. Regression requirement: Rendered CircleCard has exactly one accessible Open control and retains independent Join/Requested action.
+
+- [x] **CBA-15 — Non-host-prefixed application cookie could permit sibling-domain session fixation.** Cut over application identity to a \_\_Host- cookie with Secure, Path=/, no Domain and stop accepting generic cookie after deliberate reauthentication. Preserve current actor/resource boundaries. Regression requirement: Duplicate-cookie tests for OAuth/email issuance plus validated deployment-domain prerequisite.
+
+- [ ] Parent validation remains: one read-only integrated broad-suite/API/platform compilation plus approved private migration-order/backup/readiness review. Integrator completed credential-free strict type/lint/format and focused source tests only; no production, provider, device, browser-domain, service, Git, migration activation, or publication action occurred. CBA-04 `0024`, CBA-06 `0025`, and CBA-10 `0023` remain gated.
+
+### Final available audit repair evidence — 29 October 2026
+
+- [x] Available source validation: 1,188 tests/241 files, strict unused types, zero-warning lint, complete formatting, API build, environment and database source gates, 12 cleaned-up local PG17 suites, three target JavaScript exports, and focused CI/late-role-hardening checks. Independent cookie-cleanup and role-readiness review gaps were corrected. New ledger uses private circles_media with an exact separate recovery/backup source contract; the old 27-table app inventory is unchanged.
+- [ ] Operational closure remains separate: approve/verify prepared migrations 0023/0024/0025 and the live encrypted-backup extension; observe hosted exact-source CI/checkpoint receipt and authorized native/account/browser/TURN/provider journeys. No production fixtures, provider deletion, Cron/host-supervisor installation, credential rotation or publication is included.
