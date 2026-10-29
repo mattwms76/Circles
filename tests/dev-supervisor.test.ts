@@ -29,8 +29,6 @@ const fixture = path.join(
   "fixtures",
   "dev-supervisor-synthetic-child.mjs",
 );
-const evidenceDirectory =
-  "/home/ubuntu/circles-people-and-resilience-20261029/evidence/supervisor";
 const active = new Set<DevSupervisor>();
 
 async function freePort(): Promise<number> {
@@ -160,6 +158,7 @@ describe.sequential("development supervisor", () => {
     const directory = await mkdtemp(
       path.join(tmpdir(), "circles-supervisor-flaky-"),
     );
+    const evidenceDirectory = path.join(directory, "evidence");
     const marker = path.join(directory, "first-generation.txt");
     const port = await freePort();
     const supervisor = new DevSupervisor({
@@ -194,9 +193,12 @@ describe.sequential("development supervisor", () => {
       expect(replacementPid).toBeTypeOf("number");
       expect(replacementPid).not.toBe(firstPid);
       expect(recovered.services[0].generation).toBeGreaterThanOrEqual(2);
+      expect(path.dirname(evidenceDirectory)).toBe(directory);
+      expect(path.relative(directory, evidenceDirectory)).toBe("evidence");
 
       await mkdir(evidenceDirectory, { recursive: true, mode: 0o700 });
       await chmod(evidenceDirectory, 0o700);
+      expect((await stat(evidenceDirectory)).mode & 0o777).toBe(0o700);
       const evidence = {
         kind: "finite-synthetic-crash-recovery",
         generatedAt: new Date().toISOString(),
@@ -220,6 +222,7 @@ describe.sequential("development supervisor", () => {
         mode: 0o600,
       });
       await chmod(evidenceFile, 0o600);
+      expect((await stat(evidenceFile)).mode & 0o777).toBe(0o600);
       expect(JSON.parse(await readFile(evidenceFile, "utf8"))).toMatchObject({
         outcome: "owned synthetic child replaced and local health restored",
       });
@@ -227,6 +230,10 @@ describe.sequential("development supervisor", () => {
       active.delete(supervisor);
       await supervisor.stop("test_cleanup");
       await rm(directory, { recursive: true, force: true });
+      await expect(stat(evidenceDirectory)).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+      await expect(stat(directory)).rejects.toMatchObject({ code: "ENOENT" });
     }
   });
 

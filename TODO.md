@@ -556,3 +556,12 @@ Owner request: implement fixes for all audit issues. CBA-09 is excluded as an ad
 
 - [x] Available source validation: 1,188 tests/241 files, strict unused types, zero-warning lint, complete formatting, API build, environment and database source gates, 12 cleaned-up local PG17 suites, three target JavaScript exports, and focused CI/late-role-hardening checks. Independent cookie-cleanup and role-readiness review gaps were corrected. New ledger uses private circles_media with an exact separate recovery/backup source contract; the old 27-table app inventory is unchanged.
 - [ ] Operational closure remains separate: approve/verify prepared migrations 0023/0024/0025 and the live encrypted-backup extension; observe hosted exact-source CI/checkpoint receipt and authorized native/account/browser/TURN/provider journeys. No production fixtures, provider deletion, Cron/host-supervisor installation, credential rotation or publication is included.
+
+
+## Post-push authentication and watchdog CI recovery — 29 October 2026
+
+- [ ] Reuse stored PostgreSQL values, preserve verified TLS and database/login identity, and verify live readiness/People reads only when the read-only credential preflight succeeds; no password reset, unrelated key rotation, prepared SQL activation or production fixtures. Record any remaining rejected stored credential explicitly.
+- [x] Replace the watchdog test's hard-coded /home/ubuntu evidence path with its disposable temporary directory; preserve private permissions, exact crash/replacement/health assertions and cleanup on success/failure, and verify the resulting GitHub CI outcome separately.
+- [x] Deliver a text-only presentation script summarizing verified People/design/source results and accurate remaining database, CI and physical-device evidence limits.
+
+- Available repair evidence: current-source 1,188 tests/241 files, strict types/lint/format/API build passed; 13/13 watchdog cases passed as an unprivileged user without /home/ubuntu write access; GitHub-source 14/14 watchdog cases passed and the test-only fix was pushed as 06bbc71. Stored-value PostgreSQL authentication still returns 28P01, so live recovery and hosted exact-source CI completion are not claimed here.

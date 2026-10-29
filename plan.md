@@ -337,3 +337,8 @@ Active webdev_app_session cookie is not host-prefixed; parser selects first dupl
 Required behavior: Cut over application identity to a \_\_Host- cookie with Secure, Path=/, no Domain and stop accepting generic cookie after deliberate reauthentication.
 
 Final preparation amendment: the durable media ledger is in separate private circles_media (not circles_app), with closed runtime-role/ACL/RLS/column/index/constraint readiness, safe optional public capability booleans and a separately enumerated encrypted-backup/recovery source scope. The original 27-table application contract and historical migrations stay unchanged. Source-level preparation is complete and locally tested; 0023/0024/0025, hosted CI, real backup/provider/native/account operation and publication remain distinct approval/evidence gates.
+
+
+## Post-push blocker recovery — 29 October 2026
+
+Reuse the existing stored PostgreSQL setting and verified-target TLS helper for bounded read-only authentication checks; do not reset passwords, rotate signing/media keys, alter database roles, install prepared migrations, or create production fixtures. Restart only an identified API process when refreshed stored credentials actually pass preflight; preserve healthy Metro and existing supervisor ownership. Resolve only the watchdog test's machine-specific evidence path by placing its private JSON evidence under the test's existing temporary directory and retaining cleanup and crash-recovery assertions. Summarize the historical post-push report and current verified outcomes in a text-only presentation script; source tests, hosted CI, live readiness and physical-device verification remain separate evidence.
